@@ -35,7 +35,7 @@ import {
 import { after } from "next/server";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { workspaceDatabasePool } from "@/db/database-provider.server";
+import { authDatabasePool } from "@/db/database-provider.server";
 import type { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
@@ -93,6 +93,7 @@ import {
   nativeSignIn,
   refuseMagicLinkAccountSwitch,
   refuseUnsupportedAppLocale,
+  sendsNativeAppLink,
 } from "./native-sign-in";
 import {
   findReviewAccountCredential,
@@ -107,6 +108,11 @@ import {
   magicLinkDeliveryEnvironment,
   makeMagicLinkEmailDelivery,
 } from "./send-magic-link-email";
+import {
+  issueSignInAttempt,
+  recordSignInAttemptLink,
+  signInAttempts,
+} from "./sign-in-attempt";
 import {
   claimSignInCode,
   claimSignInLink,
@@ -225,6 +231,20 @@ const signInCodeMetadataSchema = Schema.Struct({
 });
 
 /**
+ * The sign-in attempt of an email sent for the app callback. The
+ * `/sign-in/magic-link` guard writes it on every send, `false` for the
+ * others, so no client value survives.
+ */
+const signInAttemptMetadataSchema = Schema.Struct({
+  signInAttempt: Schema.String,
+});
+
+const requestedSignInAttempt = (metadata: SignInEmail["metadata"]) =>
+  Schema.decodeUnknownOption(signInAttemptMetadataSchema)(metadata).pipe(
+    Option.map(({ signInAttempt }) => signInAttempt)
+  );
+
+/**
  * Whether the sign-in email carries a code. Only the server writes this
  * metadata: the `/sign-in/magic-link` guard overwrites any client value.
  */
@@ -242,14 +262,22 @@ const isSignInCodeRequested = (metadata: SignInEmail["metadata"]) =>
  */
 const signInEmailCompletion = (
   metadata: SignInEmail["metadata"]
-): SignInEmailCompletion =>
-  Option.match(Schema.decodeUnknownOption(signInCodeMetadataSchema)(metadata), {
-    onNone: () => ({ status: true, signInCode: false }),
-    onSome: ({ signInCode, nextSignInEmailAt }) =>
-      signInCode && nextSignInEmailAt !== undefined
-        ? { status: true, signInCode, nextSignInEmailAt }
-        : { status: true, signInCode },
+): SignInEmailCompletion => {
+  const code: SignInEmailCompletion = Option.match(
+    Schema.decodeUnknownOption(signInCodeMetadataSchema)(metadata),
+    {
+      onNone: () => ({ status: true, signInCode: false }),
+      onSome: ({ signInCode, nextSignInEmailAt }) =>
+        signInCode && nextSignInEmailAt !== undefined
+          ? { status: true, signInCode, nextSignInEmailAt }
+          : { status: true, signInCode },
+    }
+  );
+  return Option.match(requestedSignInAttempt(metadata), {
+    onNone: () => code,
+    onSome: (signInAttempt) => ({ ...code, signInAttempt }),
   });
+};
 
 const makeBotDetectedError = () =>
   new APIError("FORBIDDEN", {
@@ -402,6 +430,7 @@ type GuardedAuthRequest = {
     readonly internalAdapter: AuthContext["internalAdapter"];
     readonly password: AuthContext["password"];
     readonly generateId: AuthContext["generateId"];
+    readonly baseURL: AuthContext["baseURL"];
   };
 };
 
@@ -594,7 +623,8 @@ const reserveSignInCodeEmail = ({ request }: AuthRequestGuard) =>
  * records the decision in the request metadata, replacing any client value,
  * so the email and the response follow one evaluation. While the flag is on,
  * the send also counts against the per-email limit, and the metadata records
- * when the address takes its next email.
+ * when the address takes its next email. An email sent for the app callback
+ * also gets its sign-in attempt there.
  */
 const decideSignInCode = (guard: AuthRequestGuard) =>
   Effect.succeed(guard).pipe(
@@ -602,12 +632,20 @@ const decideSignInCode = (guard: AuthRequestGuard) =>
     Effect.bind("nextSignInEmailAt", ({ signInCode }) =>
       signInCode ? reserveSignInCodeEmail(guard) : Effect.succeedNone
     ),
-    Effect.map(({ signInCode, nextSignInEmailAt }) => ({
+    Effect.bind("signInAttempt", () =>
+      Effect.sync(() =>
+        sendsNativeAppLink(guard.request)
+          ? issueSignInAttempt()
+          : (false as const)
+      )
+    ),
+    Effect.map(({ signInCode, nextSignInEmailAt, signInAttempt }) => ({
       context: {
         body: {
           metadata: {
             signInCode,
             nextSignInEmailAt: Option.getOrUndefined(nextSignInEmailAt),
+            signInAttempt,
           },
         },
       },
@@ -753,9 +791,26 @@ const issueRequestedSignInCode = ({
     })
   );
 
-/** Sends the sign-in email, adding a code when the request's decision says so. */
+/** Binds the email's link to the sign-in attempt the request's decision issued. */
+const recordRequestedSignInAttempt = ({ email, context }: SignInEmailSend) =>
+  Option.all({
+    context: Option.fromNullishOr(context),
+    attempt: requestedSignInAttempt(email.metadata),
+  }).pipe(
+    Option.match({
+      onNone: () => Effect.void,
+      onSome: ({ context: { adapter }, attempt }) =>
+        recordSignInAttemptLink({ rows: adapter, token: email.token, attempt }),
+    })
+  );
+
+/**
+ * Sends the sign-in email, adding a code when the request's decision says so,
+ * and binds its link to the request's sign-in attempt.
+ */
 const sendSignInEmail = (send: SignInEmailSend) =>
   Effect.succeed(send).pipe(
+    Effect.tap(recordRequestedSignInAttempt),
     Effect.bind("code", issueRequestedSignInCode),
     Effect.flatMap(({ sendMagicLink, email, code }) =>
       Effect.promise(async () =>
@@ -915,6 +970,8 @@ type SignInEmailCompletion = {
   readonly status: true;
   readonly signInCode: boolean;
   readonly nextSignInEmailAt?: string;
+  /** The email's sign-in attempt, for an email sent for the app callback. */
+  readonly signInAttempt?: string;
 };
 
 /** Better Auth's credential sign-in response, minus its redirect field. */
@@ -940,10 +997,11 @@ type CompletedAuthRequest = {
 /**
  * Returns the sign-in code decision with the sign-in email response, so the
  * client shows the code step only for an email that carries a code, and,
- * while codes are on, when the address takes its next email. A
- * password sign-in answers like a code sign-in, without Better Auth's
- * redirect instruction: the page continues through its callback itself, and
- * a reauthentication stays in its dialog.
+ * while codes are on, when the address takes its next email. An email sent
+ * for the app callback also returns its sign-in attempt, which the `/app/`
+ * page asks about later. A password sign-in answers like a code sign-in,
+ * without Better Auth's redirect instruction: the page continues through its
+ * callback itself, and a reauthentication stays in its dialog.
  */
 const completeAuthRequest = (ctx: CompletedAuthRequest) => {
   if (isAPIError(ctx.context.returned)) return undefined;
@@ -1221,6 +1279,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
         clientMetadataTransport: config.clientMetadataTransport,
       }),
       nativeSignIn({ appLinkOrigin: config.nativeAppLinkOrigin }),
+      signInAttempts(),
       // The native app's requests carry no browser `Origin`: the plugin takes
       // it from `expo-origin`, and a magic link the app started returns to
       // the app scheme with the session cookie.
@@ -1339,7 +1398,7 @@ const makeWorkspaceMagicLinkDelivery = () =>
   );
 
 export const makeWorkspaceAuthDatabase = () =>
-  drizzleAdapter(makeAuthDatabase(workspaceDatabasePool), {
+  drizzleAdapter(makeAuthDatabase(authDatabasePool), {
     provider: "pg",
     schema: drizzleAuthTables,
     schemaName: "auth",

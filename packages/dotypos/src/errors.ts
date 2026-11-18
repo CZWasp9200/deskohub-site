@@ -1,6 +1,6 @@
 import { Match } from "effect";
 import * as Schema from "effect/Schema";
-import { DotyposReservationIdSchema } from "./types";
+import { DotyposReservationIdSchema, DotyposReservationSchema } from "./types";
 
 /** Every public DotyposService operation. errors.test.ts pins this to keyof IDotyposService. */
 export const DotyposOperation = Schema.Literals([
@@ -8,6 +8,7 @@ export const DotyposOperation = Schema.Literals([
   "updateReservation",
   "cancelReservation",
   "confirmReservation",
+  "restoreCancelledReservation",
   "getReservation",
   "getReservationWithoutCustomer",
   "getReservationStatus",
@@ -83,7 +84,7 @@ const DotyposFailureBase = Schema.Struct({
 });
 
 /** Dotypos could not serve the request. Nothing was applied, and the package's retries are spent. */
-export class DotyposUnavailable extends Schema.TaggedErrorClass<DotyposUnavailable>()(
+export class DotyposUnavailable extends Schema.TaggedError<DotyposUnavailable>()(
   "DotyposUnavailable",
   {
     ...DotyposFailureBase.fields,
@@ -98,7 +99,7 @@ export class DotyposUnavailable extends Schema.TaggedErrorClass<DotyposUnavailab
 ) {}
 
 /** Dotypos refused, or answered unusably in a way a retry would repeat. Nothing was applied. */
-export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()(
+export class DotyposRejected extends Schema.TaggedError<DotyposRejected>()(
   "DotyposRejected",
   {
     ...DotyposFailureBase.fields,
@@ -113,7 +114,7 @@ export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()(
 ) {}
 
 /** A write may have been applied. Settle it (reread or reconcile) before acting. Reads never raise it. */
-export class DotyposUncertain extends Schema.TaggedErrorClass<DotyposUncertain>()(
+export class DotyposUncertain extends Schema.TaggedError<DotyposUncertain>()(
   "DotyposUncertain",
   {
     ...DotyposFailureBase.fields,
@@ -128,15 +129,43 @@ export class DotyposUncertain extends Schema.TaggedErrorClass<DotyposUncertain>(
 ) {}
 
 /** A conditional (If-Match) write lost to a concurrent change, and no earlier attempt of the call was uncertain. Nothing was applied. */
-export class DotyposVersionConflict extends Schema.TaggedErrorClass<DotyposVersionConflict>()(
+export class DotyposVersionConflict extends Schema.TaggedError<DotyposVersionConflict>()(
   "DotyposVersionConflict",
   DotyposFailureBase.fields
 ) {}
 
 /** confirmReservation found the reservation cancelled, so confirmation cannot revive it. Nothing was applied. */
-export class DotyposReservationCancelledError extends Schema.TaggedErrorClass<DotyposReservationCancelledError>()(
+export class DotyposReservationCancelledError extends Schema.TaggedError<DotyposReservationCancelledError>()(
   "DotyposReservationCancelledError",
   { reservationId: DotyposReservationIdSchema, message: Schema.String }
+) {}
+
+/** The booking facts restoreCancelledReservation compares with the caller's booking. */
+export const DotyposReservationBookingField = Schema.Literals([
+  "customer",
+  "table",
+  "start",
+  "end",
+  "seats",
+]);
+export type DotyposReservationBookingField =
+  typeof DotyposReservationBookingField.Type;
+
+/**
+ * restoreCancelledReservation found a reservation it must not restore, so
+ * Dotypos holds something other than the cancelled booking the caller knows.
+ * `booking-changed` names the facts that differ from the caller's booking;
+ * `not-cancelled` is a matching reservation that is NEW. Nothing was applied.
+ */
+export class DotyposReservationNotRestorable extends Schema.TaggedError<DotyposReservationNotRestorable>()(
+  "DotyposReservationNotRestorable",
+  {
+    reservationId: DotyposReservationIdSchema,
+    reason: Schema.Literals(["booking-changed", "not-cancelled"]),
+    status: DotyposReservationSchema.fields.status,
+    changedFields: Schema.Array(DotyposReservationBookingField),
+    message: Schema.String,
+  }
 ) {}
 
 export type DotyposReadFailure = DotyposUnavailable | DotyposRejected;
@@ -146,7 +175,8 @@ export type DotyposConditionalWriteFailure =
   | DotyposVersionConflict;
 export type DotyposFailure =
   | DotyposConditionalWriteFailure
-  | DotyposReservationCancelledError;
+  | DotyposReservationCancelledError
+  | DotyposReservationNotRestorable;
 
 /**
  * Stable, low-cardinality machine codes, one per tag. Automation failure codes,
@@ -159,6 +189,7 @@ export const DotyposFailureCode = {
   DotyposUncertain: "dotypos-uncertain",
   DotyposVersionConflict: "dotypos-version-conflict",
   DotyposReservationCancelledError: "dotypos-reservation-cancelled",
+  DotyposReservationNotRestorable: "dotypos-reservation-not-restorable",
 } as const satisfies Record<DotyposFailure["_tag"], `dotypos-${string}`>;
 export type DotyposFailureCode =
   (typeof DotyposFailureCode)[DotyposFailure["_tag"]];
@@ -170,10 +201,14 @@ export const dotyposFailureCode = (
 type DotyposFailureReason =
   | DotyposUnavailable["reason"]
   | DotyposRejected["reason"]
-  | DotyposUncertain["reason"];
+  | DotyposUncertain["reason"]
+  | DotyposReservationNotRestorable["reason"];
 
 const providerFailureLogFields = (
-  failure: Exclude<DotyposFailure, DotyposReservationCancelledError>,
+  failure: Exclude<
+    DotyposFailure,
+    DotyposReservationCancelledError | DotyposReservationNotRestorable
+  >,
   reason: DotyposFailureReason | undefined
 ) => ({
   dotyposCode: dotyposFailureCode(failure),
@@ -208,6 +243,13 @@ export const dotyposFailureLogFields: (failure: DotyposFailure) => {
       dotyposCode: dotyposFailureCode(failure),
       dotyposReason: undefined,
       dotyposOperation: "confirmReservation" as const,
+      dotyposRequest: undefined,
+      dotyposHttpStatus: undefined,
+    }),
+    DotyposReservationNotRestorable: (failure) => ({
+      dotyposCode: dotyposFailureCode(failure),
+      dotyposReason: failure.reason,
+      dotyposOperation: "restoreCancelledReservation" as const,
       dotyposRequest: undefined,
       dotyposHttpStatus: undefined,
     }),

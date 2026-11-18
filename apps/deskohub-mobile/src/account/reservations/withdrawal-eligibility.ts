@@ -1,6 +1,6 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import type {
   ReservationGroups,
   ReservationListRow,

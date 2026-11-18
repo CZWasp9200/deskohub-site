@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Redirect } from "expo-router";
 import { startTabAtom, startTabHref } from "../../src/routing/start-tab";
 

@@ -50,6 +50,7 @@ export {
   CustomerAvailability,
   CustomerAvailabilityNotice,
   CustomerAvailabilityQuery,
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingQuote,
   CustomerLegalDocument,
@@ -104,6 +105,7 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerDiscountAdjustment,
   CustomerVatStatus,
 } from "./customer-checkout-summary";
 export {
@@ -114,7 +116,9 @@ export {
   CustomerCompanyRegistryUnavailable,
 } from "./customer-companies-api";
 export {
+  CustomerCorrectiveDocumentPdf,
   CustomerInvoice,
+  CustomerInvoiceCancellation,
   CustomerInvoicedReservation,
   CustomerInvoiceId,
   CustomerInvoiceList,
@@ -151,6 +155,9 @@ export {
   CustomerPaymentPage,
   CustomerPaymentPageClosed,
   CustomerPaymentPageClosedReason,
+  CustomerPaymentRetry,
+  CustomerPaymentRetryBilling,
+  CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefused,
   CustomerPaymentRetryRefusedReason,
   CustomerReservationAccess,

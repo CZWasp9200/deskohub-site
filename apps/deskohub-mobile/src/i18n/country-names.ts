@@ -104,5 +104,20 @@ export const invoiceCountries = (
     .map((code) => ({ code, name: countryName(code, locale) }))
     .sort((left, right) => left.name.localeCompare(right.name, locale));
 
-/** The country a new address starts with, as on the site. */
-export const defaultCountry = "CZ";
+/** Deskohub's own country: where a new address starts when the device names none. */
+export const homeCountry = "CZ";
+
+/**
+ * The country a new address starts with: the first of the device's regions
+ * (its language preferences' regions, in order, such as `US` for en-US) that
+ * takes invoices, else the home country.
+ */
+export const detectedCountry = (
+  regions: ReadonlyArray<string | null | undefined>
+): string =>
+  regions
+    .map((region) => region?.toUpperCase())
+    .find(
+      (code): code is string =>
+        code !== undefined && invoiceCountryCodes.includes(code)
+    ) ?? homeCountry;

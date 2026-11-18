@@ -14,6 +14,7 @@ import { type Browser, chromium, type Page } from "@playwright/test";
 import type { MeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 import type { CheckoutData } from "../types";
 import {
   makeCoworkCheckoutData,
@@ -199,12 +200,12 @@ describe("meeting-room reservation preparation in Chromium", () => {
         }, 350);`,
       });
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(data), 2_000)
         )
-      ).resolves.toBe("about:blank");
+      ).toBe("about:blank");
     }
   );
 
@@ -250,8 +251,8 @@ describe("meeting-room reservation preparation in Chromium", () => {
           });
       });
 
-      await expect(
-        currentPage.evaluate(prepareReservationForm, {
+      expect(
+        await currentPage.evaluate(prepareReservationForm, {
           preparation: withWaits(
             toReservationSelectionPreparation(data, {
               startTimeEntry: "listed",
@@ -259,9 +260,9 @@ describe("meeting-room reservation preparation in Chromium", () => {
             2_000
           ),
         })
-      ).resolves.toBe("about:blank");
-      await expect(
-        currentPage.evaluate(() => ({
+      ).toBe("about:blank");
+      expect(
+        await currentPage.evaluate(() => ({
           time: document.querySelector<HTMLInputElement>(
             'input[aria-label="Meeting room start time"]'
           )?.value,
@@ -269,7 +270,7 @@ describe("meeting-room reservation preparation in Chromium", () => {
             globalThis as typeof globalThis & { typedTimes?: string[] }
           ).typedTimes,
         }))
-      ).resolves.toEqual({ time: "14:00", typedTimes: [] });
+      ).toEqual({ time: "14:00", typedTimes: [] });
     }
   );
 
@@ -295,9 +296,12 @@ describe("meeting-room reservation preparation in Chromium", () => {
 
       // The first poll sees a disabled action; the 250 ms poll lands after this
       // 100 ms deadline and must make the function's final readiness check.
-      await expect(
-        prepareOn(html, withWaits(toReservationSelectionPreparation(data), 100))
-      ).resolves.toBe("about:blank");
+      expect(
+        await prepareOn(
+          html,
+          withWaits(toReservationSelectionPreparation(data), 100)
+        )
+      ).toBe("about:blank");
     }
   );
 
@@ -320,16 +324,21 @@ describe("meeting-room reservation preparation in Chromium", () => {
         `,
       });
 
-      await expect(
-        prepareOn(html, withWaits(toReservationSelectionPreparation(data), 600))
-      ).rejects.toThrow(
+      expect(
+        await outcomeOf(
+          prepareOn(
+            html,
+            withWaits(toReservationSelectionPreparation(data), 600)
+          )
+        )
+      ).toThrow(
         "meeting-room availability or advertised price did not become ready"
       );
-      await expect(
-        getPage().evaluate(
+      expect(
+        await getPage().evaluate(
           () => (window as typeof window & { retryCount: number }).retryCount
         )
-      ).resolves.toBe(1);
+      ).toBe(1);
     }
   );
 
@@ -359,15 +368,15 @@ describe("meeting-room reservation preparation in Chromium", () => {
         `,
       });
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(data), 2_000)
         )
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().locator('input[name="startDateTime"]').inputValue()
-      ).resolves.toBe("2099-10-01T10:00");
+      ).toBe("about:blank");
+      expect(
+        await getPage().locator('input[name="startDateTime"]').inputValue()
+      ).toBe("2099-10-01T10:00");
     }
   );
 
@@ -399,14 +408,14 @@ describe("meeting-room reservation preparation in Chromium", () => {
         `,
       });
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(data), 2_000)
         )
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() => ({
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() => ({
           start: document.querySelector<HTMLInputElement>(
             'input[name="startDateTime"]'
           )?.value,
@@ -417,7 +426,7 @@ describe("meeting-room reservation preparation in Chromium", () => {
             window as typeof window & { timeChangedBeforeDate: boolean }
           ).timeChangedBeforeDate,
         }))
-      ).resolves.toEqual({
+      ).toEqual({
         start: "2099-10-02T10:00",
         time: "10:00",
         timeChangedBeforeDate: false,
@@ -454,15 +463,17 @@ describe("meeting-room reservation preparation in Chromium", () => {
         `,
       });
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(data), 2_000)
         )
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().locator('[id="meeting-room-duration-hour:4"]').isChecked()
-      ).resolves.toBe(true);
+      ).toBe("about:blank");
+      expect(
+        await getPage()
+          .locator('[id="meeting-room-duration-hour:4"]')
+          .isChecked()
+      ).toBe(true);
     }
   );
 });
@@ -507,14 +518,14 @@ describe("office reservation preparation in Chromium", () => {
           });
         </script>
       `;
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(data), 2_000)
         )
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() => ({
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() => ({
           dayCount: document.querySelector<HTMLInputElement>(
             'input[name="dayCount"]'
           )?.value,
@@ -524,7 +535,7 @@ describe("office reservation preparation in Chromium", () => {
             'input[name="seats"]:checked'
           )?.value,
         }))
-      ).resolves.toEqual({ dayCount: "2", email: "", seats: "2" });
+      ).toEqual({ dayCount: "2", email: "", seats: "2" });
     }
   );
 });
@@ -544,7 +555,7 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="false"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label id="monitor"><input type="radio" value="2x27-qhd" /></label>
+        <label id="monitor"><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
         <script>
           const price = document.querySelector('[data-reservation-type-price="reserved-desk"]');
           const tier = document.querySelector("#reservation-entry-tier-reserved-desk");
@@ -562,14 +573,14 @@ describe("cowork reservation preparation in Chromium", () => {
         </script>
       `;
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(reservedDeskData), 2_000)
         )
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() => ({
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() => ({
           monitor: document.querySelector<HTMLInputElement>(
             'input[value="2x27-qhd"]'
           )?.checked,
@@ -580,7 +591,7 @@ describe("cowork reservation preparation in Chromium", () => {
             "#reservation-entry-tier-reserved-desk"
           )?.checked,
         }))
-      ).resolves.toEqual({ monitor: true, ready: "true", tier: true });
+      ).toEqual({ monitor: true, ready: "true", tier: true });
     }
   );
 
@@ -591,16 +602,44 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label><input type="radio" value="2x27-qhd" /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
       `;
 
       await prepareOn(
         html,
         withWaits(toReservationSelectionPreparation(reservedDeskData))
       );
-      await expect(
-        getPage().locator('input[value="2x27-qhd"]').isChecked()
-      ).resolves.toBe(true);
+      expect(
+        await getPage().locator('input[value="2x27-qhd"]').isChecked()
+      ).toBe(true);
+    }
+  );
+
+  test.skipIf(!chromiumAvailable)(
+    "chooses the monitor only from its own radio group",
+    async () => {
+      const html = `
+        <input name="date" value="2099-09-01" />
+        <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
+        <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
+        <label><input name="otherChoice" type="radio" value="2x27-qhd" /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
+      `;
+
+      await prepareOn(
+        html,
+        withWaits(toReservationSelectionPreparation(reservedDeskData))
+      );
+      expect(
+        await getPage().evaluate(() => ({
+          monitor: document.querySelector<HTMLInputElement>(
+            'input[name="monitorOption"]'
+          )?.checked,
+          other: document.querySelector<HTMLInputElement>(
+            'input[name="otherChoice"]'
+          )?.checked,
+        }))
+      ).toEqual({ monitor: true, other: false });
     }
   );
 
@@ -620,8 +659,8 @@ describe("cowork reservation preparation in Chromium", () => {
             workstation.setAttribute("aria-checked", "true");
             document.body.insertAdjacentHTML(
               "beforeend",
-              '<label><input type="radio" value="2x27-qhd" checked /></label>' +
-                '<label><input type="radio" value="2x32-qhd" /></label>'
+              '<label><input name="monitorOption" type="radio" value="2x27-qhd" checked /></label>' +
+                '<label><input name="monitorOption" type="radio" value="2x32-qhd" /></label>'
             );
           });
         </script>
@@ -634,8 +673,8 @@ describe("cowork reservation preparation in Chromium", () => {
         { entryTier: "reserved-desk", monitorOption: "2x32-qhd" }
       );
       await prepareOn(html, withWaits(toReservationSelectionPreparation(data)));
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await getPage().evaluate(() => ({
           monitor: document.querySelector<HTMLInputElement>(
             'input[value="2x32-qhd"]'
           )?.checked,
@@ -643,7 +682,7 @@ describe("cowork reservation preparation in Chromium", () => {
             .querySelector('[role="switch"]')
             ?.getAttribute("aria-checked"),
         }))
-      ).resolves.toEqual({ monitor: true, workstation: "true" });
+      ).toEqual({ monitor: true, workstation: "true" });
     }
   );
 
@@ -654,15 +693,15 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label><input type="radio" value="2x27-qhd" checked /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" checked /></label>
       `;
 
-      await expect(
-        prepareOn(
+      expect(
+        await prepareOn(
           html,
           withWaits(toReservationSelectionPreparation(reservedDeskData))
         )
-      ).resolves.toBe("about:blank");
+      ).toBe("about:blank");
     }
   );
 
@@ -699,15 +738,58 @@ describe("cowork reservation preparation in Chromium", () => {
         editedDateHtml(true),
         withWaits(toReservationSelectionPreparation(editedDateData), 2_000)
       );
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await getPage().evaluate(() => ({
           date: document.querySelector<HTMLInputElement>('input[name="date"]')
             ?.value,
           ready: document.querySelector<HTMLElement>(
             '[data-reservation-type-price="open-space"]'
           )?.dataset.reservationTypePriceReady,
         }))
-      ).resolves.toEqual({ date: "2099-10-02", ready: "true" });
+      ).toEqual({ date: "2099-10-02", ready: "true" });
+    }
+  );
+
+  test.skipIf(!chromiumAvailable)(
+    "opens the date field's calendar, not another dialog opener earlier in the page",
+    async () => {
+      const html = `
+        <button aria-haspopup="dialog" type="button" id="other-dialog"></button>
+        <div>
+          <input name="date" value="2099-10-01" />
+          <button aria-haspopup="dialog" type="button" id="date-calendar"></button>
+        </div>
+        <div id="calendar"></div>
+        <button data-reservation-type-price="open-space" data-reservation-type-price-ready="true"></button>
+        <input id="reservation-entry-tier-open-space" type="radio" checked />
+        <script>
+          const date = document.querySelector('input[name="date"]');
+          const price = document.querySelector('[data-reservation-type-price="open-space"]');
+          document.querySelector("#date-calendar").addEventListener("click", () => {
+            const calendar = document.querySelector("#calendar");
+            calendar.innerHTML = '<div data-day="2099-10-02"><button type="button"></button></div>';
+            calendar.querySelector("button").addEventListener("click", () => {
+              date.value = "2099-10-02";
+              price.dataset.reservationTypePriceReady = "false";
+              setTimeout(() => {
+                price.dataset.reservationTypePriceReady = "true";
+              }, 50);
+            });
+          });
+        </script>
+      `;
+
+      await prepareOn(
+        html,
+        withWaits(toReservationSelectionPreparation(editedDateData), 2_000)
+      );
+      expect(
+        await getPage().evaluate(
+          () =>
+            document.querySelector<HTMLInputElement>('input[name="date"]')
+              ?.value
+        )
+      ).toBe("2099-10-02");
     }
   );
 
@@ -759,23 +841,23 @@ describe("cowork reservation preparation in Chromium", () => {
         html,
         withWaits(toReservationSelectionPreparation(editedDateData), 2_000)
       );
-      await expect(
-        getPage().locator('input[name="date"]').inputValue()
-      ).resolves.toBe("2099-10-02");
+      expect(await getPage().locator('input[name="date"]').inputValue()).toBe(
+        "2099-10-02"
+      );
     }
   );
 
   test.skipIf(!chromiumAvailable)(
     "fails when an edited cowork date never refreshes its advertised price",
     async () => {
-      await expect(
-        prepareOn(
-          editedDateHtml(false),
-          withWaits(toReservationSelectionPreparation(editedDateData), 600)
+      expect(
+        await outcomeOf(
+          prepareOn(
+            editedDateHtml(false),
+            withWaits(toReservationSelectionPreparation(editedDateData), 600)
+          )
         )
-      ).rejects.toThrow(
-        "advertised price did not refresh after date selection"
-      );
+      ).toThrow("advertised price did not refresh after date selection");
     }
   );
 });
@@ -805,18 +887,18 @@ describe("reservation step composition in Chromium", () => {
           }, 350);
         </script>
       `;
-      await expect(
-        prepareOn(html, withWaits(toReservationStep(data), 1_500, 1_500))
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() =>
+      expect(
+        await prepareOn(html, withWaits(toReservationStep(data), 1_500, 1_500))
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() =>
           [
             ...document.querySelectorAll<HTMLInputElement>(
               'input[name="name"], input[name="email"], input[name="emailConfirmation"], input[name="phone"]'
             ),
           ].map((input) => input.value)
         )
-      ).resolves.toEqual(["", "", "", ""]);
+      ).toEqual(["", "", "", ""]);
     }
   );
 
@@ -842,11 +924,11 @@ describe("reservation step composition in Chromium", () => {
           }, 350);
         </script>
       `;
-      await expect(
-        prepareOn(html, withWaits(toReservationStep(data), 1_500, 1_500))
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await prepareOn(html, withWaits(toReservationStep(data), 1_500, 1_500))
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() => ({
           name: document.querySelector<HTMLInputElement>('input[name="name"]')
             ?.value,
           email: document.querySelector<HTMLInputElement>('input[name="email"]')
@@ -859,7 +941,7 @@ describe("reservation step composition in Chromium", () => {
           submitEvents: (window as typeof window & { submitEvents: number })
             .submitEvents,
         }))
-      ).resolves.toEqual({
+      ).toEqual({
         name: data.name,
         email: data.email,
         confirmation: data.email,
@@ -896,11 +978,11 @@ describe("reservation step composition in Chromium", () => {
           });
         </script>
       `;
-      await expect(
-        prepareOn(html, withWaits(toReservationStep(data), 1_000, 1_500))
-      ).resolves.toBe("about:blank");
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await prepareOn(html, withWaits(toReservationStep(data), 1_000, 1_500))
+      ).toBe("about:blank");
+      expect(
+        await getPage().evaluate(() => ({
           enabledAgain: (
             window as typeof window & { submitEnabledAgain: boolean }
           ).submitEnabledAgain,
@@ -908,7 +990,7 @@ describe("reservation step composition in Chromium", () => {
             "#reservation-submit"
           )?.disabled,
         }))
-      ).resolves.toEqual({ enabledAgain: true, submitDisabled: false });
+      ).toEqual({ enabledAgain: true, submitDisabled: false });
     }
   );
 
@@ -926,8 +1008,8 @@ describe("reservation step composition in Chromium", () => {
         </form>
       `;
       await prepareOn(html, withWaits(toReservationStep(data)));
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await getPage().evaluate(() => ({
           name: document.querySelector<HTMLInputElement>('input[name="name"]')
             ?.value,
           email: document.querySelector<HTMLInputElement>('input[name="email"]')
@@ -938,7 +1020,7 @@ describe("reservation step composition in Chromium", () => {
           phone: document.querySelector<HTMLInputElement>('input[name="phone"]')
             ?.value,
         }))
-      ).resolves.toEqual({
+      ).toEqual({
         name: data.name,
         email: data.email,
         confirmation: data.email,
@@ -956,8 +1038,8 @@ describe("reservation step composition in Chromium", () => {
       await getPage().evaluate(prepareReservationForm, {
         preparation: withWaits(toReservationStep(data)),
       });
-      await expect(
-        getPage().evaluate(() => ({
+      expect(
+        await getPage().evaluate(() => ({
           name: document.querySelector<HTMLInputElement>('input[name="name"]')
             ?.value,
           email: document.querySelector<HTMLInputElement>('input[name="email"]')
@@ -965,7 +1047,7 @@ describe("reservation step composition in Chromium", () => {
           phone: document.querySelector<HTMLInputElement>('input[name="phone"]')
             ?.value,
         }))
-      ).resolves.toEqual({
+      ).toEqual({
         name: data.name,
         email: testEmailAddress("account"),
         phone: data.phone,
@@ -977,11 +1059,11 @@ describe("reservation step composition in Chromium", () => {
           <button id="reservation-submit" type="submit"></button>
         </form>
       `);
-      await expect(
-        getPage().evaluate(prepareReservationForm, {
+      expect(
+        await getPage().evaluate(prepareReservationForm, {
           preparation: withWaits(toReservationStep(data)),
         })
-      ).resolves.toBe("about:blank");
+      ).toBe("about:blank");
     }
   );
 
@@ -1007,17 +1089,17 @@ describe("reservation step composition in Chromium", () => {
             }, 250);
           </script>
         `;
-        await expect(
-          prepareOn(html, withWaits(preparedReservationForm, 1_500))
-        ).resolves.toBe("about:blank");
-        await expect(
-          getPage().evaluate(() => ({
+        expect(
+          await prepareOn(html, withWaits(preparedReservationForm, 1_500))
+        ).toBe("about:blank");
+        expect(
+          await getPage().evaluate(() => ({
             clickEvents: (window as typeof window & { clickEvents: number })
               .clickEvents,
             submitEvents: (window as typeof window & { submitEvents: number })
               .submitEvents,
           }))
-        ).resolves.toEqual({ clickEvents: 0, submitEvents: 0 });
+        ).toEqual({ clickEvents: 0, submitEvents: 0 });
       }
     );
   }
@@ -1025,18 +1107,23 @@ describe("reservation step composition in Chromium", () => {
   test.skipIf(!chromiumAvailable)(
     "reports a disabled action and a missing action at the action deadline",
     async () => {
-      await expect(
-        prepareOn(
-          `<form><button id="reservation-submit" type="submit" disabled></button></form>`,
-          withWaits(preparedReservationForm, 400, 400)
+      expect(
+        await outcomeOf(
+          prepareOn(
+            `<form><button id="reservation-submit" type="submit" disabled></button></form>`,
+            withWaits(preparedReservationForm, 400, 400)
+          )
         )
-      ).rejects.toThrow(
-        "reservation reservation-submit button stayed disabled"
-      );
+      ).toThrow("reservation reservation-submit button stayed disabled");
 
-      await expect(
-        prepareOn(`<form></form>`, withWaits(preparedReservationForm, 400, 400))
-      ).rejects.toThrow("reservation continue or submit button not found");
+      expect(
+        await outcomeOf(
+          prepareOn(
+            `<form></form>`,
+            withWaits(preparedReservationForm, 400, 400)
+          )
+        )
+      ).toThrow("reservation continue or submit button not found");
     }
   );
 });
@@ -1055,26 +1142,30 @@ describe("detached reservation preparation in Chromium", () => {
             event.preventDefault();
             window.submitEvents++;
           });
-          setTimeout(() => {
-            document.querySelector("#reservation-submit").disabled = false;
-          }, 1_500);
         </script>
       `;
       const currentPage = getPage();
       await currentPage.setContent(html);
-      await expect(
-        currentPage.evaluate(prepareReservationForm, {
-          preparation: withWaits(preparedReservationForm, 1_500, 4_000),
-          detachInto: "detachedPreparation",
-        })
-      ).resolves.toBe(true);
-      await expect(
-        currentPage.evaluate(
-          readReservationPreparationState,
-          "detachedPreparation"
-        )
-      ).resolves.toEqual({ status: "pending" });
+      // The test enables Submit itself once it has seen pending: Bun's
+      // `expect(promise).resolves` can settle seconds late, so a page timer
+      // raced the pending read. The deadline only bounds a broken run.
+      const started = await currentPage.evaluate(prepareReservationForm, {
+        preparation: withWaits(preparedReservationForm, 1_500, 10_000),
+        detachInto: "detachedPreparation",
+      });
+      const pending = await currentPage.evaluate(
+        readReservationPreparationState,
+        "detachedPreparation"
+      );
+      expect({ started, pending }).toEqual({
+        started: true,
+        pending: { status: "pending" },
+      });
 
+      await currentPage.evaluate(() => {
+        const submit = document.querySelector("#reservation-submit");
+        if (submit instanceof HTMLButtonElement) submit.disabled = false;
+      });
       const becameReady = await currentPage
         .waitForFunction(
           (key) => {
@@ -1096,16 +1187,14 @@ describe("detached reservation preparation in Chromium", () => {
         readReservationPreparationState,
         "detachedPreparation"
       );
-      expect({ becameReady, state }).toEqual({
+      const submitEvents = await currentPage.evaluate(
+        () => (window as typeof window & { submitEvents: number }).submitEvents
+      );
+      expect({ becameReady, state, submitEvents }).toEqual({
         becameReady: true,
         state: { status: "ready" },
+        submitEvents: 0,
       });
-      await expect(
-        currentPage.evaluate(
-          () =>
-            (window as typeof window & { submitEvents: number }).submitEvents
-        )
-      ).resolves.toBe(0);
     }
   );
 
@@ -1125,12 +1214,12 @@ describe("detached reservation preparation in Chromium", () => {
       } as const satisfies ReservationFormPreparation;
       const currentPage = getPage();
       await currentPage.setContent("<form></form>");
-      await expect(
-        currentPage.evaluate(prepareReservationForm, {
+      expect(
+        await currentPage.evaluate(prepareReservationForm, {
           preparation,
           detachInto: "failedPreparation",
         })
-      ).resolves.toBe(true);
+      ).toBe(true);
       await currentPage.waitForFunction(
         (key) => {
           const state = (

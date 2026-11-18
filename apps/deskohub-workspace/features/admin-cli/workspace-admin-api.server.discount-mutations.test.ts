@@ -17,7 +17,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Data, Effect, Layer, Schema } from "effect";
-import { HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiTest } from "effect/http-api";
 
 // Every calendar discount cache invalidation and `after` callback.
 const refreshes: string[] = [];

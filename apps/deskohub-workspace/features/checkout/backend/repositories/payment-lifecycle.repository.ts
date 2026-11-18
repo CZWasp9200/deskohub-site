@@ -7,7 +7,7 @@ import type {
 import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   discountApplications,
@@ -42,7 +42,10 @@ import {
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import type { Locale } from "@/features/i18n";
 import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  reservationOrderId,
+  type WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import { type Money, moneyEquals, moneyWithValue } from "@/shared/money/money";
 import {
   type PaymentAttempt,
@@ -245,6 +248,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               .values({
                 id: postgresUuidV7,
                 workspaceReservationId: input.workspaceReservationId,
+                orderId: reservationOrderId(input.workspaceReservationId),
                 provider: "nexi",
                 providerOrderId: input.providerOrderId,
                 state: "created",
@@ -425,6 +429,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               .values({
                 id: postgresUuidV7,
                 workspaceReservationId: input.workspaceReservationId,
+                orderId: reservationOrderId(input.workspaceReservationId),
                 provider: "internal",
                 providerOrderId: null,
                 state: "paid",

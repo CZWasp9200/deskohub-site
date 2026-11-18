@@ -1,4 +1,4 @@
-import { HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiGroup } from "effect/http-api";
 import { customerBookingCatalogEndpoints } from "./customer-booking-catalog-api";
 import { customerBookingCheckoutEndpoints } from "./customer-booking-checkout-api";
 

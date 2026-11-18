@@ -16,6 +16,7 @@ import {
 } from "../selection/office-selection";
 import { fakeBooking } from "../testing/fake-booking-api";
 import { czk } from "../testing/sample-booking-catalog";
+import { priceLineAmount } from "../ui/price-breakdown";
 import {
   officeBookingModel,
   officeFromPrice,
@@ -23,8 +24,6 @@ import {
   openingOfficeDraft,
 } from "./office-booking-model";
 import { settledValue } from "./testing/settled-value";
-
-const now = new Date();
 
 const setup = async () => {
   const data = makeFakeCustomerData("linked");
@@ -37,13 +36,12 @@ const setup = async () => {
   const availability = await settledValue(
     data.registry,
     bookingAvailabilityAtom({
-      query: officeAvailabilityQuery(booking.today()),
+      query: officeAvailabilityQuery(offering.bookableDates),
     })
   );
   const model = (draft: OfficeDraft, office: OfficeOffering = offering) =>
     officeBookingModel({
       draft,
-      now,
       offering: office,
       availability: Option.some(availability),
     });
@@ -153,7 +151,7 @@ describe("office steppers", () => {
 });
 
 describe("openingOfficeDraft", () => {
-  const today = "2026-11-10";
+  const bookableDates = { earliest: "2026-11-10", latest: "2026-12-10" };
   const preselection = (
     seats: number
   ): Option.Option<CustomerBookedSelection> =>
@@ -176,7 +174,7 @@ describe("openingOfficeDraft", () => {
       openingOfficeDraft({
         kept: Option.none(),
         preselection: Option.none(),
-        today,
+        bookableDates,
       })
     ).toEqual(emptyOfficeDraft);
   });
@@ -186,7 +184,7 @@ describe("openingOfficeDraft", () => {
       openingOfficeDraft({
         kept: Option.none(),
         preselection: preselection(6),
-        today,
+        bookableDates,
       })
     ).toEqual({ date: Option.some("2026-11-23"), dayCount: 3, seats: 6 });
   });
@@ -195,20 +193,24 @@ describe("openingOfficeDraft", () => {
     const kept = (seed: string) => Option.some({ seed, draft: keptDraft });
 
     expect(
-      openingOfficeDraft({ kept: kept(""), preselection: Option.none(), today })
+      openingOfficeDraft({
+        kept: kept(""),
+        preselection: Option.none(),
+        bookableDates,
+      })
     ).toBe(keptDraft);
     expect(
       openingOfficeDraft({
         kept: kept(bookingPreselectionKey(preselection(6))),
         preselection: preselection(6),
-        today,
+        bookableDates,
       })
     ).toBe(keptDraft);
     expect(
       openingOfficeDraft({
         kept: kept(bookingPreselectionKey(preselection(6))),
         preselection: preselection(4),
-        today,
+        bookableDates,
       }).seats
     ).toBe(4);
   });
@@ -225,6 +227,7 @@ describe("officeFromPrice", () => {
     maximumSeats: 6,
     maximumDurationHours: 672,
     advertisedPrice: { price: czk(845), discount: czk(0) },
+    bookableDates: { earliest: "2026-11-10", latest: "2026-12-10" },
   };
 
   test("itemizes a day's access and one seat, totalling the advertised price", () => {
@@ -240,7 +243,12 @@ describe("officeFromPrice", () => {
           {
             _tag: "Charge",
             key: "office:seat",
-            subject: { _tag: "OfficeSeats", seats: 1, dayCount: 1 },
+            subject: {
+              _tag: "OfficeSeats",
+              seats: 1,
+              dayCount: 1,
+              dailySeatRate: offering.seatPrice,
+            },
             amount: offering.seatPrice,
           },
         ],
@@ -250,11 +258,64 @@ describe("officeFromPrice", () => {
     );
   });
 
-  test("gives no lines while a sale lowers the advertised price", () => {
+  const sale = {
+    discount: {
+      id: "calendar-sale-2026-11",
+      label: "Calendar discount",
+      adjustment: { kind: "percentage", basisPoints: 1000 },
+    },
+    amount: czk(84.5),
+  } as const;
+  const onSale: OfficeOffering = {
+    ...offering,
+    advertisedPrice: {
+      price: czk(760.5),
+      discount: czk(84.5),
+      discounts: [sale],
+    },
+  };
+
+  test("during a sale, lists the base lines, then the sale as one discount line", () => {
+    const lines = Option.getOrThrow(officeFromPrice(onSale)).lines;
+    expect(lines.map((line) => line._tag)).toEqual([
+      "Charge",
+      "Charge",
+      "Reduction",
+    ]);
+    expect(lines.at(-1)).toMatchObject({
+      _tag: "Reduction",
+      discountId: sale.discount.id,
+      label: sale.discount.label,
+      adjustment: sale.discount.adjustment,
+      amount: sale.amount,
+    });
+  });
+
+  test("during a sale, its lines add up to the advertised price", () => {
+    const breakdown = Option.getOrThrow(officeFromPrice(onSale));
+    expect(
+      breakdown.lines.reduce(
+        (sum, line) => sum + priceLineAmount(line).value,
+        0
+      )
+    ).toBe(breakdown.total.value);
+    expect(breakdown.total).toEqual(onSale.advertisedPrice.price);
+  });
+
+  test("gives no lines while a sale's discounts are not listed", () => {
     expect(
       officeFromPrice({
         ...offering,
         advertisedPrice: { price: czk(760), discount: czk(85) },
+      })
+    ).toEqual(Option.none());
+  });
+
+  test("gives no lines when the listed discounts don't make up the sale", () => {
+    expect(
+      officeFromPrice({
+        ...onSale,
+        advertisedPrice: { ...onSale.advertisedPrice, discount: czk(90) },
       })
     ).toEqual(Option.none());
   });

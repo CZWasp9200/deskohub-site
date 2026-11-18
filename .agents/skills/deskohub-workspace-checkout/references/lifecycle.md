@@ -16,6 +16,7 @@ Business policy for holds, payment, recovery, refunds, and fulfillment is in the
 - [Hold cleanup](#hold-cleanup)
 - [Late payment recovery](#late-payment-recovery)
 - [Refunds](#refunds)
+- [Administrator restore](#administrator-restore)
 - [Fulfillment](#fulfillment)
 
 ## Where things live
@@ -66,17 +67,21 @@ Customer marketing consent lives in `customer_marketing_consents`, one row per D
 
 ## Reservation orders
 
-Each reservation has a `reservation` order in `orders` with the same `id` and `correlation_id`. The reservation stays authoritative; the order mirrors it, and invoice eligibility, fulfillment leases, and every state transition keep reading the reservation.
+Each reservation has a `reservation` order in `orders` with the same `id` and `correlation_id`. The reservation stays authoritative; the order mirrors it, and invoice eligibility, fulfillment leases, and every state transition keep reading the reservation. `orders.kind` also allows `pass-purchase`, which nothing writes yet; the passes work adds that writer.
+
+- Ownership: payment attempts (`order_id`, required) and legal evidence events (`order_id`, nullable like their reservation link, cleared on delete) belong to their order. An accounting snapshot reaches its order through its payment attempt; it has no order column because snapshots are immutable. The reservation links stay required on attempts and snapshots until the passes work adds rows without a reservation. `reservationOrderId` (`features/reservation/persistence-contracts.ts`) turns a reservation ID into its order's ID without validating it as a UUID, so existing IDs keep their values.
+- Status and access routes (`checkout-status-route.tsx`, `reservation-access-route.tsx`) read the order's kind with `loadOrderKind` (`features/order/backend/order-kind.ts`) and serve that kind's page. An ID with no order row goes to the reservation page, which owns not-found, the signed-out sign-in redirect, and review sandbox orders. The route parameter keeps its permissive reservation-ID decoding.
+- `OpenCheckout.kind` names the order kind a Pay state pays for; the sealed Pay state itself stays reservation-only, so tokens in flight keep opening.
 
 - The database owns the mirror. Triggers from migration `20261109124140_payment_order_mirror` upsert the order (`mirror_reservation_order`) after every reservation insert and every update that changes a mirrored fact, and delete it with the reservation. Never write reservation orders from TypeScript, and never add an application-level mirror call to a reservation writer.
 - Mirrored facts: `dotypos_customer_id`, `payment_state`, `fulfillment_state` (including `awaiting_delivery`), `active_payment_attempt_id`, `paid_at`, `fulfilled_at`, `fulfillment_failed_at`, `fulfillment_failure_code`. `id`, `correlation_id`, `kind`, and `created_at` are set once. When a reservation column becomes an order fact, extend the function's `SET` and change guard and the update trigger's `WHEN` list together in a new migration.
 - `orders.updated_at` is the reservation's `updated_at` at the last mirrored-fact change. Writes that change no fact, such as fulfillment lease renewals, leave the order untouched.
 - `orders.active_payment_attempt_id` is a plain scalar without a foreign key; a reverse reference would make attempt writers and the mirror lock each other's rows.
-- `payment_attempts.order_id` always equals `workspace_reservation_id` (check `payment_attempts_reservation_order_match_check`). A `BEFORE INSERT` trigger fills it when the writer leaves it out, which repairs inserts from writers that predate the column during a rolling deployment. Writers don't set it.
+- `payment_attempts.order_id` always equals `workspace_reservation_id` (check `payment_attempts_reservation_order_match_check`); `legal_evidence_events` has the same rule while both are set (`legal_evidence_events_reservation_order_match_check`). Writers set the order ID with `reservationOrderId`. `BEFORE INSERT` triggers (`payment_attempts_order_link`, `legal_evidence_events_order_link`) still fill it from the reservation when a writer leaves it out, which repairs inserts from writers that predate the column during a rolling deployment.
 - Lock contract: the mirror takes row locks only, never an advisory lock. It locks the order row (`FOR NO KEY UPDATE`) inside the reservation statement that already holds the reservation row, so order rows add no wait edge between writers; old and new code run the same sequence. Attempt foreign key checks take `KEY SHARE` on the order, which never conflicts with the mirror. Nothing else may lock or delete reservation orders.
 - The function refuses an existing order with the reservation's ID but another kind or correlation ID. Another order holding the reservation's correlation ID fails on the unique constraint.
 - The migration starts with `SET LOCAL lock_timeout = '5s'`: a deploy blocked behind long reservation or attempt writes fails with `55P03`, applies nothing, and is rerun. Its set-based backfill relies on the table lock `CREATE TRIGGER` takes on `workspace_reservations`; never rerun it online without that lock.
-- Tests: `db/schema/payment-order-mirror-migration.postgres.test.ts` (backfill, rerun no-op, collisions, lock timeout) and `db/schema/reservation-order-mirror.postgres.test.ts` (triggers and lock interleavings). Repository suites check the mirror with `readReservationOrderMirror` from `shared/testing/workspace-postgres-test-database.test-utils.ts`.
+- Tests: `db/schema/payment-order-mirror-migration.postgres.test.ts` (backfill, rerun no-op, collisions, lock timeout), `db/schema/reservation-order-mirror.postgres.test.ts` (triggers and lock interleavings), and `db/schema/order-owned-payments-migration.postgres.test.ts` (order ownership backfill, insert links, legal evidence match and delete). Repository suites check the mirror with `readReservationOrderMirror` from `shared/testing/workspace-postgres-test-database.test-utils.ts`.
 
 ## State machines
 
@@ -89,7 +94,7 @@ State types and check constraints are in `db/schema`. Repositories guard every t
 - `held -> hold_expired -> cancelling -> cancelled` for expired unpaid holds; `held -> cancelling -> cancelled` for an unsuccessful terminal payment.
 - `cancelling -> cancellation_failed -> cancelling`.
 - `confirmed -> cancelling -> cancelled` only through operator cancellation. It keeps paid and fulfillment facts, marks paid Nexi attempts `refund_state = 'required'`, refuses while fulfillment is `processing` or `awaiting_delivery`, and requires confirmed provider removal before retiring a live or ambiguous PIN.
-- Nothing leaves `cancelled`. Cleanup finalizes a cancellation only while the row is still `cancelling`, unpaid, and unconfirmed.
+- `cancelled -> confirmed` only through [administrator restore](#administrator-restore) of a paid, confirmed reservation whose operator cancellation finished cleanly. Apart from a payment retry taking the order's own unpaid hold again, nothing else leaves `cancelled`. Cleanup finalizes a cancellation only while the row is still `cancelling`, unpaid, and unconfirmed.
 - Never create a second Dotypos reservation for one `checkout_attempt_key`, or a replacement in the same session before the prior local and Dotypos reservations are cancelled.
 - Administration may overlay a live Dotypos `CANCELLED` status as an operator attention state when the local row is stale. Keep it read-only: it never persists a transition, authorizes access, triggers recovery, or claims Deskohub cancelled the booking.
 
@@ -255,6 +260,46 @@ The budget arithmetic is documented in the route and service. Keep these rules w
 - At the budget, interrupt all workers and release their claims with a bounded wait. Effect SQL runs connection acquisition, BEGIN, and COMMIT or ROLLBACK uninterruptibly, so `refundBatchOverrunWorstCase` derives the possible overrun from `databasePoolTimeouts`. The budget is `maxDuration` minus that overrun minus headroom.
 - Lock the batch in its own `select … for update skip locked` and stamp it by ID in the same transaction. An `update … where id in (select … limit n for update skip locked)` can claim more than `n` rows, because Postgres re-runs the subquery per updated row and each run skips the rows already updated.
 
+## Administrator restore
+
+`ReservationRestorationService.restore` (in `features/administration`, reached as `ReservationAdministrationService.restore`) confirms an operator-cancelled reservation again. It adds no reservation state: the row goes straight from `cancelled` back to `confirmed`, keeping its confirmation, payment and fulfillment facts and clearing `cancellation_cause`, so a later cancellation records its own. Payment retry never meets a restorable row: it refuses paid reservations, and attaches only `hold_expired` or `payment_retry` cancellations. Forced cancellation of a pending payment, the only admin cancellation that releases a referral invitation or promotion claim, leaves the payment unpaid, so no restorable reservation has a released claim.
+
+Policy:
+
+- Only `canRestoreReservation` rows: `cancelled` with `cancellation_cause` `operator` (or null, from before causes were recorded), paid, confirmed, with a finished cancellation (`reservation_cancelled_at`), no hold expiry, no failure code, a Dotypos ID, and no other active reservation in the checkout session. Unpaid, expired and superseded holds stay cancelled.
+- A `required` refund Nexi never recorded is no longer owed, so the restore moves it to `not_required`. A refund Nexi recorded stays as it is, and the operator must acknowledge it (`refund_acknowledgement_required` carries the amount and full or partial coverage).
+- Dotypos must still hold the cancelled booking Workspace created: the expected booking comes from `getRestorationBooking`, and `restoreCancelledReservation` refuses anything else. A `NEW` or missing record, or a changed booking, is `changed_in_dotypos`. The expected booking is the creation-time booking: the customer from Workspace, the table from the record (Workspace stores none), and the bounds and seats rebuilt from the row, its stored details and the paid attempt's accounting snapshot. Without a snapshot, it compares what the row and stored details determine, takes the rest from the record, and logs a warning.
+- A reservation that hasn't ended needs its table free (`getAssignedTableAvailability`) and access that can be reissued (`getRestoredReservationAccess`): only an `expired` grant, or none, reissues; any grant that may still hold a credential is `access_uncertain`. An ended reservation skips both and gets no access.
+- The customer email goes only when the operator asks and the cancellation email was recorded as sent (`cancellation_email_sent_at`); otherwise the result is `not_available`.
+
+Ordering. Never call a provider inside a transaction:
+
+1. Plain preflight reads: the row, the session's current reservation, the live Dotypos record (`getReservationWithoutCustomer`, never a cached record), the booking and held span, the access grant and plan.
+2. `reconcileReservationRefunds` asks Nexi about every attempt still awaiting a refund, then the refund acknowledgement check.
+3. Table availability, then `restoreCancelledReservation` (`Restored` or `AlreadyConfirmed`).
+4. One `WorkspaceDatabase.transaction`: `prepareRestoredAccess` (grant row first), `markAdministrationRestored` (the CAS re-asserts every restore predicate and the cancellation instant the restore read, clears `cancellation_email_sent_at`, and moves `required` refunds to `not_required`), the refund acknowledgement check again on the attempts read after the flip, and `retractCancellationEvent`. Lock order: grant, reservation, payment attempts, customer events (skipped, never awaited).
+5. After commit: `issueRestoredAccess` when the plan was `issue` (a failure reports `failed`; the administration access retry accepts the `pending` or `failed` grant), then the restoration email.
+
+Recovery:
+
+- A confirmed row whose cancellation was recorded (`hasRecordedCancellation`) with Dotypos still `CONFIRMED` on the same booking is a finished restore: a retry reports `already_confirmed` and sends and issues nothing.
+- A crash after the Dotypos write leaves the row cancelled and Dotypos `CONFIRMED`; a retry passes the same checks, gets `AlreadyConfirmed`, and completes.
+- Whenever the finalize transaction rolls back (`access_uncertain`, a refund recorded since the check, a lost CAS, `WorkspaceReservationSessionTakenError`, or a failed write), the restore rereads the row. A `confirmed` row that passes the finished-restore check above was finished by a concurrent restore: it reports `already_confirmed` and sends and issues nothing. This covers a losing restore that planned access before the winner's grant committed and saw it as `access_uncertain`. Otherwise the original refusal stands, and a lost CAS is refused as the row now stands.
+- When another reservation took the checkout session after this restore's Dotypos write (`Restored`, then `WorkspaceReservationSessionTakenError` from the partial unique active-session index), the restore cancels the Dotypos reservation again only while the reread row is still `cancelled` with the `reservation_cancelled_at` the preflight read and `findCurrentByCheckoutSessionKey` returns another row; `cancelReservation` is unconditional by id, so a later restore's booking must not be cancelled. Then it refuses `superseded`, and a failed cancel is logged for an operator. When the reread shows anything else, or fails, it skips the cancel, logs the mismatch and refuses `superseded`. A restore that found Dotypos already `CONFIRMED` (`AlreadyConfirmed`) made no write, so it never cancels; it logs the mismatch and refuses `superseded`. A preflight `superseded` refusal never writes to Dotypos.
+- Reasons map to codes: `not_found`; `not_restorable` (operator must change something); `restoration_failed` (`refund_check_failed`, `dotypos_failed`, `details_unavailable`, `record_failed`: retry).
+
+Known limitations:
+
+- The compensation fence narrows the race but doesn't close it: a successor cancelled and a concurrent restore finalized between the reread and the cancel still loses its Dotypos booking. Closing it needs a lock in `db/workspace-locks.ts` held across the reread and the cancel, which the restore doesn't take.
+- Any other refusal after the Dotypos write leaves Dotypos `CONFIRMED` while Workspace keeps the row cancelled. The restore doesn't compensate it; it logs an error with the reservation ID, the refusal reason and "Dotypos confirmed, Workspace cancelled". Recovery by reason:
+  - A refund recorded since the check (`refund_acknowledgement_required`): retry with the acknowledgement. Dotypos answers `AlreadyConfirmed` and the restore completes.
+  - `access_uncertain`: an operator reconciles the grant, then retries.
+  - A CAS lost to a newer cancellation: an operator decides; they may cancel the reservation in Dotypos directly.
+  - `restoration_failed` reasons (`record_failed`, `details_unavailable`): retry.
+- Restore, cancel and restore again while the grant is still `pending` is `access_uncertain` until an operator reconciles the grant.
+- A refund Nexi records after the finalize read its attempts is a refund after the restore; the refund batch records it as usual.
+- The restoration email is best effort: a crash after commit loses it, and a replay never sends it. A cancellation that wins between the restore's commit and the email send can still get the restoration email.
+
 ## Fulfillment
 
 Paid fulfillment confirms the Dotypos reservation, issues the access PIN ([reservation-access.md](reservation-access.md)), and sends the customer confirmation with a protected access link, never the PIN.
@@ -280,3 +325,4 @@ Outside production, and whenever Console accepted the send (an `EMAIL_TEST_DOMAI
 - `active_customer_email_delivery_locale` pins the locale for one confirmation generation: set only while null, before the first send, and cleared when the accepted delivery ID is recorded.
 - Retrying a delivery failure keeps the failed send's ID while fulfillment is reclaimed into `processing`; the ID marks the recovery generation. The recovery send derives its idempotency key from that ID, so the provider can't replay the bounced send, and the key stays stable across retries of the same recovery. Each accepted send replaces the stored ID and starts a new generation. Initial sends use the reservation-and-category key.
 - When an active author booked for another customer (`isCustomerOwnAuthor` is false), the paid flow also sends the author's login email a confirmation after the customer send is accepted, in `author.locale` or the reservation locale. It links only the token-free status page, which the author's session authorizes; never the access or invoice link. It is best effort: an author read or send failure logs a fixed code and never touches fulfillment state or delivery columns. It goes out only with the first customer delivery generation (no `active_customer_email_delivery_id` yet); a recovery delivery after a bounce re-sends the customer email alone. Its key, `workspace-reservation-author-confirmation-{reservationId}`, holds across retries of that generation, so the provider collapses repeats, and its category tag keeps the Resend webhook ignoring it as `unknown_email_delivery`.
+- Administrator notices, the cancellation and the restoration email (`WorkspaceReservationEmailService.sendCancellationEmail` and `sendRestorationEmail`), go to the reservation customer in the language `createCustomerEmailLocaleResolver` picks, with the category tags `workspace-reservation-cancellation` and `workspace-reservation-restoration`, source `workspace-reservation-administration`, and the Workspace and Dotypos reservation IDs. They have no email kind or delivery-report handler, so `sent` means only that the provider accepted the send. Neither carries the PIN. The restoration states nothing about payment or refunds; it links the access page only when the restoration issued a new access code, using the confirmation's protected access link in the email language: the link's token and canonical path are locale-bound, so it can't use the locale-agnostic site URL form.

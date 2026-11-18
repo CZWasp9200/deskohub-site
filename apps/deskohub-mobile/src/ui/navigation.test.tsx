@@ -4,7 +4,15 @@ import { createElement } from "react";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { expoRouterStandIn } from "../testing/expo-router-stand-in";
 
-mock.module("expo-router", () => expoRouterStandIn());
+const replaced: unknown[] = [];
+mock.module("expo-router", () =>
+  expoRouterStandIn({
+    useRouter: () => ({
+      push: (_href: unknown) => undefined,
+      replace: (href: unknown) => replaced.push(href),
+    }),
+  })
+);
 // Bun can't load expo-router's bundled React Navigation; its title rule is
 // the string `headerTitle`, then `title`, then the route's name.
 mock.module("expo-router/react-navigation", () => ({
@@ -105,6 +113,29 @@ describe("stack headers", () => {
     ).toBeUndefined();
     onBack({ back })?.();
     expect(goBacks).toEqual(["back"]);
+  });
+
+  test("with nothing behind the screen, back opens its fallback; with a screen behind, it goes back", () => {
+    const goBacks: string[] = [];
+    const onBack = (props: Parameters<typeof header>[0]) =>
+      find(
+        header(props, () => goBacks.push("back")),
+        AppBar
+      )?.props.onBack;
+    onBack({ backFallback: "/reservations" } as never)?.();
+    expect(replaced).toEqual(["/reservations"]);
+    onBack({
+      back: { title: undefined, href: undefined },
+      backFallback: "/reservations",
+    } as never)?.();
+    expect(goBacks).toEqual(["back"]);
+    expect(replaced).toEqual(["/reservations"]);
+    expect(
+      onBack({
+        backFallback: "/reservations",
+        options: { headerBackVisible: false },
+      } as never)
+    ).toBeUndefined();
   });
 
   test("headerRight becomes the app bar's actions", () => {

@@ -15,28 +15,26 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@effect/openapi-generator": "4.0.0-beta.85",
-    "@effect/platform-node": "4.0.0-beta.85",
-    "@effect/tsgo": "0.36.4",
+    "@effect/openapi-generator": "4.1.4",
+    "@effect/platform-node": "4.1.4",
+    "@effect/tsgo": "0.69.0",
     "@typescript/native": "npm:typescript@7.0.2",
-    "@types/bun": "1.4.2",
-    "effect": "4.0.0-beta.85",
+    "@types/bun": "1.4.4",
+    "effect": "4.1.4",
     "knip": "6.40.0",
     "turbo": "^2.9.14",
     "typescript": "npm:@typescript/typescript6@6.0.2"
   },
   "overrides": {
-    "effect": "4.0.0-beta.85",
-    "@effect/platform-node-shared": "4.0.0-beta.85",
+    "effect": "4.1.4",
+    "@effect/platform-node-shared": "4.1.4",
     "path-to-regexp": "6.3.0",
     "sharp": "0.35.5"
   },
-  "packageManager": "bun@1.4.2",
+  "packageManager": "bun@1.4.4",
   "patchedDependencies": {
-    "@effect/sql-pg@4.0.0-beta.85": "patches/@effect%2Fsql-pg@4.0.0-beta.85.patch",
-    "@effect/openapi-generator@4.0.0-beta.85": "patches/@effect%2Fopenapi-generator@4.0.0-beta.85.patch",
-    "effect@4.0.0-beta.85": "patches/effect@4.0.0-beta.85.patch",
     "@better-auth/oauth-provider@1.7.2": "patches/@better-auth%2Foauth-provider@1.7.2.patch",
-    "@better-auth/cimd@1.7.2": "patches/@better-auth%2Fcimd@1.7.2.patch"
+    "@better-auth/cimd@1.7.2": "patches/@better-auth%2Fcimd@1.7.2.patch",
+    "@effect/openapi-generator@4.1.4": "patches/@effect%2Fopenapi-generator@4.1.4.patch"
   }
 }

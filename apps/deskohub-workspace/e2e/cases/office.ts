@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { getWorkspaceOfficePrice } from "@/features/checkout/product-catalog";
 import { formatMoney } from "@/shared/money/money";
 import type { WorkspaceE2EDateAllocation } from "../allocation";

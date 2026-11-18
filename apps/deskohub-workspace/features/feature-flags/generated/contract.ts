@@ -5,6 +5,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   PostHogFeatureFlagDefinitions
 >([
   "account_avatars",
+  "agent_booking",
   "calendar_sales",
   "customer_discounts",
   "discount_codes",
@@ -24,6 +25,10 @@ export type PostHogFeatureFlagKey =
 
 export interface PostHogFeatureFlagDefinitions {
   readonly "account_avatars": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "agent_booking": {
     readonly value: boolean;
     readonly payload: undefined;
   };

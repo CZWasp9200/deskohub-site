@@ -1,11 +1,13 @@
 import Lock from "lucide-react-native/icons/lock";
 import {
   Children,
+  type ComponentRef,
   createContext,
   type ReactNode,
   type Ref,
   useContext,
   useId,
+  useRef,
   useState,
 } from "react";
 import {
@@ -14,7 +16,6 @@ import {
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
-  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -28,14 +29,16 @@ import {
   fieldFrameStyles,
   fieldIconColor,
   fieldInkColor,
+  fieldInputStyle,
 } from "./field";
+import { FocusedFieldContext } from "./focused-field-scroll";
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
-import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
+import { color, radius, shadow, space, touchTarget } from "./tokens";
 
 /**
  * A centred screen with a heading. Its content keeps to a readable width;
@@ -445,6 +448,9 @@ export function TextField({
   | "editable"
 >) {
   const [focused, setFocused] = useState(false);
+  // The scroll view keeps the whole field (label to messages) in sight.
+  const focusTracker = useContext(FocusedFieldContext);
+  const column = useRef<ComponentRef<typeof View>>(null);
   const hintId = useId();
   const errorId = useId();
   const messages = { hint, hintId, error, errorId };
@@ -459,7 +465,7 @@ export function TextField({
   const trailing = trailingIcon ?? (readOnly ? Lock : undefined);
   const iconColor = fieldIconColor(state);
   return (
-    <View style={fieldColumnStyle}>
+    <View ref={column} style={fieldColumnStyle}>
       <FieldLabel label={label} optional={optional} />
       {fieldRow(
         <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
@@ -472,7 +478,7 @@ export function TextField({
             <Text
               selectable
               style={[
-                styles.input,
+                fieldInputStyle,
                 styles.readOnlyValue,
                 { color: fieldInkColor(state) },
               ]}
@@ -492,13 +498,17 @@ export function TextField({
               aria-invalid={description.invalid}
               autoCapitalize={autoCapitalize}
               autoCorrect={false}
-              style={[styles.input, { color: fieldInkColor(state) }]}
+              style={[fieldInputStyle, { color: fieldInkColor(state) }]}
               placeholderTextColor={color.ink3}
               {...input}
               editable={typeable}
-              onFocus={() => setFocused(true)}
+              onFocus={() => {
+                setFocused(true);
+                if (column.current) focusTracker.focused(column.current);
+              }}
               onBlur={(event) => {
                 setFocused(false);
+                if (column.current) focusTracker.blurred(column.current);
                 onBlur?.(event);
               }}
               onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
@@ -577,16 +587,4 @@ const styles = StyleSheet.create({
   },
   centeredContent: { alignItems: "center" },
   readOnlyValue: { paddingVertical: space.md },
-  input: {
-    ...typeScale.body,
-    flex: 1,
-    minWidth: 0,
-    // The frame draws the focus ring; the web's own outline would double it.
-    // Chromium draws an `auto` outline whatever its width, so the style goes
-    // too. React Native's types omit `none`, which React Native Web passes on.
-    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
-    outlineWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: space.md,
-  },
 });

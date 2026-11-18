@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { CustomerInvoiceId } from "@deskohub/workspace-customer-api";
 import { Cause, Effect } from "effect";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import { DeviceCapabilityFailed } from "../../customer-api/device-capabilities";
 import { DownloadShareFailure } from "../../customer-api/share-downloaded-file";
@@ -14,20 +13,19 @@ import {
   sampleInvoiceIds,
   sampleInvoices,
 } from "../../customer-api/testing/sample-fixtures";
-import { invoicePdfName } from "./invoice-list-model";
+import { InvoiceDownload, invoicePdfName } from "./invoice-list-model";
 import {
   invoiceDownloadAtom,
   invoiceDownloadState,
   invoiceListAtom,
 } from "./invoices-state";
 
-/** Runs one invoice's download as its row does, and settles its outcome. */
+/** Runs one document's download as its row does, and settles its outcome. */
 const download = async (
   data: ReturnType<typeof makeFakeCustomerData>,
-  id: CustomerInvoiceId,
-  invoiceNumber: string
+  document: InvoiceDownload
 ) => {
-  data.registry.set(invoiceDownloadAtom, { id, invoiceNumber });
+  data.registry.set(invoiceDownloadAtom, document);
   expect(invoiceDownloadState(data.registry.get(invoiceDownloadAtom))).toEqual({
     kind: "downloading",
   });
@@ -86,16 +84,30 @@ describe("invoiceListAtom", () => {
 
 describe("invoiceDownloadAtom", () => {
   const [desk] = sampleInvoices();
-  if (desk === undefined) throw new Error("the sample has invoices");
+  const cancelled = sampleInvoices().find(
+    ({ invoice }) => invoice.id === sampleInvoiceIds.cancelled
+  );
+  const correctiveDocumentNumber =
+    cancelled?.invoice.cancellation?.correctiveDocumentNumber;
+  if (desk === undefined || correctiveDocumentNumber === undefined)
+    throw new Error("the sample has invoices in force and cancelled");
+  const deskInvoice = InvoiceDownload.Invoice({
+    id: desk.invoice.id,
+    invoiceNumber: desk.invoice.invoiceNumber,
+  });
+  const officeInvoice = InvoiceDownload.Invoice({
+    id: sampleInvoiceIds.office,
+    invoiceNumber: "2026-0341",
+  });
+  const creditNote = InvoiceDownload.CreditNote({
+    id: sampleInvoiceIds.cancelled,
+    correctiveDocumentNumber,
+  });
 
   test("hands the PDF to the share sheet under the invoice's number, then rests", async () => {
     const data = withDownloads();
 
-    const state = await download(
-      data,
-      desk.invoice.id,
-      desk.invoice.invoiceNumber
-    );
+    const state = await download(data, deskInvoice);
 
     expect(state).toEqual({ kind: "idle" });
     expect(data.device.sharedFiles).toEqual([
@@ -110,7 +122,7 @@ describe("invoiceDownloadAtom", () => {
   test("an invoice the Workspace can't find fails the download and shares nothing", async () => {
     const data = withDownloads();
 
-    const state = await download(data, sampleInvoiceIds.office, "2026-0341");
+    const state = await download(data, officeInvoice);
 
     expect(state).toEqual({
       kind: "failed",
@@ -125,12 +137,54 @@ describe("invoiceDownloadAtom", () => {
   test("the next download replaces the last one's failure", async () => {
     const data = withDownloads();
 
-    expect(
-      (await download(data, sampleInvoiceIds.office, "2026-0341")).kind
-    ).toBe("failed");
-    expect(
-      await download(data, desk.invoice.id, desk.invoice.invoiceNumber)
-    ).toEqual({ kind: "idle" });
+    expect((await download(data, officeInvoice)).kind).toBe("failed");
+    expect(await download(data, deskInvoice)).toEqual({ kind: "idle" });
+    expect(data.device.sharedFiles).toHaveLength(1);
+  });
+
+  test("hands a cancelled invoice's credit note to the share sheet under the credit note's number", async () => {
+    const data = withDownloads();
+
+    const state = await download(data, creditNote);
+
+    expect(state).toEqual({ kind: "idle" });
+    expect(data.device.sharedFiles).toEqual([
+      expect.objectContaining({
+        name: invoicePdfName(correctiveDocumentNumber),
+        mimeType: "application/pdf",
+      }),
+    ]);
+    expect(data.device.files.size).toBe(0);
+  });
+
+  test("the credit note of an invoice that isn't cancelled is not found, as an unknown invoice", async () => {
+    const data = withDownloads();
+
+    const state = await download(
+      data,
+      InvoiceDownload.CreditNote({
+        id: desk.invoice.id,
+        correctiveDocumentNumber,
+      })
+    );
+
+    expect(state).toEqual({
+      kind: "failed",
+      failure: DownloadShareFailure.Download({
+        error: CustomerViewError.NotFound(),
+      }),
+    });
+    expect(data.device.sharedFiles).toEqual([]);
+  });
+
+  test("a failed credit note download fails the list's one download, until the next replaces it", async () => {
+    const workspace = FakeWorkspace.forKind("linked");
+    workspace.fail("getCorrectiveDocumentPdf", "service-unavailable");
+    const data = makeFakeCustomerData("linked", workspace);
+    data.registry.mount(invoiceDownloadAtom);
+
+    expect((await download(data, creditNote)).kind).toBe("failed");
+    expect(await download(data, deskInvoice)).toEqual({ kind: "idle" });
     expect(data.device.sharedFiles).toHaveLength(1);
   });
 

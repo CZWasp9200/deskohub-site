@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as OpenApiGenerator from "@effect/openapi-generator/OpenApiGenerator";
+import { Effect } from "effect";
+import type { OpenAPISpec } from "effect/http-api/OpenApi";
 
 const getArgument = (name: string) => {
   const index = Bun.argv.indexOf(name);
@@ -48,61 +48,50 @@ const upgradeSchemaObject = (schema: unknown): unknown => {
     : upgraded;
 };
 
-const asOpenApi31Document = (source: string): string => {
-  const document = Bun.YAML.parse(source) as Record<string, unknown>;
-  document.openapi = "3.1.0";
+const asOpenApi31Document = (
+  document: Record<string, unknown>
+): Record<string, unknown> => {
+  const upgraded: Record<string, unknown> = { ...document, openapi: "3.1.0" };
   for (const section of ["paths", "components"]) {
-    if (document[section] !== undefined) {
-      document[section] = upgradeSchemaObject(document[section]);
+    if (upgraded[section] !== undefined) {
+      upgraded[section] = upgradeSchemaObject(upgraded[section]);
     }
   }
-  return Bun.YAML.stringify(document);
+  return upgraded;
 };
 
-const workDirectory = await mkdtemp(join(tmpdir(), "deskohub-openapi-client-"));
+const specDocument = Bun.YAML.parse(await Bun.file(spec).text()) as Record<
+  string,
+  unknown
+>;
 
-try {
-  const generatedPath = join(workDirectory, "client.ts");
-  const generatorSpec = convertNullableTo31
-    ? join(workDirectory, "spec-openapi-3.1.yaml")
-    : spec;
-
-  if (convertNullableTo31) {
-    await Bun.write(
-      generatorSpec,
-      asOpenApi31Document(await Bun.file(spec).text())
+// `closeObjects` keeps objects that omit `additionalProperties` as plain
+// `Schema.Struct`s (with `.fields`), as the generated clients and their
+// consumers expect, instead of open `StructWithRest` records of JSON values.
+const generatedSource = await Effect.runPromise(
+  Effect.gen(function* () {
+    const generator = yield* OpenApiGenerator.OpenApiGenerator;
+    return yield* generator.generate(
+      (convertNullableTo31
+        ? asOpenApi31Document(specDocument)
+        : specDocument) as unknown as OpenAPISpec,
+      {
+        name,
+        format: "httpclient",
+        closeObjects: true,
+        onWarning: (warning) =>
+          console.error(OpenApiGenerator.formatWarning(warning)),
+      }
     );
-  }
+  }).pipe(Effect.provide(OpenApiGenerator.layerTransformerSchema))
+);
 
-  const generator = Bun.spawn(
-    [
-      "bunx",
-      "openapigen",
-      "--spec",
-      generatorSpec,
-      "--name",
-      name,
-      "--format",
-      "httpclient",
-    ],
-    {
-      stderr: "inherit",
-      stdout: Bun.file(generatedPath),
-    }
-  );
-  const exitCode = await generator.exited;
+const diagnosticHeader =
+  "// @effect-diagnostics schemaNumber:off unnecessaryTypeofType:off\n";
 
-  if (exitCode !== 0) {
-    process.exitCode = exitCode;
-  } else {
-    const generatedSource = await Bun.file(generatedPath).text();
-
-    const diagnosticHeader =
-      "// @effect-diagnostics schemaNumber:off unnecessaryTypeofType:off\n";
-
-    const generatedErrorDecoder =
-      "HttpClientResponse.schemaBodyJson(schema)(response)";
-    const statusPreservingErrorDecoder = `${generatedErrorDecoder}.pipe(
+const generatedErrorDecoder =
+  "HttpClientResponse.schemaBodyJson(schema)(response)";
+const statusPreservingErrorDecoder = `${generatedErrorDecoder}.pipe(
           Effect.mapError(
             () =>
               new HttpClientError.HttpClientError({
@@ -114,29 +103,30 @@ try {
               }),
           ),
         )`;
-    const decodeErrorStart = generatedSource.indexOf("  const decodeError =");
-    const decoderStart = generatedSource.indexOf(
-      generatedErrorDecoder,
-      decodeErrorStart
-    );
-    const operationsStart = generatedSource.indexOf(
-      "  return {",
-      decodeErrorStart
-    );
 
-    if (
-      decodeErrorStart === -1 ||
-      decoderStart === -1 ||
-      operationsStart === -1 ||
-      decoderStart >= operationsStart
-    ) {
-      throw new Error("Could not find the generated error response decoder.");
-    }
-
-    const hardenedSource = `${generatedSource.slice(0, decoderStart)}${statusPreservingErrorDecoder}${generatedSource.slice(decoderStart + generatedErrorDecoder.length)}`;
-
-    await Bun.write(output, `${diagnosticHeader}${hardenedSource}`);
+// The generator emits `decodeError` only for clients that decode documented
+// error responses; a client without it has no error decoder to harden.
+const hardenErrorDecoder = (source: string): string => {
+  const decodeErrorStart = source.indexOf("  const decodeError =");
+  if (decodeErrorStart === -1 && !source.includes("decodeError(")) {
+    return source;
   }
-} finally {
-  await rm(workDirectory, { recursive: true, force: true });
-}
+  const decoderStart = source.indexOf(generatedErrorDecoder, decodeErrorStart);
+  const operationsStart = source.indexOf("  return {", decodeErrorStart);
+
+  if (
+    decodeErrorStart === -1 ||
+    decoderStart === -1 ||
+    operationsStart === -1 ||
+    decoderStart >= operationsStart
+  ) {
+    throw new Error("Could not find the generated error response decoder.");
+  }
+
+  return `${source.slice(0, decoderStart)}${statusPreservingErrorDecoder}${source.slice(decoderStart + generatedErrorDecoder.length)}`;
+};
+
+await Bun.write(
+  output,
+  `${diagnosticHeader}${hardenErrorDecoder(generatedSource)}\n`
+);

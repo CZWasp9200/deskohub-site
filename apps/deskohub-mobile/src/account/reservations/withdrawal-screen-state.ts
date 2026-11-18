@@ -8,7 +8,7 @@ import type {
   WithdrawFromCustomerReservation,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Effect, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import {

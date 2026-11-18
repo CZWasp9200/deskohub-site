@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DotyposUncertain } from "@deskohub/dotypos";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Effect } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import {
   type CustomerAccountAccessError,
   customerAccountIdSchema,

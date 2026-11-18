@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import Archive from "lucide-react-native/icons/archive";
 import Download from "lucide-react-native/icons/download";
 import { accountAtom } from "../../customer-api/customer-data-runtime";

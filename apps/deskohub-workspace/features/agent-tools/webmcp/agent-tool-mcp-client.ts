@@ -11,12 +11,18 @@ export class AgentToolRequestError extends Data.TaggedError(
   "AgentToolRequestError"
 )<{ readonly cause?: unknown; readonly status?: number }> {}
 
+// JSON object members a schema doesn't name, kept as they arrive.
+const otherMembers = [Schema.Record(Schema.String, Schema.Json)] as const;
+
 // A published tool input is a JSON Schema object; registration passes every
 // keyword through, so decoding keeps the ones not named here.
-const publishedInputSchemaSchema = Schema.Struct({
-  type: Schema.Literal("object"),
-  properties: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
-});
+const publishedInputSchemaSchema = Schema.StructWithRest(
+  Schema.Struct({
+    type: Schema.Literal("object"),
+    properties: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+  }),
+  otherMembers
+);
 
 const publishedAgentToolSchema = Schema.Struct({
   name: Schema.String,
@@ -49,9 +55,15 @@ const toolsListResponseSchema = Schema.Struct({
 
 // The typed error a tool returns instead of a result: a `code`, a localized
 // `message`, and any details the tool adds.
-const agentToolCallErrorSchema = Schema.Struct({
-  error: Schema.Struct({ code: Schema.String, message: Schema.String }),
-});
+const agentToolCallErrorSchema = Schema.StructWithRest(
+  Schema.Struct({
+    error: Schema.StructWithRest(
+      Schema.Struct({ code: Schema.String, message: Schema.String }),
+      otherMembers
+    ),
+  }),
+  otherMembers
+);
 
 const toolCallResponseSchema = Schema.Struct({
   result: Schema.Union([
@@ -124,10 +136,7 @@ function postAgentToolRequest<S extends Schema.Top>(
     Effect.scoped,
     Effect.map(getJsonRpcMessage),
     Effect.flatMap((message) =>
-      Schema.decodeUnknownEffect(Schema.fromJsonString(responseSchema), {
-        // Tool errors carry details such as a date range beside the code.
-        onExcessProperty: "preserve",
-      })(message)
+      Schema.decodeUnknownEffect(Schema.fromJsonString(responseSchema))(message)
     ),
     Effect.mapError((cause) =>
       cause instanceof AgentToolRequestError

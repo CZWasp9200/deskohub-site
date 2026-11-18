@@ -1,1 +1,0 @@
-ALTER TABLE "administration_actions" DROP CONSTRAINT "administration_actions_channel_check", ADD CONSTRAINT "administration_actions_channel_check" CHECK (num_nonnulls("cli_session_id", "assistant_connection_id") <= 1);

@@ -79,7 +79,7 @@ describe.skipIf(!testDatabase)(
       Layer.provideMerge(
         Layer.mergeAll(
           repositories,
-          WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.pool),
+          WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.databasePool),
           Layer.mock(DotyposService, dotypos as never),
           Layer.mock(AccountingDocumentSnapshots, {
             find: unreachable("snapshots.find"),

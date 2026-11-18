@@ -277,7 +277,6 @@ export const EmailDraft = Schema.Struct({
   ),
 }).annotate({
   identifier: "EmailDraft",
-  parseOptions: { onExcessProperty: "error" },
 });
 export type EmailDraft = typeof EmailDraft.Type;
 

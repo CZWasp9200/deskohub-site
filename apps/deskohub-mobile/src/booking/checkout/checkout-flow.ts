@@ -4,6 +4,7 @@ import type {
   CustomerCheckout,
   CustomerLocale,
   CustomerOffering,
+  CustomerPaymentRetryDetails,
 } from "@deskohub/workspace-customer-api";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
@@ -19,7 +20,7 @@ import {
   Ref,
   Stream,
 } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useMemo, useRef } from "react";
 import { reservationHistoryAtom } from "../../account/reservations/reservations-list-state";
 import {
@@ -86,6 +87,8 @@ export interface PaymentRetryRequest {
   readonly selection: CustomerBookingSelection;
   readonly earlySetup?: boolean;
   readonly checkout: CustomerCheckout;
+  /** Who the order is for and its invoice, as the server kept them. */
+  readonly details: CustomerPaymentRetryDetails;
   /** What the order cost before, which a changed price is shown against. */
   readonly previousTotal: CustomerCheckout["summary"]["total"];
 }
@@ -497,7 +500,8 @@ const startFlow = (request: CheckoutRequest) =>
                   advertisedPriceToken: "",
                   rememberedReferralCode: Option.none(),
                 },
-                request.checkout
+                request.checkout,
+                request.details
               );
         return {
           view: { state: started.state, now },

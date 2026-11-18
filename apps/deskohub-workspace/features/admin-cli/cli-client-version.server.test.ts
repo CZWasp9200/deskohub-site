@@ -17,13 +17,13 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   CliClientCompatibilityLive,
   collectMinimumDhwVersions,
@@ -83,11 +83,13 @@ const TestApi = HttpApi.make("testApi")
         HttpApiEndpoint.post("cancelReservation", "/cancellations", {
           payload: Schema.Struct({
             sendCancellationEmail: Schema.Boolean,
-          }).annotate({
-            parseOptions: { errors: "all", onExcessProperty: "error" },
           }),
           success: Schema.String,
         })
+          .annotate(HttpApi.PayloadParseOptions, {
+            errors: "all",
+            onExcessProperty: "error",
+          })
           .annotate(MinimumDhwVersion, Option.some(minimum))
           .annotate(OutdatedDhwRefusal, "CliServiceUnavailable")
       )
@@ -175,21 +177,26 @@ describe("dhw client version", () => {
   );
 
   test("refuses an older version's payload before decoding it strictly", async () => {
-    const response = await handleTestRequest(
-      new Request("https://workspace.deskohub.test/cancellations", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [dhwVersionHeader]: "1.19.9",
-        },
-        body: JSON.stringify({ sendCancellationEmail: true, unknown: true }),
-      })
-    );
+    const cancel = (version: string) =>
+      handleTestRequest(
+        new Request("https://workspace.deskohub.test/cancellations", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [dhwVersionHeader]: version,
+          },
+          body: JSON.stringify({ sendCancellationEmail: true, unknown: true }),
+        })
+      );
 
-    expect(response.status).toBe(503);
+    const outdated = await cancel("1.19.9");
+    expect(outdated.status).toBe(503);
     expect(
-      Schema.decodeUnknownSync(CliServiceUnavailable)(await response.json())
+      Schema.decodeUnknownSync(CliServiceUnavailable)(await outdated.json())
     ).toBeInstanceOf(CliServiceUnavailable);
+    // The current version reaches the strict decode, which rejects the
+    // unknown field.
+    expect((await cancel("1.20.0")).status).toBe(400);
   });
 
   test("serves the minimum where an operation refuses with a service error", async () => {
@@ -241,7 +248,7 @@ describe("dhw client version", () => {
           mergedAnnotations,
           MinimumDhwVersion
         );
-        const reference = `${group.identifier}.${endpoint.name}`;
+        const reference = `${group.identifier}.${endpoint.identifier}`;
         const expectedMinimum =
           endpointMinimums[reference] ?? groupMinimums[group.identifier];
         if (expectedMinimum !== undefined) {

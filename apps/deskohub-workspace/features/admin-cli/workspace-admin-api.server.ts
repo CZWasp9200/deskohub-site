@@ -1,5 +1,6 @@
 import {
   AdministrationAuthentication,
+  AdministrationInvoiceId,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
@@ -11,6 +12,7 @@ import {
   type CliMutationRequestIdType,
   CliMutationUncertain,
   CliResourceNotFound,
+  CliServiceUnavailable,
   CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
@@ -18,15 +20,17 @@ import {
   CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Match, Redacted, Schema } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { DateTime, Effect, Layer, Match, Redacted, Schema } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   StandaloneAccessCodeAdministration,
   type StandaloneAccessCodeCreationError,
 } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
+import type { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import type { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
@@ -198,21 +202,67 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           mapServiceFailure,
           Effect.flatMap((detail) =>
             detail
-              ? Effect.succeed(detail)
+              ? Effect.succeed({
+                  ...detail,
+                  invoice: detail.invoice && {
+                    ...detail.invoice,
+                    id: AdministrationInvoiceId.make(detail.invoice.id),
+                  },
+                })
               : new CliResourceNotFound({
                   message: "The reservation was not found.",
                 })
           )
         )
       )
-      .handle("cancelReservation", ({ params, payload }) =>
+      .handle(
+        "cancelReservation",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* reservationAdministration
+            .cancel({
+              actor: {
+                source,
+                administrator: actor,
+              },
+              ...(payload.confirmedConsequences && {
+                confirmedConsequences: payload.confirmedConsequences,
+              }),
+              force: payload.force ?? false,
+              reservationId: params.reservationId,
+              sendCancellationEmail: payload.sendCancellationEmail,
+            })
+            .pipe(
+              Effect.map(({ invoice, ...result }) => ({
+                ...result,
+                invoice: invoice && {
+                  ...invoice,
+                  invoiceId: AdministrationInvoiceId.make(invoice.invoiceId),
+                },
+              })),
+              mapAdministrationApiFailure(mapReservationCancellationFailure)
+            );
+        })
+      )
+      .handle("restoreReservation", ({ params, payload }) =>
         reservationAdministration
-          .cancel({
-            force: payload.force ?? false,
+          .restore({
+            acknowledgeRefundedPayment: payload.acknowledgeRefundedPayment,
             reservationId: params.reservationId,
-            sendCancellationEmail: payload.sendCancellationEmail,
+            sendRestorationEmail: payload.sendRestorationEmail,
           })
-          .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
+          .pipe(
+            Effect.map(({ invoice, ...result }) => ({
+              ...result,
+              invoice: invoice && {
+                ...invoice,
+                invoiceId:
+                  invoice.invoiceId &&
+                  AdministrationInvoiceId.make(invoice.invoiceId),
+              },
+            })),
+            mapAdministrationApiFailure(mapReservationRestorationFailure)
+          )
       )
       .handle("retryReservationWithdrawal", ({ params }) =>
         retryReservationWithdrawal(params.reservationId).pipe(
@@ -326,10 +376,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         administration.listCustomers(query).pipe(mapServiceFailure)
       )
       .handle("searchCustomers", ({ query }) =>
-        customerDirectory.search(query.query).pipe(
-          Effect.map(({ kind, customers }) => ({
+        Effect.all({
+          search: customerDirectory.search(query.query),
+          now: DateTime.nowAsDate,
+        }).pipe(
+          Effect.map(({ search: { kind, customers }, now }) => ({
             kind,
-            customers: customers.map(toAdminDotyposCustomer),
+            customers: customers.map((customer) =>
+              toAdminDotyposCustomer(customer, now)
+            ),
           })),
           mapServiceFailure
         )
@@ -413,14 +468,22 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       )
       .handle("getInvoice", ({ params }) =>
         invoices
-          .get(params.invoiceId)
+          .get(params.invoiceId, { includeArchived: true })
           .pipe(mapAdministrationApiFailure(mapInvoiceReadFailure))
       )
       .handle("getInvoicePdf", ({ params }) =>
-        invoices.getPdf(params.invoiceId).pipe(
+        invoices.getPdf(params.invoiceId, { includeArchived: true }).pipe(
           Effect.map(({ bytes }) => bytes),
           mapAdministrationApiFailure(mapInvoiceReadFailure)
         )
+      )
+      .handle("getInvoiceCorrectiveDocumentPdf", ({ params }) =>
+        invoices
+          .getCorrectiveDocumentPdf(params.invoiceId, { includeArchived: true })
+          .pipe(
+            Effect.map(({ bytes }) => bytes),
+            mapAdministrationApiFailure(mapCorrectiveDocumentReadFailure)
+          )
       )
       .handle("getInvoiceCreationDefaults", () =>
         invoices.getCreationDefaults().pipe(mapServiceFailure)
@@ -489,6 +552,38 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               : makeServiceUnavailable()
           )
         )
+      )
+      .handle(
+        "cancelInvoice",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* invoices
+            .cancel({
+              invoiceId: params.invoiceId,
+              actor: {
+                source,
+                administrator: actor,
+              },
+              confirmedCustomerNotice: payload.confirmedCustomerNotice,
+              ...(payload.reservation && { reservation: payload.reservation }),
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceCancellationFailure));
+        })
+      )
+      .handle(
+        "archiveInvoice",
+        Effect.fn(function* ({ params }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* invoices
+            .archive({
+              invoiceId: params.invoiceId,
+              actor: {
+                source,
+                administrator: actor,
+              },
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceArchiveFailure));
+        })
       )
       .handle(
         "listSessions",
@@ -623,6 +718,81 @@ const mapInvoiceReadFailure = (
     Match.orElse(makeServiceUnavailable)
   );
 
+const invoiceNotFound = () =>
+  new CliResourceNotFound({ message: "The invoice was not found." });
+
+/**
+ * The invoice's documents can't be read, so nothing was changed; the code
+ * tells it apart from an unavailable API.
+ */
+const invoiceDocumentUnavailable = () =>
+  new CliServiceUnavailable({
+    code: "document_unavailable",
+    message:
+      "The invoice's documents can't be read right now. Nothing was changed; try again later.",
+  });
+
+const mapInvoiceCancellationError = ({
+  code,
+  message,
+}: InvoiceCancellationError) => {
+  switch (code) {
+    case "not_found":
+      return invoiceNotFound();
+    case "reservation_confirmation_required":
+    case "confirmation_stale":
+    case "reservation_cancellation_in_progress":
+      return new CliMutationRejected({ code, message });
+    case "document_unavailable":
+      return invoiceDocumentUnavailable();
+    case "persistence_failed":
+      return makeServiceUnavailable();
+  }
+};
+
+const mapInvoiceCancellationFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["cancel"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", mapInvoiceCancellationError),
+    Match.tag(
+      "ReservationAdministrationError",
+      mapReservationCancellationFailure
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapInvoiceArchiveFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["archive"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag(
+      "InvoiceArchiveError",
+      ({ code, message }: InvoiceArchiveError) =>
+        code === "not_cancelled"
+          ? new CliMutationRejected({ code, message })
+          : invoiceNotFound()
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapCorrectiveDocumentReadFailure = (
+  cause: Effect.Error<
+    ReturnType<InvoiceAdministration["getCorrectiveDocumentPdf"]>
+  >
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", ({ code }) =>
+      code === "document_unavailable"
+        ? invoiceDocumentUnavailable()
+        : makeServiceUnavailable()
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
 const mapInvoicePreviewFailure = (
   cause: Effect.Error<ReturnType<InvoiceAdministration["preview"]>>
 ) =>
@@ -712,6 +882,22 @@ const mapReservationCancellationFailure = (
     return new CliResourceNotFound({ message: cause.message });
   }
   if (cause.code === "not_cancellable") {
+    return new CliMutationRejected({
+      message: cause.message,
+      ...(cause.reason === "confirmation_stale" && { code: cause.reason }),
+    });
+  }
+  return makeServiceUnavailable();
+};
+
+/** A refusal over a refund keeps its message, which names the refunded amount. */
+const mapReservationRestorationFailure = (
+  cause: ReservationAdministrationError
+) => {
+  if (cause.code === "not_found") {
+    return new CliResourceNotFound({ message: cause.message });
+  }
+  if (cause.code === "not_restorable") {
     return new CliMutationRejected({ message: cause.message });
   }
   return makeServiceUnavailable();

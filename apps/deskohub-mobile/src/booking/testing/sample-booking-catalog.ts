@@ -1,13 +1,21 @@
 import type {
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingSelection,
   CustomerCheckoutSummary,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerMonitorOption,
   CustomerOffering,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { daysBetween, type PragueDate } from "../selection/prague-date";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
+import {
+  addMonths,
+  daysBetween,
+  type PragueDate,
+  pragueInstant,
+} from "../selection/prague-date";
 
 /**
  * Synthetic booking catalog for the fake Workspace: offerings, prices and
@@ -37,12 +45,46 @@ export const samplePrices = {
   officeSeat: 250,
 } as const;
 
+/** When the sample Reserved Desk's overnight stay starts and ends. */
+export const sampleOvernightStay: CoworkOvernightStay = {
+  startTime: "12:00",
+  endTime: "12:00",
+};
+
+/**
+ * `offerings` with the Reserved Desk's overnight stay set to `overnightStay`,
+ * or removed without one, for a test that needs a day-only catalog.
+ */
+export const withReservedDeskOvernightStay = (
+  offerings: ReadonlyArray<CustomerOffering>,
+  overnightStay: CoworkOvernightStay | undefined
+): ReadonlyArray<CustomerOffering> =>
+  offerings.map((offering) => {
+    if (offering.family !== "cowork" || offering.tier !== "reserved-desk")
+      return offering;
+    const { overnightStay: _sampled, ...day } = offering;
+    return overnightStay === undefined ? day : { ...day, overnightStay };
+  });
+
 export const sampleOfficeMaximumSeats = 6;
 export const sampleOfficeMaximumDurationHours = 672;
 
+/**
+ * The dates an offering advertised on `advertisedOn` can be booked on, as
+ * the server's rules give them: cowork and meeting room six months ahead,
+ * the office one.
+ */
+export const sampleBookableDates = (
+  advertisedOn: PragueDate,
+  family: CustomerOffering["family"]
+): CustomerBookableDates => ({
+  earliest: advertisedOn,
+  latest: addMonths(advertisedOn, family === "office" ? 1 : 6),
+});
+
 export const sampleOfferings = (
   locale: CustomerLocale,
-  advertisedOn: string
+  advertisedOn: PragueDate
 ): CustomerBookingOfferings => {
   const offerings: ReadonlyArray<CustomerOffering> = [
     {
@@ -62,6 +104,7 @@ export const sampleOfferings = (
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.openSpace),
       advertisedPrice: { price: czk(samplePrices.openSpace), ...noSale },
+      bookableDates: sampleBookableDates(advertisedOn, "cowork"),
       addOns: [
         {
           id: "coffee",
@@ -88,6 +131,7 @@ export const sampleOfferings = (
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.reservedDesk),
       advertisedPrice: { price: czk(samplePrices.reservedDesk), ...noSale },
+      bookableDates: sampleBookableDates(advertisedOn, "cowork"),
       addOns: [
         {
           id: "coffee",
@@ -108,6 +152,7 @@ export const sampleOfferings = (
           ],
         },
       ],
+      overnightStay: sampleOvernightStay,
     },
     ...(["hour:1", "hour:4", "day:1"] as const).map(
       (duration): CustomerOffering => ({
@@ -121,22 +166,14 @@ export const sampleOfferings = (
         name: copy(locale, "Meeting room", "Zasedací místnost"),
         description: copy(
           locale,
-          "A room for up to eight people.",
-          "Místnost až pro osm lidí."
+          "A room for up to ten people.",
+          "Místnost až pro deset lidí."
         ),
         usage: copy(locale, "Book by the hour.", "Rezervace po hodinách."),
         facts: [
           {
             kind: "capacity",
-            text: copy(locale, "Up to 8 seats", "Až 8 míst"),
-          },
-          {
-            kind: "equipment",
-            text: copy(
-              locale,
-              "TV for presentations",
-              "Televize pro prezentace"
-            ),
+            text: copy(locale, "Up to 10 seats", "Až 10 míst"),
           },
         ],
         price: czk(samplePrices.meetingRoom[duration]),
@@ -144,6 +181,7 @@ export const sampleOfferings = (
           price: czk(samplePrices.meetingRoom[duration]),
           ...noSale,
         },
+        bookableDates: sampleBookableDates(advertisedOn, "meeting-room"),
       })
     ),
     {
@@ -151,8 +189,8 @@ export const sampleOfferings = (
       name: copy(locale, "Private office", "Soukromá kancelář"),
       description: copy(
         locale,
-        "A lockable office for your team.",
-        "Uzamykatelná kancelář pro váš tým."
+        "A private office reserved only for you for whole days, with the seats you need.",
+        "Soukromá kancelář jen pro tebe na celé dny, s tolika místy, kolik potřebuješ."
       ),
       usage: copy(locale, "Book whole days.", "Rezervace na celé dny."),
       price: czk(samplePrices.officeDay),
@@ -163,6 +201,7 @@ export const sampleOfferings = (
         price: czk(samplePrices.officeDay + samplePrices.officeSeat),
         ...noSale,
       },
+      bookableDates: sampleBookableDates(advertisedOn, "office"),
     },
   ];
   return {
@@ -186,7 +225,26 @@ interface PricedLine {
   readonly accessCrowns?: number;
   /** One office seat for the days booked, before discounts. */
   readonly seatCrowns?: number;
+  /** A workstation line's monitor setup. */
+  readonly monitorOption?: CustomerMonitorOption;
 }
+
+/**
+ * When a meeting-room booking's early setup lets the customer in: 15
+ * minutes before its start, as the Workspace sets it.
+ */
+export const sampleEarlySetupStartsAt = (
+  selection: CustomerBookingSelection
+): string | undefined => {
+  if (selection.family !== "meeting-room" || selection.startTime === undefined)
+    return undefined;
+  const start = pragueInstant({
+    date: selection.date as PragueDate,
+    hour: Number(selection.startTime.slice(0, 2)),
+    minute: Number(selection.startTime.slice(3, 5)),
+  });
+  return new Date(start.getTime() - 15 * 60_000).toISOString();
+};
 
 /** Inclusive Prague days between two plain dates. */
 export const inclusiveDays = (from: PragueDate, to: PragueDate) =>
@@ -212,8 +270,9 @@ export const pricedLines = (
       ...(tier === "reserved-desk" && selection.monitorOption !== undefined
         ? [
             {
-              key: `monitor:${selection.monitorOption}`,
+              key: "addon:workstation",
               crowns: samplePrices.workstation,
+              monitorOption: selection.monitorOption,
             },
           ]
         : []),
@@ -259,11 +318,14 @@ export const sampleSummary = ({
   discountShare = 0,
   discountLabel = "",
   surcharge = 0,
+  earlySetupStartsAt,
 }: {
   readonly lines: ReadonlyArray<PricedLine>;
   readonly discountShare?: number;
   readonly discountLabel?: string;
   readonly surcharge?: number;
+  /** A meeting room's early setup: when the customer may come in, for free. */
+  readonly earlySetupStartsAt?: string | undefined;
 }): CustomerCheckoutSummary => {
   const items = lines.map((line, index) => {
     const original = line.crowns + (index === 0 ? surcharge : 0);
@@ -276,7 +338,14 @@ export const sampleSummary = ({
             originalAmount: czk(original),
             discounts: [
               {
-                discount: { id: sampleDiscountId, label: discountLabel },
+                discount: {
+                  id: sampleDiscountId,
+                  label: discountLabel,
+                  adjustment: {
+                    kind: "percentage" as const,
+                    basisPoints: Math.round(discountShare * 10_000),
+                  },
+                },
                 amount: czk(off),
               },
             ],
@@ -290,6 +359,23 @@ export const sampleSummary = ({
       ...(line.seatCrowns === undefined
         ? {}
         : { seatAmount: czk(line.seatCrowns) }),
+      ...(line.seatCrowns === undefined || line.seats === undefined
+        ? {}
+        : { seatsAmount: czk(line.seatCrowns * line.seats) }),
+      ...(line.dayCount === undefined ||
+      line.accessCrowns === undefined ||
+      line.seatCrowns === undefined
+        ? {}
+        : {
+            dailyAccessRate: czk(line.accessCrowns / line.dayCount),
+            dailySeatRate: czk(line.seatCrowns / line.dayCount),
+          }),
+      ...(index === 0 && earlySetupStartsAt !== undefined
+        ? { earlySetup: { startsAt: earlySetupStartsAt, amount: czk(0) } }
+        : {}),
+      ...(line.monitorOption === undefined
+        ? {}
+        : { monitorOption: line.monitorOption }),
     };
   });
   const total = czk(

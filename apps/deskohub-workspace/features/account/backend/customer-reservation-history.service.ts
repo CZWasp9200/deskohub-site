@@ -7,10 +7,11 @@ import {
 import { desc, eq, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
 import { defaultLocale, type Locale } from "@/features/i18n";
+import { isEndedUnpaidPaymentState } from "@/features/order";
 import {
   type BookedInterval,
   type BookedReservation,
@@ -84,8 +85,9 @@ type ReservationRow = {
   /** Undefined when the stored document is malformed. */
   readonly reservationDetails: StoredWorkspaceReservationDetails | undefined;
   readonly reservationState: (typeof workspaceReservations.$inferSelect)["reservationState"];
-  readonly fulfillmentState: (typeof workspaceReservations.$inferSelect)["fulfillmentState"];
+  /** The payment state its order mirrors. */
   readonly paymentState: (typeof workspaceReservations.$inferSelect)["paymentState"];
+  readonly fulfillmentState: (typeof workspaceReservations.$inferSelect)["fulfillmentState"];
   readonly reservationPurpose: (typeof workspaceReservations.$inferSelect)["reservationPurpose"];
   readonly paidAt: (typeof workspaceReservations.$inferSelect)["paidAt"];
 };
@@ -131,6 +133,10 @@ const getLocalReservationStatus = (
   return stateStatus;
 };
 
+/**
+ * A hold whose payment ended unpaid isn't booked, even while Dotypos still
+ * holds it for a retry; Dotypos's own confirmation keeps it booked.
+ */
 const getReservationStatus = (
   reservation: ReservationRecord,
   row: ReservationRow | undefined
@@ -138,7 +144,10 @@ const getReservationStatus = (
   if (reservation.status === "CANCELLED") return "cancelled";
   const localStatus = getLocalReservationStatus(row);
   if (localStatus !== undefined) return localStatus;
-  return reservation.status === "CONFIRMED" ? "confirmed" : "pending";
+  if (reservation.status === "CONFIRMED") return "confirmed";
+  return row && isEndedUnpaidPaymentState(row.paymentState)
+    ? "cancelled"
+    : "pending";
 };
 
 /**
@@ -530,8 +539,8 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
         dotyposReservationId: workspaceReservations.dotyposReservationId,
         reservationDetails: workspaceReservations.reservationDetails,
         reservationState: workspaceReservations.reservationState,
-        fulfillmentState: workspaceReservations.fulfillmentState,
         paymentState: workspaceReservations.paymentState,
+        fulfillmentState: workspaceReservations.fulfillmentState,
         reservationPurpose: workspaceReservations.reservationPurpose,
         paidAt: workspaceReservations.paidAt,
       })
@@ -620,7 +629,7 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
           )
         ),
       },
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     );
 
   const readPartyNames = ({
@@ -719,7 +728,7 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
             withdrawals: readWithdrawals(input),
             onSite: readOnSite(input),
           },
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         )
       ),
       Effect.map(({ entries, lookups }) =>

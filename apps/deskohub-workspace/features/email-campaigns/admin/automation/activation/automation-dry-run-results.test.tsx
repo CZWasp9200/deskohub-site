@@ -2,12 +2,12 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import type {
   AdministrationCampaignContent,
-  AutomationDryRun,
   AutomationDryRunRow,
 } from "@deskohub/workspace-admin-api";
 import { automationPreviewOutcomes } from "@deskohub/workspace-admin-api";
 import { cleanup, render, within } from "@testing-library/react";
 import { formatAdministrationDateTime } from "@/features/administration/components";
+import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
 import { m } from "@/features/administration/i18n";
 import { RouteLocaleProvider } from "@/features/i18n/route-locale";
 import {
@@ -15,6 +15,7 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { formatCount } from "@/shared/utils/number";
+import type { AutomationDryRunWithLifecycle } from "../../../automation/backend/automation-dry-run.service";
 import { automationStepLabelOrId } from "../run-log/automation-step-label";
 import {
   automationFlowFixture,
@@ -32,7 +33,7 @@ const unnamed = testEmailAddress("dry-run-unnamed");
 const asOf = "2026-10-05T08:00:00.000Z";
 
 const renderResults = (
-  dryRun: AutomationDryRun,
+  dryRun: AutomationDryRunWithLifecycle,
   {
     content = {},
     cursor,
@@ -234,6 +235,51 @@ describe("AutomationDryRunResults", () => {
       [unnamed],
       ["customer-unknown"],
     ]);
+  });
+
+  test.each([
+    ["deleted", m.administrationCustomerDeleted],
+    ["expired", m.administrationCustomerExpired],
+  ] as const)(
+    "shows a %s customer as the placeholder without contact details",
+    (lifecycle, message) => {
+      const view = renderResults(
+        automationDryRunFixture(
+          {
+            customers: [
+              {
+                customerId: "customer-inactive",
+                name: inactiveCustomerDisplayNames[lifecycle],
+                email: null,
+              },
+            ],
+            rows: [row({ customerId: "customer-inactive" })],
+          },
+          { "customer-inactive": lifecycle }
+        )
+      );
+      const [item] = within(
+        view.getByRole("list", { name: rowsLabel })
+      ).getAllByRole("listitem");
+      const lines = item?.querySelectorAll("p.truncate") ?? [];
+      const placeholder = item?.querySelector(
+        `[data-customer-lifecycle="${lifecycle}"]`
+      );
+
+      expect(lines).toHaveLength(1);
+      expect(placeholder?.textContent).toBe(message({}, { locale }));
+      expect(item?.querySelector("a")).toBeNull();
+    }
+  );
+
+  test("shows an active customer without the placeholder treatment", () => {
+    const view = renderResults(
+      automationDryRunFixture({ customers, rows: [row()] })
+    );
+
+    expect(
+      view.container.querySelector("[data-customer-lifecycle]")
+    ).toBeNull();
   });
 
   test("shows a replayed row's trigger and every row's send time", () => {

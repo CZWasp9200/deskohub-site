@@ -29,6 +29,8 @@
   "booking_details_city": "Місто",
   "booking_details_postal_code": "Поштовий індекс",
   "booking_details_country": "Країна",
+  "booking_details_country_search": "Пошук країни",
+  "booking_details_country_no_match": "Жодна країна не відповідає пошуку.",
   "booking_details_news_heading": "Новини від Deskohub",
   "booking_details_optional": "Необовʼязково",
   "booking_details_marketing_consent": "Надсилайте мені електронною поштою новини, події та пропозиції Deskohub Workspace. Відписатися можна будь-коли.",
@@ -74,8 +76,39 @@
   "booking_checkout_summary_total": "Разом до оплати",
   "booking_checkout_summary_changed": "Ціна змінилася",
   "booking_checkout_summary_original_price": "Початкова ціна: {amount}",
-  "booking_checkout_summary_office_days": "Кількість днів: {count}",
-  "booking_checkout_summary_office_seats": "Кількість місць в офісі: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} день",
+        "countPlural=few": "{formattedCount} дні",
+        "countPlural=many": "{formattedCount} днів",
+        "countPlural=other": "{formattedCount} дня"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Місця в офісі",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} місце",
+        "countPlural=few": "{formattedCount} місця",
+        "countPlural=many": "{formattedCount} місць",
+        "countPlural=other": "{formattedCount} місця"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Місце у спільному просторі",
   "booking_checkout_line_reserved_desk": "Закріплене місце на день",
   "booking_checkout_line_meeting_room": "Переговорна кімната",
@@ -83,7 +116,6 @@
   "booking_checkout_line_coffee": "Кава",
   "booking_checkout_line_workstation": "Робоча станція з моніторами",
   "booking_checkout_line_other": "Інша позиція",
-  "booking_price_line_one_day": "1 день",
   "booking_price_line_one_hour": "1 година, {start}–{end}",
   "booking_price_line_four_hours": "4 години, {start}–{end}",
   "booking_summary_open_space_day": "{date}, до {time}",
@@ -96,6 +128,9 @@
   "booking_summary_one_hour": "1 година",
   "booking_summary_four_hours": "4 години",
   "booking_price_free": "Безкоштовно",
+  "booking_price_line_discount_off": "знижка {amount}",
+  "booking_price_line_early_setup": "Прихід на 15 хвилин раніше",
+  "booking_price_line_early_setup_from": "Вхід з {time}",
   "booking_price_updating": "Оновлюємо ціну…",
   "booking_price_show_details": "Показати деталі ціни",
   "booking_price_hide_details": "Сховати деталі ціни",
@@ -120,7 +155,7 @@
   "booking_checkout_legal_loading": "Завантажуємо умови…",
   "booking_checkout_legal_failed": "Не вдалося завантажити умови. Спробуйте ще раз.",
   "booking_checkout_legal_consent": "Я погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>».",
-  "booking_checkout_legal_consent_early_performance": "Я погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>». Оскільки послуга починається протягом установленого законом строку для відмови від договору, я прямо прошу надати її в заброньований час і беру до відома, що після повного надання послуги моє право на відмову від договору припиняється.",
+  "booking_checkout_legal_consent_early_performance": "Я погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>». Я прошу надати послугу в заброньовану дату, протягом строку для відмови від договору, і беру до відома, що моє право на відмову від договору припиняється після її повного надання.",
   "booking_checkout_legal_changed": "Поки ви бронювали, умови змінилися. Прочитайте їх ще раз і позначте згоду, щоб продовжити.",
   "booking_checkout_consent_required": "Перед оплатою позначте згоду з умовами.",
   "booking_checkout_consent_required_early_performance": "Перед оплатою позначте згоду з умовами та з початком надання послуги до спливу строку для відмови від договору.",
@@ -188,6 +223,8 @@
   "signin_resend_link": "Надіслати посилання ще раз",
   "signin_resend_link_in": "Надіслати посилання ще раз через {time}",
   "signin_link_resent": "Ми надіслали нове посилання. Скористайтеся найновішим листом.",
+  "signin_signed_in_in_app_title": "Вхід виконано",
+  "signin_signed_in_in_app_body": "Ви ввійшли в застосунок за посиланням з листа. Цю вкладку можна закрити.",
   "signin_already_signed_in": "Ви вже ввійшли",
   "signin_continue": "Продовжити",
   "signin_create_title": "Вхід або створення облікового запису",
@@ -510,8 +547,6 @@
   "booking_gate_deletion_title": "Ваш обліковий запис видаляється",
   "booking_gate_deletion_body": "Поки це триває, ви не можете робити нові бронювання. Напишіть нам, якщо це помилка.",
   "booking_cowork_tier_heading": "Тип місця",
-  "booking_cowork_stay_label": "Тривалість перебування",
-  "booking_cowork_stay_day": "День",
   "booking_cowork_stay_overnight": "На ніч",
   "booking_date_heading": "Дата",
   "booking_calendar_previous_month": "Попередній місяць",
@@ -676,6 +711,11 @@
   "invoices_download_label": "Завантажити рахунок-фактуру {number}",
   "invoices_downloading": "Завантажуємо рахунок-фактуру {number}…",
   "invoices_download_not_found": "Не вдалося знайти цей рахунок-фактуру. Оновіть список і спробуйте ще раз.",
+  "invoices_status_cancelled": "Скасовано",
+  "invoices_download_invoice_button": "Рахунок-фактура",
+  "invoices_download_credit_note_button": "Коригувальний документ",
+  "invoices_credit_note_download_label": "Завантажити коригувальний документ {number}",
+  "invoices_credit_note_downloading": "Завантажуємо коригувальний документ {number}…",
   "booking_review_title": "Перевірка й оплата",
   "booking_review_booking_heading": "Ваше бронювання",
   "booking_review_change": "Змінити",
@@ -738,7 +778,40 @@
   "referrals_saved_so_far": "Заощаджено досі",
   "referrals_discount_info": "Як розраховується знижка",
   "referrals_joined_nobody": "За вашим кодом поки ніхто не приєднався.",
-  "referrals_joined_some": "Приєдналися за вашим кодом: {invitees}. Враховуються у вашій знижці: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "За вашим кодом приєдналася {formattedCount} людина",
+        "countPlural=few": "За вашим кодом приєдналися {formattedCount} людини",
+        "countPlural=many": "За вашим кодом приєдналося {formattedCount} людей",
+        "countPlural=other": "За вашим кодом приєдналися {formattedCount} людини"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} враховується у вашій знижці",
+        "countPlural=few": "{formattedCount} враховуються у вашій знижці",
+        "countPlural=many": "{formattedCount} враховуються у вашій знижці",
+        "countPlural=other": "{formattedCount} враховуються у вашій знижці"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "у вашій знижці поки ніхто не враховується",
   "referrals_how_it_works": "Як це працює",
   "referrals_step_share": "Поділіться своїм кодом або посиланням.",
   "referrals_step_friend_rate": "Ваш друг отримує знижку {rate} на своє перше бронювання.",
@@ -764,7 +837,7 @@
   "legal_marketing_turned_off": "Маркетингові повідомлення вимкнено",
   "assistants_help_open_failed": "Не вдалося відкрити сторінку. Спробуйте ще раз.",
   "booking_checkout_legal_consent_retry": "Ще раз підтверджую, що погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>».",
-  "booking_checkout_legal_consent_retry_early_performance": "Ще раз підтверджую, що погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>». Оскільки послуга починається протягом установленого законом строку для відмови від договору, я прямо прошу надати її в заброньований час і беру до відома, що після повного надання послуги моє право на відмову від договору припиняється.",
+  "booking_checkout_legal_consent_retry_early_performance": "Ще раз підтверджую, що погоджуюся з документами «<terms>Загальні умови надання послуг</terms>» і «<operatingRules>Правила внутрішнього розпорядку</operatingRules>». Я прошу надати послугу в заброньовану дату, протягом строку для відмови від договору, і беру до відома, що моє право на відмову від договору припиняється після її повного надання.",
   "booking_checkout_retry_title": "Оплату не завершено",
   "booking_checkout_retry_lead": "Ми зберегли дані бронювання. Перш ніж повторити оплату, ще раз підтвердьте умови.",
   "booking_checkout_retry_pay": "Повторити оплату",

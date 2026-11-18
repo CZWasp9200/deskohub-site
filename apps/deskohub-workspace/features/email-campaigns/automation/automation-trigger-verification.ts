@@ -1,5 +1,6 @@
 import { Match, Option } from "effect";
 import type { ReservationVisit } from "@/features/reservation/backend/reservation-visits.service";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { AutomationTriggerKind } from "./automation-states";
 
 /**
@@ -30,9 +31,11 @@ export const readsTriggeringVisit = (kind: AutomationTriggerKind): boolean =>
   );
 
 /**
- * Whether Workspace cancelling the triggering reservation withdraws a
- * trigger of `kind` (D28). A cancellation trigger is the cancellation
- * itself, and schedule and account triggers have no reservation.
+ * Whether Workspace cancelling the triggering reservation after a trigger
+ * of `kind` withdraws it (D28). A cancellation trigger is the cancellation
+ * itself: a restore undoing it withdraws it instead
+ * (`withdrawnByWorkspaceCancellation`). Schedule and account triggers have
+ * no reservation.
  */
 export const withdrawnByCancellation = (kind: AutomationTriggerKind): boolean =>
   Match.value(kind).pipe(
@@ -50,6 +53,54 @@ export const withdrawnByCancellation = (kind: AutomationTriggerKind): boolean =>
     ),
     Match.exhaustive
   );
+
+/**
+ * When Workspace cancelled each reservation that is cancelled now. A
+ * reservation that isn't, or that a restore uncancelled, is absent.
+ */
+export type WorkspaceCancellations = ReadonlyMap<
+  WorkspaceReservationId,
+  Temporal.Instant
+>;
+
+/**
+ * Whether the triggering reservation's Workspace cancellation withdraws a
+ * trigger (D28). A booked, started or finished trigger is withdrawn while
+ * the reservation is cancelled. A cancellation trigger is withdrawn once
+ * the reservation is no longer cancelled at the trigger's instant: a
+ * restore undid that cancellation, and a later one is a trigger of its
+ * own. Schedule and account triggers have no reservation.
+ */
+export const withdrawnByWorkspaceCancellation = (
+  trigger: {
+    readonly kind: AutomationTriggerKind;
+    readonly at: Temporal.Instant;
+    readonly reservationId: WorkspaceReservationId | null;
+  },
+  cancellations: WorkspaceCancellations
+): boolean => {
+  const cancelledAt = Option.fromUndefinedOr(
+    trigger.reservationId === null
+      ? undefined
+      : cancellations.get(trigger.reservationId)
+  );
+  return Match.value(trigger.kind).pipe(
+    Match.when(
+      Match.is(
+        "reservation-booked",
+        "reservation-started",
+        "reservation-finished"
+      ),
+      () => Option.isSome(cancelledAt)
+    ),
+    Match.when(
+      "reservation-cancelled",
+      () => !Option.exists(cancelledAt, (at) => at.equals(trigger.at))
+    ),
+    Match.when(Match.is("schedule", "account-created"), () => false),
+    Match.exhaustive
+  );
+};
 
 /**
  * When the visit reaches a trigger of `kind`: none for a booked trigger,

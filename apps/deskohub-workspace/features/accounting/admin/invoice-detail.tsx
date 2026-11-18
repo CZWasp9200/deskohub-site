@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, RotateCw } from "lucide-react";
+import { Download, FileX, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { localizeAdministrationHref } from "@/features/administration/administration-href";
@@ -11,9 +11,15 @@ import { Button } from "@/shared/components/ui/button";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { retryAdministrationInvoice } from "./actions";
-import type { InvoiceAdministrationDetail } from "./invoice-administration.service";
+import type {
+  InvoiceAdministrationCancellation,
+  InvoiceAdministrationDetail,
+  InvoiceAdministrationListItem,
+} from "./invoice-administration.service";
+import { InvoiceArchive } from "./invoice-archive";
+import { InvoiceCancellation } from "./invoice-cancellation-dialog";
 
-export function InvoicePaymentStatusBadge({
+function InvoicePaymentStatusBadge({
   status,
 }: {
   readonly status: InvoiceAdministrationDetail["paymentStatus"];
@@ -40,29 +46,38 @@ export function InvoicePaymentStatusBadge({
   );
 }
 
+/** The payment status, and beside it whether the invoice was cancelled. */
+export function InvoiceStatusBadges({
+  invoice,
+}: {
+  readonly invoice: Pick<
+    InvoiceAdministrationListItem,
+    "paymentStatus" | "cancellation"
+  >;
+}) {
+  const locale = useRouteLocale();
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <InvoicePaymentStatusBadge status={invoice.paymentStatus} />
+      {invoice.cancellation && (
+        <StatusBadge tone="neutral">
+          <FileX aria-hidden className="size-3.5" />{" "}
+          {m.accountingInvoiceCancelledBadge({}, { locale })}
+        </StatusBadge>
+      )}
+    </span>
+  );
+}
+
 export function InvoiceDetailActions({
   invoice,
 }: {
   readonly invoice: InvoiceAdministrationDetail;
 }) {
-  const router = useRouter();
   const locale = useRouteLocale();
-  const [error, setError] = useState<string | null>(null);
-  const { execute, isExecuting } = useWorkspaceAction(
-    retryAdministrationInvoice,
-    {
-      onSuccess: () => {
-        setError(null);
-        router.refresh();
-      },
-      onError: ({ error: actionError }) =>
-        setError(
-          actionError.serverError ??
-            m.accountingInvoiceRetryDeliveryError({}, { locale })
-        ),
-      onTransportError: () =>
-        setError(m.accountingInvoiceRetryDeliveryError({}, { locale })),
-    }
+  const [notice, setNotice] = useState<string | null>(null);
+  const retry = useInvoiceRetry(
+    m.accountingInvoiceRetryDeliveryError({}, { locale })
   );
   return (
     <div className="space-y-2">
@@ -73,27 +88,154 @@ export function InvoiceDetailActions({
             {m.accountingInvoiceDownloadPdf({}, { locale })}
           </a>
         </Button>
-        {invoice.needsAttention && (
+        {/* A cancelled invoice's retry resends its cancellation notices, in its cancellation panel. */}
+        {!invoice.cancellation && invoice.needsAttention && (
           <Button
-            disabled={isExecuting}
-            onClick={() => {
-              setError(null);
-              execute({ invoiceId: invoice.id });
-            }}
+            disabled={retry.isExecuting}
+            onClick={() => retry.execute(invoice.id)}
             type="button"
           >
             <RotateCw aria-hidden className="size-4" />{" "}
-            {isExecuting
+            {retry.isExecuting
               ? m.accountingInvoiceRetryingDelivery({}, { locale })
               : m.accountingInvoiceRetryDelivery({}, { locale })}
           </Button>
         )}
+        {!invoice.cancellation && (
+          <InvoiceCancellation
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            onCancelled={setNotice}
+            placement="detail"
+          />
+        )}
       </div>
-      {error && (
-        <AdministrationAlert role="alert" status="error">
-          {error}
-        </AdministrationAlert>
-      )}
+      <div role="status">
+        {notice && (
+          <AdministrationAlert status="success">{notice}</AdministrationAlert>
+        )}
+      </div>
+      <div role="alert">
+        {retry.error && (
+          <AdministrationAlert status="error">
+            {retry.error}
+          </AdministrationAlert>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Retries what the invoice still owes: the original email for a live
+ * invoice, the cancellation notices for a cancelled one.
+ */
+function useInvoiceRetry(failureMessage: string) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const { execute, isExecuting } = useWorkspaceAction(
+    retryAdministrationInvoice,
+    {
+      onSuccess: () => {
+        setError(null);
+        router.refresh();
+      },
+      onError: ({ error: actionError }) =>
+        setError(actionError.serverError ?? failureMessage),
+      onTransportError: () => setError(failureMessage),
+    }
+  );
+  return {
+    error,
+    execute: (invoiceId: InvoiceAdministrationDetail["id"]) => {
+      setError(null);
+      execute({ invoiceId });
+    },
+    isExecuting,
+  };
+}
+
+/**
+ * A cancelled invoice's notices to the customer and to accounting, the retry
+ * while one needs attention, and hiding the invoice from the Admin UI.
+ */
+export function InvoiceCancellationActions({
+  invoice,
+}: {
+  readonly invoice: Pick<
+    InvoiceAdministrationDetail,
+    "id" | "invoiceNumber"
+  > & {
+    readonly cancellation: InvoiceAdministrationCancellation;
+  };
+}) {
+  const locale = useRouteLocale();
+  const retry = useInvoiceRetry(
+    m.accountingInvoiceCancellationNoticesRetryError({}, { locale })
+  );
+  const { notices } = invoice.cancellation;
+  return (
+    <div className="space-y-4">
+      <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+        {(["customer", "internal"] as const).map((audience) => (
+          <div
+            className="rounded-xl border border-navy-blue/10 p-4"
+            key={audience}
+          >
+            <dt className="text-sm text-navy-blue/60">
+              {{
+                customer: m.accountingInvoiceDeliveryAudienceCustomer,
+                internal: m.accountingInvoiceDeliveryAudienceInternal,
+              }[audience]({}, { locale })}
+            </dt>
+            <dd className="mt-2">
+              <StatusBadge
+                tone={
+                  {
+                    accepted: "positive",
+                    failed: "attention",
+                    not_owed: "neutral",
+                    processing: "neutral",
+                  }[notices[audience]] as "positive" | "attention" | "neutral"
+                }
+              >
+                {{
+                  accepted: m.accountingInvoiceDeliveryStatusAccepted,
+                  failed: m.accountingInvoiceDeliveryStatusFailed,
+                  not_owed: m.accountingInvoiceCancellationNoticeNotOwed,
+                  processing: m.accountingInvoiceDeliveryStatusProcessing,
+                }[notices[audience]]({}, { locale })}
+              </StatusBadge>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex flex-wrap gap-2">
+        {notices.needsAttention && (
+          <Button
+            disabled={retry.isExecuting}
+            onClick={() => retry.execute(invoice.id)}
+            type="button"
+          >
+            <RotateCw aria-hidden className="size-4" />{" "}
+            {retry.isExecuting
+              ? m.accountingInvoiceRetryingDelivery({}, { locale })
+              : m.accountingInvoiceCancellationNoticesRetry({}, { locale })}
+          </Button>
+        )}
+        <InvoiceArchive
+          invoiceId={invoice.id}
+          invoiceNumber={invoice.invoiceNumber}
+          placement="detail"
+        />
+      </div>
+      <div role="alert">
+        {retry.error && (
+          <AdministrationAlert status="error">
+            {retry.error}
+          </AdministrationAlert>
+        )}
+      </div>
     </div>
   );
 }

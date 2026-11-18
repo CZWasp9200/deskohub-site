@@ -161,16 +161,22 @@ export const runE2ECase = <R, RC = never, RF = never>(input: {
           )
         )
       : watched;
+    // A failing cleanup replaces the case's own outcome. Effect's finalizers
+    // keep the body's failure first and add theirs, so cleanup runs on the
+    // body's exit here instead.
     const finalized = cleanup
-      ? Effect.acquireUseRelease(
-          Effect.void,
-          () => observed,
-          () =>
-            telemetry.tracePhase({
-              caseId,
-              effect: cleanup,
-              phaseId: "case-finalization",
-            })
+      ? Effect.uninterruptibleMask((restore) =>
+          Effect.exit(restore(observed)).pipe(
+            Effect.flatMap((exit) =>
+              telemetry
+                .tracePhase({
+                  caseId,
+                  effect: cleanup,
+                  phaseId: "case-finalization",
+                })
+                .pipe(Effect.andThen(exit))
+            )
+          )
         )
       : observed;
 

@@ -3,6 +3,8 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Effect, Option } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -23,6 +25,10 @@ describe.skipIf(!testDatabase)(
     afterAll(async () => {
       await testDatabase.pool.query(
         "delete from contract_withdrawals where contract_id = any($1)",
+        [contractIds]
+      );
+      await testDatabase.pool.query(
+        "delete from workspace_reservations where id = any($1)",
         [contractIds]
       );
       await testDatabase.pool.query(
@@ -48,13 +54,25 @@ describe.skipIf(!testDatabase)(
     const paid: Money = { value: 300_000, exponent: 2, currency: "CZK" };
 
     const newWithdrawal = async (
-      submittedAt = Temporal.Now.instant().round("millisecond")
+      submittedAt = Temporal.Now.instant().round("millisecond"),
+      existingAccountId?: CustomerAccountId
     ) => {
-      const accountId = await Effect.runPromise(
-        workspaceFixtures(testDatabase.db).customerAccount()
+      const accountId =
+        existingAccountId ??
+        (await Effect.runPromise(
+          workspaceFixtures(testDatabase.db).customerAccount()
+        ));
+      if (!existingAccountId) accountIds.push(accountId);
+      const { id: contractId } = await Effect.runPromise(
+        workspaceFixtures(testDatabase.db).reservation({
+          author: accountId,
+          stage: {
+            reservation: "confirmed",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+        })
       );
-      accountIds.push(accountId);
-      const contractId = `reservation-${crypto.randomUUID()}`;
       contractIds.push(contractId);
       return {
         contract: { kind: "reservation" as const, id: contractId },
@@ -74,6 +92,42 @@ describe.skipIf(!testDatabase)(
         },
       };
     };
+
+    const claimAsOperator = (id: WorkspaceReservationId) =>
+      Effect.runPromise(
+        WorkspaceReservationRepository.use((repository) =>
+          repository.claimAdministrationCancellation({
+            id,
+            staleCancellingBefore: Temporal.Now.instant(),
+          })
+        ).pipe(
+          Effect.provide(WorkspaceReservationRepository.Default),
+          Effect.provide(testDatabase.layer)
+        )
+      );
+
+    test("serializes operator cancellation and recording a withdrawal", async () => {
+      const withdrawn = await newWithdrawal();
+      await run((repository) => repository.record(withdrawn));
+      expect(await claimAsOperator(withdrawn.contract.id)).toBeNull();
+
+      const operatorClaimed = await newWithdrawal();
+      expect(await claimAsOperator(operatorClaimed.contract.id)).toMatchObject({
+        reservationState: "cancelling",
+        cancellationCause: "operator",
+      });
+      expect(
+        await run((repository) =>
+          repository
+            .record(operatorClaimed)
+            .pipe(
+              Effect.catchTag("WithdrawalContractChangedError", () =>
+                Effect.succeed("changed")
+              )
+            )
+        )
+      ).toBe("changed");
+    });
 
     test("records one withdrawal per contract, claimed by its request", async () => {
       const withdrawal = await newWithdrawal();
@@ -373,8 +427,7 @@ describe.skipIf(!testDatabase)(
         })
       );
       const newer = {
-        ...(await newWithdrawal()),
-        accountId: older.accountId,
+        ...(await newWithdrawal(undefined, older.accountId)),
         refundAmount: paid,
         refundBasis: { kind: "full" as const },
       };

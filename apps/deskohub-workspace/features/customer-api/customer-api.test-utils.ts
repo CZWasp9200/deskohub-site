@@ -54,6 +54,7 @@ import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backe
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
@@ -371,6 +372,7 @@ const unusedBookingCatalog: CustomerBookingCatalogLayerSet = {
   ),
   sealedStateKeys: TestSealedStateKeys,
   releases: {
+    meetingRoom: MeetingRoomReleaseGate.fromDecision(true),
     office: OfficeReleaseGate.fromDecision(false),
     overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),

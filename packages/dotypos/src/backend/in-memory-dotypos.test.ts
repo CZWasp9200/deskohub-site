@@ -4,6 +4,7 @@ import {
   type DotyposReadFailure,
   DotyposRejected,
   DotyposReservationCancelledError,
+  DotyposReservationNotRestorable,
   DotyposUnavailable,
 } from "../errors";
 import type { Reservation } from "../generated/effect.gen";
@@ -411,6 +412,83 @@ describe("makeInMemoryDotypos reservation transitions", () => {
     );
   });
 
+  test("restores a cancelled reservation once, which occupies its table again", async () => {
+    const { service } = makeInMemoryDotypos();
+    const created = await run(service.createReservation(create));
+    await run(service.cancelReservation(created.id));
+    const cancelled = await run(
+      service.getReservationWithoutCustomer(created.id)
+    );
+    const input = { reservationId: created.id, expectedBooking: create };
+
+    const restored = await run(service.restoreCancelledReservation(input));
+    const again = await run(service.restoreCancelledReservation(input));
+
+    expect(restored._tag).toBe("Restored");
+    expect(restored.reservation.status).toBe("CONFIRMED");
+    expect(restored.reservation.versionDate! > cancelled.versionDate!).toBe(
+      true
+    );
+    expect(again).toMatchObject({
+      _tag: "AlreadyConfirmed",
+      reservation: restored.reservation,
+    });
+    expect(
+      await run(
+        service.listActiveReservationsOverlapping({
+          startDate: at(10),
+          endDate: at(12),
+        })
+      )
+    ).toEqual([restored.reservation]);
+  });
+
+  test("refuses to restore a NEW reservation or one that books something else", async () => {
+    const { service } = makeInMemoryDotypos();
+    const pending = await run(service.createReservation(create));
+    const cancelled = await run(service.createReservation(create));
+    await run(service.cancelReservation(cancelled.id));
+
+    const results = await Promise.all([
+      exit(
+        service.restoreCancelledReservation({
+          reservationId: pending.id,
+          expectedBooking: create,
+        })
+      ),
+      exit(
+        service.restoreCancelledReservation({
+          reservationId: cancelled.id,
+          expectedBooking: { ...create, seats: 3, endDate: at(13) },
+        })
+      ),
+    ]);
+
+    expect(results).toEqual([
+      Exit.fail(
+        new DotyposReservationNotRestorable({
+          reservationId: pending.id,
+          reason: "not-cancelled",
+          status: "NEW",
+          changedFields: [],
+          message: "Dotypos reservation is not cancelled.",
+        })
+      ),
+      Exit.fail(
+        new DotyposReservationNotRestorable({
+          reservationId: cancelled.id,
+          reason: "booking-changed",
+          status: "CANCELLED",
+          changedFields: ["end", "seats"],
+          message: "Dotypos reservation no longer holds the expected booking.",
+        })
+      ),
+    ]);
+    expect(await run(service.getReservationStatus(cancelled.id))).toBe(
+      "CANCELLED"
+    );
+  });
+
   test("updates the note and keeps the status", async () => {
     const { service } = makeInMemoryDotypos();
     const created = await run(service.createReservation(create));
@@ -435,6 +513,12 @@ describe("makeInMemoryDotypos reservation transitions", () => {
       exit(service.getReservationWithoutCustomer(missing)),
       exit(service.cancelReservation(missing)),
       exit(service.confirmReservation(missing)),
+      exit(
+        service.restoreCancelledReservation({
+          reservationId: missing,
+          expectedBooking: create,
+        })
+      ),
     ]);
 
     expect(results[0]).toEqual(Exit.succeed(Option.none()));
@@ -451,6 +535,7 @@ describe("makeInMemoryDotypos reservation transitions", () => {
           ["getReservationWithoutCustomer", "reservation.get"],
           ["cancelReservation", "reservation.delete"],
           ["confirmReservation", "reservation.version"],
+          ["restoreCancelledReservation", "reservation.version"],
         ] as const
       ).map(([operation, request]) =>
         Option.some(

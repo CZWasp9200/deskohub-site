@@ -85,3 +85,43 @@ export interface IssuedReservationAccess {
   readonly accessStartsAt: Temporal.Instant;
   readonly accessEndsAt: Temporal.Instant;
 }
+
+/**
+ * What restoring a cancelled reservation does with its door access.
+ *
+ * - `not_needed`: the reservation has ended, so its grant stays as it is.
+ * - `issue`: fresh access is issued once the reservation is confirmed again.
+ *   Cancellation expires a provisioning, issued or uncertain grant and forgets
+ *   its code, and a reservation without a grant never had a credential. A
+ *   credential still at the lock opens it only within the same reservation's
+ *   hours.
+ * - `uncertain`: the provider may hold a credential Workspace can't account
+ *   for, so the restore must stop. `issued`, `provisioning` and `uncertain`
+ *   grants may hold one, and so may `pending` and `failed` ones: replacing an
+ *   issued grant for new hours resets it to `pending` while the replaced
+ *   credential stays live, and cancellation leaves both states as they are.
+ */
+export type RestoredReservationAccess = "not_needed" | "issue" | "uncertain";
+
+const restoredAccessByGrantState = {
+  expired: "issue",
+  pending: "uncertain",
+  failed: "uncertain",
+  issued: "uncertain",
+  provisioning: "uncertain",
+  uncertain: "uncertain",
+} as const satisfies Record<
+  ReservationAccessGrantState,
+  RestoredReservationAccess
+>;
+
+export const getRestoredReservationAccess = (
+  grant: Pick<ReservationAccessGrant, "state"> | null,
+  reservation: { readonly reservedUntil: Temporal.Instant },
+  now: Temporal.Instant
+): RestoredReservationAccess => {
+  if (Temporal.Instant.compare(now, reservation.reservedUntil) >= 0) {
+    return "not_needed";
+  }
+  return grant ? restoredAccessByGrantState[grant.state] : "issue";
+};

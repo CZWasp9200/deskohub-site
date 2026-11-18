@@ -40,6 +40,9 @@ interface ToastControls {
 
 const ToastContext = createContext<ToastControls | null>(null);
 
+/** The toast rule's distance from the bottom, for every floating overlay. */
+const FloatingBottomOffsetContext = createContext<number | null>(null);
+
 const useToastControls = (): ToastControls => {
   const controls = useContext(ToastContext);
   if (!controls) throw new Error("Toasts need a ToastProvider above them.");
@@ -73,6 +76,18 @@ export const useToastObstruction = (height: number) => {
   );
 };
 
+/**
+ * How far a floating overlay at the bottom of the screen, such as the toast
+ * or the update banner, sits above the bottom: clear of the safe area and of
+ * the bottom chrome focused layouts register with `useToastObstruction`.
+ */
+export const useFloatingBottomOffset = (): number => {
+  const offset = useContext(FloatingBottomOffsetContext);
+  if (offset === null)
+    throw new Error("Floating overlays need a ToastProvider above them.");
+  return offset;
+};
+
 /** Draws the app's toasts above the screens it wraps; mounted once at the root. */
 export function ToastProvider({ children }: { readonly children: ReactNode }) {
   const [state, dispatch] = useReducer(toastAfter, noToast);
@@ -102,16 +117,19 @@ export function ToastProvider({ children }: { readonly children: ReactNode }) {
     );
     return () => clearTimeout(timer);
   }, [shownId]);
+  const bottom = toastBottomOffset(insets.bottom, obstructions.values());
   return (
     <ToastContext value={controls}>
-      <View style={styles.root}>
-        {children}
-        <Toast
-          toast={state.shown}
-          bottom={toastBottomOffset(insets.bottom, obstructions.values())}
-          onDismiss={(id) => dispatch({ kind: "dismiss", id })}
-        />
-      </View>
+      <FloatingBottomOffsetContext value={bottom}>
+        <View style={styles.root}>
+          {children}
+          <Toast
+            toast={state.shown}
+            bottom={bottom}
+            onDismiss={(id) => dispatch({ kind: "dismiss", id })}
+          />
+        </View>
+      </FloatingBottomOffsetContext>
     </ToastContext>
   );
 }

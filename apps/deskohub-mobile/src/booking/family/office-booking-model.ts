@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookedSelection,
   CustomerBookingSelection,
   CustomerOffering,
@@ -18,7 +19,11 @@ import {
   toOfficeSelection,
 } from "../selection/office-selection";
 import type { PragueDate } from "../selection/prague-date";
-import type { PriceBreakdown } from "../ui/price-breakdown";
+import {
+  discountLine,
+  type PriceBreakdown,
+  type PriceLine,
+} from "../ui/price-breakdown";
 import { quotableSelection } from "./booking-family-view";
 
 /** The office offering of the catalog, when offices are offered. */
@@ -48,11 +53,12 @@ export interface KeptOfficeDraft {
 export const openingOfficeDraft = ({
   kept,
   preselection,
-  today,
+  bookableDates,
 }: {
   readonly kept: Option.Option<KeptOfficeDraft>;
   readonly preselection: Option.Option<CustomerBookedSelection>;
-  readonly today: PragueDate;
+  /** The office offering's bookable dates. */
+  readonly bookableDates: CustomerBookableDates;
 }): OfficeDraft => {
   const seed = bookingPreselectionKey(preselection);
   return Option.filter(
@@ -62,7 +68,7 @@ export const openingOfficeDraft = ({
     Option.map(({ draft }) => draft),
     Option.orElse(() =>
       Option.flatMap(preselection, ({ selection }) =>
-        officeDraftFromSelection(selection, today)
+        officeDraftFromSelection(selection, bookableDates)
       )
     ),
     Option.getOrElse(() => emptyOfficeDraft)
@@ -102,17 +108,15 @@ export type OfficeBookingModel = {
 
 export const officeBookingModel = ({
   draft,
-  now,
   offering,
   availability,
 }: {
   readonly draft: OfficeDraft;
-  readonly now: Date;
   readonly offering: OfficeOffering;
-  /** Settled read of `officeAvailabilityQuery(today)`. */
+  /** Settled read of `officeAvailabilityQuery(offering.bookableDates)`. */
   readonly availability: Option.Option<CustomerAvailability>;
 }): OfficeBookingModel => {
-  const context = { now, offering, availability };
+  const context = { offering, availability };
   const fitted = clampOfficeDraft(draft, officeEnablement(draft, context));
   const enablement = officeEnablement(fitted, context);
   const selection = toOfficeSelection(fitted);
@@ -142,33 +146,50 @@ export const officeBookingModel = ({
 };
 
 /**
+ * The sale discounts the office's from-price includes, as its lines: none
+ * without a sale, and absent when the catalog doesn't list a running sale's
+ * discounts or they don't make up its discount, so the lines always add up.
+ */
+const saleLines = ({
+  advertisedPrice: { discount, discounts = [] },
+}: OfficeOffering): Option.Option<ReadonlyArray<PriceLine>> =>
+  discounts.reduce((sum, { amount }) => sum + amount.value, 0) ===
+  discount.value
+    ? Option.some(discounts.map((sale) => discountLine("office", sale)))
+    : Option.none();
+
+/**
  * The office's from-price as the lines it adds up from: a day's access and
- * one seat for that day, as the catalog prices them, totalling the
- * advertised price of one day with one seat. None while a sale lowers the
- * advertised price, which the catalog gives no line of its own. It is no
+ * one seat for that day at its daily rate, as the catalog prices them, then
+ * any running sale's discounts, totalling the advertised price of one day
+ * with one seat. None while a sale's discounts are not listed. It is no
  * quote, so it never shows the tax note a VAT payer's quoted total carries:
  * the catalog has no VAT status, and only a quote's summary gives one.
  */
 export const officeFromPrice = (
   offering: OfficeOffering
 ): Option.Option<PriceBreakdown> =>
-  offering.advertisedPrice.discount.value === 0
-    ? Option.some({
-        lines: [
-          {
-            _tag: "Charge",
-            key: "office:access",
-            subject: { _tag: "OfficeAccess", dayCount: 1 },
-            amount: offering.price,
-          },
-          {
-            _tag: "Charge",
-            key: "office:seat",
-            subject: { _tag: "OfficeSeats", seats: 1, dayCount: 1 },
-            amount: offering.seatPrice,
-          },
-        ],
-        total: offering.advertisedPrice.price,
-        vatStatus: "not-vat-payer",
-      })
-    : Option.none();
+  Option.map(saleLines(offering), (sale) => ({
+    lines: [
+      {
+        _tag: "Charge",
+        key: "office:access",
+        subject: { _tag: "OfficeAccess", dayCount: 1 },
+        amount: offering.price,
+      },
+      {
+        _tag: "Charge",
+        key: "office:seat",
+        subject: {
+          _tag: "OfficeSeats",
+          seats: 1,
+          dayCount: 1,
+          dailySeatRate: offering.seatPrice,
+        },
+        amount: offering.seatPrice,
+      },
+      ...sale,
+    ],
+    total: offering.advertisedPrice.price,
+    vatStatus: "not-vat-payer",
+  }));

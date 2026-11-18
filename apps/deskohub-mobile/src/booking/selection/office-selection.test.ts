@@ -16,6 +16,16 @@ import {
 
 const money = { value: 0, exponent: 2, currency: "CZK" };
 
+const today = "2026-11-07";
+/** The server's office window for `today`: one month. */
+const bookableDates = { earliest: today, latest: "2026-12-07" };
+
+/**
+ * The offering's seats come from the office's Dotypos table, its only source.
+ * A capacity other than the live office's makes a hard-coded maximum fail.
+ */
+const officeSeats = 4;
+
 const offering: OfficeOffering = {
   family: "office",
   name: "Office",
@@ -23,13 +33,11 @@ const offering: OfficeOffering = {
   usage: "",
   price: money,
   seatPrice: money,
-  maximumSeats: 6,
+  maximumSeats: officeSeats,
   maximumDurationHours: 672,
   advertisedPrice: { price: money, discount: money },
+  bookableDates,
 };
-
-const today = "2026-11-07";
-const now = new Date("2026-11-07T09:00:00Z");
 
 const availability = (
   overrides: Partial<CustomerAvailability> = {}
@@ -52,7 +60,6 @@ const enablementOf = (
   officeOffering: OfficeOffering = offering
 ) =>
   officeEnablement(draft, {
-    now,
     offering: officeOffering,
     availability: Option.some(availability(overrides)),
   });
@@ -107,20 +114,26 @@ describe("officeDraftFromSelection", () => {
   } as const;
 
   test("opens a booked stay on its first day, days and seats", () => {
-    expect(officeDraftFromSelection(booked, today)).toEqual(
+    expect(officeDraftFromSelection(booked, bookableDates)).toEqual(
       Option.some({ date: Option.some("2026-11-10"), dayCount: 3, seats: 4 })
     );
   });
 
   test("drops a first day the calendar no longer offers, keeping days and seats", () => {
     expect(
-      officeDraftFromSelection(booked, "2026-11-11").pipe(
+      officeDraftFromSelection(booked, {
+        earliest: "2026-11-11",
+        latest: "2026-12-11",
+      }).pipe(
         Option.map(({ date, dayCount, seats }) => ({ date, dayCount, seats }))
       )
     ).toEqual(Option.some({ date: Option.none(), dayCount: 3, seats: 4 }));
     expect(
       Option.map(
-        officeDraftFromSelection({ ...booked, date: "2026-12-08" }, today),
+        officeDraftFromSelection(
+          { ...booked, date: "2026-12-08" },
+          bookableDates
+        ),
         ({ date }) => date
       )
     ).toEqual(Option.some(Option.none()));
@@ -130,20 +143,17 @@ describe("officeDraftFromSelection", () => {
     expect(
       officeDraftFromSelection(
         { family: "cowork", date: today, tier: "open-space" },
-        today
+        bookableDates
       )
     ).toEqual(Option.none());
   });
 });
 
 describe("officeAvailabilityQuery", () => {
-  test("spans today through one calendar month", () => {
-    expect(officeAvailabilityQuery(today)).toEqual({
-      kind: "office",
-      from: today,
-      to: "2026-12-07",
-    });
-    expect(officeAvailabilityQuery("2027-01-31").to).toBe("2027-02-28");
+  test("spans the office offering's bookable dates", () => {
+    expect(
+      officeAvailabilityQuery({ earliest: today, latest: "2026-11-20" })
+    ).toEqual({ kind: "office", from: today, to: "2026-11-20" });
   });
 });
 
@@ -209,7 +219,7 @@ describe("maximumOfficeDayCount", () => {
 });
 
 describe("officeEnablement", () => {
-  test("offers today through one month and the office's seats", () => {
+  test("offers the offering's bookable dates and the office's seats", () => {
     const enablement = enablementOf(oneDayOn(today), {
       unavailableDates: ["2026-11-20"],
     });
@@ -220,8 +230,23 @@ describe("officeEnablement", () => {
       unavailable: new Set(["2026-11-20"]),
     });
     expect(enablement.maximumDayCount).toBe(13);
-    expect(enablement.maximumSeats).toEqual(Option.some(6));
+    expect(enablement.maximumSeats).toEqual(Option.some(officeSeats));
     expect(enablement.blockers).toEqual([]);
+  });
+
+  test("follows a shorter window the offering gives, which caps the stay", () => {
+    const shortWindow: OfficeOffering = {
+      ...offering,
+      bookableDates: { earliest: today, latest: "2026-11-12" },
+    };
+
+    expect(enablementOf(oneDayOn(today), {}, shortWindow)).toMatchObject({
+      dates: { earliest: today, latest: "2026-11-12" },
+      maximumDayCount: 6,
+    });
+    expect(
+      enablementOf(oneDayOn("2026-11-13"), {}, shortWindow).maximumDayCount
+    ).toBe(0);
   });
 
   test("keeps the drafted seats while the capacity can't be read", () => {
@@ -264,7 +289,14 @@ describe("officeEnablement", () => {
 
   test("blocks more seats than the office has", () => {
     expect(
-      blockerTags({ date: Option.some(today), dayCount: 1, seats: 7 })
+      blockerTags({ date: Option.some(today), dayCount: 1, seats: officeSeats })
+    ).toEqual([]);
+    expect(
+      blockerTags({
+        date: Option.some(today),
+        dayCount: 1,
+        seats: officeSeats + 1,
+      })
     ).toEqual(["SeatsUnavailable"]);
     expect(
       blockerTags({ date: Option.some(today), dayCount: 1, seats: 0 })
@@ -283,7 +315,6 @@ describe("officeEnablement", () => {
 
   test("waits for the horizon's availability", () => {
     const enablement = officeEnablement(oneDayOn(today), {
-      now,
       offering,
       availability: Option.none(),
     });

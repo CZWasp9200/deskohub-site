@@ -1,13 +1,12 @@
 import type {
   AdministrationCampaignContent,
-  AutomationDryRun,
-  AutomationDryRunCustomer,
   AutomationDryRunRow,
   AutomationFlow,
   AutomationPreviewOutcome,
 } from "@deskohub/workspace-admin-api";
 import { automationPreviewOutcomes } from "@deskohub/workspace-admin-api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 import { AdministrationLink } from "@/features/administration/admin-link";
 import {
   type AdministrationHref,
@@ -19,6 +18,11 @@ import {
   AdministrationFact,
   formatAdministrationDateTime,
 } from "@/features/administration/components";
+import {
+  inactiveAdministrationCustomerName,
+  isInactiveAdministrationCustomer,
+} from "@/features/administration/customer-name";
+import { AdministrationCustomerNameLabel } from "@/features/administration/customer-name-label";
 import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
 import { Badge } from "@/shared/components/ui/badge";
@@ -42,6 +46,10 @@ import {
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
 import { formatCount } from "@/shared/utils/number";
+import type {
+  AutomationDryRunCustomerWithLifecycle,
+  AutomationDryRunWithLifecycle,
+} from "../../../automation/backend/automation-dry-run.service";
 import { SentCampaignEmailPreview } from "../../sending/sent-campaign-email-preview";
 import { AutomationFrequencyBanner } from "../automation-frequency-banner";
 import { automationStepLabelOrId } from "../run-log/automation-step-label";
@@ -109,7 +117,7 @@ export function AutomationDryRunResults({
 }: {
   readonly content: AdministrationCampaignContent;
   readonly cursor: string | undefined;
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   /** The working copy the dry run evaluated, which names its steps. */
   readonly flow: AutomationFlow | null;
   readonly locale: Locale;
@@ -136,7 +144,7 @@ function DryRunSummary({
   locale,
   replay,
 }: {
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly locale: Locale;
   readonly replay: boolean;
 }) {
@@ -178,7 +186,7 @@ function ReplayScope({
   dryRun,
   locale,
 }: {
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly locale: Locale;
 }) {
   return (
@@ -201,7 +209,7 @@ function ScheduleFires({
   dryRun,
   locale,
 }: {
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly locale: Locale;
 }) {
   return (
@@ -242,7 +250,7 @@ function DryRunRowsSection({
   replay,
 }: {
   readonly cursor: string | undefined;
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly flow: AutomationFlow | null;
   readonly locale: Locale;
   readonly replay: boolean;
@@ -286,7 +294,7 @@ function DryRunPages({
   locale,
 }: {
   readonly cursor: string | undefined;
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly locale: Locale;
 }) {
   if (!(cursor || dryRun.nextCursor)) return null;
@@ -332,7 +340,7 @@ function DryRunEmails({
   locale,
 }: {
   readonly content: AdministrationCampaignContent;
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly locale: Locale;
 }) {
   if (dryRun.emails.length === 0) return null;
@@ -352,14 +360,29 @@ function DryRunEmails({
   );
 }
 
-/** A row's customer by name, else email, else id, with the email under a name. */
+/**
+ * A row's customer by name, else email, else id, with the email under a
+ * name. A deleted or expired customer shows the administration placeholder.
+ */
 const dryRunCustomerLabel = (
-  customer: AutomationDryRunCustomer | undefined,
-  customerId: string
-) => ({
-  name: customer?.name ?? customer?.email ?? customerId,
-  detail: customer?.name ? customer.email : null,
-});
+  customer: AutomationDryRunCustomerWithLifecycle | undefined,
+  customerId: string,
+  locale: Locale
+): { readonly name: ReactNode; readonly detail: string | null } =>
+  customer && isInactiveAdministrationCustomer(customer)
+    ? {
+        name: (
+          <AdministrationCustomerNameLabel
+            customer={inactiveAdministrationCustomerName(customer.lifecycle)}
+            locale={locale}
+          />
+        ),
+        detail: null,
+      }
+    : {
+        name: customer?.name ?? customer?.email ?? customerId,
+        detail: customer?.name ? customer.email : null,
+      };
 
 function DryRunRows({
   dryRun,
@@ -367,7 +390,7 @@ function DryRunRows({
   locale,
   replay,
 }: {
-  readonly dryRun: AutomationDryRun;
+  readonly dryRun: AutomationDryRunWithLifecycle;
   readonly flow: AutomationFlow | null;
   readonly locale: Locale;
   readonly replay: boolean;
@@ -380,7 +403,7 @@ function DryRunRows({
     return {
       key: `${row.triggerAt}:${row.customerId}:${row.customerEventId ?? ""}`,
       row,
-      ...dryRunCustomerLabel(customer, row.customerId),
+      ...dryRunCustomerLabel(customer, row.customerId, locale),
       triggeredAt: formatAdministrationDateTime(row.triggerAt, locale),
       sendAt: row.sendAt && formatAdministrationDateTime(row.sendAt, locale),
     };
@@ -469,7 +492,7 @@ function CustomerCell({
   name,
 }: {
   readonly detail: string | null;
-  readonly name: string;
+  readonly name: ReactNode;
 }) {
   return (
     <div className="min-w-0">

@@ -3,6 +3,7 @@ import type { FakeWorkspace } from "./fake-workspace";
 import {
   sampleDeskReservation,
   sampleLaterMeetingRoom,
+  samplePaymentFailedReservation,
   sampleWholeDayDesk,
 } from "./sample-fixtures";
 
@@ -22,6 +23,8 @@ import {
  *   so their skeletons stay; for the account with nothing saved.
  * - `whole-day`: the next booking is a reserved desk for the whole of today,
  *   with a nine-digit PIN.
+ * - `payment-failed`: the fixtures, and a meeting room whose payment failed,
+ *   listed as the history answers it: not booked, at its booked time.
  */
 export const sampleHistories = [
   "today",
@@ -35,6 +38,7 @@ export const sampleHistories = [
   "offline-fresh",
   "loading",
   "whole-day",
+  "payment-failed",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -76,11 +80,17 @@ export const withSampleHistory = (
     "offline-fresh": () => data.history.current,
     loading: () => data.history.current,
     "whole-day": () => [wholeDay.reservation, ...data.history.current],
+    "payment-failed": () => data.history.current,
   }[history]();
-  // The lists the history variant shows: none, the desk withdrawn from
-  // (cancelled, so listed under past), or the variant's current ones.
   const sampleHistoryLists = (): typeof data.history => {
     if (history === "empty") return { current: [], past: [], unavailable: [] };
+    if (history === "payment-failed") {
+      return {
+        ...data.history,
+        current,
+        past: [samplePaymentFailedReservation(now), ...data.history.past],
+      };
+    }
     if (history !== "withdrawn") return { ...data.history, current };
     return {
       ...data.history,

@@ -10,7 +10,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { StyleSheet, View } from "react-native";
@@ -208,6 +208,8 @@ function MeetingRoomSelection({
   const now = useAtomValue(bookingClockAtom);
   const today = pragueToday(now);
   const allOfferings: ReadonlyArray<CustomerOffering> = offerings;
+  // The meeting-room offerings share one bookable window.
+  const { bookableDates } = offerings[0];
 
   const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(meetingRoomDraftAtom);
@@ -215,13 +217,13 @@ function MeetingRoomSelection({
     kept,
     preselection,
     offerings: allOfferings,
-    today,
+    bookableDates,
   });
   const settled = openingMeetingRoomDraft({
     kept: useAtomValue(settledMeetingRoomDraftAtom),
     preselection,
     offerings: allOfferings,
-    today,
+    bookableDates,
   });
   const setDraft = (next: typeof draft) =>
     setStored(Option.some({ seed, draft: next }));
@@ -251,6 +253,7 @@ function MeetingRoomSelection({
     settled,
     now,
     offerings: allOfferings,
+    bookableDates,
     startTimes,
     calendar: readValue(calendarRead),
     availability: Option.flatMap(query, (answered) =>
@@ -264,7 +267,10 @@ function MeetingRoomSelection({
 
   const quoteAtom = Option.match(model.quotable, {
     onNone: () => unneededReadAtom,
-    onSome: (selection) => bookingQuoteAtom(selection, locale),
+    onSome: (selection) =>
+      bookingQuoteAtom(selection, locale, {
+        earlySetup: model.draft.earlySetup,
+      }),
   });
   const quoteResult = useAtomValue(quoteAtom);
   const refreshQuote = useAtomRefresh(quoteAtom);

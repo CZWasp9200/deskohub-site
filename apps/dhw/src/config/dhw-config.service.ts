@@ -61,7 +61,7 @@ const loadDhwConfig = Effect.fn("DhwConfig.load")(function* (build: {
   readonly isRelease: boolean;
 }) {
   const path = yield* Path.Path;
-  const selectedBaseUrl = yield* Config.option(Config.url("DHW_BASE"));
+  const selectedBaseUrl = yield* Config.option(Config.URL("DHW_BASE"));
   const baseUrl = yield* Option.match(selectedBaseUrl, {
     onNone: () =>
       build.isRelease
@@ -77,20 +77,20 @@ const loadDhwConfig = Effect.fn("DhwConfig.load")(function* (build: {
     RequestHeaders,
     "DHW_REQUEST_HEADERS"
   ).pipe(Config.withDefault({}));
-  const isCi = yield* Config.boolean("CI").pipe(Config.withDefault(false));
+  const isCi = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
   const stateDirectoryOverride = yield* Config.option(
-    Config.nonEmptyString("DHW_STATE_DIR")
+    Config.NonEmptyString("DHW_STATE_DIR")
   );
   const stateDirectory = yield* Option.match(stateDirectoryOverride, {
     onNone: () =>
-      Config.nonEmptyString("HOME").pipe(
+      Config.NonEmptyString("HOME").pipe(
         Effect.map((homeDirectory) =>
           path.join(homeDirectory, ".local", "state", "dhw")
         )
       ),
     onSome: (directory) => Effect.succeed(directory),
   });
-  const updateChecksDisabled = yield* Config.boolean(
+  const updateChecksDisabled = yield* Config.Boolean(
     "DHW_NO_UPDATE_CHECK"
   ).pipe(Config.withDefault(false));
 

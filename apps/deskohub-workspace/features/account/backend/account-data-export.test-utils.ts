@@ -241,6 +241,8 @@ export const syntheticExportSources = (): AccountDataExportSources => ({
       workspaceReservationId: null,
       paymentAttemptId: null,
       documentSnapshotRecordedAt: null,
+      cancellation: null,
+      archivedAt: null,
     },
   ]),
   invoiceDeliveries: Effect.succeed([

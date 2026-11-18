@@ -135,6 +135,8 @@ export interface TicketMetaLine {
   readonly key: string;
   readonly icon: IconComponent;
   readonly text: string;
+  /** What the line covers, in small type under it. */
+  readonly detail?: string;
 }
 
 /**
@@ -215,9 +217,14 @@ export function BookingTicket({
               <View style={styles.metaIcon}>
                 <Icon icon={line.icon} size={18} color={color.ink2} />
               </View>
-              <Text variant="bodySmall" tone="default" style={styles.flex}>
-                {line.text}
-              </Text>
+              <View style={styles.flex}>
+                <Text variant="bodySmall" tone="default">
+                  {line.text}
+                </Text>
+                {line.detail !== undefined && (
+                  <Text variant="hint">{line.detail}</Text>
+                )}
+              </View>
             </View>
           ))}
         </View>

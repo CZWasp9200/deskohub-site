@@ -1,9 +1,13 @@
 import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Option } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import { Context, Data, Effect, Layer, Option } from "effect";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { type ContractWithdrawalRow, contractWithdrawals } from "@/db/schema";
+import {
+  type ContractWithdrawalRow,
+  contractWithdrawals,
+  workspaceReservations,
+} from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
 import {
@@ -77,6 +81,10 @@ export const withdrawalStepDoneAt = (
   step: WithdrawalSettlementStep
 ): Temporal.Instant | null => withdrawal[settlementStepColumns[step].doneAt];
 
+export class WithdrawalContractChangedError extends Data.TaggedError(
+  "WithdrawalContractChangedError"
+) {}
+
 type NewContractWithdrawal = Pick<
   ContractWithdrawal,
   | "contract"
@@ -128,7 +136,7 @@ interface IWithdrawalRepository {
     withdrawal: NewContractWithdrawal
   ) => Effect.Effect<
     { readonly withdrawal: ContractWithdrawal; readonly recorded: boolean },
-    EffectDrizzleQueryError
+    EffectDrizzleQueryError | SqlError.SqlError | WithdrawalContractChangedError
   >;
   /**
    * Claims up to `limit` unsettled withdrawals due for settlement at `now`,
@@ -278,35 +286,53 @@ export class WithdrawalRepository extends Context.Service<
         }),
         record: Effect.fn("WithdrawalRepository.record")(
           function* (withdrawal) {
-            const [inserted] = yield* db
-              .insert(contractWithdrawals)
-              .values({
-                ...toNewRow(withdrawal),
-                settlementClaimedAt: withdrawal.submittedAt,
-                nextSettlementAt: withdrawal.submittedAt,
+            return yield* transaction(
+              Effect.gen(function* () {
+                // The operator claim takes the same row lock before reading
+                // the ledger. No network work runs while this lock is held.
+                const [reservation] = yield* db
+                  .select({
+                    state: workspaceReservations.reservationState,
+                    payment: workspaceReservations.paymentState,
+                    author: workspaceReservations.authorAccountId,
+                  })
+                  .from(workspaceReservations)
+                  .where(
+                    sql`${workspaceReservations.id} = ${withdrawal.contract.id}`
+                  )
+                  .for("update");
+                const existing = yield* findByContract(withdrawal.contract);
+                if (Option.isSome(existing)) {
+                  return { withdrawal: existing.value, recorded: false };
+                }
+                if (
+                  reservation?.state !== "confirmed" ||
+                  reservation.payment !== "paid" ||
+                  reservation.author !== withdrawal.accountId
+                ) {
+                  return yield* new WithdrawalContractChangedError();
+                }
+                const [inserted] = yield* db
+                  .insert(contractWithdrawals)
+                  .values({
+                    ...toNewRow(withdrawal),
+                    settlementClaimedAt: withdrawal.submittedAt,
+                    nextSettlementAt: withdrawal.submittedAt,
+                  })
+                  .returning();
+                if (inserted) {
+                  return {
+                    withdrawal: toContractWithdrawal(inserted),
+                    recorded: true,
+                  };
+                }
+                return yield* Effect.die(
+                  new Error(
+                    "The locked reservation's withdrawal insert returned no row."
+                  )
+                );
               })
-              .onConflictDoNothing({
-                target: [
-                  contractWithdrawals.contractKind,
-                  contractWithdrawals.contractId,
-                ],
-              })
-              .returning();
-            if (inserted) {
-              return {
-                withdrawal: toContractWithdrawal(inserted),
-                recorded: true,
-              };
-            }
-            const existing = yield* findByContract(withdrawal.contract);
-            if (Option.isNone(existing)) {
-              return yield* Effect.die(
-                new Error(
-                  "A conflicting contract withdrawal disappeared before it was read."
-                )
-              );
-            }
-            return { withdrawal: existing.value, recorded: false };
+            );
           },
           (effect, withdrawal) =>
             effect.pipe(

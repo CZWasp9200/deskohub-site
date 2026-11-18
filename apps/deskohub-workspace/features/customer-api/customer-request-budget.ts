@@ -7,11 +7,7 @@ import {
   type WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Match } from "effect";
-import type {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/unstable/httpapi";
+import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   RequestBudget,
   type RequestBudgetPolicy,
@@ -40,8 +36,8 @@ type CustomerApiGroup =
 
 /** Every endpoint of every group, by group then endpoint name. */
 export type CustomerApiEndpointClassification = {
-  readonly [Group in CustomerApiGroup as HttpApiGroup.Name<Group>]: Record<
-    HttpApiEndpoint.Name<HttpApiGroup.Endpoints<Group>>,
+  readonly [Group in CustomerApiGroup as HttpApiGroup.Identifier<Group>]: Record<
+    HttpApiEndpoint.Identifier<HttpApiGroup.Endpoints<Group>>,
     CustomerRequestBudgetClass
   >;
 };
@@ -111,10 +107,12 @@ export const customerRequestBudgetClasses = {
     withdrawFromReservation: "dotypos-mutation",
   },
   invoices: {
-    // Authorizing either read can resolve the account's Dotypos customer;
-    // the app reads them when the customer opens or downloads an invoice.
+    // Authorizing any of these reads can resolve the account's Dotypos
+    // customer; the app reads them when the customer opens the list or
+    // downloads an invoice or a cancelled invoice's credit note.
     listInvoices: "dotypos-read",
     getInvoicePdf: "dotypos-read",
+    getCorrectiveDocumentPdf: "dotypos-read",
   },
   companies: {
     // One request to the public business registry (ARES), which needs no

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import type { CustomerCheckout } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerCheckout,
+  CustomerPaymentRetryDetails,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { BookingProblem } from "../checkout/booking-problem";
 import {
@@ -140,6 +143,13 @@ const reviewWith = (
 };
 
 /** An order paid again in place, at its review with the terms loaded. */
+/** A retried order booked for a guest, invoiced to the customer. */
+const retryDetails: CustomerPaymentRetryDetails = {
+  bookingFor: "someone-else",
+  contact: { name: "Synthetic Guest", email: testEmailAddress("guest") },
+  billing: { purpose: "personal", invoice: "requested", city: address.city },
+};
+
 const retryReview = (checkout: CustomerCheckout): Run => {
   const started = startPaymentRetry(
     {
@@ -149,7 +159,8 @@ const retryReview = (checkout: CustomerCheckout): Run => {
       advertisedPriceToken: "",
       rememberedReferralCode: Option.none(),
     },
-    checkout
+    checkout,
+    retryDetails
   );
   return run(
     started.state,
@@ -219,12 +230,17 @@ const meetingRoomReview = (earlySetup: boolean) => {
 };
 
 describe("reviewView", () => {
-  test("a retried order keeps its booking: no details rows, terms confirmed again, Pay waits for them", () => {
-    const view = viewOf(retryReview(held()));
+  test("a retried order shows the details the server kept, terms confirmed again, Pay waits for them", () => {
+    const view = viewOf(retryReview(held()), Option.some("Synthetic Booker"));
     expect(view.retry).toBe(true);
     expect(view.consent.retry).toBe(true);
-    expect(view.party).toEqual(Option.none());
-    expect(view.invoice).toEqual(Option.none());
+    expect(view.party).toEqual({
+      _tag: "SomeoneElse",
+      name: "Synthetic Guest",
+      email: testEmailAddress("guest"),
+      bookerName: Option.some("Synthetic Booker"),
+    });
+    expect(view.invoice).toEqual({ _tag: "Personal", city: "Synthetic City" });
     expect(view.payBlock).toEqual(Option.some("Agreement"));
     const agreed = viewOf(
       run(
@@ -259,10 +275,8 @@ describe("reviewView", () => {
 
   test("opens on the booking, the server's price and the quiet code row; Pay waits for the agreement", () => {
     const view = viewOf(reviewWith(held()));
-    expect(view.party).toEqual(
-      Option.some({ _tag: "Self", name: "Synthetic Booker" })
-    );
-    expect(view.invoice).toEqual(Option.some({ _tag: "None" }));
+    expect(view.party).toEqual({ _tag: "Self", name: "Synthetic Booker" });
+    expect(view.invoice).toEqual({ _tag: "None" });
     expect(view.retry).toBe(false);
     expect(view.price.breakdown.total).toEqual(summary.total);
     expect(view.price.breakdown.lines.length).toBeGreaterThan(0);
@@ -297,17 +311,16 @@ describe("reviewView", () => {
       }),
       Option.some("Synthetic Booker")
     );
-    expect(view.party).toEqual(
-      Option.some({
-        _tag: "SomeoneElse",
-        name: "Synthetic Guest",
-        email: testEmailAddress("guest"),
-        bookerName: Option.some("Synthetic Booker"),
-      })
-    );
-    expect(view.invoice).toEqual(
-      Option.some({ _tag: "Company", legalName: "Synthetic Studio s.r.o." })
-    );
+    expect(view.party).toEqual({
+      _tag: "SomeoneElse",
+      name: "Synthetic Guest",
+      email: testEmailAddress("guest"),
+      bookerName: Option.some("Synthetic Booker"),
+    });
+    expect(view.invoice).toEqual({
+      _tag: "Company",
+      legalName: "Synthetic Studio s.r.o.",
+    });
   });
 
   test("a personal invoice is shown by its city", () => {
@@ -319,9 +332,7 @@ describe("reviewView", () => {
         },
       })
     );
-    expect(view.invoice).toEqual(
-      Option.some({ _tag: "Personal", city: "Synthetic City" })
-    );
+    expect(view.invoice).toEqual({ _tag: "Personal", city: "Synthetic City" });
   });
 
   test("a changed price shows the quote's total and the new one, and Pay waits for the acceptance", () => {

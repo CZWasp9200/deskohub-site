@@ -11,6 +11,7 @@ import type {
   CustomerDiscountCodeRejected,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerPaymentRetryDetails,
   ReferralCode,
   SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
@@ -197,12 +198,12 @@ export const ReviewNotice = Data.taggedEnum<ReviewNotice>();
 /**
  * What the review pays for: a new booking, with who books and who is
  * invoiced as the details step submitted them, or an order whose payment
- * failed, was cancelled or expired, paid again with its details kept (the
- * server keeps them; the app isn't told them).
+ * failed, was cancelled or expired, paid again with the details the server
+ * kept for it.
  */
 export type ReviewKind = Data.TaggedEnum<{
   NewBooking: { readonly details: CheckoutDetails };
-  PaymentRetry: Record<never, never>;
+  PaymentRetry: { readonly details: CustomerPaymentRetryDetails };
 }>;
 export const ReviewKind = Data.taggedEnum<ReviewKind>();
 

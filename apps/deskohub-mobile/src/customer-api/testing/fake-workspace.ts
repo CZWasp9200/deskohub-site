@@ -10,7 +10,6 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
-  type CustomerCheckout,
   type CustomerCompaniesApi,
   type CustomerCompanyDetails,
   CustomerCompanyNotFound,
@@ -25,6 +24,7 @@ import {
   type CustomerPaymentPage,
   CustomerPaymentPageClosed,
   type CustomerPaymentPageClosedReason,
+  type CustomerPaymentRetry,
   CustomerPaymentRetryRefused,
   type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
@@ -62,12 +62,12 @@ import {
   HttpServerRequest,
   HttpServerResponse,
   Multipart,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
@@ -101,7 +101,7 @@ export type FakeRequestOutcome =
    */
   | "session-not-fresh";
 
-type EndpointName = HttpApiEndpoint.Name<
+type EndpointName = HttpApiEndpoint.Identifier<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
@@ -194,7 +194,7 @@ export class FakeWorkspace {
    * other as one whose reservation has ended.
    */
   paymentRetry:
-    | CustomerCheckout
+    | CustomerPaymentRetry
     | CustomerPaymentRetryRefusedReason
     | undefined;
   /**
@@ -862,8 +862,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
-  // The account's invoices; one without a stored PDF, or any other ID, is
-  // not found, as the Workspace answers another customer's invoice.
+  // The account's invoices; one without a stored PDF or credit note, or any
+  // other ID, is not found, as the Workspace answers another customer's
+  // invoice and an invoice that isn't cancelled.
   const invoices = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "invoices",
@@ -884,6 +885,19 @@ const serverLayer = (workspace: FakeWorkspace) => {
               const pdf = workspace.data.invoices.find(
                 ({ invoice }) => invoice.id === params.invoiceId
               )?.pdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
+          )
+        )
+        .handle("getCorrectiveDocumentPdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.creditNotePdf;
               return pdf === undefined
                 ? Effect.fail(new CustomerInvoiceNotFound())
                 : Effect.succeed(pdf);
@@ -1043,7 +1057,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
     // Injected outcomes are answered as the Workspace's own middleware would.
     Layer.succeed(CustomerSessionAuthentication, (httpEffect, { endpoint }) =>
       Effect.gen(function* () {
-        const name = endpoint.name as EndpointName;
+        const name = endpoint.identifier as EndpointName;
         workspace.calls.push(name);
         const outcome = workspace.nextOutcome(name);
         if (outcome === "session-required" || !workspace.signedIn) {

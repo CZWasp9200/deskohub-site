@@ -58,18 +58,14 @@ import {
   campaignsMinimumDhwVersion,
 } from "./email-campaigns";
 
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
-
 export const CampaignRef = Schema.Struct({
   campaignId: AdministrationCampaignId,
-}).annotate(strictParseOptions);
+});
 export type CampaignRef = typeof CampaignRef.Type;
 
 export const CampaignAudienceRef = Schema.Struct({
   audienceId: AdministrationCampaignAudienceId,
-}).annotate(strictParseOptions);
+});
 export type CampaignAudienceRef = typeof CampaignAudienceRef.Type;
 
 /** An empty input; an empty struct would accept any object. */
@@ -79,44 +75,44 @@ export const NoInput = Schema.Record(Schema.String, Schema.Never);
 export const CampaignPatchInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignUpdateInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignPatchInput = typeof CampaignPatchInput.Type;
 
 export const CampaignDuplicateInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignDuplicateRequest.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignDuplicateInput = typeof CampaignDuplicateInput.Type;
 
 export const CampaignAudiencePatchInput = Schema.Struct({
   audienceId: AdministrationCampaignAudienceId,
   ...AdministrationCampaignAudienceUpdate.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignAudiencePatchInput = typeof CampaignAudiencePatchInput.Type;
 
 export const CampaignTemplatePreviewInput = Schema.Struct({
   templateKey: AdministrationCampaignTemplateKey,
   preview: AdministrationCampaignTemplatePreviewInput,
-}).annotate(strictParseOptions);
+});
 export type CampaignTemplatePreviewInput =
   typeof CampaignTemplatePreviewInput.Type;
 
 export const CampaignTestSendInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignTestSendInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignTestSendInput = typeof CampaignTestSendInput.Type;
 
 export const CampaignSendInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignSendInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignSendInput = typeof CampaignSendInput.Type;
 
 export const CampaignRetryInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignRetryInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignRetryInput = typeof CampaignRetryInput.Type;
 
 /** The operations on campaigns, their audiences and templates. */

@@ -4,7 +4,7 @@ import type {
   ProfileCompletionReferralOutcome,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Effect, Match, Option, Predicate } from "effect";
-import { type AsyncResult, Atom } from "effect/unstable/reactivity";
+import { type AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {
   accountAtom,
@@ -54,30 +54,38 @@ export const profileEditsAtom = Atom.make(Option.none<ProfileDraft>()).pipe(
 );
 
 /**
- * The saved profile a form edits, and the region its phone is read in: the
- * phone region of the account's saved language (`accountPhoneRegion`).
+ * The saved profile a form edits, the region its phone is read in (the
+ * phone region of the account's saved language, `accountPhoneRegion`), and
+ * the device's country, where a new billing address starts.
  */
 export interface EditedProfile {
   readonly profile: CustomerProfile;
   readonly phoneRegion: string;
+  readonly deviceCountry: string;
 }
 
 /** The draft a form shows: the customer's edits, else the saved profile. */
 export const currentDraft = (
   edits: Option.Option<ProfileDraft>,
-  { profile, phoneRegion }: EditedProfile
+  { profile, phoneRegion, deviceCountry }: EditedProfile
 ): ProfileDraft =>
-  Option.getOrElse(edits, () => profileDraftOf(profile, phoneRegion));
+  Option.getOrElse(edits, () =>
+    profileDraftOf(profile, phoneRegion, deviceCountry)
+  );
 
 /** Whether leaving now would lose changes. */
 export const hasUnsavedChanges = (
   edits: Option.Option<ProfileDraft>,
-  { profile, phoneRegion }: EditedProfile
+  { profile, phoneRegion, deviceCountry }: EditedProfile
 ) =>
   Option.exists(
     edits,
     (draft) =>
-      !sameDraft(draft, profileDraftOf(profile, phoneRegion), phoneRegion)
+      !sameDraft(
+        draft,
+        profileDraftOf(profile, phoneRegion, deviceCountry),
+        phoneRegion
+      )
   );
 
 /** The draft after a change to some of its fields. */
@@ -238,11 +246,18 @@ export const completeProfileAtom = customerDataRuntime
   )
   .pipe(Atom.keepAlive);
 
-/** The completion draft a form shows: edits, else the invitation prefill. */
+/**
+ * The completion draft a form shows: edits, else the invitation prefill
+ * with billing in the device's country.
+ */
 export const currentCompletionDraft = (
   edits: Option.Option<CompletionDraft>,
-  invitationCode: string | undefined
-) => Option.getOrElse(edits, () => completionDraftOf(invitationCode));
+  invitationCode: string | undefined,
+  deviceCountry: string
+) =>
+  Option.getOrElse(edits, () =>
+    completionDraftOf(invitationCode, deviceCountry)
+  );
 
 /** The invitation code a completion-required account came with. */
 export const invitationCodeOf = (account: CustomerAccountState) =>

@@ -117,12 +117,13 @@ const seatsOf = (row: ReservationListRow, locale: AppLocale) =>
     ? Option.some(m.reservations_seats({ count: row.seats }, { locale }))
     : Option.none();
 
-/** A compact row's time: the date range for a booking over several days. */
+/** A compact row's time: the date range for a booking of several whole days. */
 const rowTimeLineOf = (row: ReservationListRow, locale: AppLocale): string =>
   Option.match(Option.all([instantOf(row.startsAt), instantOf(row.endsAt)]), {
-    onNone: () => timeLineOf(row, locale),
+    onNone: () => m.reservations_value_unavailable({}, { locale }),
     onSome: ([start, end]) =>
-      bookingDateRange(start, end, locale) ?? timeLineOf(row, locale),
+      bookingDateRange(start, end, locale) ??
+      bookingTimeLine(start, end, locale),
   });
 
 export const reservationRowView = (
@@ -142,7 +143,10 @@ export const reservationRowView = (
     detail:
       place === "past" && cancelled
         ? m.reservationStatusCancelled({}, { locale })
-        : rowTimeLineOf(row, locale),
+        : [
+            rowTimeLineOf(row, locale),
+            ...Option.toArray(seatsOf(row, locale)),
+          ].join(" · "),
     badge:
       place === "later" && (badge === "pending" || badge === "attention")
         ? Option.some(badge)

@@ -8,6 +8,7 @@ import {
   type PageVirtualAuthenticator,
 } from "@/e2e/virtual-authenticator";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 
 /*
  * Runs the page's passkey sign-in attempts in Chromium with a virtual
@@ -287,9 +288,9 @@ test.skipIf(!chromiumAvailable)(
         "button signed in",
       ]);
       await expectVerifiedAfterFirstAttempt(page);
-      await expect(
-        authenticator.waitForConditionalRequest(250)
-      ).rejects.toThrow();
+      expect(
+        await outcomeOf(authenticator.waitForConditionalRequest(250))
+      ).toThrow();
     });
   }
 );
@@ -316,9 +317,9 @@ test.skipIf(!chromiumAvailable)(
         "button signed in",
       ]);
       await expectVerifiedAfterFirstAttempt(page);
-      await expect(
-        authenticator.waitForConditionalRequest(250)
-      ).rejects.toThrow();
+      expect(
+        await outcomeOf(authenticator.waitForConditionalRequest(250))
+      ).toThrow();
     });
   }
 );

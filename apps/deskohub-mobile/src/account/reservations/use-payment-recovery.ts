@@ -22,7 +22,7 @@ import {
 
 /**
  * The booking ticket's ways to still pay an unpaid order: open its payment
- * page again, or pay a failed or cancelled order again in place. What the
+ * page again, or pay a failed, cancelled or expired order again in place. What the
  * server answers decides what the ticket offers next, and the order's status
  * is read again after each: a page it won't reopen isn't offered until a
  * fresh read says it can be (the provider's answer can change), and a retry
@@ -87,7 +87,7 @@ export const usePaymentRecovery = (
       onFailure: failed,
       onSuccess: (outcome) =>
         PaymentRetryOutcome.$match(outcome, {
-          Checkout: ({ checkout }) => {
+          Checkout: ({ checkout, details }) => {
             setCheckoutRequest(
               Option.some({
                 _tag: "PaymentRetry",
@@ -97,6 +97,7 @@ export const usePaymentRecovery = (
                   ? {}
                   : { earlySetup: booked.earlySetup }),
                 checkout,
+                details,
                 previousTotal: order.total ?? checkout.summary.total,
               })
             );

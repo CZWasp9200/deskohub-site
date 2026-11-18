@@ -5,13 +5,14 @@ import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { makeDatabaseClient } from "@/db/database-client";
 import { paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { PaymentRefundRepository } from "./payment-refund.repository";
@@ -320,11 +321,16 @@ describe.skipIf(!testDatabase)(
       // Statistics taken while payment_attempts was empty make Postgres pick a
       // nested-loop semi-join that re-runs the claim subquery for every row it
       // updates. These settings force that plan on a dedicated connection.
-      const rescanningPool = makeDatabasePool({
+      const rescanningPool = await openDatabasePool({
         connectionString: process.env.WORKSPACE_TEST_DATABASE_URL ?? "",
-        max: 1,
-        options:
-          "-c enable_hashjoin=off -c enable_mergejoin=off -c enable_hashagg=off -c enable_material=off -c enable_sort=off",
+        maxConnections: 1,
+        startupParameters: {
+          enable_hashjoin: "off",
+          enable_mergejoin: "off",
+          enable_hashagg: "off",
+          enable_material: "off",
+          enable_sort: "off",
+        },
       });
       try {
         const db = await Effect.runPromise(makeDatabaseClient(rescanningPool));
@@ -356,7 +362,7 @@ describe.skipIf(!testDatabase)(
 
         expect(batch).toHaveLength(limit);
       } finally {
-        await rescanningPool.end();
+        await rescanningPool.close();
       }
     });
 

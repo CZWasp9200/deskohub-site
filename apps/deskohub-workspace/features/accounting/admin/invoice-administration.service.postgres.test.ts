@@ -10,8 +10,9 @@ import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationInvoiceCreateInput,
   type AdministrationInvoiceCreateInputType,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
-import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
+import { Cause, Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
@@ -33,11 +34,18 @@ import {
   InvoiceEmailDeliveryService,
 } from "../backend/invoice-email-delivery.service";
 import { InvoiceAdministrationService } from "./invoice-administration.service";
+import {
+  liveInvoiceCancellationFakes,
+  liveInvoiceStanding,
+} from "./invoice-administration.service.test-utils";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+const input = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+)({
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23",
   customer: {
     kind: "new",
@@ -116,6 +124,7 @@ describe.skipIf(!testDatabase)(
               invoiceNumber: document.invoiceNumber,
               issuedAt: Temporal.Instant.from(document.issuedAt),
               document,
+              ...liveInvoiceStanding,
             };
             return { invoice: stored, changed } as ManualInvoiceIssuance;
           })
@@ -152,6 +161,7 @@ describe.skipIf(!testDatabase)(
                   completed = true;
                 }),
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -196,7 +206,8 @@ describe.skipIf(!testDatabase)(
         )
       );
       const secondInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24",
@@ -237,6 +248,7 @@ describe.skipIf(!testDatabase)(
                     invoiceNumber: document.invoiceNumber,
                     issuedAt: Temporal.Instant.from(document.issuedAt),
                     document,
+                    ...liveInvoiceStanding,
                   } satisfies Invoice;
                   stored.set(invoice.id, invoice);
                   return {
@@ -262,6 +274,7 @@ describe.skipIf(!testDatabase)(
               claim: () => Effect.succeed({ kind: "claimed" } as const),
               complete: () => Effect.void,
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -291,7 +304,8 @@ describe.skipIf(!testDatabase)(
         document,
       });
       const existingCustomerInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         customer: {
@@ -357,6 +371,7 @@ describe.skipIf(!testDatabase)(
                 claim: () => Effect.succeed({ kind: claim } as const),
                 complete: calls.complete,
               } as never),
+              liveInvoiceCancellationFakes,
               testDatabase!.layer
             )
           )
@@ -509,7 +524,8 @@ describe.skipIf(!testDatabase)(
         async ({ phone, written }) => {
           const { calls, layer } = claimLayer("claimed", null);
           const withPhone = Schema.decodeUnknownSync(
-            AdministrationInvoiceCreateInput
+            AdministrationInvoiceCreateInput,
+            administrationInputParseOptions
           )({
             ...existingCustomerInput,
             customer: {
@@ -529,6 +545,235 @@ describe.skipIf(!testDatabase)(
           );
         }
       );
+    });
+
+    describe("customer lifecycle", () => {
+      const email = input.customer.details.email;
+      const expired = "2020-01-01T00:00:00Z";
+      const selectedInput = Schema.decodeUnknownSync(
+        AdministrationInvoiceCreateInput
+      )({
+        ...input,
+        customer: {
+          kind: "existing",
+          customerId: "dotypos-customer-selected",
+          details: input.customer.details,
+        },
+      });
+      const deletedCustomer = {
+        id: "dotypos-customer-deleted",
+        email,
+        deleted: true,
+      } as never;
+      const expiredCustomer = {
+        id: "dotypos-customer-expired",
+        email,
+        expireDate: expired,
+      } as never;
+      const activeCustomer = { id: "dotypos-customer-active", email } as never;
+
+      const lifecycleLayer = (dotyposCustomers: {
+        readonly selected?: Option.Option<never>;
+        readonly found?: FindCustomerResult;
+      }) => {
+        const document = makeTestManualInvoiceDocument("cs-CZ", "1000");
+        const calls = {
+          issueManual: mock(
+            (
+              invoiceInput: Parameters<
+                InvoiceRepository["Service"]["issueManual"]
+              >[0]
+            ) =>
+              Effect.succeed({
+                invoice: {
+                  id: invoiceInput.invoiceId,
+                  workspaceReservationId: null,
+                  paymentAttemptId: null,
+                  dotyposCustomerId: invoiceInput.dotyposCustomerId,
+                  invoiceNumber: document.invoiceNumber,
+                  issuedAt: Temporal.Instant.from(document.issuedAt),
+                  document,
+                  ...liveInvoiceStanding,
+                },
+                changed: true,
+              } as ManualInvoiceIssuance)
+          ),
+          updateCustomerDetails: mock((customerId: string) =>
+            Effect.succeed({ id: customerId } as never)
+          ),
+          createCustomer: mock(() =>
+            Effect.succeed({ id: "dotypos-customer-created" } as never)
+          ),
+        };
+        const layer = InvoiceAdministrationService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(DotyposService, {
+                getCustomer: () =>
+                  Effect.succeed(dotyposCustomers.selected ?? Option.none()),
+                findCustomer: () =>
+                  Effect.succeed(
+                    dotyposCustomers.found ??
+                      FindCustomerResult.NotFound({ matches: [] })
+                  ),
+                updateCustomerDetails: calls.updateCustomerDetails,
+                createCustomer: calls.createCustomer,
+              }),
+              Layer.mock(InvoiceRepository, {
+                findById: () => Effect.succeed(null),
+                issueManual: calls.issueManual,
+              }),
+              deliveryLedger(),
+              Layer.mock(InvoiceEmailDeliveryService, {
+                deliverByInvoiceId: () =>
+                  Effect.succeed({
+                    status: "delivered",
+                    changed: true,
+                  } satisfies InvoiceEmailDeliveryResult),
+              }),
+              Layer.mock(ManualInvoiceCreationRequests, {
+                claim: () => Effect.succeed({ kind: "claimed" } as const),
+                complete: () => Effect.void,
+              } as never),
+              liveInvoiceCancellationFakes,
+              testDatabase!.layer
+            )
+          )
+        );
+        const createWith = (invoice: AdministrationInvoiceCreateInputType) =>
+          Effect.gen(function* () {
+            const service = yield* InvoiceAdministrationService;
+            return yield* create(service, invoice);
+          }).pipe(Effect.provide(layer), Effect.runPromiseExit);
+        return { calls, createWith };
+      };
+
+      const expectRefusedAsDeleted = (
+        exit: Awaited<
+          ReturnType<ReturnType<typeof lifecycleLayer>["createWith"]>
+        >,
+        calls: ReturnType<typeof lifecycleLayer>["calls"]
+      ) => {
+        expect(exit._tag).toBe("Failure");
+        if (exit._tag === "Failure")
+          expect(Cause.squash(exit.cause)).toMatchObject({
+            _tag: "InvoiceAdministrationCustomerError",
+            reason: "customer-deleted",
+          });
+        expect(calls.updateCustomerDetails).not.toHaveBeenCalled();
+        expect(calls.createCustomer).not.toHaveBeenCalled();
+        expect(calls.issueManual).not.toHaveBeenCalled();
+      };
+
+      test.each([
+        { lifecycle: "missing", selected: Option.none<never>() },
+        { lifecycle: "deleted", selected: Option.some(deletedCustomer) },
+        { lifecycle: "expired", selected: Option.some(expiredCustomer) },
+      ])(
+        "refuses a selected $lifecycle customer before updating its details",
+        async ({ selected }) => {
+          const { calls, createWith } = lifecycleLayer({ selected });
+
+          expectRefusedAsDeleted(await createWith(selectedInput), calls);
+        }
+      );
+
+      test("updates a selected customer whose expiry is still ahead", async () => {
+        const { calls, createWith } = lifecycleLayer({
+          selected: Option.some({
+            id: "dotypos-customer-selected",
+            email,
+            expireDate: "2999-01-01T00:00:00Z",
+          } as never),
+        });
+
+        expect((await createWith(selectedInput))._tag).toBe("Success");
+        expect(calls.updateCustomerDetails).toHaveBeenCalledWith(
+          "dotypos-customer-selected",
+          expect.anything()
+        );
+      });
+
+      test.each([
+        {
+          lifecycle: "deleted",
+          found: FindCustomerResult.Deleted({ matches: [deletedCustomer] }),
+        },
+        {
+          lifecycle: "expired",
+          found: FindCustomerResult.Matched({
+            customer: expiredCustomer,
+            matches: [expiredCustomer],
+          }),
+        },
+        {
+          lifecycle: "deleted or expired",
+          found: FindCustomerResult.Deleted({
+            matches: [deletedCustomer, expiredCustomer],
+          }),
+        },
+      ])(
+        "refuses an email held only by a $lifecycle customer without creating one",
+        async ({ found }) => {
+          const { calls, createWith } = lifecycleLayer({ found });
+
+          expectRefusedAsDeleted(await createWith(input), calls);
+        }
+      );
+
+      test("matches an email's active customer alone beside an expired one", async () => {
+        const { calls, createWith } = lifecycleLayer({
+          found: FindCustomerResult.Ambiguous({
+            matches: [expiredCustomer, activeCustomer],
+          }),
+        });
+
+        expect((await createWith(input))._tag).toBe("Success");
+        expect(calls.updateCustomerDetails).toHaveBeenCalledTimes(1);
+        expect(calls.updateCustomerDetails).toHaveBeenCalledWith(
+          "dotypos-customer-active",
+          expect.anything()
+        );
+        expect(calls.createCustomer).not.toHaveBeenCalled();
+        expect(calls.issueManual).toHaveBeenCalledWith(
+          expect.objectContaining({
+            dotyposCustomerId: "dotypos-customer-active",
+          })
+        );
+      });
+
+      test("refuses an email two active customers share", async () => {
+        const { calls, createWith } = lifecycleLayer({
+          found: FindCustomerResult.Ambiguous({
+            matches: [
+              activeCustomer,
+              { id: "dotypos-customer-other", email } as never,
+            ],
+          }),
+        });
+
+        const exit = await createWith(input);
+
+        expect(exit._tag).toBe("Failure");
+        if (exit._tag === "Failure")
+          expect(Cause.squash(exit.cause)).toMatchObject({
+            reason: "customer-email-ambiguous",
+          });
+        expect(calls.updateCustomerDetails).not.toHaveBeenCalled();
+        expect(calls.createCustomer).not.toHaveBeenCalled();
+      });
+
+      test("creates a customer for an email no customer holds", async () => {
+        const { calls, createWith } = lifecycleLayer({});
+
+        expect((await createWith(input))._tag).toBe("Success");
+        expect(calls.createCustomer).toHaveBeenCalledTimes(1);
+        expect(calls.issueManual).toHaveBeenCalledWith(
+          expect.objectContaining({
+            dotyposCustomerId: "dotypos-customer-created",
+          })
+        );
+      });
     });
 
     test("the creation lock serializes creation per invoice ID", async () => {

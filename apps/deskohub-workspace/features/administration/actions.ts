@@ -4,9 +4,10 @@ import {
   AdministrationWorkspaceReservationId,
   CliServiceUnavailable,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { AdministrationActionLog } from "@/features/admin-cli/administration-action-log.service";
 import { recordAdministrationAction } from "@/features/admin-cli/administration-action-record.server";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import {
   WithdrawalService,
@@ -18,9 +19,11 @@ import { administrationHref } from "./administration-href";
 import {
   type ReservationCancellationInput,
   type ReservationLookupInput,
+  type ReservationRestorationInput,
   type ReservationWithdrawalSettlementInput,
   reservationCancellationStandardSchema,
   reservationLookupStandardSchema,
+  reservationRestorationStandardSchema,
   reservationWithdrawalSettlementStandardSchema,
 } from "./contracts";
 import { AdministrationCustomerDirectory } from "./customer-directory.service";
@@ -38,6 +41,7 @@ import {
 import {
   getReservationAccessErrorMessage,
   getReservationCancellationErrorMessage,
+  getReservationRestorationErrorMessage,
 } from "./reservation-error-messages";
 
 import {
@@ -90,10 +94,11 @@ const searchAdministrationCustomersAction = defineAdministrationAction(
   Effect.fn(function* (input) {
     const directory = yield* AdministrationCustomerDirectory;
     const { kind, customers } = yield* directory.search(input.query);
+    const now = yield* DateTime.nowAsDate;
     return {
       kind,
       customers: customers.map((customer) =>
-        describeAdministrationCustomer(customer)
+        describeAdministrationCustomer(customer, now)
       ),
     };
   })
@@ -124,8 +129,12 @@ const cancelAdministrationReservationAction = defineAdministrationAction(
     revalidates: reservationPath,
   },
   Effect.fn(function* (input: ReservationCancellationInput) {
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* ReservationAdministrationService;
-    return yield* administration.cancel(input);
+    return yield* administration.cancel({
+      ...input,
+      actor: { source, administrator: actor },
+    });
   })
 );
 
@@ -176,6 +185,36 @@ export const settleAdministrationReservationWithdrawal: typeof settleAdministrat
   ) => {
     "use server";
     return await settleAdministrationReservationWithdrawalAction(...args);
+  };
+
+const restoreAdministrationReservationAction = defineAdministrationAction(
+  {
+    operation: "administration.restore-reservation",
+    failureCopy,
+    schema: reservationRestorationStandardSchema,
+    capabilities: ReservationAdministrationService.Live,
+    publicFailure: (cause, locale) =>
+      cause instanceof ReservationAdministrationError
+        ? getReservationRestorationErrorMessage(
+            cause.reason,
+            locale,
+            cause.refundedPayment
+          )
+        : m.administrationReservationRestorationFailed({}, { locale }),
+    revalidates: reservationPath,
+  },
+  Effect.fn(function* (input: ReservationRestorationInput) {
+    const administration = yield* ReservationAdministrationService;
+    return yield* administration.restore(input);
+  })
+);
+
+export const restoreAdministrationReservation: typeof restoreAdministrationReservationAction =
+  async (
+    ...args: Parameters<typeof restoreAdministrationReservationAction>
+  ) => {
+    "use server";
+    return await restoreAdministrationReservationAction(...args);
   };
 
 const reservationAccessMutationSchema = Schema.toStandardSchemaV1(

@@ -1,9 +1,10 @@
 import { Schema } from "effect";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   CustomerAccountLinkRequired,
   CustomerFeatureUnavailable,
@@ -28,7 +29,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No order with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerReservationNotFound extends Schema.TaggedErrorClass<CustomerReservationNotFound>()(
+export class CustomerReservationNotFound extends Schema.TaggedError<CustomerReservationNotFound>()(
   "CustomerReservationNotFound",
   {}
 ) {
@@ -39,7 +40,7 @@ export class CustomerReservationNotFound extends Schema.TaggedErrorClass<Custome
  * The order has no door code to show: it isn't paid and confirmed yet, or
  * it has ended. Asking again later can succeed only once its status changes.
  */
-export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<CustomerAccessCodeUnavailable>()(
+export class CustomerAccessCodeUnavailable extends Schema.TaggedError<CustomerAccessCodeUnavailable>()(
   "CustomerAccessCodeUnavailable",
   {}
 ) {
@@ -50,7 +51,7 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
  * The order has no issued invoice: it isn't paid and confirmed yet, or it
  * needs none. Asking again can succeed only once its status changes.
  */
-export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
+export class CustomerInvoiceNotIssued extends Schema.TaggedError<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
 ) {
@@ -78,7 +79,7 @@ export type CustomerPaymentPageClosedReason =
  * The order's payment page can't be opened again, for `reason`. Asking again
  * can succeed only once a new payment opens a page.
  */
-export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerPaymentPageClosed>()(
+export class CustomerPaymentPageClosed extends Schema.TaggedError<CustomerPaymentPageClosed>()(
   "CustomerPaymentPageClosed",
   { reason: CustomerPaymentPageClosedReason }
 ) {
@@ -113,7 +114,7 @@ export type CustomerPaymentRetryRefusedReason =
   typeof CustomerPaymentRetryRefusedReason.Type;
 
 /** The order's payment can't be tried again in place, for `reason`. */
-export class CustomerPaymentRetryRefused extends Schema.TaggedErrorClass<CustomerPaymentRetryRefused>()(
+export class CustomerPaymentRetryRefused extends Schema.TaggedError<CustomerPaymentRetryRefused>()(
   "CustomerPaymentRetryRefused",
   { reason: CustomerPaymentRetryRefusedReason }
 ) {
@@ -439,7 +440,7 @@ export type CustomerWithdrawalRefusedReason =
   typeof CustomerWithdrawalRefusedReason.Type;
 
 /** The customer can't withdraw from the order, for `reason`. */
-export class CustomerWithdrawalRefused extends Schema.TaggedErrorClass<CustomerWithdrawalRefused>()(
+export class CustomerWithdrawalRefused extends Schema.TaggedError<CustomerWithdrawalRefused>()(
   "CustomerWithdrawalRefused",
   { reason: CustomerWithdrawalRefusedReason }
 ) {
@@ -450,7 +451,7 @@ export class CustomerWithdrawalRefused extends Schema.TaggedErrorClass<CustomerW
  * The statement needs the customer's name: the profile has none and the
  * request didn't carry one.
  */
-export class CustomerWithdrawalNameRequired extends Schema.TaggedErrorClass<CustomerWithdrawalNameRequired>()(
+export class CustomerWithdrawalNameRequired extends Schema.TaggedError<CustomerWithdrawalNameRequired>()(
   "CustomerWithdrawalNameRequired",
   {}
 ) {
@@ -528,7 +529,6 @@ export const ReopenCustomerPaymentPage = Schema.Struct({
   returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
 }).annotate({
   identifier: "ReopenCustomerPaymentPage",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -539,8 +539,54 @@ export const RetryCustomerPayment = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "RetryCustomerPayment",
-  parseOptions: customerInputParseOptions,
 });
+
+/**
+ * What the order is for and the invoice it needs, as the review shows it:
+ * the city of a personal invoice, or the name of the company a business
+ * invoice is for.
+ */
+export const CustomerPaymentRetryBilling = Schema.Union([
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("none"),
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("requested"),
+    city: Schema.String,
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("business"),
+    invoice: Schema.Literal("required"),
+    legalName: Schema.String,
+  }),
+]).annotate({ identifier: "CustomerPaymentRetryBilling" });
+export type CustomerPaymentRetryBilling =
+  typeof CustomerPaymentRetryBilling.Type;
+
+/**
+ * Who the order is for and the invoice it needs, kept as it was booked, for
+ * the review to show. `self`: the account's own profile is the contact;
+ * `someone-else`: `contact` is the customer the account booked for.
+ */
+export const CustomerPaymentRetryDetails = Schema.Struct({
+  bookingFor: Schema.Literals(["self", "someone-else"]),
+  contact: Schema.Struct({ name: Schema.String, email: Schema.String }),
+  billing: CustomerPaymentRetryBilling,
+}).annotate({ identifier: "CustomerPaymentRetryDetails" });
+export type CustomerPaymentRetryDetails =
+  typeof CustomerPaymentRetryDetails.Type;
+
+/**
+ * The order's checkout to pay again, with the details it keeps. They can't
+ * be changed here: booking again is the way to change them.
+ */
+export const CustomerPaymentRetry = Schema.Struct({
+  ...CustomerCheckout.fields,
+  details: CustomerPaymentRetryDetails,
+}).annotate({ identifier: "CustomerPaymentRetry" });
+export type CustomerPaymentRetry = typeof CustomerPaymentRetry.Type;
 
 /**
  * The payment provider's page of the order's unpaid payment, opened again
@@ -598,25 +644,26 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerPaymentPageClosed.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     /**
-     * The same order's checkout again, with its details kept: the terms are
-     * confirmed again and `submitCheckout` starts the new payment. A changed
-     * price comes back as `price_review` to accept first. It never starts a
-     * payment and never books a second spot.
+     * The same order's checkout again, with its details kept and returned
+     * in `details`: the terms are confirmed again and `submitCheckout`
+     * starts the new payment. A changed price comes back as `price_review`
+     * to accept first. It never starts a payment and never books a second
+     * spot.
      */
     HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
       params: OrderParams,
       payload: RetryCustomerPayment,
-      success: CustomerCheckout,
+      success: CustomerPaymentRetry,
       error: [
         CustomerReservationNotFound.schema,
         CustomerPaymentRetryRefused.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     /**
@@ -655,7 +702,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getReservationAccess", "/:orderId/access", {

@@ -1,1 +1,0 @@
-ALTER TABLE "contract_withdrawals" ADD COLUMN "statement_name" text;

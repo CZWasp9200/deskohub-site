@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint } from "effect/unstable/httpapi";
+import { HttpApiEndpoint } from "effect/http-api";
 import { Money } from "./customer-account-api";
 import {
   CustomerBookableCoworkTier,
@@ -14,7 +14,10 @@ import {
   CustomerReservationFamily,
   CustomerStartTime,
 } from "./customer-booking-selection";
-import { CustomerCheckoutSummary } from "./customer-checkout-summary";
+import {
+  CustomerCheckoutSummary,
+  CustomerCheckoutSummaryDiscount,
+} from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
 import { CustomerCoworkTier } from "./customer-reservations-api";
 import { CustomerServiceUnavailable } from "./customer-session";
@@ -35,6 +38,11 @@ export const CustomerAdvertisedPrice = Schema.Struct({
   discount: Money,
   /** The last Prague day the sale can be booked, while one with an end runs. */
   saleLastDay: Schema.optionalKey(CustomerPlainDate),
+  /**
+   * While a sale runs: its discounts in the order they apply, which together
+   * make up `discount`.
+   */
+  discounts: Schema.optionalKey(Schema.Array(CustomerCheckoutSummaryDiscount)),
 }).annotate({ identifier: "CustomerAdvertisedPrice" });
 export type CustomerAdvertisedPrice = typeof CustomerAdvertisedPrice.Type;
 
@@ -54,6 +62,16 @@ export const CustomerOfferingFact = Schema.Struct({
   text: Schema.String,
 }).annotate({ identifier: "CustomerOfferingFact" });
 export type CustomerOfferingFact = typeof CustomerOfferingFact.Type;
+
+/**
+ * The first and last Prague dates a booking of the offering can use; for an
+ * office, both the first and the last day of the stay.
+ */
+export const CustomerBookableDates = Schema.Struct({
+  earliest: CustomerPlainDate,
+  latest: CustomerPlainDate,
+}).annotate({ identifier: "CustomerBookableDates" });
+export type CustomerBookableDates = typeof CustomerBookableDates.Type;
 
 /** An optional or included extra of a cowork offering. */
 export const CustomerOfferingAddOn = Schema.Struct({
@@ -84,6 +102,7 @@ export const CustomerOffering = Schema.Union([
     /** Per Prague calendar day, or per overnight stay. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
     addOns: Schema.Array(CustomerOfferingAddOn),
     /**
      * Present only while the offering can be booked as an overnight stay
@@ -107,6 +126,7 @@ export const CustomerOffering = Schema.Union([
     /** Per booking of the duration. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
   Schema.Struct({
     family: Schema.Literal("office"),
@@ -121,6 +141,7 @@ export const CustomerOffering = Schema.Union([
     maximumDurationHours: Schema.Int,
     /** One office day with one seat. */
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
 ]).annotate({ identifier: "CustomerOffering" });
 export type CustomerOffering = typeof CustomerOffering.Type;
@@ -364,6 +385,11 @@ export const customerBookingCatalogEndpoints = [
   HttpApiEndpoint.get("getQuote", "/quote", {
     query: Schema.Struct({
       ...CustomerBookingSelectionQuery.fields,
+      /**
+       * Meeting room only: the customer comes early to set up, as
+       * `createCheckout`'s `earlySetup` asks. The summary then shows it.
+       */
+      earlySetup: Schema.optionalKey(Schema.Literals(["true", "false"])),
       locale: CustomerLocale,
     }),
     success: CustomerBookingQuote,

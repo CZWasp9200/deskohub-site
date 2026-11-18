@@ -5,8 +5,8 @@ import type {
   CustomerMeetingRoomDuration,
 } from "@deskohub/workspace-customer-api";
 import { customerAvailabilityReplacementHeader } from "@deskohub/workspace-customer-api";
-import { Duration, Effect, Equal, Hash } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Clock, Duration, Effect, Equal, Hash } from "effect";
+import { Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";
@@ -14,6 +14,11 @@ import {
   selectionKey,
   withoutAbsentOptions,
 } from "../selection/booking-selection";
+import {
+  addDays,
+  type PragueDate,
+  pragueMidnight,
+} from "../selection/prague-date";
 
 /**
  * What the booking selection and review screens read before checkout, on the
@@ -77,13 +82,53 @@ const bookingApi = Effect.map(
   (api) => api.booking
 );
 
-/** Every offering with its advertised price, in the customer's language. */
+/**
+ * The shortest wait before offerings are read again for a new Prague day,
+ * so a server still answering for the day before (its clock a little behind
+ * the device's) is asked again at the booking clock's pace, not in a loop.
+ */
+export const offeringsRolloverRetryDelay = Duration.seconds(30);
+
+/**
+ * Schedules the offerings' next read for the Prague midnight that ends
+ * their `advertisedOn`, in the atom's lifetime: their prices and bookable
+ * dates are for that day, so a screen never keeps a window past midnight.
+ * Like a quote's refresh, a read falling due while no screen shows the
+ * offerings only marks them stale.
+ */
+const refreshOfferingsAfter = (
+  get: Atom.AtomContext,
+  advertisedOn: PragueDate
+) =>
+  Clock.currentTimeMillis.pipe(
+    Effect.map((now) =>
+      Duration.millis(
+        Math.max(
+          pragueMidnight(addDays(advertisedOn, 1)).getTime() - now,
+          Duration.toMillis(offeringsRolloverRetryDelay)
+        )
+      )
+    ),
+    Effect.flatMap(Effect.sleep),
+    Effect.andThen(Effect.sync(() => get.refreshSelf())),
+    Effect.forkScoped
+  );
+
+/**
+ * Every offering with its advertised price and bookable dates, in the
+ * customer's language, read again once the Prague day they're for ends.
+ */
 export const bookingOfferingsAtom = Atom.family((locale: CustomerLocale) =>
   customerDataRuntime
-    .atom(
+    .atom((get) =>
       Effect.flatMap(bookingApi, (booking) =>
         booking.listOfferings({ query: { locale } })
-      ).pipe(catalogRead)
+      ).pipe(
+        catalogRead,
+        Effect.tap(({ advertisedOn }) =>
+          refreshOfferingsAfter(get, advertisedOn)
+        )
+      )
     )
     .pipe(Atom.setIdleTTL(catalogIdleTTL.offerings))
 );
@@ -152,15 +197,19 @@ export const meetingRoomUnavailableDatesAtom = customerDataRuntime
   )
   .pipe(Atom.setIdleTTL(catalogIdleTTL.availability));
 
-/** One selection priced in one language; equal when their keys are. */
+/**
+ * One selection priced in one language, with a meeting room's early setup
+ * when the customer asked for it; equal when their keys are.
+ */
 export class BookingQuoteRequest implements Equal.Equal {
   readonly key: string;
 
   constructor(
     readonly selection: CustomerBookingSelection,
-    readonly locale: CustomerLocale
+    readonly locale: CustomerLocale,
+    readonly earlySetup = false
   ) {
-    this.key = selectionKey(selection);
+    this.key = `${selectionKey(selection)}${earlySetup ? "\u0000early-setup" : ""}`;
   }
 
   [Equal.symbol](that: unknown) {
@@ -183,16 +232,14 @@ export class BookingQuoteRequest implements Equal.Equal {
 export const quoteRefreshInterval = Duration.minutes(4);
 
 /** The selection as a quote's query string carries it. */
-const quoteQuery = (
-  selection: CustomerBookingSelection,
-  locale: CustomerLocale
-) => {
+const quoteQuery = ({ selection, locale, earlySetup }: BookingQuoteRequest) => {
   const { coffee, ...fields } = withoutAbsentOptions(selection);
   return {
     ...fields,
     ...(coffee === undefined
       ? {}
       : { coffee: coffee ? ("true" as const) : ("false" as const) }),
+    ...(earlySetup && { earlySetup: "true" as const }),
     locale,
   };
 };
@@ -215,18 +262,17 @@ const refreshQuoteLater = (get: Atom.AtomContext) =>
     Effect.forkScoped
   );
 
-const quoteReadFamily = Atom.family(
-  ({ selection, locale }: BookingQuoteRequest) =>
-    customerDataRuntime
-      .atom((get) =>
-        Effect.flatMap(bookingApi, (booking) =>
-          booking.getQuote({ query: quoteQuery(selection, locale) })
-        ).pipe(
-          catalogRead,
-          Effect.tap(() => refreshQuoteLater(get))
-        )
+const quoteReadFamily = Atom.family((request: BookingQuoteRequest) =>
+  customerDataRuntime
+    .atom((get) =>
+      Effect.flatMap(bookingApi, (booking) =>
+        booking.getQuote({ query: quoteQuery(request) })
+      ).pipe(
+        catalogRead,
+        Effect.tap(() => refreshQuoteLater(get))
       )
-      .pipe(Atom.setIdleTTL(catalogIdleTTL.quote))
+    )
+    .pipe(Atom.setIdleTTL(catalogIdleTTL.quote))
 );
 
 /**
@@ -241,12 +287,14 @@ const quoteFamily = Atom.family((request: BookingQuoteRequest) =>
 
 /**
  * The anonymous quote of a complete selection, read again every
- * `quoteRefreshInterval` while mounted.
+ * `quoteRefreshInterval` while mounted. A meeting room's quote lists the
+ * early setup the customer asked for.
  */
 export const bookingQuoteAtom = (
   selection: CustomerBookingSelection,
-  locale: CustomerLocale
-) => quoteFamily(new BookingQuoteRequest(selection, locale));
+  locale: CustomerLocale,
+  { earlySetup = false }: { readonly earlySetup?: boolean } = {}
+) => quoteFamily(new BookingQuoteRequest(selection, locale, earlySetup));
 
 /** The terms and operating rules at their current versions. */
 export const legalDocumentsAtom = Atom.family((locale: CustomerLocale) =>

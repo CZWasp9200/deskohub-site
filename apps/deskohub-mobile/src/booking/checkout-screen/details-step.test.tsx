@@ -54,10 +54,10 @@ const props = (
   },
   initials: Option.some("SB"),
   onEditProfile: Option.some(ignore),
-  draft: initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  }),
+  draft: initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    "CZ"
+  ),
   onDraftChange: ignore,
   notice: Option.none(),
   busy: false,
@@ -128,7 +128,9 @@ describe("DetailsStep layout (the company form scrolls, board 30)", () => {
     const children = (screen.props.children as ReadonlyArray<ReactNode>).filter(
       isValidElement
     );
-    const scrollAt = children.findIndex((child) => child.type === "ScrollView");
+    const scrollAt = children.findIndex(
+      (child) => find(child, "ScrollView") !== undefined
+    );
     const barAt = children.findIndex((child) => child.type === BookingBar);
     expect(scrollAt).toBeGreaterThanOrEqual(0);
     expect(barAt).toBeGreaterThan(scrollAt);

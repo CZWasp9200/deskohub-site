@@ -1,4 +1,4 @@
-import * as OtelTracer from "@effect/opentelemetry/Tracer";
+import * as OtelTracer from "@effect/opentelemetry/OtelTracer";
 import { isSpanContextValid, trace } from "@opentelemetry/api";
 import { Effect, Option } from "effect";
 

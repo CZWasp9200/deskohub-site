@@ -1,19 +1,10 @@
-import { deepEqual, equal, match, ok } from "node:assert/strict";
-import { type APIResponse, expect, type Page } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { BigDecimal, Effect } from "effect";
-import { invoices } from "@/db/schema/invoices";
 import { getCustomerInvoiceStatusLabel } from "@/features/accounting/customer-invoice";
 import { parseCsv } from "@/shared/testing/csv.test-utils";
 import { extractPdfText } from "@/shared/testing/pdf-text.test-utils";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { temporalInstantToPlainDate } from "@/shared/utils/temporal";
 import { resolveWorkspaceE2ESessionSigningSecret } from "../account/seeded-session";
-import { waitForPageUrl } from "../browser";
 import { getDatasourceConfig } from "../config";
-import { workspaceE2EError } from "../errors";
-import { E2EDatabase } from "../integrations/database.service";
-import { runDatabaseOperation } from "../integrations/database-operation";
 import { runtimeTest as test } from "../playwright-checkout/runtime-fixtures";
 import { addRedaction } from "../redaction";
 import {
@@ -21,16 +12,20 @@ import {
   workspaceE2ETimeouts,
 } from "../timeouts";
 import { runAdministratorCase } from "./administrator-case";
+import { makeWorkspaceE2EAdministrationIdentities } from "./identities";
 import {
-  makeWorkspaceE2EAdministrationIdentities,
-  type WorkspaceE2EAdministrationLinkedAccount,
-} from "./identities";
+  expectPrivateAttachment,
+  fillPaidInvoiceLine,
+  openNewInvoiceForm,
+  readIssuedInvoice,
+  selectCustomer,
+  submitInvoiceIssuance,
+  waitForIssuedInvoiceId,
+  withResponse,
+} from "./manual-invoice";
 
 const caseId = "administrator-invoice-customer-download";
 const locale = "en-US";
-const newInvoicePath = `/${locale}/admin/invoices/new`;
-const issuedInvoicePath =
-  /^\/en-US\/admin\/invoices\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 // One line, so the invoice total is exactly this price.
 const linePrice = "1234.50";
 const lineCurrency = "CZK";
@@ -38,13 +33,6 @@ const lineCurrency = "CZK";
 const pdfPath = (invoiceId: string) =>
   `/${locale}/account/invoices/${invoiceId}/pdf`;
 const exportPath = `/${locale}/account/invoices/export`;
-
-type IssuedInvoice = {
-  readonly id: string;
-  readonly invoiceNumber: string;
-  /** The day in Prague it was issued, as the export writes it. */
-  readonly issuedOn: string;
-};
 
 test("lets a customer download the invoice an administrator issued them as a PDF and in the CSV export, and refuses both signed out", async ({
   baseURL,
@@ -91,15 +79,9 @@ test("lets a customer download the invoice an administrator issued them as a PDF
           timeoutMs: workspaceE2ETimeouts.datasource,
         });
         yield* step({
-          execute: session.use("open the new invoice form", async (page) => {
-            await page.goto(new URL(newInvoicePath, origin).toString(), {
-              timeout: workspaceE2ETimeouts.browserNavigation,
-            });
-            await reviewButton(page).waitFor({
-              state: "visible",
-              timeout: workspaceE2ETimeouts.browserNavigation,
-            });
-          }),
+          execute: session.use("open the new invoice form", (page) =>
+            openNewInvoiceForm(page, origin, locale)
+          ),
           id: "open-new-invoice-form",
           timeoutMs: workspaceE2ETimeouts.browserNavigation,
         });
@@ -111,20 +93,12 @@ test("lets a customer download the invoice an administrator issued them as a PDF
           timeoutMs: workspaceE2ETimeouts.providerTransition,
         });
         yield* step({
-          execute: session.use("fill one paid invoice line", async (page) => {
-            await page.getByLabel("Already paid").check({
-              timeout: workspaceE2ETimeouts.browserAction,
-            });
-            await page.getByLabel("Description 1").fill("Synthetic desk", {
-              timeout: workspaceE2ETimeouts.browserAction,
-            });
-            await page.getByLabel("Price").fill(linePrice, {
-              timeout: workspaceE2ETimeouts.browserAction,
-            });
-            await page.getByLabel("Currency").selectOption(lineCurrency, {
-              timeout: workspaceE2ETimeouts.browserAction,
-            });
-          }),
+          execute: session.use("fill one paid invoice line", (page) =>
+            fillPaidInvoiceLine(page, {
+              price: linePrice,
+              currency: lineCurrency,
+            })
+          ),
           id: "fill-paid-invoice-line",
           timeoutMs: workspaceE2ETimeouts.uiTransition,
         });
@@ -136,30 +110,11 @@ test("lets a customer download the invoice an administrator issued them as a PDF
         // the invoice, and has no submission to wait for.
         const invoiceId = yield* step({
           execute: Effect.gen(function* () {
-            yield* session.use("issue the manual invoice", async (page) => {
-              await reviewButton(page).click({
-                timeout: workspaceE2ETimeouts.browserAction,
-              });
-              await page
-                .getByRole("dialog")
-                .getByRole("button", { name: "Create and send invoice" })
-                .click({ timeout: workspaceE2ETimeouts.uiTransition });
-            });
-            const url = yield* waitForPageUrl({
-              description: "issued invoice page",
-              matches: (candidate) =>
-                issuedInvoicePath.test(new URL(candidate).pathname),
-              session,
-              timeoutMs: workspaceE2ETimeouts.providerTransition,
-            });
-            const id = issuedInvoicePath.exec(new URL(url).pathname)?.[1];
-            if (!id) {
-              return yield* workspaceE2EError(
-                "The issued invoice page names no invoice",
-                { operation: "issue manual invoice" }
-              );
-            }
-            addRedaction(id);
+            yield* session.use(
+              "issue the manual invoice",
+              submitInvoiceIssuance
+            );
+            const id = yield* waitForIssuedInvoiceId(session, locale);
             yield* identities.recordRetainedInvoice(id);
             return id;
           }),
@@ -205,7 +160,7 @@ test("lets a customer download the invoice an administrator issued them as a PDF
               const [header, ...rows] = parseCsv(
                 (await response.body()).toString("utf8")
               );
-              equal(header?.length, 6, "the export has six columns");
+              equal(header?.length, 7, "the export has seven columns");
               deepEqual(rows.map(withExactTotal), [
                 [
                   issued.invoiceNumber,
@@ -214,6 +169,7 @@ test("lets a customer download the invoice an administrator issued them as a PDF
                   exactAmount(linePrice),
                   lineCurrency,
                   getCustomerInvoiceStatusLabel("paid", locale),
+                  "",
                 ],
               ]);
             })
@@ -245,112 +201,6 @@ test("lets a customer download the invoice an administrator issued them as a PDF
     })
   );
 });
-
-const reviewButton = (page: Page) =>
-  page.getByRole("button", { name: "Review invoice" });
-
-/**
- * Searches the administration's customer lookup for the profile's exact
- * synthetic recipient and selects its one result. The lookup only reads, so
- * a search that doesn't list the new profile yet is repeated until the
- * step's deadline ends it.
- */
-const selectCustomer = async (
-  page: Page,
-  customer: WorkspaceE2EAdministrationLinkedAccount
-) => {
-  const select = page.getByRole("button", { name: "Select", exact: true });
-  await page
-    .getByRole("searchbox", { name: "Name or email" })
-    .fill(customer.email, { timeout: workspaceE2ETimeouts.browserAction });
-  const deadline = Date.now() + workspaceE2ETimeouts.providerTransition;
-  for (;;) {
-    await page
-      .getByRole("button", { name: "Search", exact: true })
-      .click({ timeout: workspaceE2ETimeouts.browserAction });
-    try {
-      await select.first().waitFor({
-        state: "visible",
-        timeout: workspaceE2ETimeouts.browserAction,
-      });
-      break;
-    } catch (error) {
-      // Not listed yet: search again until the step's deadline.
-      if (Date.now() >= deadline) throw error;
-    }
-  }
-  equal(
-    await select.count(),
-    1,
-    "the synthetic recipient matches one customer"
-  );
-  await select.click({ timeout: workspaceE2ETimeouts.browserAction });
-  await expect(page.getByLabel("Invoice email")).toHaveValue(customer.email, {
-    timeout: workspaceE2ETimeouts.browserAction,
-  });
-};
-
-/** The issued invoice's row, which must belong to the case's customer. */
-const readIssuedInvoice = Effect.fn("readIssuedInvoice")(function* (
-  invoiceId: string,
-  customer: WorkspaceE2EAdministrationLinkedAccount
-) {
-  const { db } = yield* E2EDatabase;
-  const [row] = yield* runDatabaseOperation(
-    "read issued invoice",
-    db
-      .select({
-        dotyposCustomerId: invoices.dotyposCustomerId,
-        invoiceNumber: invoices.invoiceNumber,
-        issuedAt: invoices.issuedAt,
-      })
-      .from(invoices)
-      .where(eq(invoices.id, invoiceId))
-  );
-  if (row?.dotyposCustomerId !== customer.customerId) {
-    return yield* workspaceE2EError(
-      "The issued invoice does not belong to the synthetic customer",
-      { operation: "read issued invoice" }
-    );
-  }
-  addRedaction(row.invoiceNumber);
-  return {
-    id: invoiceId,
-    invoiceNumber: row.invoiceNumber,
-    issuedOn: temporalInstantToPlainDate({
-      instant: row.issuedAt,
-      timeZone: workspaceSiteConstants.location.timeZone,
-    }).toString(),
-  } satisfies IssuedInvoice;
-});
-
-/** Requests `path` with the browser session's cookies and disposes the body. */
-const withResponse = async (
-  page: Page,
-  origin: string,
-  path: string,
-  inspect: (response: APIResponse) => Promise<void>
-) => {
-  const response = await page.request.get(new URL(path, origin).toString(), {
-    maxRedirects: 0,
-    timeout: workspaceE2ETimeouts.browserNavigation,
-  });
-  try {
-    await inspect(response);
-  } finally {
-    await response.dispose();
-  }
-};
-
-const expectPrivateAttachment = (
-  response: APIResponse,
-  contentType: string
-) => {
-  const headers = response.headers();
-  equal(headers["content-type"], contentType);
-  match(headers["content-disposition"] ?? "", /^attachment; filename="/);
-  equal(headers["cache-control"], "private, no-store");
-};
 
 /** A decimal amount in one canonical spelling, so `99.9` equals `99.90`. */
 const exactAmount = (amount: string) =>

@@ -544,7 +544,15 @@ export class WithdrawalService extends Context.Service<
                       refundAmount: assessment.refundAmount,
                       refundBasis: assessment.refundBasis,
                     })
-                    .pipe(Effect.mapError(ledgerUnavailable));
+                    .pipe(
+                      Effect.mapError((error) =>
+                        error._tag === "WithdrawalContractChangedError"
+                          ? new WithdrawalRefusedError({
+                              reason: "not_withdrawable",
+                            })
+                          : ledgerUnavailable(error)
+                      )
+                    );
                   return { ...result, receiptEmail: held.email };
                 })
               );

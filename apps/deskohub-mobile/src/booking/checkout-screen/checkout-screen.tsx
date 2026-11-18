@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import {
   Redirect,
   Stack,
@@ -19,6 +19,7 @@ import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { openSitePage } from "../../routing/open-site-page";
@@ -27,6 +28,7 @@ import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { bookFamilyHref, bookHref, bookProfileHref } from "../booking-routes";
 import type {
   CheckoutRestartReason,
@@ -192,6 +194,7 @@ function CheckoutFlowScreen({
   }
   return (
     <ScrollScreen>
+      <QuietUpdateOffer backdrop="paper" />
       {title}
       {state === undefined ? (
         <LoadingState label={m.booking_checkout_starting({}, { locale })} />
@@ -379,6 +382,7 @@ function DetailsForAccount({
         if (access._tag === "Unavailable") {
           return (
             <ScrollScreen>
+              <QuietUpdateOffer backdrop="paper" />
               <AccountUnavailableNotice
                 reason={access.reason}
                 locale={locale}
@@ -428,8 +432,9 @@ function DetailsWithProfile({
 }) {
   const router = useRouter();
   const headerHeight = useHeaderHeight();
+  const deviceCountry = useDeviceCountry();
   const [draft, setDraft] = useDetailsDraft(() =>
-    initialDetailsDraft(profile.saved)
+    initialDetailsDraft(profile.saved, deviceCountry)
   );
   const consentLocale = isAppLocale(request.locale) ? request.locale : locale;
   return (

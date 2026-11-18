@@ -1,14 +1,16 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";
+import Moon from "lucide-react-native/icons/moon";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { customerDataLayer } from "../../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../../i18n/app-locale";
+import { homeCountry } from "../../../i18n/country-names";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
@@ -16,6 +18,7 @@ import { CheckboxRow } from "../../../ui/checkbox";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
 import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
+import { Switch } from "../../../ui/switch";
 import { color, radius, space } from "../../../ui/tokens";
 import {
   type DetailsDraft,
@@ -54,8 +57,10 @@ import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
 import { type HoldStatus, HoldStatusChip } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
+import { OvernightStayTimes } from "../overnight-stay-times";
 import {
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
@@ -65,6 +70,7 @@ import {
   coworkDates,
   officeDates,
   officeRange,
+  officeSaleFromPrice,
   quotedPrice as quoted,
   galleryToday as today,
 } from "./gallery-fixtures";
@@ -312,6 +318,62 @@ function CoworkChosen({
         onToggle={ignore}
         price="+ CZK 50"
       />
+    </FlowScreen>
+  );
+}
+
+/** Reserved Desk with the overnight stay offered; the switch toggles it. */
+function CoworkOvernight({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  const [overnight, setOvernight] = useState(true);
+  return (
+    <FlowScreen
+      title={sample("Cowork desk")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      at="end"
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample(
+              overnight
+                ? "Thu 26 Nov 12:00 → Fri 27 Nov 12:00"
+                : "Thu 26 Nov, 08:00–18:00"
+            ),
+            detail: sample("Reserved Desk"),
+            price: {
+              kind: "from",
+              amount: czk(328),
+              unit: sample(overnight ? "per night" : "per day"),
+            },
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <BookingSectionHeading title={sample("Desk type")} first />
+      <DeskCards locale={locale} selected="reserved-desk" />
+      <BookingSectionHeading
+        title={sample("Date")}
+        control={
+          <Switch
+            label={sample("Overnight")}
+            accessibilityLabel={sample("Overnight")}
+            icon={Moon}
+            value={overnight}
+            onValueChange={setOvernight}
+          />
+        }
+      />
+      <Calendar locale={locale} selected={chosenDay} />
+      {overnight && (
+        <OvernightStayTimes
+          times={sample("Thu 26 Nov 12:00 → Fri 27 Nov 12:00")}
+        />
+      )}
     </FlowScreen>
   );
 }
@@ -654,10 +716,7 @@ function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
       }
     >
       <MeetingRoomHero
-        facts={[
-          { kind: "capacity", text: sample("Up to 10 people") },
-          { kind: "equipment", text: sample("TV and projector") },
-        ]}
+        facts={[{ kind: "capacity", text: sample("Up to 10 people") }]}
       />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} dates={meetingRoomDates} today={today} />
@@ -667,7 +726,8 @@ function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
 
 /**
  * Board 28 "Length and start time" and "Early setup" (`early`, scrolled to
- * the end), and 28b "Price opened" (`opened`).
+ * the end), and 28b "Price opened" (`opened`), which comes early too, so
+ * its lines end in the free early setup.
  */
 function MeetingRoom({
   onBack,
@@ -698,7 +758,11 @@ function MeetingRoom({
                 ? "Meeting room · in from 13:45"
                 : "Meeting room · 1 hour"
             ),
-            price: quoted(meetingRoomHour, locale, czk(350)),
+            price: quoted(
+              early || opened ? meetingRoomHourEarlySetup : meetingRoomHour,
+              locale,
+              czk(350)
+            ),
           }}
           action={next(sample("Continue"))}
         />
@@ -844,6 +908,38 @@ function MeetingRoomLive({ onBack }: { readonly onBack: () => void }) {
 
 // ------------------------------------------------------------ board 29: private office
 
+/**
+ * Board 29b before a first day, while a sale runs: the from-price opened to
+ * a day's access and one seat, then the sale as one discount line.
+ */
+function OfficeFromPriceSale({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Private office")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          initiallyOpen
+          summary={{
+            title: sample("Private office"),
+            price: officeSaleFromPrice(locale, sample),
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a first day to continue")}
+        />
+      }
+    >
+      <BookingSectionHeading title={sample("First day")} first />
+      <Calendar locale={locale} dates={officeDates} legend={false} />
+    </FlowScreen>
+  );
+}
+
 function OfficeRange({
   onBack,
   opened = false,
@@ -960,10 +1056,11 @@ const detailsDraftFor = (
   state: DetailsFrameState,
   sample: (text: string) => string
 ): DetailsDraft => {
-  const start = initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  });
+  // The boards show a customer in Czechia.
+  const start = initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    homeCountry
+  );
   switch (state) {
     case "self":
     case "holding":
@@ -1112,6 +1209,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: CoworkChosen,
   },
   {
+    key: "cowork-overnight",
+    board: "26",
+    state: "Reserved Desk overnight",
+    Screen: CoworkOvernight,
+  },
+  {
     key: "cowork-full-day",
     board: "26b",
     state: "Full day tapped",
@@ -1206,6 +1309,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "29",
     state: "Seat limit reached",
     Screen: OfficeRange,
+  },
+  {
+    key: "office-from-price-sale",
+    board: "29b",
+    state: "From-price opened during a sale",
+    Screen: OfficeFromPriceSale,
   },
   {
     key: "office-price-opened",

@@ -29,6 +29,8 @@
   "booking_details_city": "शहर",
   "booking_details_postal_code": "पोस्टल कोड",
   "booking_details_country": "देश",
+  "booking_details_country_search": "देश खोजें",
+  "booking_details_country_no_match": "खोज से मेल खाता कोई देश नहीं है।",
   "booking_details_news_heading": "Deskohub की ख़बरें",
   "booking_details_optional": "वैकल्पिक",
   "booking_details_marketing_consent": "मुझे Deskohub Workspace की ख़बरें, इवेंट और ऑफ़र ईमेल पर भेजें। कभी भी अनसब्सक्राइब कर सकते हैं।",
@@ -74,8 +76,35 @@
   "booking_checkout_summary_total": "कुल भुगतान",
   "booking_checkout_summary_changed": "कीमत बदल गई",
   "booking_checkout_summary_original_price": "पहले की कीमत: {amount}",
-  "booking_checkout_summary_office_days": "दिनों की संख्या: {count}",
-  "booking_checkout_summary_office_seats": "ऑफ़िस में सीटों की संख्या: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} दिन",
+        "countPlural=other": "{formattedCount} दिन"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "ऑफ़िस में सीटें",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} सीट",
+        "countPlural=other": "{formattedCount} सीटें"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "साझा सीट",
   "booking_checkout_line_reserved_desk": "तय डेस्क",
   "booking_checkout_line_meeting_room": "मीटिंग रूम",
@@ -83,7 +112,6 @@
   "booking_checkout_line_coffee": "कॉफ़ी",
   "booking_checkout_line_workstation": "मॉनिटर वाला वर्कस्टेशन",
   "booking_checkout_line_other": "अन्य मद",
-  "booking_price_line_one_day": "1 दिन",
   "booking_price_line_one_hour": "1 घंटा, {start}–{end}",
   "booking_price_line_four_hours": "4 घंटे, {start}–{end}",
   "booking_summary_open_space_day": "{date}, {time} तक",
@@ -96,6 +124,9 @@
   "booking_summary_one_hour": "1 घंटा",
   "booking_summary_four_hours": "4 घंटे",
   "booking_price_free": "मुफ़्त",
+  "booking_price_line_discount_off": "{amount} की छूट",
+  "booking_price_line_early_setup": "15 मिनट पहले आना",
+  "booking_price_line_early_setup_from": "{time} से प्रवेश",
   "booking_price_updating": "कीमत अपडेट हो रही है…",
   "booking_price_show_details": "कीमत का विवरण दिखाएँ",
   "booking_price_hide_details": "कीमत का विवरण छिपाएँ",
@@ -120,7 +151,7 @@
   "booking_checkout_legal_loading": "शर्तें लोड हो रही हैं…",
   "booking_checkout_legal_failed": "शर्तें लोड नहीं की जा सकीं। फिर से कोशिश करें।",
   "booking_checkout_legal_consent": "मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ।",
-  "booking_checkout_legal_consent_early_performance": "मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ। चूँकि सेवा अनुबंध से हटने की वैधानिक अवधि के भीतर शुरू होती है, मेरा स्पष्ट अनुरोध है कि सेवा बुक किए गए समय पर दी जाए, और मुझे जानकारी है कि सेवा पूरी तरह दिए जाने के बाद अनुबंध से हटने का मेरा अधिकार समाप्त हो जाता है।",
+  "booking_checkout_legal_consent_early_performance": "मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ। मेरा अनुरोध है कि सेवा बुक की गई तारीख पर, अनुबंध से हटने की अवधि के भीतर, दी जाए, और मुझे जानकारी है कि सेवा पूरी तरह दिए जाने के बाद अनुबंध से हटने का मेरा अधिकार समाप्त हो जाता है।",
   "booking_checkout_legal_changed": "बुकिंग के दौरान शर्तें बदल गईं। उन्हें फिर से पढ़ें और जारी रखने के लिए सहमति वाले बॉक्स पर टिक करें।",
   "booking_checkout_consent_required": "भुगतान से पहले शर्तों से सहमति वाले बॉक्स पर टिक करें।",
   "booking_checkout_consent_required_early_performance": "भुगतान से पहले शर्तों से सहमति और अवधि बीतने से पहले सेवा शुरू करने की सहमति वाले बॉक्स पर टिक करें।",
@@ -188,6 +219,8 @@
   "signin_resend_link": "लिंक फिर से भेजें",
   "signin_resend_link_in": "{time} में लिंक फिर से भेजें",
   "signin_link_resent": "हमने नया लिंक भेज दिया है। सबसे नया email इस्तेमाल करें।",
+  "signin_signed_in_in_app_title": "साइन इन हो गया",
+  "signin_signed_in_in_app_body": "email के लिंक से आप ऐप में साइन इन हो गए हैं। अब आप यह टैब बंद कर सकते हैं।",
   "signin_already_signed_in": "आप पहले से साइन इन हैं",
   "signin_continue": "जारी रखें",
   "signin_create_title": "साइन इन करें या खाता बनाएँ",
@@ -510,8 +543,6 @@
   "booking_gate_deletion_title": "आपका खाता हटाया जा रहा है",
   "booking_gate_deletion_body": "जब तक यह चल रहा है, आप नई बुकिंग नहीं कर सकते। अगर यह गलती है, तो हमें लिखें।",
   "booking_cowork_tier_heading": "डेस्क का प्रकार",
-  "booking_cowork_stay_label": "ठहरने की अवधि",
-  "booking_cowork_stay_day": "दिन",
   "booking_cowork_stay_overnight": "रात भर",
   "booking_date_heading": "तारीख़",
   "booking_calendar_previous_month": "पिछला महीना",
@@ -676,6 +707,11 @@
   "invoices_download_label": "इनवॉइस {number} डाउनलोड करें",
   "invoices_downloading": "इनवॉइस {number} डाउनलोड हो रहा है…",
   "invoices_download_not_found": "यह इनवॉइस नहीं मिला। सूची रीफ़्रेश करें और फिर से कोशिश करें।",
+  "invoices_status_cancelled": "रद्द",
+  "invoices_download_invoice_button": "इनवॉइस",
+  "invoices_download_credit_note_button": "क्रेडिट नोट",
+  "invoices_credit_note_download_label": "क्रेडिट नोट {number} डाउनलोड करें",
+  "invoices_credit_note_downloading": "क्रेडिट नोट {number} डाउनलोड हो रहा है…",
   "booking_review_title": "समीक्षा और भुगतान",
   "booking_review_booking_heading": "आपकी बुकिंग",
   "booking_review_change": "बदलें",
@@ -738,7 +774,36 @@
   "referrals_saved_so_far": "अब तक की बचत",
   "referrals_discount_info": "छूट कैसे गिनी जाती है",
   "referrals_joined_nobody": "आपके कोड से अभी तक कोई नहीं जुड़ा है।",
-  "referrals_joined_some": "आपके कोड से जुड़े: {invitees}. आपकी छूट में गिने जा रहे: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}।",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "आपके कोड से {formattedCount} व्यक्ति जुड़ा",
+        "countPlural=other": "आपके कोड से {formattedCount} लोग जुड़े"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} आपकी छूट में गिना जा रहा है",
+        "countPlural=other": "{formattedCount} आपकी छूट में गिने जा रहे हैं"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "आपकी छूट में अभी कोई नहीं गिना जा रहा",
   "referrals_how_it_works": "यह कैसे काम करता है",
   "referrals_step_share": "अपना कोड या लिंक शेयर करें।",
   "referrals_step_friend_rate": "आपके दोस्त को पहली बुकिंग पर {rate} की छूट मिलती है।",
@@ -764,7 +829,7 @@
   "legal_marketing_turned_off": "मार्केटिंग संदेश बंद किए गए",
   "assistants_help_open_failed": "पेज नहीं खुल सका। फिर से कोशिश करें।",
   "booking_checkout_legal_consent_retry": "मेरी फिर से पुष्टि है कि मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ।",
-  "booking_checkout_legal_consent_retry_early_performance": "मेरी फिर से पुष्टि है कि मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ। चूँकि सेवा अनुबंध से हटने की वैधानिक अवधि के भीतर शुरू होती है, मेरा स्पष्ट अनुरोध है कि सेवा बुक किए गए समय पर दी जाए, और मुझे जानकारी है कि सेवा पूरी तरह दिए जाने के बाद अनुबंध से हटने का मेरा अधिकार समाप्त हो जाता है।",
+  "booking_checkout_legal_consent_retry_early_performance": "मेरी फिर से पुष्टि है कि मैं <terms>सामान्य नियम और शर्तें</terms> और <operatingRules>परिसर नियमावली</operatingRules> से सहमत हूँ। मेरा अनुरोध है कि सेवा बुक की गई तारीख पर, अनुबंध से हटने की अवधि के भीतर, दी जाए, और मुझे जानकारी है कि सेवा पूरी तरह दिए जाने के बाद अनुबंध से हटने का मेरा अधिकार समाप्त हो जाता है।",
   "booking_checkout_retry_title": "भुगतान पूरा नहीं हुआ",
   "booking_checkout_retry_lead": "हमने बुकिंग का विवरण सुरक्षित रखा है। भुगतान फिर से करने से पहले कृपया शर्तों की दोबारा पुष्टि करें।",
   "booking_checkout_retry_pay": "फिर से भुगतान करें",

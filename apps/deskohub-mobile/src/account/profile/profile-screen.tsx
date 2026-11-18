@@ -1,7 +1,7 @@
 import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult, type Atom } from "effect/unstable/reactivity";
+import { AsyncResult, type Atom } from "effect/reactivity";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect } from "react";
@@ -14,6 +14,7 @@ import { SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { initialsOf } from "../account-root-model";
 import { ReturnToAccountRoot } from "../return-to-account-root";
 import { AvatarSection } from "./avatar/avatar-section";
@@ -35,9 +36,14 @@ type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
  * and the name and phone of the linked account's profile, saved from a
  * footer that stays above the keyboard (the tab layout hides the tab bar
  * here, see `tabBarHidden`). Reached from the Account tab, or from
- * checkout's "Booking as".
+ * checkout's "Booking as", where it is part of the booking flow and shows
+ * the quiet update offer (`hostsUpdateOffer`).
  */
-export function ProfileScreen() {
+export function ProfileScreen({
+  hostsUpdateOffer = false,
+}: {
+  readonly hostsUpdateOffer?: boolean;
+} = {}) {
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
   const linked = Option.filter(
@@ -50,10 +56,12 @@ export function ProfileScreen() {
         account={linked.value}
         result={account}
         onRefresh={refresh}
+        hostsUpdateOffer={hostsUpdateOffer}
       />
     );
   return (
     <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+      {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
       <AsyncView result={account} onRetry={refresh}>
         {/* The Account tab explains why an account without a profile can't edit it. */}
         {() => <ReturnToAccountRoot />}
@@ -66,10 +74,12 @@ function ProfileForm({
   account,
   result,
   onRefresh,
+  hostsUpdateOffer,
 }: {
   readonly account: LinkedAccount;
   readonly result: Atom.Type<typeof accountAtom>;
   readonly onRefresh: () => void;
+  readonly hostsUpdateOffer: boolean;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -98,6 +108,7 @@ function ProfileForm({
         locale={locale}
       />
       <ScrollScreen refreshing={result.waiting} onRefresh={onRefresh}>
+        {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
         <AsyncView result={result} onRetry={onRefresh}>
           {() => (
             <>

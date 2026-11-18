@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   accountSectionHref,
   accountSectionOrder,
 } from "../account/account-gating";
+import {
+  accountRootHref,
+  accountStackAnchor,
+  accountTabOptions,
+} from "../account/account-root";
 import {
   onboardingBillingHref,
   onboardingHref,
@@ -17,38 +22,8 @@ import {
   paymentStatusHref,
   reservationsHref,
 } from "../booking/booking-routes";
-import { appLinkRoute } from "./app-link";
 import { startTabHref } from "./start-tab";
-
-const appDir = join(import.meta.dir, "../../app");
-
-/** Every route file under app/, as segments relative to it, without the extension. */
-const routeFiles = () =>
-  readdirSync(appDir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
-    .map((entry) =>
-      relative(appDir, join(entry.parentPath, entry.name))
-        .replace(/\.tsx?$/, "")
-        .split(sep)
-    );
-
-/** Screens, without layouts and Expo Router's `+` files such as `+native-intent`. */
-const screens = () =>
-  routeFiles().filter(
-    (segments) =>
-      segments.at(-1) !== "_layout" && !segments.at(-1)?.startsWith("+")
-  );
-
-/** Whether a link's path names a screen, matching dynamic segments to any one segment. */
-const resolves = (link: string) => {
-  const route = appLinkRoute(link).replace(/^deskohub:\/\//, "/");
-  const path = route.split(/[?#]/)[0]?.replace(/\/$/, "") || "/";
-  return screens()
-    .map(screenPathPattern)
-    .some((pattern) =>
-      new RegExp(`^${pattern.replace(/\[[^\]/]+\]/g, "[^/]+")}$`).test(path)
-    );
-};
+import { appDir, resolves, routeFiles, screens } from "./testing/route-screens";
 
 const layouts = () =>
   routeFiles()
@@ -89,6 +64,7 @@ describe("app route tree", () => {
         "/reservations",
         "/reservations/[orderId]",
         "/reservations/[orderId]/access",
+        "/reservations/[orderId]/withdraw",
         "/sign-in",
       ].sort()
     );
@@ -183,6 +159,19 @@ describe("app route tree", () => {
     ).not.toContain("(account)/(tabs)/reservations/[orderId]/access");
   });
 
+  test("Back from an access PIN a link opened alone lands on the Reservations tab's list", () => {
+    // The PIN stacks above the tabs, so a cold start from its link has
+    // nothing behind it; its header's back fallback opens the list instead.
+    const paths = screens().map((segments) => segments.join("/"));
+    expect(
+      paths.filter(
+        (path) =>
+          screenPathPattern(path.split("/")) === reservationsHref &&
+          path.startsWith("(account)/")
+      )
+    ).toEqual(["(account)/(tabs)/reservations/index"]);
+  });
+
   test("the start-tab redirect sits in the signed-in group, where the account's data is", () => {
     expect(screens().map((segments) => segments.join("/"))).toContain(
       "(account)/index"
@@ -235,6 +224,28 @@ describe("app route tree", () => {
         resolves: true,
       });
     }
+  });
+
+  test("a linked Account section has the Account root behind it", () => {
+    // The anchor names the Account tab's root screen, and the tab's stack
+    // mounts with the tabs, so a link that arrives while the app runs pushes
+    // onto that root instead of creating a stack without it (#1345).
+    expect(screens().map((segments) => segments.join("/"))).toContain(
+      `(account)/(tabs)/account/${accountStackAnchor}`
+    );
+    expect(screenPathPattern(["account", accountStackAnchor])).toBe(
+      accountRootHref
+    );
+    expect(accountTabOptions.lazy).toBe(false);
+    // The layouts take both from there.
+    const layoutSource = (...segments: string[]) =>
+      readFileSync(join(appDir, ...segments, "_layout.tsx"), "utf8");
+    expect(layoutSource("(account)", "(tabs)", "account")).toMatch(
+      /unstable_settings = \{ anchor: accountStackAnchor \}/
+    );
+    expect(layoutSource("(account)", "(tabs)")).toMatch(
+      /name="account"\s+options=\{\{\s+\.\.\.accountTabOptions,/
+    );
   });
 
   test("every Account section with a screen links to it", () => {

@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { decodeStandardSchema } from "@deskohub/standard-schema";
 import { Effect, Layer, Result } from "effect";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   makeMemoryQueue,
@@ -76,9 +77,15 @@ const processMessage = (input: {
     Effect.runPromise
   );
 
-const enqueue = (queue: Layer.Layer<QueuePublisher>) =>
+const enqueue = (
+  queue: Layer.Layer<QueuePublisher>,
+  replacesInvoiceId?: InvoiceId
+) =>
   Effect.flatMap(PaidFulfillmentQueueService, (service) =>
-    service.enqueue({ orderId })
+    service.enqueue({
+      orderId,
+      ...(replacesInvoiceId && { replacesInvoiceId }),
+    })
   ).pipe(
     Effect.provide(
       PaidFulfillmentQueueService.Default.pipe(Layer.provide(queue))
@@ -108,6 +115,32 @@ describe("paid fulfillment queue", () => {
     expect(JSON.stringify(queue.published()[0]?.message)).toBe(
       '{"orderId":"reservation-id"}'
     );
+  });
+
+  // A restore's replacement invoice retries through the order's message,
+  // which the order's earlier, still retained message must not absorb.
+  test("keys a replacement invoice's retry by the invoice it replaces", async () => {
+    const queue = makeMemoryQueue();
+
+    await enqueue(queue.layer);
+    await enqueue(queue.layer, "cancelled-invoice" as InvoiceId);
+    await enqueue(queue.layer, "cancelled-invoice" as InvoiceId);
+
+    expect(
+      queue.published().map(({ message, options }) => ({
+        message,
+        key: options.idempotencyKey,
+      }))
+    ).toEqual([
+      {
+        message: { orderId: "reservation-id" },
+        key: "paid-fulfillment:reservation-id",
+      },
+      {
+        message: { orderId: "reservation-id" },
+        key: "paid-fulfillment:reservation-id:replacing:cancelled-invoice",
+      },
+    ]);
   });
 
   test("treats a duplicate message as already enqueued", async () => {

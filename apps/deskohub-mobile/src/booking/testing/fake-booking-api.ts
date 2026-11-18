@@ -42,7 +42,7 @@ import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   type FakeRequestOutcome,
   type FakeWorkspace,
@@ -66,8 +66,10 @@ import {
   inclusiveDays,
   pricedLines,
   sampleDiscountId,
+  sampleEarlySetupStartsAt,
   sampleLegalDocuments,
   sampleOfferings,
+  sampleOvernightStay,
   sampleSummary,
 } from "./sample-booking-catalog";
 
@@ -79,8 +81,8 @@ import {
  */
 
 type BookingEndpoint = HttpApiGroup.Endpoints<typeof CustomerBookingApi>;
-export type BookingEndpointName = HttpApiEndpoint.Name<BookingEndpoint>;
-type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithName<
+export type BookingEndpointName = HttpApiEndpoint.Identifier<BookingEndpoint>;
+type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithIdentifier<
   BookingEndpoint,
   N
 >;
@@ -148,6 +150,8 @@ export interface FakeBookingCheckout {
   readonly code: string | undefined;
   readonly referralApplied: boolean;
   readonly earlyPerformanceRequired: boolean;
+  /** A meeting room's early setup, which its summary lists for free. */
+  readonly earlySetup?: boolean;
 }
 
 export const fakeHoldDuration = 10 * 60_000;
@@ -506,12 +510,16 @@ export const fakeBookingGroup = (workspace: FakeWorkspace) => {
         received("getQuote", query, request.headers).pipe(
           Effect.andThen(
             answer("getQuote", () => {
-              const { locale: _locale, ...fields } = query;
+              const { locale: _locale, earlySetup, ...fields } = query;
               const selection = selectionOfQuery(fields);
               return checkedSelection(booking, selection).pipe(
                 Effect.map(() => {
                   const summary = sampleSummary({
                     lines: pricedLines(selection),
+                    earlySetupStartsAt:
+                      earlySetup === "true"
+                        ? sampleEarlySetupStartsAt(selection)
+                        : undefined,
                   });
                   return {
                     family: selection.family,
@@ -763,6 +771,7 @@ const startCheckout = ({
       earlyPerformanceRequired:
         inclusiveDays(pragueToday(now), payload.selection.date) <=
         withdrawalPeriodDays,
+      earlySetup: payload.earlySetup === true,
     },
     scripted
   );
@@ -1093,11 +1102,21 @@ const bookedReservation = (
 };
 
 /**
- * When a selection's reservation runs: a meeting room's hourly slot, else
- * whole Prague days (23 or 25 hours across a daylight-saving change) through
- * the last booked date.
+ * When a selection's reservation runs: a meeting room's hourly slot, an
+ * overnight stay from its start on the arrival date to its end the next
+ * day, else whole Prague days (23 or 25 hours across a daylight-saving
+ * change) through the last booked date.
  */
-const bookedTimes = (selection: CustomerBookingSelection) => {
+export const bookedTimes = (selection: CustomerBookingSelection) => {
+  if (selection.family === "cowork" && selection.stay === "overnight") {
+    return {
+      startsAt: pragueInstant(selection.date, sampleOvernightStay.startTime),
+      endsAt: pragueInstant(
+        addDays(selection.date, 1),
+        sampleOvernightStay.endTime
+      ),
+    };
+  }
   if (selection.family === "meeting-room" && selection.duration !== "day:1") {
     const { length } = meetingRoomSlots[selection.duration ?? "hour:1"];
     const startsAt = pragueInstant(
@@ -1151,6 +1170,9 @@ const summaryOf = (checkout: FakeBookingCheckout) =>
     discountShare: discountShare(checkout),
     discountLabel: checkout.code ?? fakeBookingCodes.referral,
     surcharge: checkout.surcharge,
+    earlySetupStartsAt: checkout.earlySetup
+      ? sampleEarlySetupStartsAt(checkout.selection)
+      : undefined,
   });
 
 /** Stores the checkout and answers it with a new pay state token. */

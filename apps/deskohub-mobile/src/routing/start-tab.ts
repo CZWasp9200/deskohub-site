@@ -1,5 +1,5 @@
 import { Duration, Effect, Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   type ReservationsList,
   savedReservationsAtom,

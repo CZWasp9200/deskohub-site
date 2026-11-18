@@ -610,6 +610,8 @@ describe.skipIf(!testDatabase)(
         locale: "cs-CZ",
         signInCode: true,
         nextSignInEmailAt: expect.any(String),
+        // A browser sign-in email is no app sign-in attempt.
+        signInAttempt: false,
       });
 
       const { text } = await Effect.runPromise(
@@ -704,8 +706,8 @@ describe.skipIf(!testDatabase)(
       const auth = makeCodeAuth(sentLinks);
       const email = uniqueEmail("code-resend");
 
-      await sendSignInEmail(auth, email);
-      await sendSignInEmail(auth, email);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
       const [first, second] = sentLinks;
 
       expect(await verificationIdentifierCount(`sign-in-otp-${email}`)).toBe(1);

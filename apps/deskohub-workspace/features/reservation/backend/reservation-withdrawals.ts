@@ -19,6 +19,7 @@ import {
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
 import {
+  reservationOrderId,
   type StoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -101,7 +102,11 @@ export class ReservationWithdrawals extends Context.Service<
                 .pipe(Effect.mapError(unavailable))
             : null;
           const contractAt = getContractAt(evidence) ?? reservation.paidAt;
-          if (paidAttempt?.state !== "paid" || !contractAt) {
+          if (
+            paidAttempt?.state !== "paid" ||
+            paidAttempt.orderId !== reservationOrderId(reservation.id) ||
+            !contractAt
+          ) {
             return Option.none();
           }
           const facts = {
@@ -323,7 +328,7 @@ export class ReservationWithdrawalAvailability extends Context.Service<
                   contractIds: ids,
                 }),
               ],
-              { concurrency: "inherit" }
+              { concurrency: "unbounded" }
             );
             const now = Temporal.Now.instant();
             return new Map(

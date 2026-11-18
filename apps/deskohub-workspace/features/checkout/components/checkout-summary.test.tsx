@@ -17,6 +17,7 @@ import {
 import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { getWorkspaceProductByTier } from "@/features/checkout/product-catalog";
+import { getWorkspaceProductMonitorTitle } from "@/features/checkout/product-catalog.i18n";
 import { getMeetingRoomReservationQuote } from "@/features/checkout/reservation-quote-meeting-room";
 import { getOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { discountIdSchema } from "@/features/discounts/contracts";
@@ -106,11 +107,15 @@ describe("CheckoutSummary", () => {
     expect(productRow?.querySelector("del")?.textContent).toContain("410");
     expect(productRow?.textContent?.replaceAll("\u00a0", " ")).toContain("205");
     // Undiscounted addon and reconciled total: 205 + 120 = 325.
-    const addonRow = view.getByText("Monitor workstation").parentElement;
+    const addonRow = view.getByText("Monitor workstation").closest("div");
     expect(addonRow?.textContent?.replaceAll("\u00a0", " ")).toContain(
       "CZK 120"
     );
     expect(addonRow?.querySelector("del")).toBeNull();
+    // The monitor setup reads under the workstation, never as its own line.
+    const monitorSetup = getWorkspaceProductMonitorTitle("2x27-qhd", "en-US");
+    expect(view.getAllByText(monitorSetup)).toHaveLength(1);
+    expect(view.getByText(monitorSetup).closest("div")).toBe(addonRow);
     expect(view.getByText("Total to pay").parentElement?.textContent).toContain(
       "325"
     );

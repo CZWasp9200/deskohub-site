@@ -11,7 +11,7 @@ import {
   customerApiClientHeader,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Option, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { RequestBudget } from "@/shared/backend/request-budget/request-budget.service";
@@ -109,7 +109,7 @@ export const CustomerSessionAuthenticationLive = Layer.effect(
           spendCustomerRequestBudgets({
             session,
             group: group.identifier,
-            endpoint: endpoint.name,
+            endpoint: endpoint.identifier,
           }).pipe(Effect.provideService(RequestBudget, budget))
         ),
         Effect.flatMap((session) =>

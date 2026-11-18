@@ -1,10 +1,11 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, exists } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
+  invoiceCancellations,
   invoiceNumberCounters,
   invoices,
   manualInvoiceActors,
@@ -26,8 +27,10 @@ import {
   makeInvoiceDocument,
   makeManualInvoiceDocument,
 } from "@/features/accounting/invoice";
+import type { InvoiceCancellationFact } from "@/features/accounting/invoice-cancellation";
 import {
   type InvoiceId,
+  invoiceIdSchema,
   isInvoiceCurrencyPayable,
   type ManualInvoiceInput,
   type ManualInvoiceProvenance,
@@ -43,10 +46,15 @@ import {
 } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReadLimitExceededError } from "@/shared/backend/read-limit";
-import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { allocateAnnualNumber } from "./document-numbering";
 import { isFulfilledReservation } from "./invoice-eligibility";
-import { makeInvoiceReads, sealedInvoiceDocuments } from "./invoice-reads";
+import {
+  asReservationInvoice,
+  isChainTail,
+  makeInvoiceReads,
+  sealedInvoiceDocuments,
+} from "./invoice-reads";
 import {
   type AccountingRecordReference,
   type AccountingRecordSealer,
@@ -57,6 +65,8 @@ class InvoiceEligibilityError extends Data.TaggedError(
   "InvoiceEligibilityError"
 )<{
   readonly paymentAttemptId: string;
+  /** Set when the reservation is being cancelled or is cancelled. */
+  readonly reason?: "reservation_cancelled";
   readonly message: string;
 }> {}
 
@@ -75,6 +85,30 @@ export interface Invoice {
   readonly invoiceNumber: InvoiceNumber;
   readonly issuedAt: Temporal.Instant;
   readonly document: InvoiceDocument;
+  /** `null` while the invoice is live. */
+  readonly cancellation: InvoiceCancellationFact | null;
+  /** When an administrator hid the cancelled invoice from the administration UI. */
+  readonly archivedAt: Temporal.Instant | null;
+  /** The cancelled invoice of the same reservation that this one replaces. */
+  readonly replacesInvoiceId: InvoiceId | null;
+  /** The invoice that replaced this cancelled one. */
+  readonly replacedByInvoiceId: InvoiceId | null;
+}
+
+/**
+ * An issued invoice whose document could not be opened, as when it was
+ * sealed under another deployment's key: only its unencrypted columns and
+ * its standing.
+ */
+export interface UnreadableInvoice {
+  readonly id: InvoiceId;
+  readonly invoiceNumber: InvoiceNumber;
+  readonly issuedAt: Temporal.Instant;
+  /** `null` while the invoice is live. */
+  readonly cancellation: InvoiceCancellationFact | null;
+  readonly archivedAt: Temporal.Instant | null;
+  readonly replacesInvoiceId: InvoiceId | null;
+  readonly replacedByInvoiceId: InvoiceId | null;
 }
 
 /**
@@ -82,7 +116,8 @@ export interface Invoice {
  * document: no decryption, no encrypted bytes and no key id.
  * `documentSnapshotRecordedAt` is when the accounting snapshot of a
  * reservation invoice's payment attempt was recorded; a manual invoice has
- * none.
+ * none. `cancellation` carries no actor; `archivedAt` is when the
+ * administration hid the cancelled invoice from its own list.
  */
 export interface InvoiceMetadata {
   readonly invoiceNumber: InvoiceNumber;
@@ -92,6 +127,8 @@ export interface InvoiceMetadata {
   readonly workspaceReservationId: WorkspaceReservationId | null;
   readonly paymentAttemptId: PaymentAttemptId | null;
   readonly documentSnapshotRecordedAt: Temporal.Instant | null;
+  readonly cancellation: InvoiceCancellationFact | null;
+  readonly archivedAt: Temporal.Instant | null;
 }
 
 interface InvoiceIssuance {
@@ -136,18 +173,40 @@ export interface IInvoiceRepository {
     Invoice | null,
     EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
-  readonly findByPaymentAttemptId: (
+  /** The payment attempt's live invoice: the one not cancelled. */
+  readonly findLiveByPaymentAttemptId: (
     paymentAttemptId: string
   ) => Effect.Effect<
     ReservationInvoice | null,
     EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
-  readonly findByReservationId: (
+  /** The payment attempt's most recently issued invoice, cancelled or not. */
+  readonly findLatestByPaymentAttemptId: (
+    paymentAttemptId: string
+  ) => Effect.Effect<
+    ReservationInvoice | null,
+    EffectDrizzleQueryError | AccountingRecordUnavailable
+  >;
+  /** The reservation's live invoice; the database allows at most one. */
+  readonly findLiveByReservationId: (
     reservationId: WorkspaceReservationId
   ) => Effect.Effect<
     ReservationInvoice | null,
     EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
+  /** The tail of the reservation's replacement chain, cancelled or not. */
+  readonly findLatestByReservationId: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    ReservationInvoice | null,
+    EffectDrizzleQueryError | AccountingRecordUnavailable
+  >;
+  /**
+   * Issues the reservation invoice of the payment attempt. A retry returns
+   * the live invoice. When the reservation's latest invoice is cancelled, it
+   * issues a replacement with a new number that links its predecessor. It
+   * refuses while the reservation is being cancelled or is cancelled.
+   */
   readonly issue: (input: {
     readonly paymentAttemptId: string;
     readonly buyer: InvoiceBuyer;
@@ -194,11 +253,25 @@ export interface IInvoiceRepository {
     readonly limit: number;
   }) => Effect.Effect<
     readonly InvoiceMetadata[],
-    EffectDrizzleQueryError | ReadLimitExceededError
+    | EffectDrizzleQueryError
+    | ReadLimitExceededError
+    | AccountingRecordUnavailable
   >;
-  /** Decrypts every invoice. */
+  /** Decrypts every invoice; one that cannot be opened fails the listing. */
   readonly list: () => Effect.Effect<
     readonly Invoice[],
+    EffectDrizzleQueryError | AccountingRecordUnavailable
+  >;
+  /**
+   * Decrypts every invoice as `list` does, except that an invoice whose
+   * document cannot be opened is returned apart, from its unencrypted
+   * columns, instead of failing the listing.
+   */
+  readonly listWithUnreadable: () => Effect.Effect<
+    {
+      readonly readable: readonly Invoice[];
+      readonly unreadable: readonly UnreadableInvoice[];
+    },
     EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** Decrypts every manual invoice to read who issued it, and through what. */
@@ -234,7 +307,7 @@ export class InvoiceRepository extends Context.Service<
       const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const sealedDocuments = yield* sealedInvoiceDocuments;
       const reads = yield* makeInvoiceReads;
-      const { findById, findByPaymentAttemptId } = reads;
+      const { findById, findLiveByPaymentAttemptId } = reads;
 
       /**
        * Takes the next number of the issue year's counter, together with the
@@ -245,37 +318,28 @@ export class InvoiceRepository extends Context.Service<
         reference: AccountingRecordReference
       ) {
         const sealer = yield* sealedDocuments.sealer(reference);
-        const issuedAt = Temporal.Instant.from(
-          temporalInstantToIsoString(Temporal.Now.instant())
+        const allocated = yield* allocateAnnualNumber(
+          invoiceNumberCounters
+        ).pipe(
+          Effect.catchTag("DocumentNumberAllocationError", ({ message }) =>
+            Effect.fail(
+              new AccountingRecordUnavailable({
+                operation: "load",
+                reference,
+                message,
+              })
+            )
+          )
         );
-        const numberingYear = getInvoiceNumberingYear(issuedAt);
-        const [counter] = yield* db
-          .insert(invoiceNumberCounters)
-          .values({ numberingYear, lastSequence: 1 })
-          .onConflictDoUpdate({
-            target: invoiceNumberCounters.numberingYear,
-            set: {
-              lastSequence: sql`${invoiceNumberCounters.lastSequence} + 1`,
-            },
-          })
-          .returning({ sequence: invoiceNumberCounters.lastSequence });
-
-        if (!counter) {
-          return yield* new AccountingRecordUnavailable({
-            operation: "load",
-            reference,
-            message: "Invoice number allocation returned no row.",
-          });
-        }
 
         return {
           sealer,
-          issuedAt,
-          numberingYear,
-          numberingSequence: counter.sequence,
+          issuedAt: allocated.issuedAt,
+          numberingYear: allocated.numberingYear,
+          numberingSequence: allocated.numberingSequence,
           invoiceNumber: formatInvoiceNumber({
-            year: numberingYear,
-            sequence: counter.sequence,
+            year: allocated.numberingYear,
+            sequence: allocated.numberingSequence,
           }),
         } satisfies InvoiceNumbering;
       });
@@ -288,6 +352,7 @@ export class InvoiceRepository extends Context.Service<
           | "workspaceReservationId"
           | "paymentAttemptId"
           | "dotyposCustomerId"
+          | "replacesInvoiceId"
         >;
         readonly numbering: InvoiceNumbering;
         readonly document: InvoiceDocument;
@@ -296,15 +361,18 @@ export class InvoiceRepository extends Context.Service<
           reference: input.reference,
           value: input.document,
           insert: (sealed) =>
-            db.insert(invoices).values({
-              ...input.source,
-              invoiceNumber: input.numbering.invoiceNumber,
-              numberingYear: input.numbering.numberingYear,
-              numberingSequence: input.numbering.numberingSequence,
-              keyId: sealed.keyId,
-              encryptedDocument: sealed.ciphertext,
-              issuedAt: input.numbering.issuedAt,
-            }),
+            db
+              .insert(invoices)
+              .values({
+                ...input.source,
+                invoiceNumber: input.numbering.invoiceNumber,
+                numberingYear: input.numbering.numberingYear,
+                numberingSequence: input.numbering.numberingSequence,
+                keyId: sealed.keyId,
+                encryptedDocument: sealed.ciphertext,
+                issuedAt: input.numbering.issuedAt,
+              })
+              .returning({ id: invoices.id }),
         });
 
       const issue = Effect.fn("InvoiceRepository.issue")(function* (input: {
@@ -317,7 +385,8 @@ export class InvoiceRepository extends Context.Service<
         const paymentAttemptId = paymentAttemptIdSchema.make(
           input.paymentAttemptId
         );
-        const alreadyIssued = yield* findByPaymentAttemptId(paymentAttemptId);
+        const alreadyIssued =
+          yield* findLiveByPaymentAttemptId(paymentAttemptId);
         if (alreadyIssued) {
           return { invoice: alreadyIssued, changed: false };
         }
@@ -356,6 +425,7 @@ export class InvoiceRepository extends Context.Service<
                 paidAt: workspaceReservations.paidAt,
                 fulfillmentState: workspaceReservations.fulfillmentState,
                 fulfilledAt: workspaceReservations.fulfilledAt,
+                reservationState: workspaceReservations.reservationState,
                 paymentAttemptState: paymentAttempts.state,
               })
               .from(paymentAttempts)
@@ -377,24 +447,46 @@ export class InvoiceRepository extends Context.Service<
               );
             }
 
-            const [existing] = yield* db
-              .select({ paymentAttemptId: invoices.paymentAttemptId })
+            // The reservation row lock serializes issuances, so the chain
+            // tail read here stays the tail.
+            const [latest] = yield* db
+              .select({
+                id: invoices.id,
+                paymentAttemptId: invoices.paymentAttemptId,
+                cancelled: exists(
+                  db
+                    .select({ invoiceId: invoiceCancellations.invoiceId })
+                    .from(invoiceCancellations)
+                    .where(eq(invoiceCancellations.invoiceId, invoices.id))
+                ),
+              })
               .from(invoices)
-              .where(eq(invoices.workspaceReservationId, locked.reservationId))
+              .where(
+                and(
+                  eq(invoices.workspaceReservationId, locked.reservationId),
+                  isChainTail
+                )
+              )
               .limit(1);
 
-            if (existing) {
-              if (existing.paymentAttemptId !== paymentAttemptId) {
+            if (latest && !latest.cancelled) {
+              if (latest.paymentAttemptId !== paymentAttemptId) {
                 return yield* wrapInvoiceEligibilityError(
                   paymentAttemptId,
                   "The reservation was invoiced from a different payment attempt."
                 );
               }
 
-              return {
-                paymentAttemptId: existing.paymentAttemptId,
-                changed: false,
-              };
+              return { invoiceId: latest.id, changed: false };
+            }
+
+            if (isCancellingReservation(locked)) {
+              return yield* new InvoiceEligibilityError({
+                paymentAttemptId,
+                reason: "reservation_cancelled",
+                message:
+                  "A reservation that is being cancelled or is cancelled can't be invoiced.",
+              });
             }
 
             if (!isActivePaidAttempt(locked, paymentAttemptId)) {
@@ -448,29 +540,39 @@ export class InvoiceRepository extends Context.Service<
               )
             );
 
-            yield* insertEncryptedInvoice({
+            const [inserted] = yield* insertEncryptedInvoice({
               reference,
               source: {
                 workspaceReservationId: locked.reservationId,
                 paymentAttemptId,
                 dotyposCustomerId: locked.dotyposCustomerId,
+                // A cancelled tail is replaced; the root has no predecessor.
+                replacesInvoiceId: latest
+                  ? invoiceIdSchema.make(latest.id)
+                  : null,
               },
               numbering,
               document,
             });
+            if (!inserted) {
+              return yield* new AccountingRecordUnavailable({
+                operation: "load",
+                reference,
+                message: "Issued invoice returned no row.",
+              });
+            }
 
-            return { paymentAttemptId, changed: true };
+            return { invoiceId: inserted.id, changed: true };
           })
         );
 
-        const invoice = yield* findByPaymentAttemptId(outcome.paymentAttemptId);
+        const invoice = yield* findById(outcome.invoiceId).pipe(
+          Effect.map(asReservationInvoice)
+        );
         if (!invoice) {
           return yield* new AccountingRecordUnavailable({
             operation: "load",
-            reference: {
-              type: "paymentAttemptId",
-              id: outcome.paymentAttemptId,
-            },
+            reference: { type: "paymentAttemptId", id: paymentAttemptId },
             message: "Issued invoice could not be loaded.",
           });
         }
@@ -632,6 +734,13 @@ const isActivePaidAttempt = <
   locked.reservationPaymentState === "paid" &&
   locked.activePaymentAttemptId === paymentAttemptId &&
   locked.paidAt !== null;
+
+/** Issuance waits for a cancellation in progress and never follows one. */
+const isCancellingReservation = (locked: {
+  readonly reservationState: string;
+}) =>
+  locked.reservationState === "cancelling" ||
+  locked.reservationState === "cancelled";
 
 const snapshotMatchesLockedReservation = (
   source: {

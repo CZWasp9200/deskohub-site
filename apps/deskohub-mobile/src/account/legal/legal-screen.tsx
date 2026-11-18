@@ -5,7 +5,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { Effect, Match, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import ChartColumn from "lucide-react-native/icons/chart-column";
 import FileText from "lucide-react-native/icons/file-text";
 import Megaphone from "lucide-react-native/icons/megaphone";

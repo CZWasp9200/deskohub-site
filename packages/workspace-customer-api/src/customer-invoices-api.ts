@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSchema,
-} from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import { CustomerPlainDate } from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
@@ -20,7 +16,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No invoice with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerInvoiceNotFound extends Schema.TaggedErrorClass<CustomerInvoiceNotFound>()(
+export class CustomerInvoiceNotFound extends Schema.TaggedError<CustomerInvoiceNotFound>()(
   "CustomerInvoiceNotFound",
   {}
 ) {
@@ -51,6 +47,18 @@ export const CustomerInvoiceTotal = Schema.Struct({
 }).annotate({ identifier: "CustomerInvoiceTotal" });
 export type CustomerInvoiceTotal = typeof CustomerInvoiceTotal.Type;
 
+/**
+ * A cancelled invoice's cancellation: the credit note that negates it.
+ * `correctiveDocumentDownloadable` is present when `getCorrectiveDocumentPdf`
+ * serves that credit note; a server without the endpoint leaves it out.
+ */
+export const CustomerInvoiceCancellation = Schema.Struct({
+  correctiveDocumentNumber: Schema.NonEmptyString,
+  correctiveDocumentDownloadable: Schema.optionalKey(Schema.Literal(true)),
+}).annotate({ identifier: "CustomerInvoiceCancellation" });
+export type CustomerInvoiceCancellation =
+  typeof CustomerInvoiceCancellation.Type;
+
 const isoInstant = Schema.String.annotate({
   description: "ISO 8601 instant.",
 });
@@ -78,7 +86,8 @@ export type CustomerInvoicedReservation =
  * One issued invoice. `orderId` names the order it invoices, the ID the
  * reservation history and order status go by, and `reservation` what that
  * order booked and when; an invoice the office issued by hand invoices no
- * order and has neither.
+ * order and has neither. `cancellation` is present once the invoice is
+ * cancelled; a cancelled invoice is still listed and downloadable.
  */
 export const CustomerInvoice = Schema.Struct({
   id: CustomerInvoiceId,
@@ -87,9 +96,18 @@ export const CustomerInvoice = Schema.Struct({
   issuedOn: CustomerPlainDate,
   total: CustomerInvoiceTotal,
   orderId: Schema.optionalKey(CustomerReservationOrderId),
+  cancellation: Schema.optionalKey(CustomerInvoiceCancellation),
   reservation: Schema.optionalKey(CustomerInvoicedReservation),
 }).annotate({ identifier: "CustomerInvoice" });
 export type CustomerInvoice = typeof CustomerInvoice.Type;
+
+/** A cancelled invoice's credit note as a PDF document. */
+export const CustomerCorrectiveDocumentPdf = Schema.Uint8Array.pipe(
+  HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
+).annotate({
+  identifier: "CustomerCorrectiveDocumentPdf",
+  description: "A cancelled invoice's credit note as a PDF document.",
+});
 
 /** The account's issued invoices, newest issue first. */
 export const CustomerInvoiceList = Schema.Struct({
@@ -100,9 +118,10 @@ export type CustomerInvoiceList = typeof CustomerInvoiceList.Type;
 // Endpoints
 
 /**
- * The signed-in customer's issued invoices, and one of them as a PDF. Only
- * invoices issued to the account's own Dotypos customer are listed or
- * served; any other ID is not found.
+ * The signed-in customer's issued invoices, one of them as a PDF, and a
+ * cancelled one's credit note as a PDF. Only invoices issued to the
+ * account's own Dotypos customer are listed or served; any other ID, and
+ * the credit note of an invoice that isn't cancelled, is not found.
  */
 export const CustomerInvoicesApi = HttpApiGroup.make("invoices")
   .add(
@@ -130,6 +149,28 @@ export const CustomerInvoicesApi = HttpApiGroup.make("invoices")
         "Content-Disposition": {
           description:
             'Serves the PDF as an attachment named by the invoice number, as `attachment; filename="<invoice number>.pdf"`.',
+        },
+      })
+    )
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "getCorrectiveDocumentPdf",
+      "/:invoiceId/corrective-document/pdf",
+      {
+        params: { invoiceId: CustomerInvoiceId },
+        success: CustomerCorrectiveDocumentPdf,
+        error: [
+          CustomerInvoiceNotFound.schema,
+          CustomerAccountLinkRequired.schema,
+          CustomerServiceUnavailable.schema,
+        ],
+      }
+    ).annotateMerge(
+      responseHeaders(200, {
+        "Content-Disposition": {
+          description:
+            'Serves the PDF as an attachment named by the credit note number, as `attachment; filename="<credit note number>.pdf"`.',
         },
       })
     )

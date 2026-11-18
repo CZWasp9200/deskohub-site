@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Effect, Layer } from "effect";
-import * as SqlError from "effect/unstable/sql/SqlError";
+import * as SqlError from "effect/sql/SqlError";
 import type { AgentScope } from "@/features/account/agent-scopes";
 import {
   CustomerAgentAuthorization,

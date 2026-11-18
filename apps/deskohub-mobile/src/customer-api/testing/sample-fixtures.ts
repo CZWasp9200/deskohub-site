@@ -40,10 +40,14 @@ export interface SampleOrder {
   readonly invoice?: Uint8Array;
 }
 
-/** An issued invoice and its PDF; a PDF the Workspace can't find is absent. */
+/**
+ * An issued invoice, its PDF and a cancelled one's credit note PDF; a PDF
+ * the Workspace can't find is absent.
+ */
 export interface SampleInvoice {
   readonly invoice: CustomerInvoice;
   readonly pdf?: Uint8Array;
+  readonly creditNotePdf?: Uint8Array;
 }
 
 export interface FakeWorkspaceData {
@@ -146,6 +150,7 @@ export const sampleOrderIds = {
   // Status and access screen states; reachable by deep link
   // (deskohub://reservations/<id>), not listed in the history.
   upcoming: CustomerReservationOrderId.make("sample-order-upcoming"),
+  workstation: CustomerReservationOrderId.make("sample-order-workstation"),
   accessUnavailable: CustomerReservationOrderId.make(
     "sample-order-access-unavailable"
   ),
@@ -295,6 +300,22 @@ const sampleDeskOrders = (now: Date): ReadonlyArray<[string, SampleOrder]> => {
     ];
   });
 };
+
+/**
+ * The failed meeting-room order as the history lists it: not booked, at its
+ * booked time six days ahead.
+ */
+export const samplePaymentFailedReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-payment-failed",
+  orderId: sampleOrderIds.paymentFailed,
+  product: { kind: "meeting-room" },
+  startsAt: at(now, 6 * day),
+  endsAt: at(now, 6 * day + 2 * hour),
+  seats: 6,
+  status: "cancelled",
+});
 
 /** The sample desk in the history, with the lock's window. */
 export const sampleDeskReservation = (
@@ -581,6 +602,35 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
       },
     ],
     [
+      sampleOrderIds.workstation,
+      {
+        state: {
+          orderId: sampleOrderIds.workstation,
+          kind: "cowork",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: at(now, 2 * day),
+          endsAt: at(now, 3 * day),
+          total: { value: 53000, exponent: 2, currency: "CZK" },
+          bookedSelection: {
+            selection: {
+              family: "cowork",
+              date: at(now, 2 * day).slice(0, 10),
+              tier: "reserved-desk",
+              monitorOption: "2x27-qhd",
+            },
+          },
+        },
+        access: {
+          code: "333333",
+          accessStartsAt: at(now, 2 * day),
+          accessEndsAt: at(now, 3 * day),
+        },
+        invoice: sampleInvoicePdf(),
+      },
+    ],
+    [
       sampleOrderIds.accessUnavailable,
       {
         state: {
@@ -626,6 +676,8 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
         },
       },
     ],
+    // As the server answers a failed payment: no times or total, which only
+    // a usable payment attempt gives; its list entry keeps the booked time.
     [
       sampleOrderIds.paymentFailed,
       {
@@ -635,9 +687,6 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
           status: "payment_failed",
           paymentStatus: "failed",
           fulfillmentStatus: "not_started",
-          startsAt: at(now, 6 * day),
-          endsAt: at(now, 6 * day + 2 * hour),
-          total: { value: 120000, exponent: 2, currency: "CZK" },
         },
       },
     ],
@@ -787,6 +836,8 @@ const asReviewSandbox = (
 export const sampleInvoiceIds = {
   desk: CustomerInvoiceId.make("sample-invoice-desk"),
   meetingRoom: CustomerInvoiceId.make("sample-invoice-meeting-room"),
+  /** Cancelled by a credit note; both PDFs download. */
+  cancelled: CustomerInvoiceId.make("sample-invoice-cancelled"),
   /** Listed, but its PDF can't be found: the download fails. */
   office: CustomerInvoiceId.make("sample-invoice-office"),
 } as const;
@@ -823,6 +874,26 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
       },
     },
     pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.cancelled,
+      invoiceNumber: "2026-0359",
+      issuedOn: "2026-10-27",
+      total: { amount: "258.80", currency: "CZK" },
+      cancellation: {
+        correctiveDocumentNumber: "WS-OD-2026-000004",
+        correctiveDocumentDownloadable: true,
+      },
+      // One whole Prague day.
+      reservation: {
+        productName: "Open Space desk",
+        startsAt: "2026-10-26T23:00:00.000Z",
+        endsAt: "2026-10-27T23:00:00.000Z",
+      },
+    },
+    pdf: sampleInvoicePdf(),
+    creditNotePdf: sampleInvoicePdf(),
   },
   {
     invoice: {

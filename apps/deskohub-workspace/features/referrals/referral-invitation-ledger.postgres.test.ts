@@ -229,9 +229,6 @@ const createWithdrawnBooking = async (
 ) => {
   const db = testDatabase!.db;
   const reservation = await createOtherBooking(customer, "paid");
-  const accountId = await Effect.runPromise(
-    workspaceFixtures(db).customerAccount()
-  );
   const paid = czk(subtotal);
   const submittedAt = now();
   await Effect.runPromise(
@@ -239,9 +236,10 @@ const createWithdrawnBooking = async (
       const withdrawals = yield* WithdrawalRepository;
       yield* withdrawals.record({
         contract: { kind: "reservation", id: reservation.id },
-        accountId,
+        accountId: reservation.authorAccountId,
         locale,
         contractLabel: "Office",
+        statementName: "Synthetic Customer",
         submittedAt,
         periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
         paidAmount: paid,

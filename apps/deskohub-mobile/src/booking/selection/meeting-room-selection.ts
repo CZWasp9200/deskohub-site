@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookingSelection,
   CustomerMeetingRoomDuration,
   CustomerMeetingRoomStartTimes,
@@ -12,12 +13,7 @@ import {
   type DateChoice,
   SelectionIncomplete,
 } from "./booking-selection";
-import {
-  addDays,
-  addMonths,
-  type PragueDate,
-  pragueToday,
-} from "./prague-date";
+import { addDays, type PragueDate, pragueToday } from "./prague-date";
 
 /**
  * A meeting-room booking the customer is putting together: a date, then a
@@ -41,14 +37,6 @@ type MeetingRoomOffering = Extract<
   CustomerOffering,
   { readonly family: "meeting-room" }
 >;
-
-const horizonMonths = 6;
-
-/** The dates a meeting room can be booked on: today through six months. */
-const meetingRoomDateRange = (today: PragueDate) => ({
-  earliest: today,
-  latest: addMonths(today, horizonMonths),
-});
 
 /** The meeting-room offerings, one per length, in catalog order. */
 export const meetingRoomOfferings = (
@@ -84,10 +72,9 @@ export const meetingRoomDraftFromSelection = (
     readonly earlySetup?: boolean;
   },
   offerings: ReadonlyArray<CustomerOffering>,
-  today: PragueDate
+  { earliest, latest }: CustomerBookableDates
 ): Option.Option<MeetingRoomDraft> => {
   if (selection.family !== "meeting-room") return Option.none();
-  const { earliest, latest } = meetingRoomDateRange(today);
   const duration = Option.fromNullishOr(selection.duration).pipe(
     Option.filter((wanted) =>
       meetingRoomOfferings(offerings).some(
@@ -424,9 +411,11 @@ export const meetingRoomEnablement = (
     readonly calendar: Option.Option<CustomerMeetingRoomUnavailableDates>;
     /** The lengths the catalog offers, in its order. */
     readonly offered: ReadonlyArray<CustomerMeetingRoomDuration>;
+    /** The dates the meeting-room offerings can be booked on. */
+    readonly bookableDates: CustomerBookableDates;
   }
 ): MeetingRoomEnablement => {
-  const { earliest, latest } = meetingRoomDateRange(pragueToday(context.now));
+  const { earliest, latest } = context.bookableDates;
   const loaded = Option.map(
     startTimesFor(draft, context.startTimes),
     (starts) => withoutEnded(starts, context.now)

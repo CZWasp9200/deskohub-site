@@ -1,4 +1,5 @@
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
@@ -380,6 +381,9 @@ describe.skipIf(!database)(
           ),
           Effect.provide(
             AdministrationService.Default.pipe(
+              // Reached only when a restore would reissue an invoice.
+              Layer.provide(Layer.mock(ReservationInvoiceService, {})),
+              Layer.provide(WorkspaceReservationRepository.Default),
               Layer.provide(
                 Layer.mergeAll(
                   database.layer,

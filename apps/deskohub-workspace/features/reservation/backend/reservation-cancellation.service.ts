@@ -234,6 +234,17 @@ export class ReservationCancellation extends Context.Service<
               });
             }
             if (current.reservationState === "cancelled") {
+              if (
+                input.cause === "customer_withdrawal" &&
+                current.cancellationCause !== input.cause
+              ) {
+                return yield* new ReservationCancellationError({
+                  code: "not_cancellable",
+                  reason: "invalid_state",
+                  message:
+                    "The reservation was cancelled outside the withdrawal.",
+                });
+              }
               return { outcome: "already_cancelled" } as const;
             }
             const forcedPendingPayment =

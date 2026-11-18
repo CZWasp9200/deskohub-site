@@ -5,11 +5,7 @@ import {
   type CustomerProfile,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Option } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {
   makeFakeCustomerData,
@@ -39,6 +35,7 @@ const phoneRegion = accountPhoneRegion(null);
 const edited = (profile: CustomerProfile): EditedProfile => ({
   profile,
   phoneRegion,
+  deviceCountry: "CZ",
 });
 
 const submit = async <A, E, W>(
@@ -70,9 +67,24 @@ const linkedProfileOf = (account: CustomerAccountState) => {
 describe("unsaved changes", () => {
   test("an untouched form follows the saved profile", () => {
     expect(currentDraft(Option.none(), edited(sampleProfile))).toEqual(
-      profileDraftOf(sampleProfile, phoneRegion)
+      profileDraftOf(sampleProfile, phoneRegion, "CZ")
     );
     expect(hasUnsavedChanges(Option.none(), edited(sampleProfile))).toBe(false);
+  });
+
+  test("a new billing address's device country alone isn't a change", () => {
+    const withoutBilling: EditedProfile = {
+      profile: { ...sampleProfile, billing: null },
+      phoneRegion,
+      deviceCountry: "AT",
+    };
+    expect(currentDraft(Option.none(), withoutBilling).country).toBe("AT");
+    const personal = editedDraft(Option.none(), withoutBilling, {
+      billingKind: "personal",
+    });
+    expect(hasUnsavedChanges(personal, withoutBilling)).toBe(true);
+    const back = editedDraft(personal, withoutBilling, { billingKind: "none" });
+    expect(hasUnsavedChanges(back, withoutBilling)).toBe(false);
   });
 
   test("a change counts as unsaved until it matches the saved profile again", () => {
@@ -91,7 +103,7 @@ describe("unsaved changes", () => {
       firstName: "Al",
     });
     expect(currentDraft(edits, edited(sampleProfile))).toEqual({
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       firstName: "Al",
     });
   });
@@ -102,7 +114,7 @@ describe("saveProfileAtom", () => {
     const { registry, workspace } = makeFakeCustomerData("linked");
     await settle(registry, accountAtom);
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       firstName: "Alexa",
     };
     registry.set(profileEditsAtom, Option.some(draft));
@@ -131,7 +143,7 @@ describe("saveProfileAtom", () => {
     const { registry, workspace } = makeFakeCustomerData("linked");
     await settle(registry, accountAtom);
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       billingKind: "personal" as const,
       city: "Othertown",
     };
@@ -152,7 +164,7 @@ describe("saveProfileAtom", () => {
 
     const state = await submit(registry, saveProfileAtom, {
       draft: {
-        ...profileDraftOf(sampleProfile, phoneRegion),
+        ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
         firstName: "",
       },
       phoneRegion,
@@ -174,7 +186,7 @@ describe("saveProfileAtom", () => {
     // The server applies the save (trimming the name), then the connection breaks.
     workspace.fail("updateProfile", "transport-failure");
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       firstName: "Alexa ",
     };
     registry.set(profileEditsAtom, Option.some(draft));
@@ -212,7 +224,7 @@ describe("saveProfileAtom", () => {
     workspace.fail("updateProfile", "unreadable-answer");
     // The phone as the Workspace stores it, so the stored profile matches.
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       phone: "+420600000000",
       city: "Othertown",
     };
@@ -234,7 +246,7 @@ describe("saveProfileAtom", () => {
     workspace.fail("updateProfile", "unreadable-answer");
     // Typed in national form; the Workspace stores it in E.164.
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       phone: "600 000 001",
     };
     registry.set(profileEditsAtom, Option.some(draft));
@@ -254,7 +266,7 @@ describe("saveProfileAtom", () => {
     await settle(registry, accountAtom);
     workspace.fail("updateProfile", "rate-limited");
     const draft = {
-      ...profileDraftOf(sampleProfile, phoneRegion),
+      ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       city: "Othertown",
     };
     registry.set(profileEditsAtom, Option.some(draft));
@@ -279,7 +291,7 @@ describe("saveProfileAtom", () => {
     workspace.setAccount(storedAccount(supportRequired));
 
     const state = await submit(registry, saveProfileAtom, {
-      draft: profileDraftOf(sampleProfile, phoneRegion),
+      draft: profileDraftOf(sampleProfile, phoneRegion, "CZ"),
       phoneRegion,
     });
 
@@ -305,7 +317,7 @@ describe("saveProfileAtom for an account with a saved language", () => {
     await settle(registry, accountAtom);
     const german = accountPhoneRegion("de-DE");
     const draft = {
-      ...profileDraftOf(sampleProfile, german),
+      ...profileDraftOf(sampleProfile, german, "CZ"),
       phone: "0151 23456789",
     };
 
@@ -324,7 +336,7 @@ describe("saveProfileAtom for an account with a saved language", () => {
 describe("completeProfileAtom", () => {
   const completion = (referralCode: string) => ({
     draft: {
-      ...completionDraftOf(undefined),
+      ...completionDraftOf(undefined, "CZ"),
       firstName: "Jordan",
       referralCode,
     },
@@ -409,7 +421,7 @@ describe("completeProfileAtom", () => {
     const { registry } = makeFakeCustomerData("completion-required");
     await settle(registry, accountAtom);
     const empty = {
-      draft: completionDraftOf(undefined),
+      draft: completionDraftOf(undefined, "CZ"),
       invitationCode: undefined,
       phoneRegion,
     };
@@ -430,7 +442,7 @@ describe("completeProfileAtom", () => {
     await settle(registry, accountAtom);
 
     const state = await submit(registry, completeProfileAtom, {
-      draft: completionDraftOf(undefined),
+      draft: completionDraftOf(undefined, "CZ"),
       invitationCode: undefined,
       phoneRegion,
     });

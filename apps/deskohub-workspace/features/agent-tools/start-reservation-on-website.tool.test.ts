@@ -58,7 +58,7 @@ describe("start_reservation on the website", () => {
       ]);
 
       expect(result).toMatchObject({
-        family: args["family"],
+        family: args.family,
         reservation_url: quote.reservation_url,
       });
       expect(bookingCalls).toEqual([]);

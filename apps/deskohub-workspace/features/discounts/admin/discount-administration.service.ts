@@ -11,7 +11,7 @@ import type {
 import { and, eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type DiscountCodeClaimState,
@@ -31,6 +31,7 @@ import {
   isDatabaseQueryError,
 } from "@/db/sql-constraint";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import type { AdministrationCustomer } from "@/features/administration/customer-identity";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountGroupListing } from "@/features/discounts/discount-groups";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
@@ -128,14 +129,7 @@ export type AdminVoucher = {
   readonly updatedAt: Temporal.Instant;
 };
 
-export type AdminDotyposCustomer = {
-  readonly id: DotyposCustomerId;
-  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a name or contact detail, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
-  readonly email: string | null;
-  readonly phone: string | null;
+export type AdminDotyposCustomer = AdministrationCustomer & {
   readonly discountGroupId: DotyposDiscountGroupId | null;
 };
 

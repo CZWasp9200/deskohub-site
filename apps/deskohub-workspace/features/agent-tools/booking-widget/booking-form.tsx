@@ -1,7 +1,7 @@
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { formatCurrencyAmount } from "@deskohub/i18n/currency";
 import { Cause, Match, Option } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useId, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { type Locale, m } from "@/features/i18n";

@@ -119,6 +119,7 @@ mock.module("react-native", () => ({
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
     isVisible: () => false,
+    metrics: () => undefined,
   },
   // The design's narrowest phone at the default font size.
   useWindowDimensions: () => ({

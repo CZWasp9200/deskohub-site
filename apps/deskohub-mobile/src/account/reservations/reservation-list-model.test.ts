@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
+import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
-import { bookingDateRange } from "./booking-ticket-text";
+import { historyBadgeKind, shortDate } from "./booking-ticket-text";
+import { dateTileParts } from "./booking-time";
 import {
   nextReservationView,
   type ReservationListRow,
@@ -108,7 +110,7 @@ describe("reservationRowView", () => {
     ).toBe(true);
   });
 
-  test("a booking over several days reads as its date range, one day as its time", () => {
+  test("an overnight stay keeps its times and an office shows its dates and seats", () => {
     // An overnight stay: noon to noon in Prague (UTC+1).
     const overnight = reservationRowView(
       row("o", {
@@ -125,36 +127,37 @@ describe("reservationRowView", () => {
         product: { kind: "office" },
         startsAt: "2026-11-16T23:00:00Z",
         endsAt: "2026-11-18T23:00:00Z",
-        seats: null,
+        seats: 6,
       }),
       "later",
       "en-US"
     );
-    const oneDay = reservationRowView(row("a"), "later", "en-US");
-
-    const date = (iso: string) => DateTime.makeUnsafe(iso);
-    expect<string | undefined>(overnight.detail).toBe(
-      bookingDateRange(
-        date("2026-11-17T11:00:00Z"),
-        date("2026-11-18T11:00:00Z"),
-        "en-US"
+    const start = DateTime.makeUnsafe("2026-11-17T11:00:00Z");
+    const end = DateTime.makeUnsafe("2026-11-18T11:00:00Z");
+    expect(overnight.detail).toBe(
+      m.reservations_time_range(
+        {
+          start: formatInstant(start, "en-US", "time"),
+          end: m.reservations_date_time(
+            {
+              date: shortDate(end, "en-US"),
+              time: formatInstant(end, "en-US", "time"),
+            },
+            { locale: "en-US" }
+          ),
+        },
+        { locale: "en-US" }
       )
     );
-    expect<string | undefined>(days.detail).toBe(
-      bookingDateRange(
-        date("2026-11-16T23:00:00Z"),
-        date("2026-11-18T23:00:00Z"),
-        "en-US"
-      )
+    expect(days.detail).toBe(
+      [
+        m.reservations_time_range(
+          { start: "Nov 17", end: "Nov 18" },
+          { locale: "en-US" }
+        ),
+        m.reservations_seats({ count: 6 }, { locale: "en-US" }),
+      ].join(" · ")
     );
-    expect(
-      bookingDateRange(
-        date("2026-11-08T09:00:00Z"),
-        date("2026-11-08T17:00:00Z"),
-        "en-US"
-      )
-    ).toBeUndefined();
-    expect(oneDay.detail).not.toBe(overnight.detail);
   });
 
   test("an unreadable time has no tile and reads as unavailable", () => {
@@ -213,6 +216,40 @@ describe("nextReservationView", () => {
         ).access
       ).toEqual({ _tag: "AfterPayment" });
     }
+  });
+});
+
+describe("a failed order", () => {
+  // The history answers a hold whose payment ended unpaid as cancelled, at
+  // its booked time, whether that time is still ahead or not.
+  test("lists as not booked on its booked day and opens its ticket", () => {
+    const orderId = "order-failed" as ReservationListRow["orderId"];
+    const failed = row("failed", {
+      orderId,
+      status: "cancelled",
+      startsAt: "2026-11-14T09:00:00Z",
+      endsAt: "2026-11-14T11:00:00Z",
+    });
+
+    const groups = reservationGroups(
+      { current: [row("next")], past: [failed], unavailable: [] },
+      now
+    );
+    const view = reservationRowView(failed, "past", "en-US");
+
+    expect(ids(groups.past)).toEqual(["failed"]);
+    expect(historyBadgeKind(failed.status)).toBe("not-booked");
+    expect(view.date).toEqual(
+      Option.some(
+        dateTileParts(DateTime.makeUnsafe("2026-11-14T09:00:00Z"), "en-US")
+      )
+    );
+    expect(view.detail).not.toBe(
+      m.reservations_value_unavailable({}, { locale: "en-US" })
+    );
+    expect(reservationStatusTarget(failed)).toEqual(
+      Option.fromNullishOr(orderId)
+    );
   });
 });
 

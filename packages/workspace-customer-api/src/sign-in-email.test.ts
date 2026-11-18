@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option, Schema } from "effect";
-import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry";
+import * as AtomRegistry from "effect/reactivity/AtomRegistry";
 import {
   NextSignInEmailAt,
   NextSignInEmailAtFromClient,

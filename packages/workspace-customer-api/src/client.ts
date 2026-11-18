@@ -1,5 +1,5 @@
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { HttpApiClient } from "effect/unstable/httpapi";
+import { HttpClient, HttpClientRequest } from "effect/http";
+import { HttpApiClient } from "effect/http-api";
 import { CustomerAuthApi } from "./customer-auth-api";
 import { customerApiClientHeader } from "./customer-session";
 import { WorkspaceCustomerApi } from "./workspace-customer-api";

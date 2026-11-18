@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "@/scripts/shared/command";
+import { commandOutput, runCommand } from "@/scripts/shared/command";
 
 const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 const fixtureRoot = mkdtempSync(join(tmpdir(), "deskohub-lint-rules-"));
@@ -319,6 +319,27 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits asynchronous Bun.spawn", 'const child = Bun.spawn(["git", "status"]);\nawait child.exited;\n', false],
       ["permits the shared command runner", 'import { runCommand } from "./shared/command";\nawait runCommand(["git", "status"]);\n', false],
       ["permits modules outside Workspace", 'Bun.spawnSync({ cmd: ["git", "status"] });\n', false, "apps/dhw/src/probe.ts"],
+    ],
+  },
+  {
+    name: "no-promise-matchers-in-browser-tests", diagnostic: "Await the promise before asserting",
+    module: "apps/deskohub-workspace/e2e/probe.browser-acceptance.test.ts",
+    cases: [
+      ["rejects .resolves in a Playwright test", 'import { chromium } from "playwright";\nconst page = await (await chromium.launch()).newPage();\nawait expect(page.evaluate(() => 1)).resolves.toBe(1);\n', true],
+      ["rejects .rejects with a type-only playwright-core import", 'import type { Page } from "playwright-core";\ndeclare const page: Page;\nawait expect(page.click("#submit")).rejects.toThrow();\n', true],
+      ["rejects a negated .resolves matcher", 'import { chromium } from "playwright";\nconst browser = await chromium.launch();\nawait expect(browser.newPage()).resolves.not.toBeNull();\n', true],
+      ["rejects a pending promise variable", 'import { chromium } from "playwright";\nconst launching = chromium.launch();\nawait expect(launching).rejects.toThrow("no Chromium");\n', true],
+      ["rejects a comment between the dot and the matcher", 'import { chromium } from "playwright";\nawait expect(chromium.launch()). /* settle */ resolves.toBeDefined();\n', true],
+      ["rejects a matcher on its own line", 'import { chromium } from "playwright";\nawait expect(chromium.launch())\n  .\n  rejects.toThrow();\n', true],
+      ["rejects .not.resolves", 'import { chromium } from "playwright";\nawait expect(chromium.launch()).not.resolves.toBeNull();\n', true],
+      ["rejects TSX browser tests", 'import { chromium } from "playwright";\nawait expect(chromium.launch()).resolves.toBeDefined();\n', true, "apps/deskohub-workspace/shared/components/probe.browser-acceptance.test.tsx"],
+      ["rejects test helpers that import Playwright", 'import type { Page } from "playwright";\nexport const ready = async (page: Page) => { await expect(page.title()).resolves.toBe("Ready"); };\n', true, "apps/deskohub-workspace/e2e/probe.browser.test-utils.ts"],
+      ["permits a plain await", 'import { chromium } from "playwright";\nconst page = await (await chromium.launch()).newPage();\nexpect(await page.evaluate(() => 1)).toBe(1);\n', false],
+      ["permits the outcome helpers", 'import { chromium } from "playwright";\nimport { outcomeOf, rejectionOf } from "@/shared/testing/promise-outcome.test-utils";\nexpect(await outcomeOf(chromium.launch())).toThrow();\nexpect(await rejectionOf(chromium.launch())).toBeInstanceOf(Error);\n', false],
+      ["permits properties named rejects", 'import type { Page } from "playwright";\nconst counts = { rejects: 0, resolves: 1 };\nexpect(counts.rejects + counts.resolves).toBe(1);\n', false],
+      ["permits test files without Playwright", 'await expect(Promise.resolve(1)).resolves.toBe(1);\nawait expect(Promise.reject(new Error("x"))).rejects.toThrow("x");\n', false],
+      ["permits Playwright runner specs", 'import { expect, test } from "@playwright/test";\ntest("title", async ({ page }) => { await expect(page.title()).resolves.toBe("Ready"); });\n', false, "apps/deskohub-workspace/e2e/probe.pw.ts"],
+      ["permits modules outside Workspace", 'import { chromium } from "playwright";\nawait expect(chromium.launch()).resolves.toBeDefined();\n', false, "apps/dhw/src/probe.test.ts"],
     ],
   },
   {
@@ -739,10 +760,10 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ],
       [
         "rejects a multi-line generic schema tag",
-        `export class ${["Network", "Error"].join("")} extends Schema.TaggedErrorClass<${["Network", "Error"].join("")}>()(\n  "${["Network", "Error"].join("")}",\n  {}\n) {}\n`,
+        `export class ${["Network", "Error"].join("")} extends Schema.TaggedError<${["Network", "Error"].join("")}>()(\n  "${["Network", "Error"].join("")}",\n  {}\n) {}\n`,
         true,
       ],
-      ["permits a prefixed outcome tag", 'export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()("DotyposRejected", {}) {}\n', false],
+      ["permits a prefixed outcome tag", 'export class DotyposRejected extends Schema.TaggedError<DotyposRejected>()("DotyposRejected", {}) {}\n', false],
       [
         "permits the generic tag while Nexi is excluded",
         `export class ${["ExternalAPI", "Error"].join("")} extends Data.TaggedError("${["ExternalAPI", "Error"].join("")}")<{}> {}\n`,
@@ -802,13 +823,13 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["rejects a computed limit inside a transaction", "transaction(Effect.all([a, b], { concurrency: 1 + 1 }));\n", true],
       ["rejects a called limit inside a transaction", "transaction(Effect.all([a, b], { concurrency: getLimit() }));\n", true],
       ["rejects a limit of one inside a transaction", "transaction(Effect.forEach(xs, f, { concurrency: 1 }));\n", true],
-      ["rejects inherit inside a transaction", 'transaction(Effect.all([a, b], { concurrency: "inherit" }));\n', true],
+      ["rejects unbounded inside a transaction", 'transaction(Effect.all([a, b], { concurrency: "unbounded" }));\n', true],
       ["rejects a computed concurrency key", 'transaction(Effect.all([a, b], { ["concurrency"]: 4 }));\n', true],
       ["rejects an options object written elsewhere in the file", "const options = {};\noptions.concurrency = 2;\ntransaction(Effect.all([a, b], options));\n", true],
       ["rejects a computed options write", 'const options = {};\noptions["concurrent"] = true;\ntransaction(Effect.zip(a, b, options));\n', true],
       ["rejects a shorthand limit", "const concurrency = 4;\ntransaction(Effect.all([a, b], { concurrency }));\n", true],
       ["rejects an options object built elsewhere in the file", "const parallel = { concurrency: 4 };\nEffect.gen(function* () { const { transaction } = yield* WorkspaceDatabase; return yield* transaction(Effect.all([a, b], parallel)); });\n", true],
-      ["rejects overriding the limit", "transaction(Effect.all([a, b]).pipe(Effect.withConcurrency(8)));\n", true],
+      ["rejects a shared statement concurrency", "const concurrency = yield* workspaceStatementConcurrency;\ntransaction(Effect.all([a, b], { concurrency }));\n", true],
       ["rejects a concurrent zip", "transaction(Effect.zip(a, b, { concurrent: true }));\n", true],
       ["rejects a sequential concurrent option", "transaction(Effect.zip(a, b, { concurrent: false }));\n", true],
       ["rejects a fork", "transaction(Effect.gen(function* () { yield* Effect.forkChild(a); }));\n", true],
@@ -820,16 +841,16 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["rejects a numeric limit in a declaring writer", "const w = Effect.fn(function* () { const { db } = yield* WorkspaceTransaction; yield* Effect.forEach(xs, f, { concurrency: 4 }); });\n", true],
       ["rejects a limit in a declaring writer's nested generator", "const w = Effect.fn(function* () { const { db } = yield* WorkspaceTransaction; yield* Effect.gen(function* () { yield* Effect.all([a, b], { concurrency: 4 }); }); return db; });\n", true],
       ["rejects a race in a declaring writer", "const w = Effect.fn(function* () { yield* WorkspaceTransaction; return yield* Effect.raceFirst(a, b); });\n", true],
-      ["rejects inherit in a declaring writer", "const w = Effect.fn(function* () { yield* WorkspaceTransaction; return yield* Effect.all([a, b], { concurrency: 'inherit' }); });\n", true],
+      ["rejects unbounded in a declaring writer", "const w = Effect.fn(function* () { yield* WorkspaceTransaction; return yield* Effect.all([a, b], { concurrency: 'unbounded' }); });\n", true],
       ["rejects a limit in a writer that names the marker only in its type", "const w = (): Effect.Effect<void, never, WorkspaceTransaction> => Effect.all([a, b], { concurrency: 2 });\n", true],
       ["rejects concurrency in a sibling method of a declaring service", "Layer.effect(Svc, Effect.gen(function* () { return { write: Effect.fn(function* () { const { db } = yield* WorkspaceTransaction; return db; }), fetch: Effect.fn(function* () { return yield* Effect.all([a, b], { concurrency: 4 }); }) }; }));\n", true],
       ["permits plain sequential Effect.all inside a transaction", "transaction(Effect.all([a, b]));\n", false],
-      ["permits concurrency in a file that runs no transaction", 'Effect.all([a, b], { concurrency: "inherit" });\n', false],
+      ["permits concurrency in a file that runs no transaction", 'Effect.all([a, b], { concurrency: "unbounded" });\n', false],
       ["permits concurrency in a file that only reads the client", "Effect.gen(function* () { const { db } = yield* WorkspaceDatabase; return yield* Effect.forEach(ids, (id) => load(db, id), { concurrency: 4 }); });\n", false],
       ["permits transaction-history names", "const { transactions } = ledger;\nEffect.all([a, b], { concurrency: 4 });\n", false],
       ["permits layer merges in a transactional file", "transaction(effect);\nLayer.mergeAll(a, b);\n", false],
-      ["permits concurrency outside a raw transaction", 'const load = Effect.all([a, b], { concurrency: "inherit" });\ndb.transaction((tx) => write(tx));\n', false],
-      ["permits the wrapper's home", "db.transaction(() => effect.pipe(Effect.withConcurrency(1)));\n", false, "apps/deskohub-workspace/db/database.service.ts"],
+      ["permits concurrency outside a raw transaction", 'const load = Effect.all([a, b], { concurrency: "unbounded" });\ndb.transaction((tx) => write(tx));\n', false],
+      ["permits the wrapper's home", "db.transaction(() => Effect.all([a, b], { concurrency: 1 }));\n", false, "apps/deskohub-workspace/db/database.service.ts"],
       ["permits tests", "transaction(Effect.forEach(xs, f, { concurrency: 4 }));\n", false, "apps/deskohub-workspace/features/reservation/backend/probe.postgres.test.ts"],
     ],
   },
@@ -888,6 +909,9 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["rejects a feature drizzle client", "drizzle({ client: pool });\n", true],
       ["rejects an Effect SQL client", "PgClient.layer({ url });\n", true],
       ["rejects the Workspace client factory", "makeDatabaseClient(pool);\n", true],
+      ["rejects a feature native pool", "openDatabasePool({ connectionString, maxConnections: 2 });\n", true],
+      ["rejects a feature native pool layer", "databasePostgresLayer({ connectionString, maxConnections: 2 });\n", true],
+      ["rejects a Workspace client over a feature pool", "Effect.provideContext(databaseClient, pool.postgres);\n", true],
       ["permits db/", "new Pool({});\n", false, "apps/deskohub-workspace/db/database-client.ts"],
       ["permits E2E", "makeDatabasePool({ connectionString });\n", false, "apps/deskohub-workspace/e2e/integrations/probe.ts"],
       ["permits tests", "new Pool({});\n", false, "apps/deskohub-workspace/features/x/probe.postgres.test.ts"],
@@ -970,3 +994,65 @@ test("prefer-effect-fn emits exactly one diagnostic for a named Effect.fn arrow 
 });
 
 afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+
+// Workspace `lint:biome` skips `e2e/`, where most Playwright-driven Bun tests
+// live, so this test enforces the promise-matcher rule on every tracked
+// Workspace test file and test helper that imports Playwright.
+test("no-promise-matchers-in-browser-tests holds across Workspace browser tests", async () => {
+  const rule = "lint/no-promise-matchers-in-browser-tests.grit";
+  const ruleConfig = join(fixtureRoot, "promise-matchers", "biome.json");
+  mkdirSync(dirname(ruleConfig), { recursive: true });
+  // biome-ignore format: compact configuration literal.
+  writeFileSync(ruleConfig, JSON.stringify({
+    linter: { enabled: true, rules: { recommended: false } },
+    plugins: [join(repositoryRoot, rule)],
+  }));
+  const tracked = await commandOutput(
+    [
+      "git",
+      "ls-files",
+      "--",
+      "apps/deskohub-workspace/**/*.test.ts",
+      "apps/deskohub-workspace/**/*.test.tsx",
+      "apps/deskohub-workspace/**/*.test-utils.ts",
+    ],
+    { cwd: repositoryRoot }
+  );
+  const importsPlaywright =
+    /\bfrom\s*["'](?:playwright|playwright-core|@playwright\/test)["']/;
+  const browserTests = tracked
+    .split("\n")
+    .filter((path) => path !== "")
+    .filter((path) =>
+      importsPlaywright.test(readFileSync(join(repositoryRoot, path), "utf8"))
+    );
+  expect(browserTests.length).toBeGreaterThan(0);
+  const result = await runCommand(
+    [
+      "bunx",
+      "biome",
+      "lint",
+      ...browserTests,
+      "--config-path",
+      ruleConfig,
+      "--reporter=json",
+      "--max-diagnostics=none",
+    ],
+    { cwd: repositoryRoot }
+  );
+  const report = JSON.parse(result.stdout) as {
+    readonly diagnostics: readonly {
+      readonly message: string;
+      readonly location: { readonly path: string };
+    }[];
+  };
+  // Other diagnostics, such as suppressions aimed at rules this config leaves
+  // off, belong to the regular lint run.
+  expect(
+    report.diagnostics
+      .filter(({ message }) =>
+        message.includes("Await the promise before asserting")
+      )
+      .map(({ location }) => location.path)
+  ).toEqual([]);
+});

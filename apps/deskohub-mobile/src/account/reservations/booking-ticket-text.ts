@@ -216,18 +216,19 @@ const dayMonth = (instant: DateTime.DateTime, locale: AppLocale) =>
     timeZone: workspaceTimeZone,
   }).format(DateTime.toEpochMillis(instant));
 
-/**
- * A list row's line for a booking over several days: its first and last
- * dates ("23 Nov – 30 Nov"); `undefined` for a one-day booking.
- */
+/** A whole-day booking's first and last dates when it spans several days. */
 export const bookingDateRange = (
   start: DateTime.DateTime,
   end: DateTime.DateTime,
   locale: AppLocale
 ): string | undefined => {
-  const last = DateTime.isGreaterThan(end, start)
-    ? DateTime.subtract(end, { milliseconds: 1 })
-    : start;
+  if (
+    !isMidnight(start) ||
+    !isMidnight(end) ||
+    !DateTime.isGreaterThan(end, start)
+  )
+    return undefined;
+  const last = DateTime.subtract(end, { milliseconds: 1 });
   return dayOf(start) === dayOf(last)
     ? undefined
     : m.reservations_time_range(

@@ -1,6 +1,11 @@
 import { Context, Data, Effect, Layer } from "effect";
 import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
+import {
+  type CorrectiveDocumentPdfFile,
+  renderCorrectiveDocumentPdfFile,
+} from "@/features/accounting/backend/corrective-document-pdf";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import {
   type InvoicePdfFile,
   renderInvoicePdfFile,
@@ -37,7 +42,10 @@ export class CustomerInvoicesUnavailableError extends Data.TaggedError(
   readonly account: CustomerAccountAccessError;
 }> {}
 
-/** No invoice of the account's customer has this id. */
+/**
+ * No invoice of the account's customer has this id, or, for its corrective
+ * document, the invoice isn't cancelled.
+ */
 export class CustomerInvoiceNotFoundError extends Data.TaggedError(
   "CustomerInvoiceNotFoundError"
 ) {}
@@ -46,7 +54,9 @@ export class CustomerInvoiceNotFoundError extends Data.TaggedError(
 export type CustomerInvoiceLoadFailureCode =
   | "account.authority"
   | "invoice.read"
-  | "invoice.pdf";
+  | "invoice.pdf"
+  | "corrective-document.read"
+  | "corrective-document.pdf";
 
 /**
  * The account or its invoices couldn't be read. It keeps a fixed code, never
@@ -100,6 +110,19 @@ interface ICustomerInvoiceService {
     | CustomerInvoicesUnavailableError
     | CustomerInvoicesLoadError
   >;
+  /**
+   * The corrective document that cancelled one of the account's invoices, as
+   * a PDF file. It answers like `pdf`, and an invoice that isn't cancelled is
+   * not found too.
+   */
+  readonly correctiveDocumentPdf: (
+    invoiceId: string
+  ) => Effect.Effect<
+    CorrectiveDocumentPdfFile,
+    | CustomerInvoiceNotFoundError
+    | CustomerInvoicesUnavailableError
+    | CustomerInvoicesLoadError
+  >;
   /** The account's invoices as CSV rows with headers in `locale`. */
   readonly csv: (
     locale: Locale
@@ -125,6 +148,7 @@ export class CustomerInvoiceService extends Context.Service<
       const currentAccount = yield* CurrentCustomerAccount;
       const links = yield* CustomerAccountLinkRepository;
       const invoices = yield* InvoiceRepository;
+      const cancellations = yield* InvoiceCancellationRepository;
 
       const authorize: Effect.Effect<
         LinkedCustomerAccount,
@@ -194,16 +218,40 @@ export class CustomerInvoiceService extends Context.Service<
           Effect.withSpan("CustomerInvoiceService.list")
         );
 
-      const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
-        invoiceId: string
-      ) {
+      /** One of the account's invoices, after re-authorizing the session. */
+      const findOwnInvoice = Effect.fnUntraced(function* (invoiceId: string) {
         const account = yield* authorize;
         const invoice = yield* invoices
           .findForCustomer(account.dotyposCustomerId, invoiceId)
           .pipe(Effect.catch(() => failLoad("invoice.read")));
         if (!invoice) return yield* new CustomerInvoiceNotFoundError();
+        return invoice;
+      });
+
+      const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
+        invoiceId: string
+      ) {
+        const invoice = yield* findOwnInvoice(invoiceId);
         return yield* renderInvoicePdfFile(invoice.document).pipe(
           Effect.catch(() => failLoad("invoice.pdf"))
+        );
+      });
+
+      const correctiveDocumentPdf = Effect.fn(
+        "CustomerInvoiceService.correctiveDocumentPdf"
+      )(function* (invoiceId: string) {
+        const invoice = yield* findOwnInvoice(invoiceId);
+        if (!invoice.cancellation) {
+          return yield* new CustomerInvoiceNotFoundError();
+        }
+        const document = yield* cancellations
+          .loadCorrectiveDocument(invoice.id)
+          .pipe(Effect.catch(() => failLoad("corrective-document.read")));
+        // A cancellation always has its corrective document; a missing one
+        // can't be served, so it fails like an unreadable one.
+        if (!document) return yield* failLoad("corrective-document.read");
+        return yield* renderCorrectiveDocumentPdfFile(document).pipe(
+          Effect.catch(() => failLoad("corrective-document.pdf"))
         );
       });
 
@@ -220,7 +268,12 @@ export class CustomerInvoiceService extends Context.Service<
         } satisfies CustomerInvoiceExport;
       });
 
-      return { list, pdf, csv } satisfies ICustomerInvoiceService;
+      return {
+        list,
+        pdf,
+        correctiveDocumentPdf,
+        csv,
+      } satisfies ICustomerInvoiceService;
     })
   );
 

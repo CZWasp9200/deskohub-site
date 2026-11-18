@@ -22,10 +22,10 @@ const isMeetingRoomPageEnabled = mock();
 const isOfficePageEnabled = mock();
 
 const meetingRoomPageReleaseGate = await import(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server"
+  "@/features/meeting-room/backend/meeting-room-release-gate.server"
 );
 mock.module(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server",
+  "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({ ...meetingRoomPageReleaseGate, isMeetingRoomPageEnabled })
 );
 const officeReleaseGate = await import(

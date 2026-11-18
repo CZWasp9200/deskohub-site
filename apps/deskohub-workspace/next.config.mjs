@@ -152,10 +152,10 @@ const nextConfig = {
       // The proxy skips dotted paths, so it can't tell an unmatched one from a
       // root file. Once every file and non-dynamic route has had its turn, a
       // dotted path outside the locales, their RSC requests, `/api`, the static
-      // map framings and the build assets gets the locale redirect the proxy
-      // gives other unprefixed paths. Otherwise the `[locale]` route would take
-      // its first segment for a locale and answer with Next's bare error
-      // document. Route matching ignores letter case, so this rewrite also
+      // map framings, the APK downloads and the build assets gets the locale
+      // redirect the proxy gives other unprefixed paths. Otherwise the
+      // `[locale]` route would take its first segment for a locale and answer
+      // with Next's bare error document. Route matching ignores letter case, so this rewrite also
       // skips a dotted path under a wrong-case locale (`/en-us/x.html`); the
       // proxy's matcher catches that one and moves it to the exact locale.
       afterFiles: [
@@ -166,7 +166,7 @@ const nextConfig = {
           destination: "/app/index.html",
         },
         {
-          source: `/:path((?!(?:${localeRedirectPattern})(?:/|$|\\.(?:prefetch\\.)?rsc$|\\.segments/)|api/|_next/|_vercel/|page-markdown/|workspace-location-map/).*\\..*)`,
+          source: `/:path((?!(?:${localeRedirectPattern})(?:/|$|\\.(?:prefetch\\.)?rsc$|\\.segments/)|api/|_next/|_vercel/|page-markdown/|workspace-location-map/|android/download/).*\\..*)`,
           destination: "/locale-redirect/:path",
         },
       ],

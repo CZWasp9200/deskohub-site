@@ -10,7 +10,7 @@ import {
   CustomerWithdrawalRefused,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Option, Result } from "effect";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   makeFakeCustomerData,

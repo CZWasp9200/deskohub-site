@@ -1,6 +1,6 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import {

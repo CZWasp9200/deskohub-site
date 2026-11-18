@@ -1,6 +1,6 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import { RegistryProvider } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AsyncView } from "../../customer-api/async-view";

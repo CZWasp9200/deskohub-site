@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   CustomerCheckoutDetailsInvalid,
   type CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { Clock, Deferred, Effect, Exit, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { reservationHistoryAtom } from "../../account/reservations/reservations-list-state";
 import { analytics } from "../../analytics/analytics";
 import { accountStorageKey } from "../../customer-api/account-scoped-storage";
@@ -33,6 +34,7 @@ import {
   pricedLines,
   sampleOfferings,
   sampleSummary,
+  withReservedDeskOvernightStay,
 } from "../testing/sample-booking-catalog";
 import {
   type CheckoutRequest,
@@ -701,6 +703,14 @@ describe("checkoutOvernightStay", () => {
         requiredFrom: "2026-11-26T00:00:00.000Z",
       },
     },
+    details: {
+      bookingFor: "self",
+      contact: {
+        name: "Synthetic Booker",
+        email: testEmailAddress("booker"),
+      },
+      billing: { purpose: "personal", invoice: "none" },
+    },
     previousTotal: summary.total,
   };
   const catalog = sampleOfferings("en-US", "2026-11-20").offerings.map(
@@ -735,7 +745,10 @@ describe("checkoutOvernightStay", () => {
   });
 
   test("an order paid again shows only its date once the catalog stops offering overnight", () => {
-    const dayOnly = sampleOfferings("en-US", "2026-11-20").offerings;
+    const dayOnly = withReservedDeskOvernightStay(
+      sampleOfferings("en-US", "2026-11-20").offerings,
+      undefined
+    );
     expect(shownStay(retry, dayOnly)).toMatchObject({
       overnight: Option.none(),
     });

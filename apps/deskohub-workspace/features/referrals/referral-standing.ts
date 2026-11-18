@@ -1,7 +1,10 @@
 import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import { discountApplications } from "@/db/schema/discount-applications";
 import { paymentAttempts } from "@/db/schema/payment-attempts";
 import {
@@ -123,12 +126,14 @@ export const makeReferralStandingReads = Effect.gen(function* () {
 
   const loadCustomerHistory = Effect.fn("ReferralStanding.loadCustomerHistory")(
     (dotyposCustomerId: DotyposCustomerId) =>
-      Effect.all(
-        [
-          findLocalReservations(dotyposCustomerId),
-          listDotyposReservations(dotyposCustomerId),
-        ],
-        { concurrency: "inherit" }
+      Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+        Effect.all(
+          [
+            findLocalReservations(dotyposCustomerId),
+            listDotyposReservations(dotyposCustomerId),
+          ],
+          { concurrency }
+        )
       ).pipe(
         Effect.map((reads) =>
           summarizeCustomerHistory(dotyposCustomerId, reads)
@@ -260,24 +265,29 @@ export const makeReferralStandingReads = Effect.gen(function* () {
   const findInvitationWindow = Effect.fn(
     "ReferralStanding.findInvitationWindow"
   )((dotyposCustomerId: DotyposCustomerId) =>
-    Effect.all(
-      [
-        loadCustomerHistory(dotyposCustomerId),
-        db
-          .select({ state: referralInvitationClaims.state })
-          .from(referralInvitationClaims)
-          .where(
-            and(
-              eq(
-                referralInvitationClaims.invitedDotyposCustomerId,
-                dotyposCustomerId
-              ),
-              inArray(referralInvitationClaims.state, ["reserved", "redeemed"])
+    Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+      Effect.all(
+        [
+          loadCustomerHistory(dotyposCustomerId),
+          db
+            .select({ state: referralInvitationClaims.state })
+            .from(referralInvitationClaims)
+            .where(
+              and(
+                eq(
+                  referralInvitationClaims.invitedDotyposCustomerId,
+                  dotyposCustomerId
+                ),
+                inArray(referralInvitationClaims.state, [
+                  "reserved",
+                  "redeemed",
+                ])
+              )
             )
-          )
-          .limit(1),
-      ],
-      { concurrency: "inherit" }
+            .limit(1),
+        ],
+        { concurrency }
+      )
     ).pipe(
       Effect.map(([history, activeClaims]): InvitationWindow => {
         if (history.hasPreviousPaidBooking) return "closed";
@@ -295,22 +305,24 @@ export const makeReferralStandingReads = Effect.gen(function* () {
     readonly referrerDotyposCustomerId: DotyposCustomerId;
     readonly code: Effect.Effect<ReferralCode, E, R>;
   }) =>
-    Effect.all(
-      [
-        input.code,
-        findInvitees(input.referrerDotyposCustomerId).pipe(
-          Effect.flatMap((invitees) =>
-            countEligibleInvitees(invitees).pipe(
-              Effect.map((eligible) => ({
-                total: invitees.length,
-                eligible,
-              }))
+    Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+      Effect.all(
+        [
+          input.code,
+          findInvitees(input.referrerDotyposCustomerId).pipe(
+            Effect.flatMap((invitees) =>
+              countEligibleInvitees(invitees).pipe(
+                Effect.map((eligible) => ({
+                  total: invitees.length,
+                  eligible,
+                }))
+              )
             )
-          )
-        ),
-        findSavings(input.referrerDotyposCustomerId),
-      ],
-      { concurrency: "inherit" }
+          ),
+          findSavings(input.referrerDotyposCustomerId),
+        ],
+        { concurrency }
+      )
     ).pipe(
       Effect.map(
         ([code, invitees, savings]): ReferralAccountSummary => ({

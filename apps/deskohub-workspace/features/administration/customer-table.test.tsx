@@ -121,6 +121,47 @@ describe("AdministrationCustomerTable", () => {
     );
   });
 
+  test("shows deleted and expired customers by their marked placeholder, without a link to their missing detail page", () => {
+    const customerRow = (
+      id: string,
+      lifecycle: "active" | "deleted" | "expired"
+    ): AdministrationCustomerSummary => ({
+      ...customerSummary(id, 1),
+      customer: {
+        id: id as AdministrationCustomerSummary["customerId"],
+        displayName: lifecycle === "active" ? "Synthetic Person" : lifecycle,
+        hasName: lifecycle === "active",
+        lifecycle,
+        email: null,
+        phone: null,
+      },
+    });
+    const view = render(
+      <RouteLocaleProvider locale="en-US">
+        <AdministrationCustomerTable
+          customers={[
+            customerRow("customer-active", "active"),
+            customerRow("customer-deleted", "deleted"),
+            customerRow("customer-expired", "expired"),
+          ]}
+        />
+      </RouteLocaleProvider>
+    );
+
+    for (const container of [view.getByRole("table"), view.getByRole("list")]) {
+      const customerLinks = within(container)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href") ?? "")
+        .filter((href) => href.includes("/admin/customers/"));
+      expect(customerLinks).toHaveLength(1);
+      expect(customerLinks[0]).toContain("customer-active");
+      for (const lifecycle of ["deleted", "expired"])
+        expect(
+          container.querySelectorAll(`[data-customer-lifecycle="${lifecycle}"]`)
+        ).toHaveLength(1);
+    }
+  });
+
   test("keeps the list's filters in sort links", () => {
     const view = render(
       <RouteLocaleProvider locale="en-US">

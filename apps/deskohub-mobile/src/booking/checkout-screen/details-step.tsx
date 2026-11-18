@@ -28,12 +28,17 @@ import { ChoiceList } from "../../ui/choice-list";
 import { Button, TextField } from "../../ui/controls";
 import { CountryField } from "../../ui/country-field";
 import { FieldPair } from "../../ui/field-pair";
+import {
+  FocusedFieldContext,
+  useFocusedFieldScroll,
+} from "../../ui/focused-field-scroll";
 import { Icon } from "../../ui/icon";
 import { Notice } from "../../ui/notice";
 import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Text } from "../../ui/text";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type {
   CheckoutDetails,
   DetailsNotice,
@@ -116,6 +121,7 @@ export function DetailsStep(props: DetailsStepProps) {
     useState<DetailsFieldProblems>(initialProblems);
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const focusedField = useFocusedFieldScroll(scroll);
   const fieldViews = useRef(
     new Map<DetailsField, ComponentRef<typeof View> | null>()
   );
@@ -210,61 +216,65 @@ export function DetailsStep(props: DetailsStepProps) {
       style={styles.screen}
     >
       <BookingSteps current="details" raised={raised} locale={locale} />
-      <ScrollView
-        ref={scroll}
-        style={styles.body}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        onScroll={onScroll}
-        scrollEventThrottle={32}
-      >
-        <BookingSectionHeading
-          title={m.booking_details_who_heading({}, { locale })}
-          first
-        />
-        <WhoChoice
-          selected={draft.bookingFor}
-          onSelect={(bookingFor) =>
-            change({ ...draft, bookingFor }, { _tag: "BookingFor" })
-          }
-          disabled={busy}
-          locale={locale}
-        />
-        {draft.bookingFor === "self" ? (
-          <SelfSection {...props} self={self} change={change} field={field} />
-        ) : (
-          <SomeoneElseFields
-            draft={draft}
-            change={change}
-            field={field}
+      <FocusedFieldContext value={focusedField.tracker}>
+        <ScrollView
+          ref={scroll}
+          onLayout={focusedField.onLayout}
+          style={styles.body}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={32}
+        >
+          <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
+          <BookingSectionHeading
+            title={m.booking_details_who_heading({}, { locale })}
+            first
+          />
+          <WhoChoice
+            selected={draft.bookingFor}
+            onSelect={(bookingFor) =>
+              change({ ...draft, bookingFor }, { _tag: "BookingFor" })
+            }
+            disabled={busy}
             locale={locale}
           />
-        )}
-        <InvoiceSection
-          draft={draft}
-          saved={profile.saved}
-          change={change}
-          field={field}
-          busy={busy}
-          locale={locale}
-        />
-        {draft.bookingFor === "self" && (
-          <MarketingSection
-            checked={draft.marketingConsent}
-            onChange={(marketingConsent) =>
-              busy || onDraftChange({ ...draft, marketingConsent })
-            }
-            onOpenDocument={props.onOpenMarketingDocument}
-            consentLocale={props.consentLocale}
+          {draft.bookingFor === "self" ? (
+            <SelfSection {...props} self={self} change={change} field={field} />
+          ) : (
+            <SomeoneElseFields
+              draft={draft}
+              change={change}
+              field={field}
+              locale={locale}
+            />
+          )}
+          <InvoiceSection
+            draft={draft}
+            saved={profile.saved}
+            change={change}
+            field={field}
+            busy={busy}
+            locale={locale}
           />
-        )}
-        <RetryNotice
-          notice={notice}
-          busy={busy}
-          onRetry={onRetry}
-          locale={locale}
-        />
-      </ScrollView>
+          {draft.bookingFor === "self" && (
+            <MarketingSection
+              checked={draft.marketingConsent}
+              onChange={(marketingConsent) =>
+                busy || onDraftChange({ ...draft, marketingConsent })
+              }
+              onOpenDocument={props.onOpenMarketingDocument}
+              consentLocale={props.consentLocale}
+            />
+          )}
+          <RetryNotice
+            notice={notice}
+            busy={busy}
+            onRetry={onRetry}
+            locale={locale}
+          />
+        </ScrollView>
+      </FocusedFieldContext>
       <BookingBar
         locale={locale}
         // With the keyboard up only the button rides above it (board 30).
@@ -916,7 +926,7 @@ const barReason = ({
   return undefined;
 };
 
-/** "Fix 2 fields to continue"; Hermes has no plural rules, so one is its own message. */
+/** "Fix 2 fields to continue"; one is its own message. */
 const fixFieldsMessage = (count: number, locale: AppLocale) =>
   count === 1
     ? m.booking_details_fix_one_field({}, { locale })
@@ -925,6 +935,7 @@ const fixFieldsMessage = (count: number, locale: AppLocale) =>
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   body: { flex: 1 },
+  updateOffer: { marginBottom: space.lg, marginTop: space.sm },
   content: {
     alignSelf: "center",
     maxWidth: 640,

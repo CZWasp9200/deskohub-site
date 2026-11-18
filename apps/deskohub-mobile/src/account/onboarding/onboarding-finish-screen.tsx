@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Redirect, useRouter } from "expo-router";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import CircleCheck from "lucide-react-native/icons/circle-check";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -16,6 +16,7 @@ import { Button } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
 import { FocusedStatusBar } from "../../ui/focused-status-bar";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { LeaveOnboarding } from "./onboarding-gate";
 import { finishOnboardingAt, onboardingHref } from "./onboarding-routes";
 
@@ -38,17 +39,20 @@ export function OnboardingFinishScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <FocusedStatusBar style="dark" />
-      <View style={styles.body}>
-        <EmptyState
-          icon={CircleCheck}
-          tone="positive"
-          live="polite"
-          title={m.onboarding_done_title(
-            { name: account.profile.firstName },
-            { locale }
-          )}
-        />
-      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+        <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
+        <View style={styles.done}>
+          <EmptyState
+            icon={CircleCheck}
+            tone="positive"
+            live="polite"
+            title={m.onboarding_done_title(
+              { name: account.profile.firstName },
+              { locale }
+            )}
+          />
+        </View>
+      </ScrollView>
       <View style={[styles.actions, { paddingBottom: space.sm + bottom }]}>
         <Button
           icon={CalendarPlus}
@@ -67,11 +71,10 @@ export function OnboardingFinishScreen() {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
-  body: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: space.gutter,
-  },
+  scroll: { flex: 1 },
+  body: { flexGrow: 1, paddingHorizontal: space.gutter },
+  updateOffer: { marginTop: space.md },
+  done: { flex: 1, justifyContent: "center" },
   actions: {
     gap: space.sm,
     paddingHorizontal: space.gutter,

@@ -26,6 +26,7 @@ import {
   type ReviewState,
 } from "../../checkout/checkout-state";
 import { ReviewStep } from "../../checkout-screen/review-step";
+import { reviewBilling } from "../../checkout-screen/review-view";
 import {
   czk,
   sampleLegalDocuments,
@@ -51,7 +52,11 @@ const overnightSelection: CustomerBookingSelection = {
 const noonToNoon = { startTime: "12:00", endTime: "12:00" };
 
 const calendar: CustomerCheckoutSummaryDiscount = {
-  discount: { id: "calendar-sale-2026-11", label: "Calendar discount" },
+  discount: {
+    id: "calendar-sale-2026-11",
+    label: "Calendar discount",
+    adjustment: { kind: "percentage", basisPoints: 2000 },
+  },
   amount: czk(58),
 };
 
@@ -60,7 +65,11 @@ const discount = (
   label: string,
   crowns: number
 ): CustomerCheckoutSummaryDiscount => ({
-  discount: { id, label },
+  discount: {
+    id,
+    label,
+    adjustment: { kind: "percentage", basisPoints: 1000 },
+  },
   amount: czk(crowns),
 });
 
@@ -191,14 +200,15 @@ const reviewOf = (
   sample: Sample,
   holdExpiresAt: string,
   frame: ReviewSample
-): ReviewState =>
-  CheckoutState.Review({
+): ReviewState => {
+  const details = (frame.details ?? selfDetails)(sample);
+  return CheckoutState.Review({
     flow,
     kind: frame.retry
-      ? ReviewKind.PaymentRetry()
-      : ReviewKind.NewBooking({
-          details: (frame.details ?? selfDetails)(sample),
-        }),
+      ? ReviewKind.PaymentRetry({
+          details: { ...details, billing: reviewBilling(details.billing) },
+        })
+      : ReviewKind.NewBooking({ details }),
     checkout: {
       orderId: "gallery-order",
       payStateToken: "gallery-token",
@@ -222,6 +232,7 @@ const reviewOf = (
     pending: frame.pending ?? Option.none(),
     notice: Option.none(),
   });
+};
 
 function ReviewFrame({
   onBack,

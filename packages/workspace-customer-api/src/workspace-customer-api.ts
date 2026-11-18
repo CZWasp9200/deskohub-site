@@ -1,4 +1,4 @@
-import { HttpApi, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, OpenApi } from "effect/http-api";
 import { CustomerAccountApi } from "./customer-account-api";
 import { CustomerBookingApi } from "./customer-booking-api";
 import { CustomerCompaniesApi } from "./customer-companies-api";

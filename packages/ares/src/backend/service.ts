@@ -1,9 +1,5 @@
 import { Context, Data, Effect, Layer, Match, Predicate, Schema } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import {
   type AresClient,
   EkonomickySubjekt,
@@ -113,7 +109,7 @@ export class AresLookupService extends Context.Service<
         }
 
         const subject = yield* makeAresClient(httpClient)
-          .vratEkonomickySubjekt(encodeURIComponent(ico), undefined)
+          .vratEkonomickySubjekt(ico, undefined)
           .pipe(
             Effect.timeout(aresLookupTimeout),
             Effect.catch(

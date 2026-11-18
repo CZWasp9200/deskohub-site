@@ -158,7 +158,7 @@ export const postgresAuthHookServices = (
       consentLedger,
       AccountRoleGrants.Default
     ).pipe(Layer.provide(testDatabase.layer)),
-    WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.pool),
+    WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.databasePool),
     botProtection(overrides),
     releaseGates(overrides)
   );

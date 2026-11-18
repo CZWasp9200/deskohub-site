@@ -19,7 +19,7 @@
   "dependencies": {
     "@deskohub/i18n": "workspace:*",
     "@deskohub/phone-number": "workspace:*",
-    "effect": "4.0.0-beta.85"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@deskohub/test-email": "workspace:*",

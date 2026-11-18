@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import { AudienceFilter } from "./audience-filter";
 import {
   AdministrationCampaignAudienceCreateRequest,
@@ -16,7 +17,9 @@ import {
 } from "./email-campaigns";
 
 const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
-  Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
+  Result.isSuccess(
+    Schema.decodeUnknownResult(schema, administrationInputParseOptions)(input)
+  );
 
 /**
  * A filter of every attribute kind as Workspace stores it and dhw sends it.
@@ -269,7 +272,10 @@ describe("campaign admin API contract", () => {
     };
 
     expect(
-      Schema.decodeUnknownSync(AdministrationCampaignCreateInput)({
+      Schema.decodeUnknownSync(
+        AdministrationCampaignCreateInput,
+        administrationInputParseOptions
+      )({
         ...input,
         title: "  News  ",
       }).title
@@ -332,9 +338,10 @@ describe("campaign admin API contract", () => {
     });
 
     expect(
-      Schema.decodeUnknownSync(AdministrationCampaignCreateInput)(
-        create({ ...texts, bodyDocument })
-      ).content["en-US"]
+      Schema.decodeUnknownSync(
+        AdministrationCampaignCreateInput,
+        administrationInputParseOptions
+      )(create({ ...texts, bodyDocument })).content["en-US"]
     ).toEqual({ ...texts, bodyDocument });
     for (const content of [
       texts,
@@ -370,7 +377,10 @@ describe("campaign admin API contract", () => {
 
   test("expresses removals in a campaign update", () => {
     expect(
-      Schema.decodeUnknownSync(AdministrationCampaignUpdateInput)({
+      Schema.decodeUnknownSync(
+        AdministrationCampaignUpdateInput,
+        administrationInputParseOptions
+      )({
         audienceId: null,
         content: {
           "cs-CZ": { subject: "Novinky", operationalReason: null },
@@ -389,7 +399,10 @@ describe("campaign admin API contract", () => {
 
   test("requires a confirmation code for the real send", () => {
     expect(
-      Schema.decodeUnknownSync(AdministrationCampaignSendInput)({
+      Schema.decodeUnknownSync(
+        AdministrationCampaignSendInput,
+        administrationInputParseOptions
+      )({
         confirmationCode: " ABC123 ",
       })
     ).toEqual({ confirmationCode: "ABC123" });

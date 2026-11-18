@@ -11,8 +11,9 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { Effect, Logger, References } from "effect";
 import { authOptions } from "@/features/account/backend/auth/auth-options";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { withDatabaseQueryDetail } from "@/shared/testing/workspace-database-query-log.test-utils";
-import { makeDatabaseClient, makeDatabasePool } from "../../db/database-client";
+import { makeDatabaseClient } from "../../db/database-client";
 import type { E2EBrowserSession } from "../browser-session";
 import { WorkspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
@@ -189,9 +190,10 @@ describe("workspace e2e seeded sessions", () => {
   test("keeps the seeded session token out of database query logs", async () => {
     // The real client and query logger log each statement before it needs a
     // connection, so an unreachable server still yields the logged insert.
-    const pool = makeDatabasePool({
+    const pool = await openDatabasePool({
       connectionString: "postgresql://synthetic:synthetic@127.0.0.1:1/none",
-      connectionTimeoutMillis: 200,
+      maxConnections: 1,
+      connectTimeout: "200 millis",
     });
     const annotations: unknown[] = [];
     const capture = Logger.make((options) => {
@@ -213,7 +215,7 @@ describe("workspace e2e seeded sessions", () => {
         )
       );
     } finally {
-      await pool.end().catch(() => undefined);
+      await pool.close().catch(() => undefined);
     }
 
     const logged = JSON.stringify(annotations);

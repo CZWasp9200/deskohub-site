@@ -15,7 +15,7 @@ import {
 import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { inArray } from "drizzle-orm";
 import { Effect, Layer, Redacted } from "effect";
-import { HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiTest } from "effect/http-api";
 import type { PoolClient } from "pg";
 import { cliAuthenticationRequests, cliSessions } from "@/db/schema";
 import {

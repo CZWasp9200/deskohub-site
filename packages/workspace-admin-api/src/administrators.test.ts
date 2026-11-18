@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdminCliAdministratorsApi,
   AdministrationLegacyAdministratorBackfillInput,
@@ -22,7 +23,8 @@ describe("administrators contract", () => {
 
   test("strictly decodes the backfill input and trims the email", () => {
     const decode = Schema.decodeUnknownSync(
-      AdministrationLegacyAdministratorBackfillInput
+      AdministrationLegacyAdministratorBackfillInput,
+      administrationInputParseOptions
     );
 
     expect(

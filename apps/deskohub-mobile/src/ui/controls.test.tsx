@@ -1,9 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import Mail from "lucide-react-native/icons/mail";
-import { type ComponentProps, createRef, type ReactElement } from "react";
+import {
+  type ComponentProps,
+  createRef,
+  type ReactElement,
+  type RefObject,
+} from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
 import { Button, ButtonRow, TextField } from "./controls";
+import { type FieldView, FocusedFieldContext } from "./focused-field-scroll";
 import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
 import {
@@ -238,6 +244,37 @@ const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
 };
 
 describe("TextField", () => {
+  test("focus and blur report the whole field, label to messages, to its scroll view", () => {
+    const reports: Array<[string, FieldView]> = [];
+    const tracker = {
+      focused: (view: FieldView) => reports.push(["focused", view]),
+      blurred: (view: FieldView) => reports.push(["blurred", view]),
+    };
+    const column = elementTree(
+      TextField,
+      { label: "Phone", hint: "Include the country code." },
+      (node) => (
+        <FocusedFieldContext value={tracker}>{node}</FocusedFieldContext>
+      )
+    ) as ReactElement<{ ref: RefObject<FieldView | null> }>;
+    const mounted: FieldView = {
+      measureInWindow: () => undefined,
+      measureLayout: () => undefined,
+    };
+    column.props.ref.current = mounted;
+    const input = find(hostTree(column), "TextInput")?.props as {
+      onFocus: () => void;
+      onBlur: (event: unknown) => void;
+    };
+
+    input.onFocus();
+    input.onBlur({});
+    expect(reports).toEqual([
+      ["focused", mounted],
+      ["blurred", mounted],
+    ]);
+  });
+
   test("the web input draws no outline of its own, so only the frame rings on focus", () => {
     // Chromium draws an `auto` outline whatever its width.
     expect(flat(field().input?.style)).toMatchObject({

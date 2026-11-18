@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { PostHogFeatureFlagError } from "@deskohub/analytics-posthog/feature-flags/codegen";
 import { PostHogProjectId } from "@deskohub/analytics-posthog/identifiers";
 import { Cause, Effect, Exit, Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import type {
   PostHogCliInput,
   PostHogCliOperation,

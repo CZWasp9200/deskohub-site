@@ -148,7 +148,9 @@ const makeReferralLayer = (
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );
@@ -1504,11 +1506,9 @@ describe.skipIf(!testDatabase)(
       };
       const withdraw = async (
         reservationId: string,
+        accountId: CustomerAccountId,
         refund: "full" | "partial"
       ) => {
-        const accountId = await Effect.runPromise(
-          workspaceFixtures(testDatabase!.db).customerAccount()
-        );
         const paid = currencyCZK(30_000);
         const submittedAt = Temporal.Now.instant();
         await Effect.runPromise(
@@ -1519,6 +1519,7 @@ describe.skipIf(!testDatabase)(
               accountId,
               locale: "en-US",
               contractLabel: "Office",
+              statementName: "Synthetic Customer",
               submittedAt,
               periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
               paidAmount: paid,
@@ -1539,10 +1540,9 @@ describe.skipIf(!testDatabase)(
             Effect.provide(testDatabase!.layer)
           )
         );
-        return accountId;
       };
       const reservationIds: string[] = [];
-      const accountIds: string[] = [];
+      const accountIds: CustomerAccountId[] = [];
       try {
         for (const invitee of invitees) {
           await Effect.runPromise(
@@ -1552,9 +1552,13 @@ describe.skipIf(!testDatabase)(
               promotionCodeId: referrer.promotionCodeId,
             })
           );
+          const fixtures = workspaceFixtures(testDatabase!.db);
+          const author = await Effect.runPromise(fixtures.customerAccount());
+          accountIds.push(author);
           const reservation = await Effect.runPromise(
-            workspaceFixtures(testDatabase!.db).reservation({
+            fixtures.reservation({
               stage: { reservation: "confirmed", payment: "paid" },
+              author,
               customer: invitee,
               overrides: { dotyposReservationId: bookings.get(invitee) },
             })
@@ -1563,23 +1567,23 @@ describe.skipIf(!testDatabase)(
         }
         expect(await eligibleInviteeCount()).toBe(2);
 
-        accountIds.push(await withdraw(reservationIds[1]!, "partial"));
+        await withdraw(reservationIds[1]!, accountIds[1]!, "partial");
         expect(await eligibleInviteeCount()).toBe(2);
 
         // Dotypos still holds the visit as live and confirmed: the
         // cancellation hasn't happened.
-        accountIds.push(await withdraw(reservationIds[0]!, "full"));
+        await withdraw(reservationIds[0]!, accountIds[0]!, "full");
         expect(await eligibleInviteeCount()).toBe(1);
       } finally {
         await testDatabase!.pool.query(
           "delete from contract_withdrawals where contract_id = any($1)",
           [reservationIds]
         );
+        await deleteBookings([...invitees]);
         await testDatabase!.pool.query(
           "delete from customer_accounts where id = any($1)",
           [accountIds]
         );
-        await deleteBookings([...invitees]);
         await testDatabase!.pool.query(
           "delete from referral_attributions where invited_dotypos_customer_id = any($1)",
           [[...invitees]]
@@ -2309,7 +2313,7 @@ describe.skipIf(!testDatabase)(
           "eligible"
         );
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });
@@ -2387,7 +2391,9 @@ const makeAccountPrerequisiteLayer = (input: {
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const healthyLinks = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );
@@ -2518,7 +2524,7 @@ describe.skipIf(!testDatabase)(
             outcomeOf(await acceptAtAccount(context, context.referrer.code))
           ).toBe("accepted");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2564,7 +2570,7 @@ describe.skipIf(!testDatabase)(
             )._tag
           ).toBe("Success");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2602,7 +2608,7 @@ describe.skipIf(!testDatabase)(
           outcomeOf(await acceptAtAccount(context, context.referrer.code))
         ).toBe("accepted");
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });

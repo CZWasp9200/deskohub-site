@@ -4,8 +4,9 @@ import {
   type DotyposReadFailure,
   DotyposService,
 } from "@deskohub/dotypos";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, DateTime, Effect, Layer, Option } from "effect";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { isFindableAdministrationCustomer } from "./customer-identity";
 import {
   degradeProviderRead,
   type ProviderReadPolicy,
@@ -15,7 +16,7 @@ import {
 /** The most customers a search returns. */
 const searchLimit = 50;
 
-/** A search's customers that are not deleted, in Dotypos order, at most 50. */
+/** A search's customers that are neither deleted nor expired, in Dotypos order, at most 50. */
 export type AdministrationCustomerSearch = {
   /** Classified on the returned customers: one is `matched`, more are `ambiguous`. */
   readonly kind: "matched" | "not-found" | "ambiguous";
@@ -27,12 +28,13 @@ interface IAdministrationCustomerDirectory {
   readonly search: (
     query: string
   ) => Effect.Effect<AdministrationCustomerSearch, DotyposReadFailure>;
-  /** None when Dotypos has no such customer or it is deleted. Expired customers are found. */
+  /** None when Dotypos has no such customer, or it is deleted or expired. */
   readonly find: (
     id: DotyposCustomerId
   ) => Effect.Effect<Option.Option<DotyposCustomer>, DotyposReadFailure>;
   /**
-   * Every customer Dotypos returns, deleted ones included. An id a batch left
+   * Every customer Dotypos returns, deleted and expired ones included, for
+   * `describeAdministrationCustomer` to show as placeholders. An id a batch left
    * out is read on its own; a missing customer is absent from the map. A
    * failed read follows `policy`: a page degrades (logs, leaves it absent);
    * an export fails with `AdministrationListSourceUnavailableError`.
@@ -55,11 +57,14 @@ export class AdministrationCustomerDirectory extends Context.Service<
     this,
     Effect.gen(function* () {
       const dotypos = yield* DotyposService;
-
       const search = Effect.fn("AdministrationCustomerDirectory.search")(
         function* (query: string) {
-          const customers = (yield* dotypos.searchCustomers(query))
-            .filter((customer) => !customer.deleted)
+          const found = yield* dotypos.searchCustomers(query);
+          const now = yield* DateTime.nowAsDate;
+          const customers = found
+            .filter((customer) =>
+              isFindableAdministrationCustomer(customer, now)
+            )
             .slice(0, searchLimit);
           let kind: AdministrationCustomerSearch["kind"] = "not-found";
           if (customers.length === 1) kind = "matched";
@@ -71,9 +76,10 @@ export class AdministrationCustomerDirectory extends Context.Service<
       const find = Effect.fn("AdministrationCustomerDirectory.find")(function* (
         id: DotyposCustomerId
       ) {
-        return Option.filter(
-          yield* dotypos.getCustomer(id),
-          (customer) => !customer.deleted
+        const customer = yield* dotypos.getCustomer(id);
+        const now = yield* DateTime.nowAsDate;
+        return Option.filter(customer, (found) =>
+          isFindableAdministrationCustomer(found, now)
         );
       });
 

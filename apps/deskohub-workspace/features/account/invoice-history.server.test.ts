@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
 import {
   type CustomerInvoiceSummary,
   getCustomerInvoiceStatusLabel,
@@ -22,6 +23,7 @@ import {
   loadInvoiceHistory,
 } from "./invoice-history.server";
 import {
+  getAccountCorrectiveDocumentPdfPath,
   getAccountInvoiceExportPath,
   getAccountInvoicePdfPath,
 } from "./routes";
@@ -34,6 +36,7 @@ const dueInvoice: CustomerInvoiceSummary = {
   total: { amount: "450.50", currency: "CZK" },
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
+  cancellation: null,
   reservation: null,
 };
 const paidInvoice: CustomerInvoiceSummary = {
@@ -44,7 +47,18 @@ const paidInvoice: CustomerInvoiceSummary = {
   total: { amount: "1200", currency: "CZK" },
   paymentStatus: "paid",
   dueDate: null,
+  cancellation: null,
   reservation: null,
+};
+const correctiveDocumentNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000005");
+/** A cancelled invoice, which requests no payment any more. */
+const cancelledInvoice: CustomerInvoiceSummary = {
+  ...dueInvoice,
+  dueDate: null,
+  id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb25"),
+  invoiceNumber: invoiceNumberSchema.make("WS-FV-2026-000043"),
+  cancellation: { correctiveDocumentNumber },
 };
 
 const loadWith = (
@@ -78,6 +92,7 @@ describe("loadInvoiceHistory", () => {
             dueDate: date("2026-09-01"),
           },
           pdfPath: getAccountInvoicePdfPath("cs-CZ", dueInvoice.id),
+          correctiveDocument: null,
         },
         {
           invoice: paidInvoice,
@@ -88,9 +103,35 @@ describe("loadInvoiceHistory", () => {
             dueDate: null,
           },
           pdfPath: getAccountInvoicePdfPath("cs-CZ", paidInvoice.id),
+          correctiveDocument: null,
         },
       ],
       exportPath: getAccountInvoiceExportPath("cs-CZ"),
+    });
+  });
+
+  test("marks a cancelled invoice cancelled, keeps its PDF and links its corrective document", async () => {
+    const history = await loadWith(Effect.succeed([cancelledInvoice]));
+
+    expect(history.kind === "populated" && history.invoices[0]).toEqual({
+      invoice: cancelledInvoice,
+      display: {
+        issuedOn: formatPlainDate({
+          date: Temporal.PlainDate.from("2026-08-20"),
+          locale: "cs-CZ",
+        }),
+        total: formatInvoiceTotal(cancelledInvoice.total, "cs-CZ"),
+        status: getCustomerInvoiceStatusLabel("cancelled", "cs-CZ"),
+        dueDate: null,
+      },
+      pdfPath: getAccountInvoicePdfPath("cs-CZ", cancelledInvoice.id),
+      correctiveDocument: {
+        documentNumber: correctiveDocumentNumber,
+        pdfPath: getAccountCorrectiveDocumentPdfPath(
+          "cs-CZ",
+          cancelledInvoice.id
+        ),
+      },
     });
   });
 
@@ -102,6 +143,16 @@ describe("loadInvoiceHistory", () => {
     );
     expect(history.kind === "populated" && history.invoices[0]?.pdfPath).toBe(
       `/en-US/account/invoices/${dueInvoice.id}/pdf`
+    );
+    const cancelled = await loadWith(
+      Effect.succeed([cancelledInvoice]),
+      "en-US"
+    );
+    expect(
+      cancelled.kind === "populated" &&
+        cancelled.invoices[0]?.correctiveDocument?.pdfPath
+    ).toBe(
+      `/en-US/account/invoices/${cancelledInvoice.id}/corrective-document`
     );
   });
 

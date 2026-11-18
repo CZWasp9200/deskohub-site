@@ -1,11 +1,12 @@
 import { Effect, Schema } from "effect";
-import { Multipart } from "effect/unstable/http";
+import { Multipart } from "effect/http";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiError,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { CustomerLocale } from "./customer-locale";
 import {
   accountProfileSchemas,
@@ -31,7 +32,7 @@ import { ReferralCode } from "./referral-code";
  * operation: it hasn't completed its profile, its profile needs support, or
  * its deletion is pending.
  */
-export class CustomerAccountLinkRequired extends Schema.TaggedErrorClass<CustomerAccountLinkRequired>()(
+export class CustomerAccountLinkRequired extends Schema.TaggedError<CustomerAccountLinkRequired>()(
   "CustomerAccountLinkRequired",
   {
     reason: Schema.Literals([
@@ -54,7 +55,7 @@ export const CustomerAccountFeature = Schema.Literals([
 export type CustomerAccountFeature = typeof CustomerAccountFeature.Type;
 
 /** The feature isn't released, or its release couldn't be confirmed. */
-export class CustomerFeatureUnavailable extends Schema.TaggedErrorClass<CustomerFeatureUnavailable>()(
+export class CustomerFeatureUnavailable extends Schema.TaggedError<CustomerFeatureUnavailable>()(
   "CustomerFeatureUnavailable",
   { feature: CustomerAccountFeature }
 ) {
@@ -72,7 +73,7 @@ export type CustomerAvatarRejectionReason =
   typeof CustomerAvatarRejectionReason.Type;
 
 /** The uploaded file can't become an avatar; the reason names why. */
-export class CustomerAvatarRejected extends Schema.TaggedErrorClass<CustomerAvatarRejected>()(
+export class CustomerAvatarRejected extends Schema.TaggedError<CustomerAvatarRejected>()(
   "CustomerAvatarRejected",
   { reason: CustomerAvatarRejectionReason }
 ) {
@@ -83,7 +84,7 @@ export class CustomerAvatarRejected extends Schema.TaggedErrorClass<CustomerAvat
  * The marketing preference changed since the client read its `context`;
  * read it again before saving.
  */
-export class CustomerMarketingPreferencesRejected extends Schema.TaggedErrorClass<CustomerMarketingPreferencesRejected>()(
+export class CustomerMarketingPreferencesRejected extends Schema.TaggedError<CustomerMarketingPreferencesRejected>()(
   "CustomerMarketingPreferencesRejected",
   { reason: Schema.Literal("stale-context") }
 ) {
@@ -95,7 +96,7 @@ export class CustomerMarketingPreferencesRejected extends Schema.TaggedErrorClas
  * Dotypos customer, it is a review account, or its deletion is pending. The
  * website refuses the same sessions.
  */
-export class CustomerDataExportUnavailable extends Schema.TaggedErrorClass<CustomerDataExportUnavailable>()(
+export class CustomerDataExportUnavailable extends Schema.TaggedError<CustomerDataExportUnavailable>()(
   "CustomerDataExportUnavailable",
   {}
 ) {
@@ -314,12 +315,10 @@ export const CustomerAccountDataExport = Schema.Uint8Array.pipe(
 /** The profile payloads, decoded as the account actions decode them. */
 const ProfileUpdatePayload = CustomerProfileInput.annotate({
   identifier: "CustomerProfileInput",
-  parseOptions: customerInputParseOptions,
 });
 
 const ProfileCompletionPayload = CustomerProfileCompletionInput.annotate({
   identifier: "CustomerProfileCompletionInput",
-  parseOptions: customerInputParseOptions,
 });
 
 type AccountProfileSchemas = ReturnType<typeof accountProfileSchemas>;
@@ -353,7 +352,6 @@ export const profileCompletionSaveOf = profileSaveReader(
 /** The language to save on the account, as the web language switcher does. */
 const LocaleUpdatePayload = Schema.Struct({ locale: CustomerLocale }).annotate({
   identifier: "CustomerLocaleUpdate",
-  parseOptions: customerInputParseOptions,
 });
 
 /** The saved language. */
@@ -444,7 +442,6 @@ export const SaveCustomerMarketingPreferences = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SaveCustomerMarketingPreferences",
-  parseOptions: customerInputParseOptions,
 });
 export type SaveCustomerMarketingPreferences =
   typeof SaveCustomerMarketingPreferences.Type;
@@ -476,7 +473,6 @@ export const SyncCustomerAnalyticsConsent = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SyncCustomerAnalyticsConsent",
-  parseOptions: customerInputParseOptions,
 });
 export type SyncCustomerAnalyticsConsent =
   typeof SyncCustomerAnalyticsConsent.Type;
@@ -513,7 +509,6 @@ export const SaveCustomerAnalyticsPreference = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SaveCustomerAnalyticsPreference",
-  parseOptions: customerInputParseOptions,
 });
 export type SaveCustomerAnalyticsPreference =
   typeof SaveCustomerAnalyticsPreference.Type;
@@ -533,7 +528,6 @@ export const RequestCustomerAccountDeletion = Schema.Struct({
   confirmed: Schema.Literal(true),
 }).annotate({
   identifier: "RequestCustomerAccountDeletion",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -573,7 +567,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     /**
@@ -588,7 +582,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.post("completeProfile", "/profile", {
@@ -599,7 +593,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.put("uploadAvatar", "/avatar", {
@@ -656,7 +650,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.post("syncAnalyticsConsent", "/analytics-consent", {
@@ -666,7 +660,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getAnalyticsPreference", "/analytics-preference", {
@@ -685,7 +679,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getReferrals", "/referrals", {
@@ -735,6 +729,6 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
     HttpApiEndpoint.post("requestDeletion", "/deletion", {
       payload: RequestCustomerAccountDeletion,
       success: CustomerAccountDeletionResult,
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .prefix("/account");

@@ -11,10 +11,12 @@ import type { ContactConfirmationEmailProps } from "../contact-confirmation";
 import type { ContractWithdrawalNoticeEmailProps } from "../contract-withdrawal-notice";
 import type { ContractWithdrawalReceiptEmailProps } from "../contract-withdrawal-receipt";
 import type { CustomerReservationEmailProps } from "../customer-reservation";
+import type { InvoiceCancellationNoticeEmailProps } from "../invoice-cancellation-notice";
 import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationAuthorEmailProps } from "../reservation-author";
 import type { ReservationCancellationEmailProps } from "../reservation-cancellation";
 import type { ReservationNotificationEmailProps } from "../reservation-notification";
+import type { ReservationRestorationEmailProps } from "../reservation-restoration";
 import type { WorkspaceCampaignEmailProps } from "../workspace-campaign";
 
 const customerEmail = testEmailAddress("customer");
@@ -116,12 +118,25 @@ export const contractWithdrawalNoticePreviewProps = {
   adminUrl: "https://workspace.deskohub.cz/admin/reservations/reservation-3",
   cancelledAt: null,
 } satisfies ContractWithdrawalNoticeEmailProps;
+export const reservationRestorationPreviewProps = {
+  locale: "en-US",
+  reservation: previewReservation,
+  accessUrl: customerReservationPreviewProps.accessUrl,
+} satisfies ReservationRestorationEmailProps;
 
 export const invoiceDeliveryPreviewProps = {
   invoiceNumber: "WS-FV-2026-000003",
   invoice: { source: "reservation", orderId: "reservation-3" },
   recipient: { audience: "customer", locale: "en-US" },
 } satisfies InvoiceDeliveryEmailProps;
+
+export const invoiceCancellationNoticePreviewProps = {
+  invoiceNumber: "WS-FV-2026-000003",
+  documentNumber: "WS-OD-2026-000001",
+  invoice: { source: "reservation", orderId: "reservation-3" },
+  settlement: { settlement: "refund_due", total: "-450.00", currency: "CZK" },
+  recipient: { audience: "customer", locale: "en-US" },
+} satisfies InvoiceCancellationNoticeEmailProps;
 
 const text = (value: string) => ({ type: "text", text: value });
 

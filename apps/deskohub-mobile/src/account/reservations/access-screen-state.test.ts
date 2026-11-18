@@ -4,8 +4,8 @@ import {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Layer, Option } from "effect";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import {
   type CustomerRequestFailure,

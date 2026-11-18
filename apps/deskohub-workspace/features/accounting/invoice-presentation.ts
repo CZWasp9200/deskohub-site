@@ -13,7 +13,7 @@ import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-cat
 import { getWorkspaceProductTierTitle } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
-import { formatMoney } from "@/shared/money/money";
+import { formatMoney, moneyToDecimalString } from "@/shared/money/money";
 import {
   formatInstantDate,
   formatPlainDate,
@@ -165,18 +165,18 @@ export const getInvoicePresentation = (
       [
         {
           label: copy.issueDate,
-          value: formatWorkspaceInstantDate(document.issuedAt, locale),
+          value: formatDocumentInstant(document.issuedAt, locale),
         },
         document.fulfilledAt
           ? {
               label: copy.serviceDate,
-              value: formatWorkspaceInstantDate(document.fulfilledAt, locale),
+              value: formatDocumentInstant(document.fulfilledAt, locale),
             }
           : null,
         document.paidAt
           ? {
               label: copy.paymentDate,
-              value: formatWorkspaceInstantDate(document.paidAt, locale),
+              value: formatDocumentInstant(document.paidAt, locale),
             }
           : null,
       ],
@@ -190,7 +190,7 @@ export const getInvoicePresentation = (
       ...document.quote.payment.discounts.map(
         ({ amount, discount }): InvoicePresentationLine => ({
           kind: "discount",
-          description: `${copy.discount}: ${discount.label}`,
+          description: getDiscountDescription(copy, discount.label),
           amount: `−${formatMoney(amount, locale)}`,
         })
       ),
@@ -220,7 +220,7 @@ const getManualInvoicePresentation = (
       [
         {
           label: copy.issueDate,
-          value: formatWorkspaceInstantDate(document.issuedAt, document.locale),
+          value: formatDocumentInstant(document.issuedAt, document.locale),
         },
         {
           label: copy.serviceDate,
@@ -236,14 +236,14 @@ const getManualInvoicePresentation = (
     lines: document.lines.map((line) => ({
       kind: "item" as const,
       description: line.description,
-      amount: formatManualMoney({
+      amount: formatDecimalAmount({
         amount: line.price,
         currency: document.currency,
       }),
     })),
     status: settlement.status,
     totalLabel: settlement.totalLabel,
-    total: formatManualMoney(getInvoiceTotal(document)),
+    total: formatDecimalAmount(getInvoiceTotal(document)),
     vatStatement: getVatStatement(document),
     footer: `${document.supplier.legalName} · ${document.supplier.contactEmail}`,
   };
@@ -258,11 +258,16 @@ const vatStatements: Readonly<
 };
 
 /**
- * The statement of the VAT status the invoice was issued under, not the
- * current setting: an issued invoice never changes.
+ * The statement of the VAT status a document was issued under, not the
+ * current setting: an issued document never changes.
  */
+export const getSupplierVatStatement = (
+  supplier: Pick<InvoiceDocument["supplier"], "vatStatus">,
+  locale: Locale
+) => vatStatements[supplier.vatStatus]?.(locale);
+
 const getVatStatement = (document: InvoiceDocument) =>
-  vatStatements[document.supplier.vatStatus]?.(document.locale);
+  getSupplierVatStatement(document.supplier, document.locale);
 
 /** The status, total label, and payment facts an invoice's settlement prints. */
 const getSettlementPresentation = (
@@ -312,8 +317,31 @@ const getSettlementPresentation = (
   );
 };
 
+/** The issued parties an accounting document prints, in its own locale. */
+type AccountingDocumentParties = Pick<
+  InvoiceDocument,
+  "buyer" | "locale" | "supplier"
+>;
+
+/**
+ * The supplier and buyer blocks of an accounting document, from its stored
+ * parties; an invoice and its corrective document print the same blocks.
+ */
+export const getAccountingDocumentPartiesPresentation = (
+  document: AccountingDocumentParties
+): {
+  readonly supplier: InvoicePresentationParty;
+  readonly buyer: InvoicePresentationParty;
+} => {
+  const copy = getInvoiceCopy(document.locale);
+  return {
+    supplier: getSupplierPresentation(document, copy),
+    buyer: getBuyerPresentation(document, copy),
+  };
+};
+
 const getBuyerPresentation = (
-  document: InvoiceDocument,
+  document: AccountingDocumentParties,
   copy: InvoiceCopy
 ): InvoicePresentationParty => {
   const { buyer, locale } = document;
@@ -338,7 +366,7 @@ const getBuyerPresentation = (
 };
 
 const getSupplierPresentation = (
-  document: InvoiceDocument,
+  document: AccountingDocumentParties,
   copy: InvoiceCopy
 ): InvoicePresentationParty => ({
   heading: copy.supplier,
@@ -357,6 +385,38 @@ const getSupplierPresentation = (
     document.supplier.contactEmail,
   ],
 });
+
+/**
+ * Each line an invoice states, in order: its description in the document
+ * locale and its exact signed amount as decimal text. A discount line is
+ * negative.
+ */
+export const getInvoiceStatedLines = (
+  document: InvoiceDocument
+): readonly { readonly description: string; readonly amount: string }[] => {
+  if (isManualInvoiceDocument(document)) {
+    return document.lines.map(({ description, price }) => ({
+      description,
+      amount: price,
+    }));
+  }
+
+  const copy = getInvoiceCopy(document.locale);
+  const items = document.quote.items;
+  return [
+    ...getItemLines(document, copy).map(({ description }, index) => ({
+      description,
+      amount: moneyToDecimalString(items[index]!.amount),
+    })),
+    ...document.quote.payment.discounts.map(({ amount, discount }) => ({
+      description: getDiscountDescription(copy, discount.label),
+      amount: moneyToDecimalString({ ...amount, value: -amount.value }),
+    })),
+  ];
+};
+
+const getDiscountDescription = (copy: InvoiceCopy, label: string) =>
+  `${copy.discount}: ${label}`;
 
 const getItemLines = (
   document: Exclude<InvoiceDocument, ManualInvoiceDocument>,
@@ -401,7 +461,8 @@ const getItemLines = (
       )
   );
 
-const formatWorkspaceInstantDate = (value: string, locale: Locale) =>
+/** An issued instant as its Prague calendar date in the document locale. */
+export const formatDocumentInstant = (value: string, locale: Locale) =>
   formatInstantDate({
     instant: Temporal.Instant.from(value),
     locale,
@@ -423,8 +484,11 @@ const formatCountry = (country: string, locale: Locale) =>
 const formatInvoicePlainDate = (value: string, locale: Locale) =>
   formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
-/** Manual invoices print plain decimal text and the code, such as "1234.50 CZK". */
-const formatManualMoney = ({ amount, currency }: InvoiceTotal) => {
+/**
+ * Exact decimal amounts print as plain decimal text and the code, such as
+ * "1234.50 CZK"; manual invoices and corrective documents state them so.
+ */
+export const formatDecimalAmount = ({ amount, currency }: InvoiceTotal) => {
   const exponent = findWorkspaceCurrencyDefinition(currency)?.exponent ?? 0;
   const [integer, fraction = ""] = amount.split(".");
   return `${integer}${exponent > 0 ? `.${fraction.padEnd(exponent, "0")}` : ""} ${currency}`;

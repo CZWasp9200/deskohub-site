@@ -52,6 +52,7 @@ const fixtureCustomers = {
     id: fixtureCustomerId("customer-alex"),
     displayName: "Alex Morgan",
     hasName: true,
+    lifecycle: "active",
     email: alexMorganEmail,
     phone: "+420 700 000 101",
   },
@@ -59,6 +60,7 @@ const fixtureCustomers = {
     id: fixtureCustomerId("customer-jordan"),
     displayName: "Jordan Lee",
     hasName: true,
+    lifecycle: "active",
     email: jordanLeeEmail,
     phone: "+420 700 000 202",
   },
@@ -66,6 +68,7 @@ const fixtureCustomers = {
     id: fixtureCustomerId("customer-sam"),
     displayName: "Sam Taylor",
     hasName: true,
+    lifecycle: "active",
     email: samTaylorEmail,
     phone: null,
   },
@@ -350,10 +353,13 @@ export const loadFixtureReservation = (
     .toString();
   return {
     author: null,
+    invoice: null,
     reservation,
     operatorNotice: null,
     canCancel: true,
     withdrawal: null,
+    canRestore: false,
+    restoration: null,
     timeline: [
       {
         id: "fixture-checkout",

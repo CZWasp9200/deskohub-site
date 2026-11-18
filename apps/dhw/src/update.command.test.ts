@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { DHW_VERSION } from "./build-info";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedAccessCodeAttemptStore,
+  UnreachedAuthenticationService,
+  UnreachedClientIdentity,
+  UnreachedWorkspaceAdminApiClient,
+} from "./testing/unreached-command-services";
 import { UpdateService } from "./update/update.service";
 import type { AvailableUpdate } from "./update/update-state-store.service";
 import { checkAndInstallUpdate } from "./update.command";
@@ -42,7 +48,7 @@ const makeUpdateLayer = (available: Option.Option<AvailableUpdate>) => {
         output.push(parts.join(" "));
       },
     } satisfies Console.Console)
-  ).pipe(Layer.provideMerge(BunServices.layer));
+  ).pipe(Layer.provideMerge(PlatformLive));
   return { checks, installs, layer, output };
 };
 
@@ -112,7 +118,13 @@ describe("dhw update", () => {
       const updates = makeUpdateLayer(Option.some(availableUpdate));
       await Command.runWith(dhwCommand, { version: "1.3.0" })(args).pipe(
         Effect.provide(
-          updates.layer.pipe(
+          Layer.mergeAll(
+            updates.layer,
+            UnreachedAccessCodeAttemptStore,
+            UnreachedAuthenticationService,
+            UnreachedClientIdentity,
+            UnreachedWorkspaceAdminApiClient
+          ).pipe(
             Layer.provideMerge(
               Layer.succeed(DhwConfig, {
                 baseUrl: new URL("https://workspace.example.test"),

@@ -1,7 +1,7 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { useAtomValue } from "@effect/atom-react";
 import { Effect } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";

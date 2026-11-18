@@ -347,7 +347,10 @@ export const prepareReservationForm = ({
       const price = document.querySelector(
         `[data-reservation-type-price="${desiredTier}"]`
       );
-      const dateTrigger = document.querySelector(
+      // The calendar button shares the date field's container; other
+      // dialog openers, such as the agent booking banner above the form,
+      // come earlier in the page.
+      const dateTrigger = dateInput.parentElement?.querySelector(
         'button[aria-haspopup="dialog"]'
       );
       if (
@@ -391,8 +394,14 @@ export const prepareReservationForm = ({
       }
     }
     if (desiredMonitorOption !== null) {
+      // Only the monitor's own radio group, so another radio group on the
+      // form with the same value is never chosen.
       const findMonitorInput = () =>
-        [...document.querySelectorAll('input[type="radio"]')].find(
+        [
+          ...document.querySelectorAll(
+            'input[type="radio"][name="monitorOption"]'
+          ),
+        ].find(
           (candidate): candidate is HTMLInputElement =>
             candidate instanceof HTMLInputElement &&
             candidate.value === desiredMonitorOption

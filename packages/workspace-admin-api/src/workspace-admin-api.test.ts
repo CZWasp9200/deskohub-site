@@ -2,13 +2,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   CliOnly,
@@ -46,6 +47,7 @@ import {
   AdministrationPaymentAttempt,
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
+  AdministrationReservationDetail,
   AdministrationReservationLookupQuery,
   AdministrationReservationProductDetailsBackfillBatch,
   AdministrationReservationProductDetailsBackfillInput,
@@ -80,7 +82,8 @@ describe("standalone access-code contract", () => {
     endsAt: "2026-09-10T12:00",
   };
   const decodeCreateInput = Schema.decodeUnknownSync(
-    AdministrationStandaloneAccessCodeCreateInput
+    AdministrationStandaloneAccessCodeCreateInput,
+    administrationInputParseOptions
   );
   const decodeSiteLocal = Schema.decodeUnknownSync(
     AdministrationWorkspaceSiteLocalWholeHourDateTime
@@ -145,7 +148,8 @@ describe("standalone access-code contract", () => {
 
   test("discloses the PIN only through the created outcome", () => {
     const decodeOutcome = Schema.decodeUnknownSync(
-      AdministrationStandaloneAccessCodeCreationOutcome
+      AdministrationStandaloneAccessCodeCreationOutcome,
+      administrationInputParseOptions
     );
     const metadata = {
       attemptId,
@@ -266,7 +270,8 @@ describe("standalone access-code duration contract", () => {
 describe("standalone access-code CLI endpoint contract", () => {
   const attemptId = "01980000-0000-7000-8000-000000000042";
   const decodeRequest = Schema.decodeUnknownSync(
-    AdministrationStandaloneAccessCodeCreateRequest
+    AdministrationStandaloneAccessCodeCreateRequest,
+    administrationInputParseOptions
   );
 
   test("rejects excess properties and invalid windows before any handler runs", () => {
@@ -326,7 +331,10 @@ describe("administration contract", () => {
       variableSymbol: "1234567890",
       lines: [{ description: "Space rental", price: "-12.34" }],
     };
-    const decode = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput);
+    const decode = Schema.decodeUnknownSync(
+      AdministrationInvoiceCreateInput,
+      administrationInputParseOptions
+    );
 
     expect(decode(input)).toMatchObject(input);
     expect(
@@ -616,7 +624,10 @@ describe("administration contract", () => {
 
   test("validates discount mutations at the shared HTTP boundary", () => {
     const discountId = "01980000-0000-7000-8000-000000000001";
-    const decode = Schema.decodeUnknownSync(AdministrationDiscountMutation);
+    const decode = Schema.decodeUnknownSync(
+      AdministrationDiscountMutation,
+      administrationInputParseOptions
+    );
 
     expect(
       decode({
@@ -719,7 +730,10 @@ describe("administration contract", () => {
   });
   test("accepts cowork tier targets but not mixed or repeated cowork targets", () => {
     const decodeProducts = (products: unknown) =>
-      Schema.decodeUnknownSync(AdministrationDiscountMutation)({
+      Schema.decodeUnknownSync(
+        AdministrationDiscountMutation,
+        administrationInputParseOptions
+      )({
         kind: "create-discount",
         discount: {
           labels: { "cs-CZ": "Léto", "en-US": "Summer" },
@@ -764,7 +778,8 @@ describe("administration contract", () => {
     );
 
     const decodeInput = Schema.decodeUnknownSync(
-      AdministrationReservationProductDetailsBackfillInput
+      AdministrationReservationProductDetailsBackfillInput,
+      administrationInputParseOptions
     );
     expect(decodeInput({ dryRun: true, after: null })).toEqual({
       dryRun: true,
@@ -963,6 +978,91 @@ describe("reservation summary contract", () => {
       Schema.decodeUnknownSync(AdministrationReservationSummary)(summary)
         .setupStartsAt
     ).toBeNull();
+  });
+});
+
+describe("reservation detail contract", () => {
+  // `AdministrationReservationDetail` as released dhw binaries decode it,
+  // before restoring reservations.
+  const ReleasedAdministrationReservationDetail =
+    AdministrationReservationDetail.mapFields(
+      Struct.omit(["canRestore", "restoration"])
+    );
+  const detail = {
+    reservation: {
+      id: "reservation-id",
+      customerId: "customer-id",
+      customer: null,
+      liveDetailsAvailable: true,
+      startsAt: "2026-08-10T08:00:00Z",
+      endsAt: "2026-08-10T09:00:00Z",
+      date: "2026-08-10",
+      type: "meeting-room",
+      typeLabel: "Meeting Room",
+      purpose: null,
+      status: { group: "cancelled", label: "Cancelled" },
+      statusNote: null,
+      createdAt: "2026-08-01T12:00:00Z",
+      latestPayment: null,
+      updatedAt: "2026-08-01T12:00:00Z",
+    },
+    booking: null,
+    lifecycle: {
+      currentStage: "cancelled",
+      label: "Reservation cancelled",
+      reachedStages: ["started", "held", "cancelled"],
+      tone: "neutral",
+    },
+    timeline: [],
+    paymentAttempts: [],
+    orders: [],
+    discounts: [],
+    accessGrant: null,
+    otherCustomerReservations: [],
+    sameDateReservations: [],
+    references: {
+      workspaceReservationId: "reservation-id",
+      dotyposReservationId: "booking-id",
+      customerId: "customer-id",
+    },
+    canCancel: false,
+  } as const;
+
+  test("keeps a restorable detail readable by released dhw", () => {
+    const restorable = {
+      ...detail,
+      canRestore: true,
+      restoration: {
+        cancellationEmailRecorded: true,
+        issuesNewAccess: true,
+        clearsRefundRequirement: false,
+        refundedPayment: {
+          amount: { value: 25_000, exponent: 2, currency: "CZK" },
+          coverage: "partial",
+        },
+      },
+    } as const;
+    const response = Schema.encodeSync(AdministrationReservationDetail)(
+      Schema.decodeUnknownSync(AdministrationReservationDetail)(restorable)
+    );
+
+    expect(response).toMatchObject(restorable);
+    expect(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationDetail)(
+        response
+      )
+    ).toEqual(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationDetail)(detail)
+    );
+  });
+
+  test("reads an older server's detail as not restorable", () => {
+    const decoded = Schema.decodeUnknownSync(AdministrationReservationDetail)(
+      detail
+    );
+
+    expect(decoded.canRestore).toBe(false);
+    expect(decoded.restoration).toBeNull();
   });
 });
 
@@ -1165,7 +1265,7 @@ describe("administration operation groups", () => {
   test("refuses a minimum nothing checks, a check after a first one, and a CLI-only endpoint", () => {
     const declare =
       (
-        group: HttpApiGroup.Any,
+        group: HttpApiGroup.Constraint,
         options?: { readonly checkDhwVersionBeforeAuthentication: true }
       ) =>
       () =>
@@ -1232,7 +1332,7 @@ describe("discount code service dates contract", () => {
   const codeId = "01980000-0000-7000-8000-000000000001";
   const decodeMutation = Schema.decodeUnknownSync(
     AdministrationDiscountMutation,
-    { errors: "all", onExcessProperty: "error" }
+    administrationInputParseOptions
   );
   const codeConfiguration = {
     code: "SUMMER10",

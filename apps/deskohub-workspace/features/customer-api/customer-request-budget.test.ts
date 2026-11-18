@@ -2,7 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { WorkspaceCustomerApi } from "@deskohub/workspace-customer-api";
-import { HttpApi } from "effect/unstable/httpapi";
+import { HttpApi } from "effect/http-api";
 import { customerRequestBudgetClasses } from "./customer-request-budget";
 
 /** Each contract endpoint's method, by `group.endpoint`. */
@@ -11,7 +11,10 @@ const contractMethods = () => {
   HttpApi.reflect(WorkspaceCustomerApi, {
     onGroup: () => undefined,
     onEndpoint: ({ group, endpoint }) => {
-      methods.set(`${group.identifier}.${endpoint.name}`, endpoint.method);
+      methods.set(
+        `${group.identifier}.${endpoint.identifier}`,
+        endpoint.method
+      );
     },
   });
   return methods;
@@ -90,7 +93,7 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.invoices).filter(
         (budgetClass) => budgetClass === "dotypos-read"
       )
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-mutation"
@@ -130,6 +133,7 @@ describe("customer request budget classes", () => {
       invoices: {
         listInvoices: "dotypos-read",
         getInvoicePdf: "dotypos-read",
+        getCorrectiveDocumentPdf: "dotypos-read",
       },
     });
   });

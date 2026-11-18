@@ -1,7 +1,7 @@
 import type { Client } from "@modelcontextprotocol/client";
 import { expect, type Page } from "@playwright/test";
 import { Effect, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { customerAgentTestClientMetadata } from "@/features/account/customer-agent-test-client";
 import { getAccountSectionPath } from "@/features/account/routes";
 import { type Locale, m } from "@/features/i18n";

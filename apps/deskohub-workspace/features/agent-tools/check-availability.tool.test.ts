@@ -7,6 +7,7 @@ import { atInstant } from "@/shared/testing/workspace-test-clock.test-utils";
 import type { CheckAvailabilityResult } from "./check-availability.schema";
 
 const {
+  agentToolTestOfficeSeats,
   makeAgentToolTestServices,
   makeTestOccupancy,
   workspaceDateFromToday,
@@ -201,7 +202,7 @@ describe("check_availability", () => {
       services
     );
     const tooManySeats = await checkAvailability(
-      { family: "office", date: first, seats: 7 },
+      { family: "office", date: first, seats: agentToolTestOfficeSeats + 1 },
       services
     );
 
@@ -212,13 +213,16 @@ describe("check_availability", () => {
         { date: busy, available: false },
         { date: last, available: true },
       ],
-      office: { seats: 2, max_seats: 6 },
+      office: { seats: 2, max_seats: agentToolTestOfficeSeats },
       reservation_url: `http://deskohub.test/reservation/office?startsOn=${first}&dayCount=3&seats=2`,
     });
     expect(tooManySeats).toMatchObject({
       available: false,
       days: [{ date: first, available: true }],
-      office: { seats: 7, max_seats: 6 },
+      office: {
+        seats: agentToolTestOfficeSeats + 1,
+        max_seats: agentToolTestOfficeSeats,
+      },
     });
     expect(services.dotyposRequests).toEqual([]);
   });

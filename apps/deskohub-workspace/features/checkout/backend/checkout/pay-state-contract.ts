@@ -17,6 +17,7 @@ import {
 } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
 import { locales } from "@/features/i18n";
+import { isEndedUnpaidPaymentState } from "@/features/order";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { sealedStateKeyIdSchema } from "@/shared/backend/sealed-state";
 import { nonNegativeMoneyCodec } from "@/shared/money/money";
@@ -192,13 +193,6 @@ export const getPayStateBinding = (
     : { kind: "session", checkoutSessionId: state.checkoutSessionId };
 };
 
-/** Payment states after which only a payment retry pays the order again. */
-const endedPaymentStates: ReadonlySet<string> = new Set([
-  "failed",
-  "cancelled",
-  "expired",
-]);
-
 /**
  * Why the state may no longer start the order's payment, or `undefined`
  * while it may. A session state stops once the order's payment ended
@@ -218,7 +212,7 @@ export const findPayStateAttemptRefusal = (
   newestAttemptId: string | null
 ): "payment_ended" | "retried_attempt_replaced" | undefined => {
   if (binding.kind === "session") {
-    return endedPaymentStates.has(order.paymentState)
+    return isEndedUnpaidPaymentState(order.paymentState)
       ? "payment_ended"
       : undefined;
   }

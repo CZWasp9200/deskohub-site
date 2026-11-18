@@ -6,6 +6,7 @@ import { customerRead } from "../../customer-api/customer-request";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import { Clipboard, ShareSheet } from "../../customer-api/device-capabilities";
 import type { AppLocale } from "../../i18n/app-locale";
+import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 
 /**
@@ -55,6 +56,33 @@ export interface ReferralDiscountExample {
   readonly referrals: number;
   readonly total: string;
 }
+
+/**
+ * Who joined, as one sentence: "3 people joined with your code; 2 count
+ * toward your discount", each count in its plural form.
+ */
+export const joinedSentence = (
+  joined: ReferralsView["joined"],
+  locale: AppLocale
+): string =>
+  joined.kind === "nobody"
+    ? m.referrals_joined_nobody({}, { locale })
+    : m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees(
+            { count: joined.invitees },
+            { locale }
+          ),
+          eligible:
+            joined.eligibleInvitees === 0
+              ? m.referrals_joined_eligible_none({}, { locale })
+              : m.referrals_joined_eligible(
+                  { count: joined.eligibleInvitees },
+                  { locale }
+                ),
+        },
+        { locale }
+      );
 
 /** What the Invite friends screen shows for an overview. */
 export interface ReferralsView {

@@ -1,11 +1,12 @@
 import { type Array as Arr, Effect, Option, Schema, Struct } from "effect";
-import { HttpMethod, type HttpRouter } from "effect/unstable/http";
+import { HttpMethod, type HttpRouter } from "effect/http";
 import {
-  type HttpApi,
+  HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   readOperation,
@@ -19,10 +20,6 @@ import type {
 import type { NoInput } from "./campaign-operations";
 import { MinimumDhwVersion } from "./dhw-version";
 import { administrationOperationGroup } from "./workspace-admin-api";
-
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
 
 /** The names of a path's `:name` segments. */
 export type PathParamNames<Path extends string> =
@@ -178,15 +175,29 @@ export type OperationEndpoint<
   Name,
   Route["method"],
   Route["path"],
-  HttpApiEndpoint.StringTree<ParamsOf<Op, Route>>,
-  HttpApiEndpoint.StringTree<QueryOf<Op, Route>>,
+  StringTreeCodec<ParamsOf<Op, Route>>,
+  StringTreeCodec<QueryOf<Op, Route>>,
   Route["method"] extends HttpMethod.HttpMethod.WithBody
-    ? HttpApiEndpoint.Json<PayloadOf<Op, Route>>
-    : HttpApiEndpoint.StringTree<PayloadOf<Op, Route>>,
-  HttpApiEndpoint.StringTree<never>,
-  HttpApiEndpoint.Json<Op["output"]>,
-  HttpApiEndpoint.Json<Errors>
+    ? JsonCodec<PayloadOf<Op, Route>>
+    : StringTreeCodec<PayloadOf<Op, Route>>,
+  never,
+  JsonCodec<Op["output"]>,
+  JsonCodec<Errors>
 >;
+
+/** The string-tree codec `HttpApiEndpoint`'s constructors derive from a schema. */
+type StringTreeCodec<S> = [S] extends [never]
+  ? never
+  : [S] extends [Schema.Constraint]
+    ? Schema.toCodecStringTree<S>
+    : never;
+
+/** The JSON codec `HttpApiEndpoint`'s constructors derive from a schema. */
+type JsonCodec<S> = [S] extends [never]
+  ? never
+  : [S] extends [Schema.Constraint]
+    ? Schema.toCodecJson<S>
+    : never;
 
 type BehaviorProblem<
   Op extends Operation,
@@ -346,9 +357,9 @@ const endpointOf = (
   const rest = (): Schema.Top =>
     paramKeys.length === 0
       ? input
-      : (input as Schema.Struct<Schema.Struct.Fields>)
-          .mapFields(Struct.omit(paramKeys))
-          .annotate(strictParseOptions);
+      : (input as Schema.Struct<Schema.Struct.Fields>).mapFields(
+          Struct.omit(paramKeys)
+        );
   const behavior =
     operation.kind === "query"
       ? readOperation
@@ -363,11 +374,22 @@ const endpointOf = (
       params:
         paramKeys.length === 0 ? undefined : Struct.pick(fields, paramKeys),
       query: query ? rest() : undefined,
-      payload: bodyValue(body, rest, (name) => fields[name]),
+      payload: bodyValue(body, rest, (name) => {
+        const field = fields[name];
+        if (!Schema.isSchema(field)) {
+          throw new Error(`${operation.name} has no body field ${name}.`);
+        }
+        return field;
+      }),
       success: operation.output,
       error,
     }
-  ).annotate(AdministrationOperationBehavior, behavior);
+  )
+    // An operation's request reports every issue and refuses fields its
+    // input doesn't declare.
+    .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+    .annotate(HttpApi.QueryParseOptions, administrationInputParseOptions)
+    .annotate(AdministrationOperationBehavior, behavior);
   return operation.minimumDhwVersion === undefined
     ? endpoint
     : endpoint.annotate(
@@ -427,7 +449,7 @@ export type OperationInvoke<Ops extends Operations, Failure, Services> = <
  * its middleware and their services, and the handler's own services that
  * the request doesn't provide.
  */
-type ServedRequirements<Endpoint extends HttpApiEndpoint.Any, Services> =
+type ServedRequirements<Endpoint extends HttpApiEndpoint.Constraint, Services> =
   | HttpApiEndpoint.Middleware<Endpoint>
   | HttpApiEndpoint.MiddlewareServices<Endpoint>
   | (HttpApiEndpoint.ExcludeProvided<
@@ -537,7 +559,7 @@ type OutputServices<Outputs> = {
  */
 export const operationGroupHandlers = <
   ApiId extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
   Group extends Groups & OperationBinding,
   Failure extends HttpApiEndpoint.Errors<HttpApiGroup.Endpoints<Group>>,
   E,
@@ -567,12 +589,11 @@ export const operationGroupHandlers = <
     ServedRequirements<
       HttpApiGroup.Endpoints<Group>,
       Services | OutputServices<Outputs>
-    >,
-    never
+    >
   >;
   return HttpApiBuilder.group(
     api,
-    group.identifier as HttpApiGroup.Name<Group>,
+    group.identifier as HttpApiGroup.Identifier<Group>,
     (handlers) =>
       Effect.map(invoker, (invoke) =>
         // `HttpApiBuilder` types each `handle` by an endpoint name known at

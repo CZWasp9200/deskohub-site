@@ -10,10 +10,12 @@ import {
   AlgoPinSchema,
   IgloohomeDeviceIdSchema,
   IgloohomePinIdSchema,
+  IgloohomeService,
 } from "@deskohub/igloohome";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
-import { eq } from "drizzle-orm";
-import { Cause, Effect, Exit } from "effect";
+import { NodeCrypto } from "@effect/platform-node";
+import { and, asc, eq } from "drizzle-orm";
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   customerEvents,
@@ -28,8 +30,11 @@ import {
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { ReservationAccessService } from "@/features/reservation-access";
+import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import { rejectCustomerEventInserts } from "@/shared/backend/customer-events/customer-event-outbox.test-utils";
+import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
 import { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import {
   fixtureReservationAuthorId,
@@ -37,9 +42,11 @@ import {
   type ReservationFixtureStage,
   workspaceFixtures,
 } from "@/shared/testing/workspace-fixtures.test-utils";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   WorkspaceReservationRepository,
+  WorkspaceReservationSessionTakenError,
   WorkspaceReservationStateError,
 } from "./workspace-reservation.repository";
 
@@ -886,6 +893,36 @@ describe.skipIf(!testDatabase)(
         }
       });
 
+      test("keeps a refund learned before withdrawal and marks the remainder due", async () => {
+        const claimedAt = at(5);
+        const id = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          { updatedAt: claimedAt, cancellationCause: "customer_withdrawal" }
+        );
+        const attempt = await insertActivePaymentAttempt(id, {
+          refundState: "refunded",
+          refundedAmountValue: 1_000,
+          refundedAt: at(4),
+        });
+
+        await run((repository) =>
+          repository.completeRequestedCancellation({
+            id,
+            cancelledAt: at(6),
+            claimedAt,
+            failureCode: null,
+            refund: { targetValue: 2_000, releasesPromotions: false },
+          })
+        );
+
+        expect(await readPaymentAttempt(attempt)).toMatchObject({
+          refundState: "required",
+          refundedAmountValue: 1_000,
+          refundedAt: at(4),
+          refundTargetValue: 2_000,
+        });
+      });
+
       test("records a cancellation failure on the claimed revision only", async () => {
         const claimedAt = at(5);
         const claimedRevision = await insertReservation(
@@ -947,6 +984,440 @@ describe.skipIf(!testDatabase)(
         expect((await readPaymentAttempt(attempt))?.refundState).toBe(
           "not_required"
         );
+      });
+    });
+
+    describe("administration restore", () => {
+      const cancelledAt = at(6);
+      const restoredAt = at(30);
+
+      /** A paid, confirmed booking an administrator cancelled cleanly. */
+      const insertRestorable = (
+        overrides: ReservationFixtureInput["overrides"] = {}
+      ) =>
+        insertReservation(
+          {
+            reservation: "cancelled",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          {
+            reservationConfirmedAt: at(1),
+            reservationCancelledAt: cancelledAt,
+            cancellationEmailSentAt: at(7),
+            ...overrides,
+          }
+        );
+
+      const restore = (
+        id: WorkspaceReservationId,
+        input: { readonly cancelledAt?: Temporal.Instant } = {}
+      ) =>
+        run((repository) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              repository.markAdministrationRestored({
+                id,
+                cancelledAt: input.cancelledAt ?? cancelledAt,
+                restoredAt,
+              })
+            )
+          )
+        );
+
+      /** Cancels a claimed reservation the way an administrator does. */
+      const cancel = async (
+        overrides: ReservationFixtureInput["overrides"] = {}
+      ) => {
+        const claimedAt = at(5);
+        const id = await insertReservation(
+          { reservation: "cancelling", payment: "paid" },
+          { updatedAt: claimedAt, ...overrides }
+        );
+        await run((repository) =>
+          repository.markAdministrationCancelled({
+            id,
+            cancelledAt,
+            claimedAt,
+            failureCode: null,
+          })
+        );
+        return id;
+      };
+
+      test("confirms the cancellation it read again, keeping confirmation, fulfillment and recorded refunds", async () => {
+        const id = await insertRestorable();
+        const awaitingRefund = await insertActivePaymentAttempt(id, {
+          refundState: "required",
+        });
+        const refunded = await insertActivePaymentAttempt(id, {
+          refundState: "refunded",
+          refundedAmountValue: 10_000,
+          refundedAt: at(8),
+        });
+        const internal = await insertActivePaymentAttempt(id, {
+          provider: "internal",
+          providerOrderId: null,
+          amountValue: 0,
+        });
+
+        const restored = await restore(id);
+
+        const expected = {
+          reservationState: "confirmed",
+          reservationCancelledAt: null,
+          cancellationEmailSentAt: null,
+          reservationConfirmedAt: at(1),
+          fulfillmentState: "fulfilled",
+          fulfilledAt: at(0),
+          paymentState: "paid",
+          updatedAt: restoredAt,
+        };
+        expect(restored?.reservation).toMatchObject({ id, ...expected });
+        expect(await readReservation(id)).toMatchObject(expected);
+        expect(await readPaymentAttempt(awaitingRefund)).toMatchObject({
+          refundState: "not_required",
+          refundedAmountValue: null,
+          refundedAt: null,
+          updatedAt: restoredAt,
+        });
+        expect(await readPaymentAttempt(refunded)).toMatchObject({
+          refundState: "refunded",
+          refundedAmountValue: 10_000,
+          refundedAt: at(8),
+        });
+        expect((await readPaymentAttempt(internal))?.refundState).toBe(
+          "not_required"
+        );
+        expect(restored?.paymentAttempts).toHaveLength(3);
+        expect(restored?.paymentAttempts).toContainEqual({
+          amountExponent: 2,
+          amountValue: 29_000,
+          currency: "CZK",
+          refundState: "refunded",
+          refundedAmountValue: 10_000,
+          state: "paid",
+        });
+        expect(
+          restored?.paymentAttempts.filter(
+            ({ refundState }) => refundState === "required"
+          )
+        ).toEqual([]);
+      });
+
+      test.each<{
+        readonly label: string;
+        readonly overrides?: ReservationFixtureInput["overrides"];
+        readonly readCancelledAt?: Temporal.Instant;
+      }>([
+        { label: "another cancellation", readCancelledAt: at(5) },
+        {
+          label: "a reservation no longer cancelled",
+          overrides: { reservationState: "confirmed" },
+        },
+        {
+          label: "an unpaid reservation",
+          overrides: { paymentState: "cancelled", paidAt: null },
+        },
+        {
+          label: "a reservation never confirmed",
+          overrides: { reservationConfirmedAt: null },
+        },
+        {
+          label: "an expired hold",
+          overrides: { reservationHoldExpiredAt: at(2) },
+        },
+        {
+          label: "an unfinished cancellation",
+          overrides: { failureCode: "admin_dotypos_cancel_failed" },
+        },
+        {
+          label: "a reservation Dotypos doesn't know",
+          overrides: { dotyposReservationId: "  " },
+        },
+      ])("leaves $label as it is", async ({ overrides, readCancelledAt }) => {
+        const id = await insertRestorable(overrides);
+        const attempt = await insertActivePaymentAttempt(id, {
+          refundState: "required",
+        });
+        const before = await readReservation(id);
+
+        expect(
+          await restore(
+            id,
+            readCancelledAt ? { cancelledAt: readCancelledAt } : {}
+          )
+        ).toBeNull();
+        expect(await readReservation(id)).toEqual(before);
+        expect((await readPaymentAttempt(attempt))?.refundState).toBe(
+          "required"
+        );
+      });
+
+      test("refuses while another reservation of its checkout session is active, writing nothing", async () => {
+        const id = await insertRestorable();
+        const attempt = await insertActivePaymentAttempt(id, {
+          refundState: "required",
+        });
+        const cancelled = await readReservation(id);
+        await insertReservation(
+          {},
+          { checkoutSessionKey: cancelled?.checkoutSessionKey }
+        );
+
+        const error = await run((repository) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              repository.markAdministrationRestored({
+                id,
+                cancelledAt,
+                restoredAt,
+              })
+            )
+          ).pipe(Effect.flip)
+        );
+
+        expect(error).toBeInstanceOf(WorkspaceReservationSessionTakenError);
+        expect(error).toMatchObject({ reservationId: id });
+        expect(await readReservation(id)).toEqual(cancelled);
+        expect((await readPaymentAttempt(attempt))?.refundState).toBe(
+          "required"
+        );
+      });
+
+      test("lets only one of two concurrent restores finalize", async () => {
+        const id = await insertRestorable();
+        const input = { id, cancelledAt, restoredAt };
+
+        const [first, second] = await run((repository) =>
+          Effect.gen(function* () {
+            const { transaction } = yield* WorkspaceDatabase;
+            const restoredFirst = yield* Deferred.make<void>();
+            const release = yield* Deferred.make<void>();
+            const firstRestore = yield* Effect.forkChild(
+              transaction(
+                repository.markAdministrationRestored(input).pipe(
+                  Effect.tap(() => Deferred.succeed(restoredFirst, undefined)),
+                  Effect.tap(() => Deferred.await(release))
+                )
+              )
+            );
+            yield* Deferred.await(restoredFirst);
+            const secondRestore = yield* Effect.forkChild(
+              transaction(repository.markAdministrationRestored(input))
+            );
+            yield* Effect.promise(() =>
+              waitForPostgresLockWaiter(testDatabase.pool, {
+                condition: "locktype = 'transactionid'",
+                description: "the second restore waiting for the first",
+              })
+            );
+            yield* Deferred.succeed(release, undefined);
+            return [
+              yield* Fiber.join(firstRestore),
+              yield* Fiber.join(secondRestore),
+            ] as const;
+          })
+        );
+
+        expect(first?.reservation.id).toBe(id);
+        expect(second).toBeNull();
+        expect((await readReservation(id))?.reservationState).toBe("confirmed");
+      });
+
+      describe("cancellation email record", () => {
+        const recordSent = (
+          id: WorkspaceReservationId,
+          readCancelledAt = cancelledAt
+        ) =>
+          run((repository) =>
+            repository.recordCancellationEmailSent({
+              id,
+              cancelledAt: readCancelledAt,
+              sentAt: at(9),
+            })
+          );
+
+        test("stamps the cancellation it was sent for", async () => {
+          const id = await insertRestorable({ cancellationEmailSentAt: null });
+          const before = await readReservation(id);
+
+          expect(await recordSent(id)).toBe(true);
+          expect(await readReservation(id)).toEqual({
+            ...before,
+            cancellationEmailSentAt: at(9),
+          });
+        });
+
+        test("leaves another cancellation, and a restored reservation, unstamped", async () => {
+          const later = await insertRestorable({
+            cancellationEmailSentAt: null,
+          });
+          const restored = await insertRestorable({
+            cancellationEmailSentAt: null,
+          });
+          await restore(restored);
+
+          expect(await recordSent(later, at(5))).toBe(false);
+          expect(await recordSent(restored)).toBe(false);
+          expect(
+            (await readReservation(later))?.cancellationEmailSentAt
+          ).toBeNull();
+          expect(
+            (await readReservation(restored))?.cancellationEmailSentAt
+          ).toBeNull();
+        });
+      });
+
+      describe("cancellation history", () => {
+        const hasRecordedCancellation = (id: WorkspaceReservationId) =>
+          run((repository) => repository.hasRecordedCancellation(id));
+
+        test("knows a booked reservation was cancelled, also once it is restored", async () => {
+          const id = await cancel({ reservationConfirmedAt: at(1) });
+
+          expect(await hasRecordedCancellation(id)).toBe(true);
+          expect((await restore(id))?.reservation.reservationState).toBe(
+            "confirmed"
+          );
+          expect(await hasRecordedCancellation(id)).toBe(true);
+        });
+
+        test("knows of no cancellation for an unbooked cancellation or a booking", async () => {
+          const unbooked = await cancel();
+          const booked = await insertReservation(
+            { reservation: "confirmed", payment: "paid" },
+            { reservationConfirmedAt: at(1) }
+          );
+          await run(() =>
+            Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+              transaction(
+                recordCustomerEvent({
+                  kind: "reservation-booked",
+                  occurredAt: at(1),
+                  dotyposCustomerId: DotyposCustomerIdSchema.make(
+                    "synthetic-history-customer"
+                  ),
+                  workspaceReservationId: booked,
+                })
+              )
+            )
+          );
+
+          expect(await hasRecordedCancellation(unbooked)).toBe(false);
+          expect(await hasRecordedCancellation(booked)).toBe(false);
+        });
+      });
+
+      test("records a new cancellation event, open to intake, when a restored booking is cancelled again", async () => {
+        const id = await cancel({ reservationConfirmedAt: at(1) });
+        const upcoming = {
+          reservedFrom: Temporal.Instant.from("2099-07-01T08:00:00Z"),
+          reservedUntil: Temporal.Instant.from("2099-07-01T16:00:00Z"),
+        };
+
+        // The restore's finalize: access, then the row, then its event.
+        const retraction = await run((repository) =>
+          Effect.gen(function* () {
+            const { transaction } = yield* WorkspaceDatabase;
+            const access = yield* ReservationAccessService;
+            return yield* transaction(
+              Effect.gen(function* () {
+                expect(
+                  yield* access.prepareRestoredAccess({
+                    reservationId: id,
+                    ...upcoming,
+                    now: restoredAt,
+                  })
+                ).toBe("issue");
+                const restored = yield* repository.markAdministrationRestored({
+                  id,
+                  cancelledAt,
+                  restoredAt,
+                });
+                expect(restored?.reservation.reservationState).toBe(
+                  "confirmed"
+                );
+                return yield* retractCancellationEvent({
+                  reservationId: id,
+                  cancelledAt,
+                  at: restoredAt,
+                });
+              })
+            );
+          }).pipe(
+            Effect.provide(
+              ReservationAccessService.Default.pipe(
+                Layer.provide(ReservationAccessRepository.Default),
+                Layer.provide(Layer.mock(IgloohomeService, {})),
+                Layer.provide(NodeCrypto.layer)
+              )
+            )
+          )
+        );
+        expect(retraction).toBe("retracted");
+
+        const claimed = await run((repository) =>
+          repository.claimAdministrationCancellation({
+            id,
+            providerCredentialRemoved: false,
+            accessGrantUpdatedAt: null,
+            staleCancellingBefore: at(10),
+          })
+        );
+        expect(claimed?.reservationState).toBe("cancelling");
+        const cancelledAgainAt = at(40);
+        await run((repository) =>
+          repository.markAdministrationCancelled({
+            id,
+            cancelledAt: cancelledAgainAt,
+            claimedAt: claimed!.updatedAt,
+            failureCode: null,
+          })
+        );
+
+        expect(await readReservation(id)).toMatchObject({
+          reservationState: "cancelled",
+          reservationCancelledAt: cancelledAgainAt,
+        });
+        const events = await Effect.runPromise(
+          testDatabase.db
+            .select({
+              occurredAt: customerEvents.occurredAt,
+              automationUnitId: customerEvents.automationUnitId,
+              automationProcessedAt: customerEvents.automationProcessedAt,
+            })
+            .from(customerEvents)
+            .where(
+              and(
+                eq(customerEvents.workspaceReservationId, id),
+                eq(customerEvents.kind, "reservation-cancelled")
+              )
+            )
+            .orderBy(asc(customerEvents.occurredAt))
+        );
+        // The undone cancellation stays as processed history; the new one
+        // waits for the planner like any unprocessed, unowned event.
+        expect(events).toEqual([
+          {
+            occurredAt: cancelledAt,
+            automationUnitId: null,
+            automationProcessedAt: restoredAt,
+          },
+          {
+            occurredAt: cancelledAgainAt,
+            automationUnitId: null,
+            automationProcessedAt: null,
+          },
+        ]);
+        // Cancellation leaves the restore's not yet issued grant pending.
+        const [grant] = await Effect.runPromise(
+          testDatabase.db
+            .select({ state: reservationAccessGrants.state })
+            .from(reservationAccessGrants)
+            .where(eq(reservationAccessGrants.workspaceReservationId, id))
+        );
+        expect(grant?.state).toBe("pending");
       });
     });
 
@@ -1058,6 +1529,75 @@ describe.skipIf(!testDatabase)(
           },
         ]);
         expect(await readEvents(unconfirmed)).toEqual([]);
+      });
+
+      test("records a new cancelled event when a restored booking is cancelled again", async () => {
+        const id = await insertReservation(
+          {
+            reservation: "cancelling",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          { updatedAt: at(5), reservationConfirmedAt: at(1) }
+        );
+        const cancel = (
+          cancelledAt: Temporal.Instant,
+          claimedAt: Temporal.Instant
+        ) =>
+          run((repository) =>
+            repository.markAdministrationCancelled({
+              id,
+              cancelledAt,
+              claimedAt,
+              failureCode: "operator_cancelled",
+            })
+          );
+        await cancel(at(6), at(5));
+        // A restore confirms the booking again; a second cancellation
+        // claims it anew.
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({
+              reservationState: "cancelling",
+              reservationCancelledAt: null,
+              updatedAt: at(8),
+            })
+            .where(eq(workspaceReservations.id, id))
+        );
+        await cancel(at(9), at(8));
+        const customerId = (await readReservation(id))!.dotyposCustomerId;
+        // A retried write of the second cancellation records nothing more.
+        await Effect.runPromise(
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              recordCustomerEvent({
+                kind: "reservation-cancelled",
+                occurredAt: at(9),
+                dotyposCustomerId: customerId,
+                workspaceReservationId: id,
+              })
+            )
+          ).pipe(Effect.provide(testDatabase.layer))
+        );
+
+        const events = await readEvents(id);
+        expect(
+          events.sort((left, right) =>
+            Temporal.Instant.compare(left.occurredAt, right.occurredAt)
+          )
+        ).toEqual([
+          {
+            kind: "reservation-cancelled",
+            occurredAt: at(6),
+            dotyposCustomerId: customerId,
+          },
+          {
+            kind: "reservation-cancelled",
+            occurredAt: at(9),
+            dotyposCustomerId: customerId,
+          },
+        ]);
       });
 
       test("rolls the administration cancellation back with a failed event write", async () => {

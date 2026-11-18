@@ -29,6 +29,8 @@
   "booking_details_city": "Stadt",
   "booking_details_postal_code": "PLZ",
   "booking_details_country": "Land",
+  "booking_details_country_search": "Länder suchen",
+  "booking_details_country_no_match": "Kein Land passt zu deiner Suche.",
   "booking_details_news_heading": "Neuigkeiten von Deskohub",
   "booking_details_optional": "Optional",
   "booking_details_marketing_consent": "Schickt mir Neuigkeiten, Veranstaltungen und Angebote von Deskohub Workspace per E-Mail. Abmelden kann ich mich jederzeit.",
@@ -74,8 +76,35 @@
   "booking_checkout_summary_total": "Zu zahlen insgesamt",
   "booking_checkout_summary_changed": "Preis geändert",
   "booking_checkout_summary_original_price": "Ursprünglich: {amount}",
-  "booking_checkout_summary_office_days": "Tage: {count}",
-  "booking_checkout_summary_office_seats": "Plätze im Büro: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Tag",
+        "countPlural=other": "{formattedCount} Tage"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Plätze im Büro",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Platz",
+        "countPlural=other": "{formattedCount} Plätze"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Open-Space-Platz",
   "booking_checkout_line_reserved_desk": "Reservierter Platz",
   "booking_checkout_line_meeting_room": "Meetingraum",
@@ -83,7 +112,6 @@
   "booking_checkout_line_coffee": "Kaffee",
   "booking_checkout_line_workstation": "Workstation mit Monitoren",
   "booking_checkout_line_other": "Weitere Position",
-  "booking_price_line_one_day": "1 Tag",
   "booking_price_line_one_hour": "1 Stunde, {start}–{end}",
   "booking_price_line_four_hours": "4 Stunden, {start}–{end}",
   "booking_summary_open_space_day": "{date}, bis {time}",
@@ -96,6 +124,9 @@
   "booking_summary_one_hour": "1 Stunde",
   "booking_summary_four_hours": "4 Stunden",
   "booking_price_free": "Kostenlos",
+  "booking_price_line_discount_off": "{amount} Rabatt",
+  "booking_price_line_early_setup": "15 Minuten früher kommen",
+  "booking_price_line_early_setup_from": "Einlass ab {time}",
   "booking_price_updating": "Preis wird aktualisiert …",
   "booking_price_show_details": "Preisdetails anzeigen",
   "booking_price_hide_details": "Preisdetails ausblenden",
@@ -120,7 +151,7 @@
   "booking_checkout_legal_loading": "Wird geladen …",
   "booking_checkout_legal_failed": "Bedingungen nicht geladen. Versuch es erneut.",
   "booking_checkout_legal_consent": "Ich stimme den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zu.",
-  "booking_checkout_legal_consent_early_performance": "Ich stimme den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zu. Da die Leistung während der gesetzlichen Widerrufsfrist beginnt, verlange ich ausdrücklich, dass die Leistung zum reservierten Termin erbracht wird, und nehme zur Kenntnis, dass mein Widerrufsrecht mit vollständiger Erbringung der Leistung erlischt.",
+  "booking_checkout_legal_consent_early_performance": "Ich stimme den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zu. Ich verlange die Leistung zum reservierten Termin, innerhalb der Widerrufsfrist, und nehme zur Kenntnis, dass mein Widerrufsrecht mit ihrer vollständigen Erbringung erlischt.",
   "booking_checkout_legal_changed": "Die Bedingungen haben sich während der Reservierung geändert. Lies sie erneut und setz das Häkchen.",
   "booking_checkout_consent_required": "Hak vor der Zahlung die Bedingungen ab.",
   "booking_checkout_consent_required_early_performance": "Stimm vor der Zahlung per Häkchen den Bedingungen und dem Leistungsbeginn vor Fristablauf zu.",
@@ -188,6 +219,8 @@
   "signin_resend_link": "Link erneut senden",
   "signin_resend_link_in": "Link erneut senden in {time}",
   "signin_link_resent": "Wir haben einen neuen Link geschickt. Nutz die neueste E-Mail.",
+  "signin_signed_in_in_app_title": "Du bist angemeldet",
+  "signin_signed_in_in_app_body": "Der Link aus der E-Mail hat dich in der App angemeldet. Du kannst diesen Tab schließen.",
   "signin_already_signed_in": "Du bist bereits angemeldet",
   "signin_continue": "Weiter",
   "signin_create_title": "Anmelden oder Konto erstellen",
@@ -510,8 +543,6 @@
   "booking_gate_deletion_title": "Dein Konto wird gelöscht",
   "booking_gate_deletion_body": "Solange das läuft, kannst du nichts Neues reservieren. Schreib uns, falls das ein Versehen ist.",
   "booking_cowork_tier_heading": "Platzart",
-  "booking_cowork_stay_label": "Aufenthaltsdauer",
-  "booking_cowork_stay_day": "Tag",
   "booking_cowork_stay_overnight": "Über Nacht",
   "booking_date_heading": "Datum",
   "booking_calendar_previous_month": "Vorheriger Monat",
@@ -676,6 +707,11 @@
   "invoices_download_label": "Rechnung {number} laden",
   "invoices_downloading": "Rechnung {number} wird geladen …",
   "invoices_download_not_found": "Diese Rechnung haben wir nicht gefunden. Aktualisier die Liste und versuch es erneut.",
+  "invoices_status_cancelled": "Storniert",
+  "invoices_download_invoice_button": "Rechnung",
+  "invoices_download_credit_note_button": "Stornorechnung",
+  "invoices_credit_note_download_label": "Stornorechnung {number} laden",
+  "invoices_credit_note_downloading": "Stornorechnung {number} wird geladen …",
   "booking_review_title": "Prüfen und bezahlen",
   "booking_review_booking_heading": "Deine Buchung",
   "booking_review_change": "Ändern",
@@ -738,7 +774,36 @@
   "referrals_saved_so_far": "Bisher gespart",
   "referrals_discount_info": "So wird der Rabatt berechnet",
   "referrals_joined_nobody": "Mit deinem Code ist noch niemand dazugekommen.",
-  "referrals_joined_some": "Mit deinem Code dazugekommen: {invitees}. Zählen für deinen Rabatt: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Person ist mit deinem Code dazugekommen",
+        "countPlural=other": "{formattedCount} Personen sind mit deinem Code dazugekommen"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} zählt für deinen Rabatt",
+        "countPlural=other": "{formattedCount} zählen für deinen Rabatt"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "noch zählt niemand für deinen Rabatt",
   "referrals_how_it_works": "So funktioniert es",
   "referrals_step_share": "Teile deinen Code oder Link.",
   "referrals_step_friend_rate": "Deine Freundin oder dein Freund bekommt {rate} Rabatt auf die erste Reservierung.",
@@ -764,7 +829,7 @@
   "legal_marketing_turned_off": "Marketingnachrichten ausgeschaltet",
   "assistants_help_open_failed": "Die Seite ließ sich nicht öffnen. Versuch es erneut.",
   "booking_checkout_legal_consent_retry": "Ich bestätige erneut, dass ich den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zustimme.",
-  "booking_checkout_legal_consent_retry_early_performance": "Ich bestätige erneut, dass ich den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zustimme. Da die Leistung während der gesetzlichen Widerrufsfrist beginnt, verlange ich ausdrücklich, dass die Leistung zum reservierten Termin erbracht wird, und nehme zur Kenntnis, dass mein Widerrufsrecht mit vollständiger Erbringung der Leistung erlischt.",
+  "booking_checkout_legal_consent_retry_early_performance": "Ich bestätige erneut, dass ich den <terms>Allgemeinen Geschäftsbedingungen</terms> und der <operatingRules>Hausordnung</operatingRules> zustimme. Ich verlange die Leistung zum reservierten Termin, innerhalb der Widerrufsfrist, und nehme zur Kenntnis, dass mein Widerrufsrecht mit ihrer vollständigen Erbringung erlischt.",
   "booking_checkout_retry_title": "Die Zahlung wurde nicht abgeschlossen",
   "booking_checkout_retry_lead": "Deine Reservierungsdaten haben wir behalten. Bestätige bitte die Bedingungen erneut, bevor du die Zahlung wiederholst.",
   "booking_checkout_retry_pay": "Zahlung wiederholen",

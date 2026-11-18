@@ -29,6 +29,8 @@
   "booking_details_city": "Město",
   "booking_details_postal_code": "PSČ",
   "booking_details_country": "Země",
+  "booking_details_country_search": "Hledat zemi",
+  "booking_details_country_no_match": "Hledání neodpovídá žádná země.",
   "booking_details_news_heading": "Novinky z Deskohubu",
   "booking_details_optional": "Nepovinné",
   "booking_details_marketing_consent": "Posílejte mi e-mailem novinky, akce a nabídky Deskohub Workspace. Odhlásit se můžu kdykoli.",
@@ -74,8 +76,37 @@
   "booking_checkout_summary_total": "Celkem k platbě",
   "booking_checkout_summary_changed": "Cena se změnila",
   "booking_checkout_summary_original_price": "Původní cena: {amount}",
-  "booking_checkout_summary_office_days": "Počet dní: {count}",
-  "booking_checkout_summary_office_seats": "Počet míst v kanceláři: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} den",
+        "countPlural=few": "{formattedCount} dny",
+        "countPlural=other": "{formattedCount} dní"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Místa v kanceláři",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} místo",
+        "countPlural=few": "{formattedCount} místa",
+        "countPlural=other": "{formattedCount} míst"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Sdílené místo",
   "booking_checkout_line_reserved_desk": "Vyhrazené místo",
   "booking_checkout_line_meeting_room": "Zasedací místnost",
@@ -83,7 +114,6 @@
   "booking_checkout_line_coffee": "Káva",
   "booking_checkout_line_workstation": "Pracovní stanice s monitory",
   "booking_checkout_line_other": "Další položka",
-  "booking_price_line_one_day": "1 den",
   "booking_price_line_one_hour": "1 hodina, {start}–{end}",
   "booking_price_line_four_hours": "4 hodiny, {start}–{end}",
   "booking_summary_open_space_day": "{date}, do {time}",
@@ -96,6 +126,9 @@
   "booking_summary_one_hour": "1 hodina",
   "booking_summary_four_hours": "4 hodiny",
   "booking_price_free": "Zdarma",
+  "booking_price_line_discount_off": "sleva {amount}",
+  "booking_price_line_early_setup": "Příchod o 15 minut dřív",
+  "booking_price_line_early_setup_from": "Vstup od {time}",
   "booking_price_updating": "Aktualizujeme cenu…",
   "booking_price_show_details": "Zobrazit rozpis ceny",
   "booking_price_hide_details": "Skrýt rozpis ceny",
@@ -120,7 +153,7 @@
   "booking_checkout_legal_loading": "Načítáme podmínky…",
   "booking_checkout_legal_failed": "Podmínky se nepodařilo načíst. Zkus to znovu.",
   "booking_checkout_legal_consent": "Souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>.",
-  "booking_checkout_legal_consent_early_performance": "Souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>. Protože služba začíná během zákonné lhůty pro odstoupení od smlouvy, výslovně žádám o její poskytnutí v rezervovaném termínu a beru na vědomí, že po úplném poskytnutí služby mé právo odstoupit od smlouvy zaniká.",
+  "booking_checkout_legal_consent_early_performance": "Souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>. Žádám o poskytnutí služby v rezervovaném termínu, během lhůty pro odstoupení od smlouvy, a beru na vědomí, že po jejím úplném poskytnutí mé právo odstoupit od smlouvy zaniká.",
   "booking_checkout_legal_changed": "Během rezervace se změnily podmínky. Přečti si je znovu a pro pokračování zaškrtni souhlas.",
   "booking_checkout_consent_required": "Před platbou zaškrtni souhlas s podmínkami.",
   "booking_checkout_consent_required_early_performance": "Před platbou zaškrtni souhlas s podmínkami a se zahájením služby před uplynutím lhůty.",
@@ -188,6 +221,8 @@
   "signin_resend_link": "Poslat odkaz znovu",
   "signin_resend_link_in": "Odkaz znovu za {time}",
   "signin_link_resent": "Poslali jsme nový odkaz. Použij nejnovější e-mail.",
+  "signin_signed_in_in_app_title": "Přihlášení je hotové",
+  "signin_signed_in_in_app_body": "Odkaz z e-mailu tě přihlásil do aplikace. Tuhle stránku můžeš zavřít.",
   "signin_already_signed_in": "Účet je už přihlášený",
   "signin_continue": "Pokračovat",
   "signin_create_title": "Přihlášení nebo vytvoření účtu",
@@ -510,8 +545,6 @@
   "booking_gate_deletion_title": "Tvůj účet se maže",
   "booking_gate_deletion_body": "Dokud mazání běží, nemůžeš nic nového rezervovat. Pokud jde o omyl, napiš nám.",
   "booking_cowork_tier_heading": "Typ místa",
-  "booking_cowork_stay_label": "Délka pobytu",
-  "booking_cowork_stay_day": "Den",
   "booking_cowork_stay_overnight": "Přes noc",
   "booking_date_heading": "Datum",
   "booking_calendar_previous_month": "Předchozí měsíc",
@@ -676,6 +709,11 @@
   "invoices_download_label": "Stáhnout fakturu {number}",
   "invoices_downloading": "Stahujeme fakturu {number}…",
   "invoices_download_not_found": "Tuhle fakturu jsme nenašli. Obnov seznam a zkus to znovu.",
+  "invoices_status_cancelled": "Zrušeno",
+  "invoices_download_invoice_button": "Faktura",
+  "invoices_download_credit_note_button": "Opravný doklad",
+  "invoices_credit_note_download_label": "Stáhnout opravný doklad {number}",
+  "invoices_credit_note_downloading": "Stahujeme opravný doklad {number}…",
   "booking_review_title": "Shrnutí a platba",
   "booking_review_booking_heading": "Tvoje rezervace",
   "booking_review_change": "Změnit",
@@ -738,7 +776,38 @@
   "referrals_saved_so_far": "Zatím ušetřeno",
   "referrals_discount_info": "Jak se sleva počítá",
   "referrals_joined_nobody": "S tvým kódem se zatím nikdo nepřipojil.",
-  "referrals_joined_some": "S tvým kódem se připojili: {invitees}. Do tvé slevy se počítají: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "S tvým kódem se připojil {formattedCount} člověk",
+        "countPlural=few": "S tvým kódem se připojili {formattedCount} lidé",
+        "countPlural=other": "S tvým kódem se připojilo {formattedCount} lidí"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} se počítá do tvé slevy",
+        "countPlural=few": "{formattedCount} se počítají do tvé slevy",
+        "countPlural=other": "{formattedCount} se počítá do tvé slevy"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "do tvé slevy se zatím nepočítá nikdo",
   "referrals_how_it_works": "Jak to funguje",
   "referrals_step_share": "Pošli svůj kód nebo odkaz.",
   "referrals_step_friend_rate": "Tvůj kamarád dostane slevu {rate} na svou první rezervaci.",
@@ -764,7 +833,7 @@
   "legal_marketing_turned_off": "Marketingová sdělení vypnuta",
   "assistants_help_open_failed": "Stránku se nepodařilo otevřít. Zkus to znovu.",
   "booking_checkout_legal_consent_retry": "Znovu potvrzuji, že souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>.",
-  "booking_checkout_legal_consent_retry_early_performance": "Znovu potvrzuji, že souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>. Protože služba začíná během zákonné lhůty pro odstoupení od smlouvy, výslovně žádám o její poskytnutí v rezervovaném termínu a beru na vědomí, že po úplném poskytnutí služby mé právo odstoupit od smlouvy zaniká.",
+  "booking_checkout_legal_consent_retry_early_performance": "Znovu potvrzuji, že souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms> a <operatingRules>Provozní řád</operatingRules>. Žádám o poskytnutí služby v rezervovaném termínu, během lhůty pro odstoupení od smlouvy, a beru na vědomí, že po jejím úplném poskytnutí mé právo odstoupit od smlouvy zaniká.",
   "booking_checkout_retry_title": "Platba nebyla dokončena",
   "booking_checkout_retry_lead": "Údaje rezervace jsme zachovali. Před opakováním platby prosím znovu potvrď podmínky.",
   "booking_checkout_retry_pay": "Zkusit platbu znovu",

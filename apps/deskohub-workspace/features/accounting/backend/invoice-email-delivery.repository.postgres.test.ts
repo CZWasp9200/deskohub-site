@@ -5,7 +5,10 @@ import { EmailDeliveryIdSchema } from "@deskohub/email";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice-email-delivery";
+import {
+  type InvoiceEmailDeliveryAudience,
+  wasInvoiceSentTo,
+} from "@/features/accounting/invoice-email-delivery";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
@@ -334,16 +337,19 @@ describe.skipIf(!testDatabase)(
           customer: "missing",
           internal: "missing",
           needsAttention: true,
+          sentTo: [],
         },
         [accepted]: {
           customer: "accepted",
           internal: "accepted",
           needsAttention: false,
+          sentTo: ["customer", "internal"],
         },
         [failed]: {
           customer: "failed",
           internal: "missing",
           needsAttention: true,
+          sentTo: [],
         },
       });
       expect(
@@ -385,14 +391,98 @@ describe.skipIf(!testDatabase)(
           customer: "processing",
           internal: "processing",
           needsAttention: false,
+          sentTo: [],
         },
         inFlightClaim: null,
         stale: {
           customer: "processing",
           internal: "processing",
           needsAttention: true,
+          sentTo: [],
         },
         staleClaim: { attemptNumber: 2 },
+      });
+    });
+
+    test("keeps an invoice sent once a resend fails and a retry reclaims it", async () => {
+      const invoiceId = await insertInvoice();
+
+      const summaries = await runRepository((repository) =>
+        Effect.gen(function* () {
+          yield* repository.claim({ invoiceId, audience: "customer" });
+          yield* repository.markAccepted({
+            invoiceId,
+            audience: "customer",
+            attemptNumber: 1,
+            providerDeliveryId: EmailDeliveryIdSchema.make("email-sent"),
+            acceptedAt,
+          });
+          const resend = yield* repository.claimResend({ invoiceId });
+          yield* repository.markFailed({
+            invoiceId,
+            audience: "customer",
+            attemptNumber: resend!.attemptNumber,
+            failureCode: "email_send_failed",
+          });
+          const afterFailure = yield* repository.status([invoiceId]);
+          const retry = yield* repository.claim({
+            invoiceId,
+            audience: "customer",
+          });
+          const whileRetrying = yield* repository.status([invoiceId]);
+          return {
+            retry,
+            afterFailure: afterFailure.get(invoiceId),
+            whileRetrying: whileRetrying.get(invoiceId),
+          };
+        })
+      );
+
+      expect(summaries.retry).toEqual({ attemptNumber: 3 });
+      expect(summaries.afterFailure).toMatchObject({
+        customer: "failed",
+        sentTo: ["customer"],
+      });
+      expect(summaries.whileRetrying).toMatchObject({
+        customer: "processing",
+        sentTo: ["customer"],
+      });
+      expect(wasInvoiceSentTo(summaries.whileRetrying!, "customer")).toBe(true);
+      expect(wasInvoiceSentTo(summaries.whileRetrying!, "internal")).toBe(
+        false
+      );
+    });
+
+    test("records an acceptance that arrives after another attempt took over", async () => {
+      const invoiceId = await insertInvoice();
+
+      const summary = await runRepository((repository) =>
+        Effect.gen(function* () {
+          yield* repository.claim({ invoiceId, audience: "customer" });
+          yield* Effect.promise(() => expireLease(invoiceId, "customer"));
+          const takeover = yield* repository.claim({
+            invoiceId,
+            audience: "customer",
+          });
+          yield* repository.markAccepted({
+            invoiceId,
+            audience: "customer",
+            attemptNumber: 1,
+            providerDeliveryId: EmailDeliveryIdSchema.make("superseded-send"),
+            acceptedAt,
+          });
+          return { takeover, status: yield* repository.status([invoiceId]) };
+        })
+      );
+
+      expect(summary.takeover).toEqual({ attemptNumber: 2 });
+      expect(summary.status.get(invoiceId)).toMatchObject({
+        customer: "processing",
+        sentTo: ["customer"],
+      });
+      expect(await readDelivery(invoiceId, "customer")).toEqual({
+        state: "processing",
+        attempt_count: 2,
       });
     });
   }

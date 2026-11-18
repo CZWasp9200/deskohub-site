@@ -1,6 +1,8 @@
 import { AdministrationLink as Link } from "@/features/administration/admin-link";
 import { administrationHref } from "@/features/administration/administration-href";
 import { EmptyState } from "@/features/administration/components";
+import { isInactiveAdministrationCustomer } from "@/features/administration/customer-name";
+import { AdministrationCustomerNameLabel } from "@/features/administration/customer-name-label";
 import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
@@ -96,15 +98,23 @@ function PromotionAudienceCustomer({
   return (
     <li className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
       <div>
-        <Link
-          className="font-semibold underline decoration-navy-blue/25 underline-offset-4"
-          href={administrationHref("/[locale]/admin/customers/[customerId]", {
-            customerId,
-          })}
-        >
-          {customerName ??
-            m.discountsCustomerDetailsUnavailable({}, { locale })}
-        </Link>
+        {customer && isInactiveAdministrationCustomer(customer) ? (
+          // A deleted or expired customer has no detail page to link to.
+          <AdministrationCustomerNameLabel
+            customer={customer}
+            locale={locale}
+          />
+        ) : (
+          <Link
+            className="font-semibold underline decoration-navy-blue/25 underline-offset-4"
+            href={administrationHref("/[locale]/admin/customers/[customerId]", {
+              customerId,
+            })}
+          >
+            {customerName ??
+              m.discountsCustomerDetailsUnavailable({}, { locale })}
+          </Link>
+        )}
         <p className="mt-1 text-sm text-navy-blue/65">
           {customer
             ? formatDiscountAdminCustomerContact(customer, locale)

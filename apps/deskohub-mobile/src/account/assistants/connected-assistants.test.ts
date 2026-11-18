@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerAgentConnection } from "@deskohub/workspace-customer-api";
 import { Effect, Option } from "effect";
-import {
-  AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import {
   CustomerViewError,
   isRetryableViewError,

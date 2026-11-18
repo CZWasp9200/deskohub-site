@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import type { OtaUpdateSource } from "./ota-update";
 import {
   isUpdateCheckDue,
@@ -38,28 +38,78 @@ describe("isUpdateCheckDue", () => {
   });
 });
 
+// What the system package installer records for an APK a browser downloaded.
+const sideloaded = "com.google.android.packageinstaller";
+
 describe("planUpdateCheck", () => {
   test("checks both kinds of update on Android", () => {
     expect(
-      planUpdateCheck({ platform: "android", otaUpdatesEnabled: true })
+      planUpdateCheck({
+        platform: "android",
+        otaUpdatesEnabled: true,
+        installingPackageName: sideloaded,
+      })
     ).toEqual({ otaUpdate: true, nativeRelease: true });
   });
 
   test("checks only over-the-air updates on iOS, where no APK applies", () => {
     expect(
-      planUpdateCheck({ platform: "ios", otaUpdatesEnabled: true })
+      planUpdateCheck({
+        platform: "ios",
+        otaUpdatesEnabled: true,
+        installingPackageName: sideloaded,
+      })
     ).toEqual({ otaUpdate: true, nativeRelease: false });
   });
 
   test("skips over-the-air updates when expo-updates is disabled", () => {
     expect(
-      planUpdateCheck({ platform: "android", otaUpdatesEnabled: false })
+      planUpdateCheck({
+        platform: "android",
+        otaUpdatesEnabled: false,
+        installingPackageName: sideloaded,
+      })
     ).toEqual({ otaUpdate: false, nativeRelease: true });
+  });
+
+  test.each([
+    "dev.imranr.obtainium",
+    "dev.imranr.obtainium.fdroid",
+    "org.fdroid.fdroid",
+    "com.looker.droidify",
+    "com.android.vending",
+  ])("leaves new APKs to %s, which installed the app", (installer) => {
+    expect(
+      planUpdateCheck({
+        platform: "android",
+        otaUpdatesEnabled: true,
+        installingPackageName: installer,
+      })
+    ).toEqual({ otaUpdate: true, nativeRelease: false });
+  });
+
+  test.each([
+    ["the system package installer", sideloaded],
+    ["a browser that installed it directly", "com.android.chrome"],
+    ["no recorded installer, as after adb install", null],
+    ["the shell, as an Obtainium install through Shizuku", "com.android.shell"],
+  ])("offers new APKs when %s installed the app", (_installer, installer) => {
+    expect(
+      planUpdateCheck({
+        platform: "android",
+        otaUpdatesEnabled: true,
+        installingPackageName: installer,
+      })
+    ).toEqual({ otaUpdate: true, nativeRelease: true });
   });
 
   test("checks nothing on web, which the Workspace serves fresh", () => {
     expect(
-      planUpdateCheck({ platform: "web", otaUpdatesEnabled: true })
+      planUpdateCheck({
+        platform: "web",
+        otaUpdatesEnabled: true,
+        installingPackageName: sideloaded,
+      })
     ).toEqual({ otaUpdate: false, nativeRelease: false });
   });
 });
@@ -126,7 +176,11 @@ describe("runUpdateCheck", () => {
     reports: Array<unknown>
   ) =>
     runUpdateCheck({
-      plan: planUpdateCheck({ platform, otaUpdatesEnabled: true }),
+      plan: planUpdateCheck({
+        platform,
+        otaUpdatesEnabled: true,
+        installingPackageName: sideloaded,
+      }),
       updates: sources.updates,
       installedBuildVersion: "1002000",
       latestReleaseUrl: "https://workspace.test/api/mobile/releases/latest",

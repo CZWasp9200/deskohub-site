@@ -10,11 +10,18 @@ import {
 } from "@/features/account/backend/account-operations.test-utils";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
 import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
+import { customerAccountIdSchema } from "@/features/account/customer-account";
 import {
   type Invoice,
   InvoiceRepository,
 } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
+import {
+  type CorrectiveDocument,
+  correctiveDocumentNumberSchema,
+  makeCorrectiveDocument,
+} from "@/features/accounting/corrective-document";
 import { getInvoicedReservation } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -54,6 +61,10 @@ const reservationInvoice: Invoice = {
   // 22:30 UTC is already the next day in Prague.
   issuedAt: Temporal.Instant.from("2026-08-09T22:30:00Z"),
   document: coworkDocument,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
 /** The account's customer's manual invoice, which invoices no order. */
 const manualInvoice: Invoice = {
@@ -64,7 +75,40 @@ const manualInvoice: Invoice = {
   invoiceNumber: manualDocument.invoiceNumber,
   issuedAt: Temporal.Instant.from("2026-08-01T10:00:00Z"),
   document: manualDocument,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
+const correctiveDocumentNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000004");
+/** The account's customer's cancelled invoice, hidden from the Admin UI. */
+const cancelledInvoice: Invoice = {
+  ...manualInvoice,
+  id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb26"),
+  cancellation: {
+    cancelledAt: Temporal.Instant.from("2026-08-02T10:00:00Z"),
+    cause: "invoice_cancellation",
+    correctiveDocumentNumber,
+  },
+  archivedAt: Temporal.Instant.from("2026-08-03T10:00:00Z"),
+};
+const correctiveDocumentOf = (invoice: Invoice): CorrectiveDocument =>
+  makeCorrectiveDocument({
+    invoice,
+    cause: "invoice_cancellation",
+    actor: {
+      source: "admin-ui",
+      administrator: {
+        accountId: customerAccountIdSchema.make(
+          "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a02"
+        ),
+        email: testEmailAddress("administrator"),
+      },
+    },
+    documentNumber: correctiveDocumentNumber,
+    issuedAt: Temporal.Instant.from("2026-08-02T10:00:00Z"),
+  });
 /** Another customer's invoice. */
 const foreignInvoice: Invoice = {
   ...reservationInvoice,
@@ -124,6 +168,17 @@ const invoiceStore = (
                     ) ?? null
                   );
             }),
+        }),
+        // Only a credit note's download reads a corrective document.
+        Layer.mock(InvoiceCancellationRepository, {
+          loadCorrectiveDocument: (invoiceId) =>
+            Effect.suspend(() => {
+              reads.push(`corrective:${invoiceId}`);
+              const invoice = stored.find(({ id }) => id === invoiceId);
+              return Effect.succeed(
+                invoice?.cancellation ? correctiveDocumentOf(invoice) : null
+              );
+            }),
         })
       )
     )
@@ -181,6 +236,29 @@ describe("listInvoices", () => {
       ],
     });
     expect(reads).toEqual([`list:${testLinkedAccount.dotyposCustomerId}`]);
+  });
+
+  test("lists a cancelled invoice, hidden or not, with its cancellation", async () => {
+    stored = [{ ...cancelledInvoice, id: manualInvoice.id }];
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(customerApiRequest(listInvoices));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      invoices: [
+        {
+          id: manualInvoice.id,
+          invoiceNumber: manualDocument.invoiceNumber,
+          issuedOn: "2026-08-01",
+          total: getInvoiceTotal(manualDocument),
+          cancellation: {
+            correctiveDocumentNumber,
+            correctiveDocumentDownloadable: true,
+          },
+        },
+      ],
+    });
   });
 
   test("names what each order booked in the asked locale, with an office's seats", async () => {
@@ -365,6 +443,106 @@ describe("getInvoicePdf", () => {
 
     const response = await api.handle(
       customerApiRequest(getInvoicePdf(reservationInvoice.id))
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("getCorrectiveDocumentPdf", () => {
+  const getCorrectiveDocumentPdf = (invoiceId: string): CustomerApiCall => ({
+    method: "GET",
+    path: `/invoices/${invoiceId}/corrective-document/pdf`,
+  });
+  /** Another customer's cancelled invoice. */
+  const foreignCancelledInvoice: Invoice = {
+    ...cancelledInvoice,
+    id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb98"),
+    dotyposCustomerId: DotyposCustomerIdSchema.make("60999"),
+  };
+
+  beforeEach(() => {
+    stored = [
+      reservationInvoice,
+      manualInvoice,
+      cancelledInvoice,
+      foreignCancelledInvoice,
+    ];
+  });
+
+  testCustomerEndpointGuards(getCorrectiveDocumentPdf(cancelledInvoice.id));
+
+  test("downloads the credit note of the account's own cancelled invoice, named by its number", async () => {
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(
+      customerApiRequest(getCorrectiveDocumentPdf(cancelledInvoice.id))
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toBe(
+      `attachment; filename="${correctiveDocumentNumber}.pdf"`
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const body = new Uint8Array(await response.arrayBuffer());
+    expect(new TextDecoder().decode(body.subarray(0, 5))).toBe("%PDF-");
+    expect(reads).toEqual([
+      `find:${testLinkedAccount.dotyposCustomerId}:${cancelledInvoice.id}`,
+      `corrective:${cancelledInvoice.id}`,
+    ]);
+  });
+
+  test.each([
+    ["another customer's cancelled invoice", foreignCancelledInvoice.id],
+    ["an unknown invoice", "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb00"],
+    ["text that is no invoice id", "WS-OD-2026-000004"],
+    ["an invoice that isn't cancelled", manualInvoice.id],
+  ])(
+    "answers %s as not found, reading no credit note",
+    async (_, invoiceId) => {
+      const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+      const response = await api.handle(
+        customerApiRequest(getCorrectiveDocumentPdf(invoiceId))
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerInvoiceNotFound",
+      });
+      // Only the account's own customer's invoices are ever looked up.
+      expect(reads).toEqual([
+        `find:${testLinkedAccount.dotyposCustomerId}:${invoiceId}`,
+      ]);
+    }
+  );
+
+  test("asks an account without a Dotypos profile to complete it, reading no invoice", async () => {
+    const api = makeCustomerApiTestServer({ services: profileMissing });
+
+    const response = await api.handle(
+      customerApiRequest(getCorrectiveDocumentPdf(cancelledInvoice.id))
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerAccountLinkRequired",
+      reason: "profile-missing",
+    });
+    expect(reads).toEqual([]);
+  });
+
+  test("answers unavailable when the invoice can't be read", async () => {
+    const api = makeCustomerApiTestServer({
+      services: invoiceStore(storageFailure),
+    });
+
+    const response = await api.handle(
+      customerApiRequest(getCorrectiveDocumentPdf(cancelledInvoice.id))
     );
 
     expect(response.status).toBe(503);

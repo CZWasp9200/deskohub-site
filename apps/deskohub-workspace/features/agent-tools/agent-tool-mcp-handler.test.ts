@@ -24,6 +24,7 @@ mock.module("@/shared/backend/agent-traffic/agent-traffic-events", () => ({
 }));
 
 const {
+  AgentToolReply,
   agentToolLocaleField,
   CallableAgentTools,
   defineAgentTool,
@@ -63,12 +64,46 @@ const slowTool = defineAgentTool({
     ),
 });
 
+const documentUri = "urn:deskohub:test:document:d-1";
+
+/** Answers with a document attached, which a link also serves. */
+const documentTool = {
+  ...defineAgentTool({
+    name: "document_echo",
+    title: "Document echo",
+    description: "Attaches a synthetic document.",
+    access: "public",
+    readOnly: true,
+    unavailableCode: "quote_unavailable",
+    input: Schema.Struct({ locale: agentToolLocaleField }),
+    output: Schema.Struct({ uri: Schema.String }),
+    run: () => Effect.succeed({ uri: documentUri }),
+  }),
+  call: () =>
+    Effect.succeed(
+      new AgentToolReply({
+        result: { uri: documentUri },
+        attachments: [
+          {
+            uri: documentUri,
+            mimeType: "application/pdf",
+            blob: Buffer.from("%PDF-1.7 synthetic").toString("base64"),
+            download: {
+              url: "https://workspace.example/admin/documents/d-1",
+              expiresAt: "2026-11-18T10:15:00Z",
+            },
+          },
+        ],
+      })
+    ),
+};
+
 const answer = (request: Request, admitted = true) =>
   Effect.runPromise(
     readMcpRequest(request).pipe(
       Effect.flatMap((mcpRequest) =>
         answerAgentToolMcpRequest({
-          tools: [slowTool],
+          tools: [slowTool, documentTool],
           instructions: "Synthetic instructions.",
           client: "other",
           request: mcpRequest,
@@ -171,6 +206,35 @@ describe("answerAgentToolMcpRequest", () => {
     await client.close();
 
     expect(result.structuredContent).toEqual({ seats: 2 });
+  });
+
+  test("links a downloadable attachment beside its embedded resource", async () => {
+    const client = await connectClient();
+
+    const result = await client.callTool({
+      name: "document_echo",
+      arguments: {},
+    });
+    await client.close();
+
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify({ uri: documentUri }) },
+      {
+        type: "resource",
+        resource: {
+          uri: documentUri,
+          mimeType: "application/pdf",
+          blob: Buffer.from("%PDF-1.7 synthetic").toString("base64"),
+        },
+      },
+      {
+        type: "resource_link",
+        uri: "https://workspace.example/admin/documents/d-1",
+        name: "d-1",
+        mimeType: "application/pdf",
+        description: expect.any(String),
+      },
+    ]);
   });
 
   test("interrupts the call when the client cancels the stream", async () => {

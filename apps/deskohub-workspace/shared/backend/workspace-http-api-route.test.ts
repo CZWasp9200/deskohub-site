@@ -2,11 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { NextRequest } from "next/server";
 import { runToCompletion } from "./run-to-completion";
 import { toWorkspaceWebHandler } from "./workspace-effect";

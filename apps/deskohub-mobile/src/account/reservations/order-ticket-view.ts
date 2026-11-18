@@ -4,12 +4,13 @@ import type {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, type DateTime, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import Armchair from "lucide-react-native/icons/armchair";
 import Clock from "lucide-react-native/icons/clock";
 import MapPin from "lucide-react-native/icons/map-pin";
 import Monitor from "lucide-react-native/icons/monitor";
 import Receipt from "lucide-react-native/icons/receipt";
+import { monitorOptionName } from "../../booking/ui/price-line-description";
 import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
@@ -73,8 +74,22 @@ export interface OrderTicketView {
   readonly event: BookingEvent | undefined;
 }
 
-const instantOf = (iso: string | undefined) =>
-  Option.flatMap(Option.fromUndefinedOr(iso), parseInstant);
+const instantOf = (iso: string | null | undefined) =>
+  Option.flatMap(Option.fromNullishOr(iso), parseInstant);
+
+const timesOf = (booking: {
+  readonly startsAt?: string | null;
+  readonly endsAt?: string | null;
+}) => Option.all([instantOf(booking.startsAt), instantOf(booking.endsAt)]);
+
+/**
+ * The booked start and end: the order's, else its list entry's. An order
+ * whose payment ended unpaid carries no times, while the list keeps them.
+ */
+const bookedTimesOf = (
+  order: CustomerOrderState,
+  reservation: Option.Option<ReservationListRow>
+) => Option.orElse(timesOf(order), () => Option.flatMap(reservation, timesOf));
 
 /**
  * The product's catalog name: the list's product when the list holds the
@@ -119,6 +134,7 @@ const extras = (
             key: "monitor",
             icon: Monitor,
             text: m.booking_checkout_line_workstation({}, { locale }),
+            detail: monitorOptionName(selection.monitorOption),
           },
         ]),
     ...(order.kind === "office" && selection?.seats !== undefined
@@ -148,12 +164,9 @@ export const orderTicketView = ({
   readonly now: DateTime.DateTime;
   readonly locale: AppLocale;
 }): OrderTicketView => {
-  const times = Option.all([
-    instantOf(order.startsAt),
-    instantOf(order.endsAt),
-  ]);
+  const times = bookedTimesOf(order, reservation);
   const accessStartsAt = Option.flatMap(reservation, (row) =>
-    Option.flatMap(Option.fromNullishOr(row.accessStartsAt), parseInstant)
+    instantOf(row.accessStartsAt)
   );
   const title = orderTitle(order, reservation, locale);
   // A withdrawn booking won't happen: no countdown, PIN hint or calendar.

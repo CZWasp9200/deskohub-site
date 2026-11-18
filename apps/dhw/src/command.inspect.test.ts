@@ -2,13 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { testEmailAddress } from "@deskohub/test-email";
 import { CliAccessToken, CliSessionId } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedAccessCodeAttemptStore,
+  UnreachedClientIdentity,
+  UnreachedUpdateService,
+} from "./testing/unreached-command-services";
 
 type AdminApi = WorkspaceAdminApiClient["Service"];
 
@@ -48,6 +53,9 @@ const runInspection = async (
     ])
   );
   const layer = Layer.mergeAll(
+    UnreachedAccessCodeAttemptStore,
+    UnreachedClientIdentity,
+    UnreachedUpdateService,
     Layer.succeed(WorkspaceAdminApiClient, api as unknown as AdminApi),
     Layer.succeed(AuthenticationService, {
       current: Effect.succeed(
@@ -75,7 +83,7 @@ const runInspection = async (
         updateChecksDisabled: true,
       })
     ),
-    Layer.provideMerge(BunServices.layer)
+    Layer.provideMerge(PlatformLive)
   );
 
   await Command.runWith(dhwCommand, { version: "1.3.0" })(args).pipe(
@@ -191,6 +199,16 @@ describe("dhw reservations", () => {
       "reservation-2\t2026-08-11T09:00\tMeeting room\tcustomer-2\tIn progress",
       "reservation-3\tUnknown\tOffice\tcustomer-3\tCancelled",
     ]);
+  });
+
+  test("names the rejected value of an invalid filter", async () => {
+    await expect(
+      runInspection(["reservations", "list", "--date", "not-a-date"], {
+        listReservations: reservations,
+      })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('"not-a-date"'),
+    });
   });
 
   test("finds a reservation by identifier", async () => {
@@ -551,6 +569,10 @@ describe("dhw invoices", () => {
     paymentStatus: "due",
     delivery,
     needsAttention,
+    cancellation: null,
+    archivedAt: null,
+    replacesInvoiceId: null,
+    replacedByInvoiceId: null,
   });
   const accepted = { customer: "accepted", internal: "accepted" };
 
@@ -602,10 +624,10 @@ describe("dhw invoices", () => {
     expect(text.calls).toEqual([["listInvoices", {}]]);
     expect(text.output).toEqual([
       "Invoices: 2 total · page 1/3",
-      "01980000-0000-7000-8000-000000000001\t2026-0001\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSent",
-      "01980000-0000-7000-8000-000000000002\t2026-0002\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tNeeds resend",
-      "01980000-0000-7000-8000-000000000003\t2026-0003\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending",
-      "01980000-0000-7000-8000-000000000004\t2026-0004\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending",
+      "01980000-0000-7000-8000-000000000001\t2026-0001\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSent\tLive",
+      "01980000-0000-7000-8000-000000000002\t2026-0002\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tNeeds resend\tLive",
+      "01980000-0000-7000-8000-000000000003\t2026-0003\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending\tLive",
+      "01980000-0000-7000-8000-000000000004\t2026-0004\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending\tLive",
     ]);
   });
 
@@ -629,7 +651,7 @@ describe("dhw invoices", () => {
     expect(json.calls).toEqual([["getInvoice", invoiceId]]);
     expect(json.output).toEqual([JSON.stringify(detail)]);
     expect(text.output).toEqual([
-      "2026-0019\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tadministration\tSent",
+      "2026-0019\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tadministration\tSent\tLive",
       "Synthetic service\t800",
       "Synthetic extra\t200",
     ]);
@@ -638,19 +660,21 @@ describe("dhw invoices", () => {
   test("retries invoice delivery once confirmed", async () => {
     const json = await runInspection(
       ["--json", "invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: true } }
+      { resendInvoice: { invoiceId, changed: true, notices: null } }
     );
     const retried = await runInspection(
       ["invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: true } }
+      { resendInvoice: { invoiceId, changed: true, notices: null } }
     );
     const unchanged = await runInspection(
       ["invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: false } }
+      { resendInvoice: { invoiceId, changed: false, notices: null } }
     );
 
     expect(json.calls).toEqual([["resendInvoice", invoiceId]]);
-    expect(json.output).toEqual([JSON.stringify({ changed: true })]);
+    expect(json.output).toEqual([
+      JSON.stringify({ invoiceId, changed: true, notices: null }),
+    ]);
     expect(retried.output).toEqual([
       `Retried delivery for invoice ${invoiceId}.`,
     ]);

@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import KeyRound from "lucide-react-native/icons/key-round";
 import Mail from "lucide-react-native/icons/mail";
 import Pencil from "lucide-react-native/icons/pencil";

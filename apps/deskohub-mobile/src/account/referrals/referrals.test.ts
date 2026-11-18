@@ -4,18 +4,16 @@ import {
   ReferralCode,
 } from "@deskohub/workspace-customer-api";
 import { Effect } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   makeFakeCustomerData,
   settle,
 } from "../../customer-api/testing/customer-data-test-registry";
+import { m } from "../../i18n/messages";
 import {
   copyReferralCodeAtom,
+  joinedSentence,
   referralsAtom,
   referralsFailure,
   referralsView,
@@ -266,5 +264,61 @@ describe("referralsFailure", () => {
         CustomerViewError.LinkRequired({ reason: "support-required" })
       )
     ).toBeUndefined();
+  });
+});
+
+describe("joinedSentence", () => {
+  test("says nobody joined", () => {
+    expect(joinedSentence({ kind: "nobody" }, "en-US")).toBe(
+      m.referrals_joined_nobody({}, { locale: "en-US" })
+    );
+  });
+
+  test("puts who joined and who counts into one sentence", () => {
+    const locale = "en-US";
+    expect(
+      joinedSentence({ kind: "some", invitees: 3, eligibleInvitees: 2 }, locale)
+    ).toBe(
+      m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees({ count: 3 }, { locale }),
+          eligible: m.referrals_joined_eligible({ count: 2 }, { locale }),
+        },
+        { locale }
+      )
+    );
+  });
+
+  test("says when nobody counts yet rather than counting zero", () => {
+    const locale = "cs-CZ";
+    expect(
+      joinedSentence({ kind: "some", invitees: 2, eligibleInvitees: 0 }, locale)
+    ).toBe(
+      m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees({ count: 2 }, { locale }),
+          eligible: m.referrals_joined_eligible_none({}, { locale }),
+        },
+        { locale }
+      )
+    );
+  });
+
+  // One, few and many as Czech counts them; English has one and other.
+  test.each([
+    ["cs-CZ", [1, 3, 5]],
+    ["en-US", [1, 3]],
+  ] as const)("reads each %s plural form differently", (locale, counts) => {
+    const forms = (
+      message: typeof m.referrals_joined_invitees
+    ): ReadonlySet<string> =>
+      new Set(
+        counts.map((count) =>
+          message({ count }, { locale }).replace(String(count), "#")
+        )
+      );
+    expect(forms(m.referrals_joined_invitees).size).toBe(counts.length);
+    // Czech "se počítá" serves one and many alike; only few differs.
+    expect(forms(m.referrals_joined_eligible).size).toBeGreaterThan(1);
   });
 });

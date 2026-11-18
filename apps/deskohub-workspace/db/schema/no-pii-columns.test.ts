@@ -55,6 +55,15 @@ const allowedColumns = new Map([
     "public.email_preparations.unavailable_value_name",
     "named recipient value definition key",
   ],
+  [
+    "public.workspace_reservations.cancellation_email_sent_at",
+    "when the cancellation email was sent, not an address",
+  ],
+  // The withdrawal settlement clears the confirmed name once both emails are accepted.
+  [
+    "public.contract_withdrawals.statement_name",
+    "confirmed withdrawal name while either settlement email is pending",
+  ],
   // Better Auth owns the login email; AGENTS.md permits it in the auth schema.
   ["auth.user.email", "Better Auth login email"],
   ["auth.user.email_verified", "Better Auth login email verification flag"],
@@ -92,6 +101,14 @@ const allowedColumns = new Map([
   ],
   [
     "public.cli_authentication_requests.approved_by_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
+    "public.invoice_archives.actor_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
+    "public.invoice_cancellations.actor_account_email",
     "administrator login-email snapshot",
   ],
   [
@@ -158,6 +175,8 @@ describe("database schema no-PII persistence", () => {
 
     expect(binaryColumns).toEqual([
       "public.accounting_document_snapshots.encrypted_snapshot",
+      "public.corrective_documents.encrypted_document",
+      "public.invoice_previews.encrypted_document",
       "public.invoices.encrypted_document",
     ]);
   });

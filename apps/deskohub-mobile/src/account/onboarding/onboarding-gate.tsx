@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import type {
   NavigationProp,
@@ -10,6 +10,7 @@ import { type ReactNode, useCallback } from "react";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import {
   completeProfileAtom,
   profileSubmitState,
@@ -37,6 +38,7 @@ export function OnboardingGate({
   if (current === undefined)
     return (
       <ScrollScreen>
+        <QuietUpdateOffer backdrop="paper" />
         <AsyncView result={account} onRetry={refresh}>
           {() => null}
         </AsyncView>

@@ -1,11 +1,13 @@
 import { Effect } from "effect";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import { nativeBuildVersion } from "expo-application";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
 import { useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
+import { installingPackageName } from "../../modules/install-source";
 import { trackUpdateApplied } from "../analytics/events";
+import { useAnalyticsConsent } from "../consent/use-analytics-consent";
 import { deviceCapabilitiesLayer } from "../customer-api/device-capabilities-layer";
 import { recordAppliedUpdate } from "./applied-update";
 import { type NativeUpdateOffer, nextNativeUpdate } from "./native-release";
@@ -20,6 +22,7 @@ import {
   noUpdatePromptDismissals,
   selectUpdatePrompt,
   type UpdatePrompt,
+  updatePromptWaitsForConsent,
 } from "./update-prompt";
 import { configuredWorkspaceUpdateUrls } from "./workspace-update-urls";
 
@@ -38,17 +41,19 @@ const runInBackground = (
   );
 };
 
-const openNativeDownload = Effect.tryPromise(() =>
-  Linking.openURL(configuredWorkspaceUpdateUrls.androidDownloadUrl)
-);
+const openNativeDownload = (versionName: string) =>
+  Effect.tryPromise(() =>
+    Linking.openURL(configuredWorkspaceUpdateUrls.androidApkUrl(versionName))
+  );
 
 const restartIntoUpdate = Effect.tryPromise(() => Updates.reloadAsync());
 
 /**
  * Records an update this launch applied, then checks for a downloaded JS
  * update, a rollback and a newer APK on launch and on each return to the
- * foreground, and returns the one prompt to show. Accepting restarts into
- * the downloaded or embedded update, or opens the `/android` download page;
+ * foreground, and returns the one prompt to show, none while the analytics
+ * consent prompt waits for an answer. Accepting restarts into
+ * the downloaded or embedded update, or downloads the offered APK;
  * dismissing hides that offer for the rest of the session.
  */
 export function useUpdatePrompt(): {
@@ -67,6 +72,7 @@ export function useUpdatePrompt(): {
     const plan = planUpdateCheck({
       platform: Platform.OS,
       otaUpdatesEnabled: Updates.isEnabled && !__DEV__,
+      installingPackageName: installingPackageName(),
     });
     if (!(plan.otaUpdate || plan.nativeRelease)) {
       return;
@@ -112,12 +118,15 @@ export function useUpdatePrompt(): {
     return () => subscription.remove();
   }, []);
 
-  const prompt = selectUpdatePrompt({
-    nativeUpdate,
-    readyUpdate,
-    runsEmbeddedUpdate: Updates.isEmbeddedLaunch,
-    dismissals,
-  });
+  const consent = useAnalyticsConsent();
+  const prompt = updatePromptWaitsForConsent(consent.status)
+    ? undefined
+    : selectUpdatePrompt({
+        nativeUpdate,
+        readyUpdate,
+        runsEmbeddedUpdate: Updates.isEmbeddedLaunch,
+        dismissals,
+      });
 
   return {
     prompt,
@@ -127,7 +136,7 @@ export function useUpdatePrompt(): {
       }
       runInBackground(
         prompt.kind === "native-release"
-          ? openNativeDownload
+          ? openNativeDownload(prompt.versionName)
           : restartIntoUpdate
       );
     },

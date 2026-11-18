@@ -5,6 +5,7 @@ import { Context, Effect, Layer } from "effect";
 import type { ReactNode } from "react";
 import { prerender } from "react-dom/static";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
+import type { OrderKind } from "@/features/order";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
 import type { ReservationWithdrawalEntry } from "@/features/withdrawal/withdrawal-read-model";
 
@@ -215,6 +216,15 @@ mock.module("@/features/checkout/components/checkout-flow-layout", () => ({
   }) => <main data-flow-step={activeStepKey}>{children}</main>,
 }));
 
+let orderKind: OrderKind | undefined = "reservation";
+const orderKindReads: string[] = [];
+mock.module("@/features/order/backend/order-kind", () => ({
+  loadOrderKind: async (id: string) => {
+    orderKindReads.push(id);
+    return orderKind;
+  },
+}));
+
 const { CheckoutStatusRoute } = await import("./checkout-status-route");
 const { getReservationStatusSignInPath } = signIn;
 
@@ -262,6 +272,8 @@ const renderRoute = async ({
 describe("CheckoutStatusRoute", () => {
   afterEach(() => {
     loadCalls.length = 0;
+    orderKind = "reservation";
+    orderKindReads.length = 0;
     readCookieNames.length = 0;
     connections = 0;
     signedOut = false;
@@ -373,12 +385,35 @@ describe("CheckoutStatusRoute", () => {
     expect(html).toContain('data-status="not_found"');
   });
 
+  test("serves the reservation status for an order id no order has", async () => {
+    orderKind = undefined;
+    loadResult = Effect.succeed(statusOf("not_found"));
+
+    const { errors, html } = await renderRoute();
+
+    expect(orderKindReads).toEqual([orderId]);
+    expect(loadCalls).toHaveLength(1);
+    expect(errors).toEqual([]);
+    expect(html).toContain('data-status="not_found"');
+  });
+
+  test("answers a pass purchase order with not found without loading a reservation status", async () => {
+    orderKind = "pass-purchase";
+
+    const { errors } = await renderRoute();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(NotFoundSignal);
+    expect(loadCalls).toEqual([]);
+  });
+
   test("answers an invalid order id with not found before loading", async () => {
     const { errors, html } = await renderRoute({ order: "" });
 
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(NotFoundSignal);
     expect(loadCalls).toEqual([]);
+    expect(orderKindReads).toEqual([]);
     expect(html).toContain('data-flow-step="complete"');
     expect(html).toContain('data-skeleton="page"');
   });

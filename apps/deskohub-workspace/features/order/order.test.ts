@@ -3,10 +3,11 @@ import { Schema } from "effect";
 import { orderIdSchema, orderKindSchema } from ".";
 
 describe("order domain", () => {
-  test("decodes reservation as the only order kind", () => {
+  test("decodes reservation and pass purchase as the order kinds", () => {
     const decodeKind = Schema.decodeUnknownSync(orderKindSchema);
 
     expect(decodeKind("reservation")).toBe("reservation");
+    expect(decodeKind("pass-purchase")).toBe("pass-purchase");
     expect(() => decodeKind("goods")).toThrow();
     expect(() => decodeKind("")).toThrow();
   });

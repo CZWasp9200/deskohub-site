@@ -3,6 +3,7 @@ import { administrationAgentScope } from "@/features/account/agent-scopes";
 import { AdministratorAgentAuthorization } from "@/features/administrators/backend/administrator-agent-authorization.service";
 import type { AgentTool } from "@/features/agent-tools/agent-tool";
 import type { CustomerAgentCaller } from "@/features/agent-tools/customer-agent-caller";
+import type { AdministrationAgentDocuments } from "./administration-agent-documents";
 import {
   administrationOperationTools,
   makeAdministrationAgentTools,
@@ -18,7 +19,11 @@ class AdministrationAgentAccessUnavailable extends Data.TaggedError(
 ) {}
 
 type AdministrationAgentTools = ReadonlyArray<
-  AgentTool<AdministrationApiClient | AdministratorAgentAuthorization>
+  AgentTool<
+    | AdministrationApiClient
+    | AdministrationAgentDocuments
+    | AdministratorAgentAuthorization
+  >
 >;
 
 interface IAdministrationAgentAccess {

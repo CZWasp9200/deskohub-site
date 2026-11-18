@@ -4,12 +4,8 @@ import {
   CustomerBookingSelectionInvalid,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Layer } from "effect";
+import { AsyncResult, type Atom, type AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import {
-  AsyncResult,
-  type Atom,
-  type AtomRegistry,
-} from "effect/unstable/reactivity";
 import {
   AccountReadBudget,
   accountReadAllowance,
@@ -36,6 +32,7 @@ import {
   catalogIdleTTL,
   legalDocumentsAtom,
   meetingRoomStartTimesAtom,
+  offeringsRolloverRetryDelay,
   quoteRefreshInterval,
 } from "./booking-queries";
 import { toBookingQueryError } from "./booking-query-error";
@@ -299,6 +296,108 @@ describe("bookingQuoteAtom request", () => {
   });
 });
 
+describe("bookingQuoteAtom early setup", () => {
+  const meetingRoom = (date: string): CustomerBookingSelection => ({
+    family: "meeting-room",
+    date,
+    startTime: "14:00",
+    duration: "hour:1",
+  });
+
+  test("keeps a quote with early setup apart from one without", () => {
+    const selection = meetingRoom("2020-01-06");
+    expect(bookingQuoteAtom(selection, "en-US", { earlySetup: true })).not.toBe(
+      bookingQuoteAtom(selection, "en-US")
+    );
+    expect(bookingQuoteAtom(selection, "en-US", { earlySetup: false })).toBe(
+      bookingQuoteAtom(selection, "en-US")
+    );
+  });
+
+  test("asks for the early setup, which the quote's room line then lists", async () => {
+    const harness = withTestClock();
+    const selection = meetingRoom(harness.booking.dateIn(20));
+    const earlySetupOf = async (earlySetup: boolean) => {
+      const atom = bookingQuoteAtom(selection, "en-US", { earlySetup });
+      const unmount = harness.registry.mount(atom);
+      const result = await settle(harness.registry, atom);
+      unmount();
+      return result._tag === "Success"
+        ? result.success.summary.sections[0]?.items[0]?.earlySetup
+        : "failed";
+    };
+
+    expect(await earlySetupOf(true)).toMatchObject({
+      startsAt: expect.any(String),
+    });
+    expect(await earlySetupOf(false)).toBeUndefined();
+  });
+});
+
+describe("bookingOfferingsAtom rollover", () => {
+  // A minute before Prague midnight (CET) ends 17 November 2026.
+  const beforeMidnight = new Date("2026-11-17T22:59:00Z");
+  const afterMidnight = new Date("2026-11-17T23:00:30Z");
+
+  /** A mounted offerings read on a test clock a minute before midnight. */
+  const mountedBeforeMidnight = async () => {
+    const harness = withTestClock();
+    harness.booking.now = () => beforeMidnight;
+    const atom = bookingOfferingsAtom("en-US");
+    harness.registry.mount(atom);
+    await settle(harness.registry, atom);
+    // The test clock starts at the epoch, and the mounted read keeps its
+    // runtime; move the clock to the instant the server answered at.
+    await harness.adjust(Duration.millis(beforeMidnight.getTime()));
+    await flush();
+    const offeringsCalls = () =>
+      harness.booking.endpoints.filter(
+        (endpoint) => endpoint === "listOfferings"
+      ).length;
+    return { ...harness, atom, offeringsCalls };
+  };
+
+  test("reads the offerings again once the Prague date passes their advertisedOn", async () => {
+    const harness = await mountedBeforeMidnight();
+
+    await harness.adjust(Duration.seconds(59));
+    await flush();
+    expect(harness.offeringsCalls()).toBe(1);
+
+    harness.booking.now = () => afterMidnight;
+    await harness.adjust(Duration.seconds(1));
+    await flush();
+    const next = await settle(harness.registry, harness.atom);
+
+    expect(harness.offeringsCalls()).toBe(2);
+    expect(next._tag === "Success" && next.success.advertisedOn).toBe(
+      "2026-11-18"
+    );
+  });
+
+  test("asks a server still answering for the day before again after a pause, not in a loop", async () => {
+    const harness = await mountedBeforeMidnight();
+
+    // The server's clock lags: it still answers for 17 November.
+    await harness.adjust(Duration.minutes(1));
+    await flush();
+    await settle(harness.registry, harness.atom);
+    expect(harness.offeringsCalls()).toBe(2);
+
+    await harness.adjust(
+      Duration.millis(Duration.toMillis(offeringsRolloverRetryDelay) - 1)
+    );
+    await flush();
+    expect(harness.offeringsCalls()).toBe(2);
+
+    harness.booking.now = () => afterMidnight;
+    await harness.adjust(Duration.millis(1));
+    await flush();
+    await settle(harness.registry, harness.atom);
+    expect(harness.offeringsCalls()).toBe(3);
+  });
+});
+
 describe("bookingQuoteAtom refresh", () => {
   test("reads the quote again every four minutes while mounted", async () => {
     const harness = withTestClock();
@@ -530,6 +629,11 @@ describe("catalog idle TTL", () => {
     unmount();
     await elapse("100 millis");
     const unmountReturn = registry.mount(atom);
+    // `Atom.swr` revalidates a stale value on the registry's next task, not
+    // in the read the screen mounts with, which still holds the failed
+    // refresh and so no token to redeem.
+    const onArrival = registry.get(atom);
+    await drain();
     const onReturn = registry.get(atom);
     const returned = await settle(registry, atom);
     unmountReturn();
@@ -538,6 +642,7 @@ describe("catalog idle TTL", () => {
       shown._tag === "Failure" && toBookingQueryError(shown.failure)
     ).toMatchObject({ _tag: "RateLimited" });
     expect(readsWhileShown).toBe(1);
+    expect(onArrival).toMatchObject({ _tag: "Failure", waiting: false });
     expect(
       onReturn._tag === "Success" &&
         !onReturn.waiting &&

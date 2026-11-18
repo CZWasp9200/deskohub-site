@@ -3,7 +3,11 @@ import {
   formatInvoiceTotal,
   InvoiceSettlement,
 } from "@/features/accounting/invoice-settlement";
-import { localizeAdministrationHref } from "@/features/administration/administration-href";
+import { AdministrationLink as Link } from "@/features/administration/admin-link";
+import {
+  administrationHref,
+  localizeAdministrationHref,
+} from "@/features/administration/administration-href";
 import {
   AdministrationDetailSection,
   AdministrationPage,
@@ -17,13 +21,22 @@ import { m } from "@/features/administration/i18n";
 import { AdministrationRouteLoading } from "@/features/administration/loading";
 import type { Locale } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
+import type {
+  InvoiceAdministrationCancellation,
+  InvoiceAdministrationDetail,
+} from "./invoice-administration.service";
 import {
+  InvoiceCancellationActions,
   InvoiceDeliverySummary,
   InvoiceDetailActions,
-  InvoicePaymentStatusBadge,
+  InvoiceStatusBadges,
 } from "./invoice-detail";
 import { getInvoiceSourceLabel } from "./invoice-display";
-import { loadInvoiceAdministrationDetail } from "./page-data.server";
+import {
+  type InvoiceAdministrationChainLink,
+  loadInvoiceAdministrationChainLinks,
+  loadInvoiceAdministrationDetail,
+} from "./page-data.server";
 
 export async function InvoiceAdministrationDetailScreen({
   params,
@@ -47,6 +60,7 @@ async function InvoiceDetailContent({
 }) {
   const { invoiceId } = await params;
   const invoice = await loadInvoiceAdministrationDetail(invoiceId);
+  const chain = await loadInvoiceAdministrationChainLinks(invoice);
   return (
     <AdministrationPage>
       <AdministrationPageHeader
@@ -76,6 +90,13 @@ async function InvoiceDetailContent({
           />
         </section>
         <div className="space-y-6">
+          {invoice.cancellation && (
+            <InvoiceCancellationSection
+              cancellation={invoice.cancellation}
+              invoice={invoice}
+              locale={locale}
+            />
+          )}
           <AdministrationDetailSection
             title={m.accountingInvoiceDetailPaymentSection({}, { locale })}
           >
@@ -85,7 +106,7 @@ async function InvoiceDetailContent({
                   {m.accountingInvoiceDetailStatus({}, { locale })}
                 </dt>
                 <dd className="mt-1">
-                  <InvoicePaymentStatusBadge status={invoice.paymentStatus} />
+                  <InvoiceStatusBadges invoice={invoice} />
                 </dd>
               </div>
               {InvoiceSettlement.$is("PaymentRequested")(
@@ -149,10 +170,124 @@ async function InvoiceDetailContent({
                   {formatAdministrationDateTime(invoice.issuedAt, locale)}
                 </dd>
               </div>
+              {chain.replaces && (
+                <InvoiceChainFact
+                  label={m.accountingInvoiceDetailReplaces({}, { locale })}
+                  link={chain.replaces}
+                />
+              )}
+              {chain.replacedBy && (
+                <InvoiceChainFact
+                  label={m.accountingInvoiceDetailReplacedBy({}, { locale })}
+                  link={chain.replacedBy}
+                />
+              )}
             </dl>
           </AdministrationDetailSection>
         </div>
       </div>
     </AdministrationPage>
+  );
+}
+
+/** Links a related invoice the Admin UI still shows. */
+function InvoiceChainFact({
+  label,
+  link,
+}: {
+  readonly label: string;
+  readonly link: InvoiceAdministrationChainLink;
+}) {
+  return (
+    <div>
+      <dt className="text-navy-blue/60">{label}</dt>
+      <dd className="font-semibold">
+        <Link
+          className="underline underline-offset-4"
+          href={administrationHref("/[locale]/admin/invoices/[invoiceId]", {
+            invoiceId: link.id,
+          })}
+        >
+          {link.invoiceNumber}
+        </Link>
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * A cancelled invoice's cancellation: when, by whom, through which channel
+ * and why, its credit note, the notices, and hiding the invoice.
+ */
+function InvoiceCancellationSection({
+  cancellation,
+  invoice,
+  locale,
+}: {
+  readonly cancellation: InvoiceAdministrationCancellation;
+  readonly invoice: InvoiceAdministrationDetail;
+  readonly locale: Locale;
+}) {
+  const facts = [
+    {
+      label: m.accountingInvoiceCancellationCancelledAt({}, { locale }),
+      value: formatAdministrationDateTime(cancellation.cancelledAt, locale),
+    },
+    {
+      label: m.accountingInvoiceCancellationActor({}, { locale }),
+      value: cancellation.actor,
+    },
+    {
+      label: m.accountingInvoiceCancellationChannel({}, { locale }),
+      value: getInvoiceSourceLabel(cancellation.source, locale),
+    },
+    {
+      label: m.accountingInvoiceCancellationCause({}, { locale }),
+      value: {
+        invoice_cancellation: m.accountingInvoiceCancellationCauseInvoice,
+        reservation_cancellation:
+          m.accountingInvoiceCancellationCauseReservation,
+      }[cancellation.cause]({}, { locale }),
+    },
+  ];
+  return (
+    <AdministrationDetailSection
+      title={m.accountingInvoiceCancellationSection({}, { locale })}
+    >
+      <div className="space-y-4">
+        <dl className="space-y-3 text-sm">
+          {facts.map((fact) => (
+            <div key={fact.label}>
+              <dt className="text-navy-blue/60">{fact.label}</dt>
+              <dd className="font-semibold">{fact.value}</dd>
+            </div>
+          ))}
+          <div>
+            <dt className="text-navy-blue/60">
+              {m.accountingInvoiceCancellationCreditNote({}, { locale })}
+            </dt>
+            <dd className="font-semibold">
+              <a
+                className="underline underline-offset-4"
+                download
+                href={localizeAdministrationHref(
+                  cancellation.correctiveDocumentPdfUrl,
+                  locale
+                )}
+              >
+                {cancellation.correctiveDocumentNumber}
+              </a>
+            </dd>
+          </div>
+        </dl>
+        <InvoiceCancellationActions
+          invoice={{
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            cancellation,
+          }}
+        />
+      </div>
+    </AdministrationDetailSection>
   );
 }

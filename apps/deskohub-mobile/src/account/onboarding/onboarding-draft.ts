@@ -4,7 +4,8 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import type {
   CompletionDraft,
   CompletionTextField,
@@ -32,10 +33,11 @@ export type CompletionRequiredAccount = Extract<
 export function useOnboardingDraft(account: CompletionRequiredAccount) {
   const invitationCode = invitationCodeOf(account);
   const phoneRegion = accountPhoneRegion(account.locale);
+  const deviceCountry = useDeviceCountry();
   const [edits, setEdits] = useAtom(completionEditsAtom);
   const result = useAtomValue(completeProfileAtom);
   const complete = useAtomSet(completeProfileAtom);
-  const draft = currentCompletionDraft(edits, invitationCode);
+  const draft = currentCompletionDraft(edits, invitationCode, deviceCountry);
   // The last submit's message and field problems no longer describe it.
   const resetSubmit = () => {
     if (!result.waiting) complete(Atom.Reset);

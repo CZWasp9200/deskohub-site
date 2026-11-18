@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { Cause, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import type {
   ReservationGroups,
   ReservationListRow,

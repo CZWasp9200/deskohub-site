@@ -42,7 +42,7 @@ const decodeContactFormSubmission = SchemaParser.decodeUnknownEffect(
 
 const contactFormDataSchema = Schema.FormData.pipe(
   Schema.decodeTo(contactFormSubmissionSchema, {
-    decode: SchemaGetter.transformOrFail((formData, options) =>
+    decode: SchemaGetter.transformEffect((formData, options) =>
       decodeContactFormSubmission(
         {
           locale: getSubmittedString(formData, "locale"),

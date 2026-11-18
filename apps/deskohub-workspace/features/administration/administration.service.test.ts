@@ -1,17 +1,25 @@
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import "@/shared/testing/workspace-test-env";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
+  type DotyposCustomer,
   DotyposCustomerIdSchema,
   type DotyposService,
   DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
+import { AdministrationReservationAuthor } from "@deskohub/workspace-admin-api";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { Cause, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  paymentAttempts,
+  reservationAccessGrants,
+  workspaceReservations,
+} from "@/db/schema";
 import {
   type ReservationAuthor,
   ReservationAuthorDirectory,
@@ -21,12 +29,16 @@ import {
   type CustomerAccountId,
   customerAccountIdSchema,
 } from "@/features/account/customer-account";
+import { checkoutSessionKeySchema } from "@/features/checkout/checkout-identifiers";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { workspaceSiteConstants } from "@/shared/utils";
 import {
+  type AdministrationReservationDetail,
   AdministrationService,
   getAdministrationReservationOverview,
 } from "./administration.service";
+import { inactiveCustomerDisplayNames } from "./customer-name";
 import { PaymentAdministrationServiceMock } from "./payment-administration.service.mock";
 import { PostHogReservationHistory } from "./posthog-reservation-history";
 
@@ -85,6 +97,13 @@ const reservationAuthorsMock = (
     ReservationAuthorDirectory.of({ describe })
   );
 
+/** The service over a reservation repository these tests never reach. */
+const testAdministrationLayer = AdministrationService.Default.pipe(
+  // Reached only when a restore would reissue an invoice.
+  Layer.provide(Layer.mock(ReservationInvoiceService, {})),
+  Layer.provide(Layer.mock(WorkspaceReservationRepository, {}))
+);
+
 afterEach(() => setSystemTime());
 
 describe("AdministrationService", () => {
@@ -110,7 +129,7 @@ describe("AdministrationService", () => {
       });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -156,6 +175,89 @@ describe("AdministrationService", () => {
 
     expect(result.items).toHaveLength(24);
     expect(result.items[0]?.status).toBe("CANCELLED");
+  });
+
+  test("lists a booking's deleted or expired customer by the placeholder, without contact details", async () => {
+    const bookings = ["active", "deleted", "expired"].map((lifecycle) => ({
+      _branchId: "branch",
+      _cloudId: "cloud",
+      _customerId: `customer-${lifecycle}`,
+      id: `booking-${lifecycle}`,
+      startDate: "2026-08-10T10:00:00+02:00",
+      endDate: "2026-08-10T10:30:00+02:00",
+      seats: "1",
+      status: "NEW" as const,
+    }));
+    const contact = {
+      firstName: "Synthetic",
+      lastName: "Booker",
+      email: testEmailAddress("administration-booker"),
+      phone: "+420000000010",
+    };
+    const customers = [
+      { ...contact, id: "customer-active" },
+      { ...contact, id: "customer-deleted", deleted: true },
+      {
+        ...contact,
+        id: "customer-expired",
+        expireDate: "2020-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = await Effect.gen(function* () {
+      const administration = yield* AdministrationService;
+      return yield* administration.listBookings({
+        date: "2026-08-10",
+        page: 1,
+      });
+    }).pipe(
+      Effect.provide(
+        testAdministrationLayer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(
+                WorkspaceDatabase,
+                WorkspaceDatabase.make({ select: () => makeQuery([]) } as never)
+              ),
+              DotyposServiceMock({
+                getCustomersByIds: (ids) =>
+                  makeInMemoryDotypos({ customers }).service.getCustomersByIds(
+                    ids
+                  ),
+                getTables: () => Effect.succeed([]),
+                listReservations: () => Effect.succeed(bookings),
+              }),
+              Layer.succeed(
+                PostHogReservationHistory,
+                PostHogReservationHistory.of({
+                  load: () => Effect.succeed({ kind: "unavailable" } as const),
+                })
+              ),
+              reservationAuthorsMock(),
+              PaymentAdministrationServiceMock({})
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    const customerOf = (id: string) =>
+      result.items.find((booking) => booking.id === id)?.customer;
+    expect(customerOf("booking-active")).toMatchObject({
+      displayName: "Synthetic Booker",
+      lifecycle: "active",
+      email: contact.email,
+    });
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(customerOf(`booking-${lifecycle}`)).toEqual({
+        id: `customer-${lifecycle}`,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
   });
 
   test("lists early-setup bookings on their booked start", async () => {
@@ -209,7 +311,7 @@ describe("AdministrationService", () => {
       });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -322,7 +424,7 @@ describe("AdministrationService", () => {
       });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -420,7 +522,7 @@ describe("AdministrationService", () => {
       });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -506,7 +608,7 @@ describe("AdministrationService", () => {
       yield* administration.listReservations({ to: "2026-08-12" });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -598,7 +700,7 @@ describe("AdministrationService", () => {
       });
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -704,7 +806,7 @@ describe("AdministrationService", () => {
       return yield* administration.listReservations({});
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -823,7 +925,7 @@ describe("AdministrationService", () => {
       return yield* administration.listReservations({});
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -959,7 +1061,7 @@ describe("AdministrationService", () => {
       return yield* administration.listReservations({});
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -1058,15 +1160,23 @@ describe("AdministrationService", () => {
     ]);
   });
 
-  test("keeps an English customer name for the API and flags an unnamed customer", async () => {
+  test("keeps an English customer name for the API and flags unnamed, deleted and expired customers", async () => {
     const lastActivityAt = Temporal.Instant.from("2026-08-14T12:00:00Z");
     const rows = [
-      [{ value: 2 }],
+      [{ value: 4 }],
       [
         { customerId: "named-customer", reservationCount: 1, lastActivityAt },
         { customerId: "unnamed-customer", reservationCount: 1, lastActivityAt },
+        { customerId: "deleted-customer", reservationCount: 1, lastActivityAt },
+        { customerId: "expired-customer", reservationCount: 1, lastActivityAt },
       ],
     ] as const;
+    const formerContact = {
+      firstName: "Synthetic",
+      lastName: "Former",
+      email: testEmailAddress("former-customer"),
+      phone: "+420000000009",
+    };
     let selectCall = 0;
 
     const result = await Effect.gen(function* () {
@@ -1074,7 +1184,7 @@ describe("AdministrationService", () => {
       return yield* administration.listCustomers({});
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -1088,6 +1198,16 @@ describe("AdministrationService", () => {
                   Effect.succeed([
                     { companyName: " Acme Studio ", id: "named-customer" },
                     { companyName: " ", id: "unnamed-customer" },
+                    {
+                      ...formerContact,
+                      deleted: true,
+                      id: "deleted-customer",
+                    },
+                    {
+                      ...formerContact,
+                      expireDate: "2020-01-01T00:00:00Z",
+                      id: "expired-customer",
+                    },
                   ]).pipe(
                     Effect.flatMap((records) =>
                       makeInMemoryDotypos({
@@ -1121,6 +1241,15 @@ describe("AdministrationService", () => {
       displayName: "Unnamed customer",
       hasName: false,
     });
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(customerNamed(`${lifecycle}-customer`)).toEqual({
+        id: `${lifecycle}-customer`,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
   });
 
   test("rethrows Next prerender interruptions instead of returning unavailable details", async () => {
@@ -1145,7 +1274,7 @@ describe("AdministrationService", () => {
       return yield* administration.listCustomers({});
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -1361,7 +1490,7 @@ describe("AdministrationService", () => {
         return yield* administration.loadOverview(source);
       }).pipe(
         Effect.provide(
-          AdministrationService.Default.pipe(
+          testAdministrationLayer.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(
@@ -1382,6 +1511,13 @@ describe("AdministrationService", () => {
                             : customerCreatedAt.get(id),
                         firstName: id.replace("customer-", ""),
                         id,
+                        // The Overview shows deleted and expired customers by their placeholder.
+                        ...(id === "customer-boundary-end" && {
+                          deleted: true,
+                        }),
+                        ...(id === "customer-boundary-start" && {
+                          expireDate: "2020-01-01T00:00:00Z",
+                        }),
                       }));
                     }).pipe(
                       Effect.flatMap((records) =>
@@ -1490,6 +1626,7 @@ describe("AdministrationService", () => {
           customer: {
             displayName: "new-a",
             hasName: true,
+            lifecycle: "active",
             email: null,
             id: "customer-new-a",
             phone: null,
@@ -1498,8 +1635,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-end",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.deleted,
+            hasName: false,
+            lifecycle: "deleted",
             email: null,
             id: "customer-boundary-end",
             phone: null,
@@ -1508,8 +1646,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-start",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.expired,
+            hasName: false,
+            lifecycle: "expired",
             email: null,
             id: "customer-boundary-start",
             phone: null,
@@ -1529,6 +1668,7 @@ describe("AdministrationService", () => {
           customer: {
             displayName: "new-a",
             hasName: true,
+            lifecycle: "active",
             email: null,
             id: "customer-new-a",
             phone: null,
@@ -1537,8 +1677,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-start",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.expired,
+            hasName: false,
+            lifecycle: "expired",
             email: null,
             id: "customer-boundary-start",
             phone: null,
@@ -1593,7 +1734,7 @@ describe("AdministrationService", () => {
     ];
     let listReservationsCalls = 0;
     let databaseQueries = 0;
-    const administrationLayer = AdministrationService.Default.pipe(
+    const administrationLayer = testAdministrationLayer.pipe(
       Layer.provide(
         Layer.mergeAll(
           Layer.succeed(
@@ -1690,7 +1831,7 @@ describe("AdministrationService", () => {
       return { overview: yield* administration.loadOverview(source), source };
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -1921,7 +2062,7 @@ describe("AdministrationService", () => {
       return yield* administration.loadBooking("missing-booking");
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -1972,7 +2113,7 @@ describe("AdministrationService", () => {
       }).pipe(
         Effect.flip,
         Effect.provide(
-          AdministrationService.Default.pipe(
+          testAdministrationLayer.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(
@@ -2018,7 +2159,7 @@ describe("AdministrationService", () => {
       );
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -2050,7 +2191,7 @@ describe("AdministrationService", () => {
       return yield* administration.loadBookingBreadcrumb("dotypos-booking");
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -2112,7 +2253,7 @@ describe("AdministrationService", () => {
       return yield* administration.loadBookingBreadcrumb("early-setup");
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -2258,7 +2399,7 @@ describe("AdministrationService", () => {
       );
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -2431,7 +2572,7 @@ describe("AdministrationService", () => {
       );
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -2495,7 +2636,7 @@ describe("AdministrationService", () => {
       return yield* administration.loadReservationActivity();
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -3015,7 +3156,7 @@ describe("AdministrationService", () => {
       );
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -3123,7 +3264,7 @@ describe("AdministrationService", () => {
           : service.loadCustomerActivity("synthetic-customer")
       ).pipe(
         Effect.provide(
-          AdministrationService.Default.pipe(
+          testAdministrationLayer.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(
@@ -3202,7 +3343,7 @@ describe("AdministrationService", () => {
       return yield* administration.loadCustomerActivity("dotypos-customer");
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -3243,12 +3384,15 @@ describe("AdministrationService reservation author", () => {
   const authorEmail = testEmailAddress("administration-author");
   const now = Temporal.Instant.from("2026-10-17T08:00:00Z");
 
-  const loadAuthor = async ({
+  const loadDetail = async ({
     accountId,
     describe,
+    customerFields = {},
   }: {
     readonly accountId: CustomerAccountId;
     readonly describe: ReservationAuthorDirectory["Service"]["describe"];
+    /** Applied to both the reservation's customer and the author's own customer. */
+    readonly customerFields?: Partial<DotyposCustomer>;
   }) => {
     let selectCall = 0;
     const row = {
@@ -3281,7 +3425,7 @@ describe("AdministrationService reservation author", () => {
       return yield* administration.loadReservation(row.id);
     }).pipe(
       Effect.provide(
-        AdministrationService.Default.pipe(
+        testAdministrationLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
@@ -3296,7 +3440,13 @@ describe("AdministrationService reservation author", () => {
               DotyposServiceMock({
                 getCustomer: (id) =>
                   Effect.succeed(
-                    Option.some({ id, firstName: "Bea", lastName: "Booked" })
+                    Option.some({
+                      id,
+                      firstName: "Bea",
+                      lastName: "Booked",
+                      email: testEmailAddress("administration-booked"),
+                      ...customerFields,
+                    })
                   ),
                 getCustomersByIds: (ids) =>
                   Effect.succeed(
@@ -3306,6 +3456,7 @@ describe("AdministrationService reservation author", () => {
                             id: authorCustomerId,
                             firstName: "Ada",
                             lastName: "Author",
+                            ...customerFields,
                           },
                         ]
                       : []
@@ -3345,6 +3496,13 @@ describe("AdministrationService reservation author", () => {
       ),
       Effect.runPromise
     );
+    return detail;
+  };
+
+  const loadAuthor = async (
+    input: Parameters<typeof loadDetail>[0]
+  ): Promise<AdministrationReservationDetail["author"] | undefined> => {
+    const detail = await loadDetail(input);
     expect(detail?.reservation.customer?.displayName).toBe("Bea Booked");
     return detail?.author;
   };
@@ -3388,9 +3546,81 @@ describe("AdministrationService reservation author", () => {
       customerId: authorCustomerId,
       displayName: "Ada Author",
       hasName: true,
+      lifecycle: "active",
       email: authorEmail,
     });
   });
+
+  test.each(["deleted", "expired"] as const)(
+    "shows a %s customer and author by the placeholder, without the customer's contact details",
+    async (lifecycle) => {
+      const detail = await loadDetail({
+        accountId: authorAccountId,
+        customerFields:
+          lifecycle === "deleted"
+            ? { deleted: true }
+            : { expireDate: "2020-01-01T00:00:00Z" },
+        describe: describing({
+          kind: "active",
+          accountId: authorAccountId,
+          dotyposCustomerId: authorCustomerId,
+          email: authorEmail,
+          locale: null,
+        }),
+      });
+      const placeholder = {
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+      };
+
+      expect(detail?.reservation.customer).toEqual({
+        id: customerId,
+        ...placeholder,
+        email: null,
+        phone: null,
+      });
+      // The contract requires the author's email, so it is empty, never the login email.
+      expect(detail?.author).toEqual({
+        kind: "account",
+        customerId: authorCustomerId,
+        ...placeholder,
+        email: "",
+      });
+    }
+  );
+
+  test.each(["deleted", "expired"] as const)(
+    "keeps a %s author's login email off the administration API",
+    async (lifecycle) => {
+      const detail = await loadDetail({
+        accountId: authorAccountId,
+        customerFields:
+          lifecycle === "deleted"
+            ? { deleted: true }
+            : { expireDate: "2020-01-01T00:00:00Z" },
+        describe: describing({
+          kind: "active",
+          accountId: authorAccountId,
+          dotyposCustomerId: authorCustomerId,
+          email: authorEmail,
+          locale: null,
+        }),
+      });
+
+      const encoded = Schema.encodeSync(AdministrationReservationAuthor)(
+        detail?.author ?? { kind: "unavailable" }
+      );
+
+      expect(encoded).toEqual({
+        kind: "account",
+        customerId: authorCustomerId,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        email: "",
+      });
+      expect(JSON.stringify(encoded)).not.toContain(authorEmail);
+    }
+  );
 
   test("names an author without a linked customer as unnamed", async () => {
     const author = await loadAuthor({
@@ -3409,6 +3639,7 @@ describe("AdministrationService reservation author", () => {
       customerId: null,
       displayName: "Unnamed customer",
       hasName: false,
+      lifecycle: "active",
       email: authorEmail,
     });
   });
@@ -3432,5 +3663,325 @@ describe("AdministrationService reservation author", () => {
     });
 
     expect(author).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("AdministrationService reservation restoration", () => {
+  const cancelledAt = Temporal.Instant.from("2026-10-17T08:00:00Z");
+  const checkoutSessionKey = checkoutSessionKeySchema.make("restore-session");
+  const cancelledRow = {
+    id: workspaceReservationIdSchema.make("cancelled-reservation"),
+    authorAccountId: null,
+    dotyposCustomerId: "restore-customer",
+    dotyposReservationId: "restore-booking",
+    reservationState: "cancelled",
+    paymentState: "paid",
+    fulfillmentState: "fulfilled",
+    reservationDetails: {
+      kind: "cowork",
+      entryTier: "open-space",
+      coffee: false,
+    },
+    reservationPurpose: null,
+    reservationCreatedAt: cancelledAt,
+    reservationConfirmedAt: cancelledAt,
+    reservationCancelledAt: cancelledAt,
+    reservationHoldExpiredAt: null,
+    paidAt: cancelledAt,
+    fulfilledAt: cancelledAt,
+    fulfillmentFailedAt: null,
+    failureCode: null,
+    cancellationEmailSentAt: cancelledAt,
+    checkoutSessionKey,
+    createdAt: cancelledAt,
+    updatedAt: cancelledAt,
+  };
+  const paidAttempt = (
+    id: string,
+    amountValue: number,
+    refund:
+      | { readonly refundState: "not_required" | "required" }
+      | {
+          readonly refundState: "refunded";
+          readonly refundedAmountValue: number;
+        }
+  ) => ({
+    id,
+    workspaceReservationId: cancelledRow.id,
+    providerOrderId: null,
+    provider: "nexi",
+    state: "paid",
+    failureCode: null,
+    refundedAmountValue: null,
+    refundedAt: refund.refundState === "refunded" ? cancelledAt : null,
+    ...refund,
+    amountValue,
+    amountExponent: 2,
+    currency: "CZK",
+    createdAt: cancelledAt,
+    providerOrderCreatedAt: null,
+    updatedAt: cancelledAt,
+  });
+  const booking = ({
+    endDate,
+    startDate = Temporal.Instant.from(endDate)
+      .subtract({ hours: 8 })
+      .toString(),
+  }: {
+    readonly endDate: string;
+    readonly startDate?: string;
+  }) => ({
+    _branchId: "branch",
+    _cloudId: "cloud",
+    _customerId: "restore-customer",
+    id: "restore-booking",
+    startDate,
+    endDate,
+    seats: "1",
+    status: "CANCELLED" as const,
+  });
+  const accessGrant = (state: "expired" | "uncertain") => ({
+    id: "restore-grant",
+    state,
+    provider: "igloohome",
+    credentialType: "algopin_hourly",
+    deviceId: "EK1",
+    providerCredentialId: null,
+    accessName: "Deskohub restore",
+    scheduledStartsAt: cancelledAt,
+    startsAt: cancelledAt,
+    endsAt: cancelledAt.add({ hours: 8 }),
+    provisioningStartedAt: null,
+    issuedAt: null,
+    failedAt: null,
+    failureCode: null,
+    createdAt: cancelledAt,
+    updatedAt: cancelledAt,
+  });
+  const upcoming = "2099-08-10T16:00:00Z";
+  const ended = "2020-08-10T16:00:00Z";
+
+  const loadRestorable = async ({
+    attempts = [],
+    grant = null,
+    held = { endDate: upcoming },
+    row = {},
+    successor = null,
+  }: {
+    readonly attempts?: readonly ReturnType<typeof paidAttempt>[];
+    readonly grant?: ReturnType<typeof accessGrant> | null;
+    /** The span Dotypos holds; null when Dotypos can't read the booking. */
+    readonly held?: Parameters<typeof booking>[0] | null;
+    readonly row?: Partial<typeof cancelledRow>;
+    readonly successor?: { readonly id: string } | null;
+  }) => {
+    const successorLookups: string[] = [];
+    let reservationReads = 0;
+    const rowsFrom = (table: PgTable): readonly unknown[] => {
+      if (table === workspaceReservations) {
+        // The reservation is the first read; it has no related reservations.
+        return reservationReads++ === 0 ? [{ ...cancelledRow, ...row }] : [];
+      }
+      if (table === reservationAccessGrants) return grant ? [grant] : [];
+      return table === paymentAttempts ? attempts : [];
+    };
+    const detail = await Effect.gen(function* () {
+      const administration = yield* AdministrationService;
+      return yield* administration.loadReservation(cancelledRow.id);
+    }).pipe(
+      Effect.provide(
+        AdministrationService.Default.pipe(
+          // Reached only when a restore would reissue an invoice.
+          Layer.provide(Layer.mock(ReservationInvoiceService, {})),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(WorkspaceReservationRepository, {
+                findCurrentByCheckoutSessionKey: (key) => {
+                  successorLookups.push(key);
+                  return Effect.succeed(successor as never);
+                },
+              }),
+              Layer.succeed(
+                WorkspaceDatabase,
+                WorkspaceDatabase.make({
+                  select: () => ({
+                    from: (table: PgTable) => makeQuery(rowsFrom(table)),
+                  }),
+                } as never)
+              ),
+              DotyposServiceMock({
+                getCustomer: (id) => Effect.succeed(Option.some({ id })),
+                getReservation: (id) =>
+                  held === null
+                    ? Effect.fail(
+                        new DotyposUnavailable({
+                          operation: "getReservation",
+                          reason: "server",
+                        })
+                      )
+                    : Effect.succeed(
+                        Option.some({
+                          customer: { id: "restore-customer" },
+                          reservation: { ...booking(held), id },
+                        } as never)
+                      ),
+                getTables: () => Effect.succeed([]),
+                listReservations: () => Effect.succeed([]),
+              }),
+              Layer.succeed(
+                PostHogReservationHistory,
+                PostHogReservationHistory.of({
+                  load: () => Effect.succeed({ kind: "unavailable" } as const),
+                })
+              ),
+              reservationAuthorsMock(),
+              PaymentAdministrationServiceMock({
+                loadReservationOrders: () => Effect.succeed([]),
+              })
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+    return {
+      canRestore: detail?.canRestore,
+      restoration: detail?.restoration,
+      successorLookups,
+    };
+  };
+
+  test("offers to restore a cancelled paid reservation and says what restoring does", async () => {
+    const result = await loadRestorable({
+      attempts: [paidAttempt("attempt", 50_000, { refundState: "required" })],
+    });
+
+    expect(result).toEqual({
+      canRestore: true,
+      restoration: {
+        cancellationEmailRecorded: true,
+        issuesNewAccess: true,
+        // The unit fake reads no invoice; Postgres covers a reissued one.
+        issuesNewInvoice: false,
+        clearsRefundRequirement: true,
+        refundedPayment: null,
+      },
+      successorLookups: [checkoutSessionKey],
+    });
+  });
+
+  test("issues no new access for an ended reservation and offers no email without a recorded cancellation email", async () => {
+    const { restoration } = await loadRestorable({
+      held: { endDate: ended },
+      row: { cancellationEmailSentAt: null },
+      attempts: [
+        paidAttempt("attempt", 50_000, { refundState: "not_required" }),
+      ],
+    });
+
+    expect(restoration).toMatchObject({
+      cancellationEmailRecorded: false,
+      issuesNewAccess: false,
+      clearsRefundRequirement: false,
+    });
+  });
+
+  test("reports a full refund with its total and leaves nothing to clear", async () => {
+    const { restoration } = await loadRestorable({
+      attempts: [
+        paidAttempt("first", 30_000, {
+          refundState: "refunded",
+          refundedAmountValue: 30_000,
+        }),
+        paidAttempt("second", 20_000, {
+          refundState: "refunded",
+          refundedAmountValue: 20_000,
+        }),
+      ],
+    });
+
+    expect(restoration).toMatchObject({
+      clearsRefundRequirement: false,
+      refundedPayment: {
+        amount: { value: 50_000, exponent: 2, currency: "CZK" },
+        coverage: "full",
+      },
+    });
+  });
+
+  test("reports a partial refund with the total refunded, beside a refund still owed", async () => {
+    const { restoration } = await loadRestorable({
+      attempts: [
+        paidAttempt("refunded", 30_000, {
+          refundState: "refunded",
+          refundedAmountValue: 10_000,
+        }),
+        paidAttempt("owed", 20_000, { refundState: "required" }),
+      ],
+    });
+
+    expect(restoration).toMatchObject({
+      clearsRefundRequirement: true,
+      refundedPayment: {
+        amount: { value: 10_000, exponent: 2, currency: "CZK" },
+        coverage: "partial",
+      },
+    });
+  });
+
+  test("doesn't offer to restore a reservation its checkout session replaced", async () => {
+    expect(
+      await loadRestorable({ successor: { id: "successor-reservation" } })
+    ).toEqual({
+      canRestore: false,
+      restoration: null,
+      successorLookups: [checkoutSessionKey],
+    });
+  });
+
+  test("doesn't look for a successor of a reservation that isn't restorable", async () => {
+    for (const row of [
+      { reservationState: "confirmed", reservationCancelledAt: null },
+      { paymentState: "cancelled" },
+      { reservationHoldExpiredAt: cancelledAt },
+    ] as const) {
+      expect(await loadRestorable({ row })).toEqual({
+        canRestore: false,
+        restoration: null,
+        successorLookups: [],
+      });
+    }
+  });
+
+  test("doesn't offer to restore while Dotypos can't read the booking", async () => {
+    for (const held of [
+      null,
+      { startDate: upcoming, endDate: "2099-08-10T08:00:00Z" },
+    ]) {
+      expect(await loadRestorable({ held })).toEqual({
+        canRestore: false,
+        restoration: null,
+        successorLookups: [],
+      });
+    }
+  });
+
+  test("issues new access exactly while the reservation hasn't ended, whatever its grant", async () => {
+    for (const state of ["expired", "uncertain"] as const) {
+      for (const [endDate, issuesNewAccess] of [
+        [upcoming, true],
+        [ended, false],
+      ] as const) {
+        const { restoration } = await loadRestorable({
+          grant: accessGrant(state),
+          held: { endDate },
+        });
+        expect({
+          state,
+          endDate,
+          issues: restoration?.issuesNewAccess,
+        }).toEqual({ state, endDate, issues: issuesNewAccess });
+      }
+    }
   });
 });

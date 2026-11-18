@@ -6,7 +6,7 @@ import {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Context, Effect, Layer } from "effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {
   fakeCustomerApiLayer,

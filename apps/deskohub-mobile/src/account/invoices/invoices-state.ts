@@ -1,9 +1,6 @@
-import type {
-  CustomerInvoiceId,
-  CustomerLocale,
-} from "@deskohub/workspace-customer-api";
+import type { CustomerLocale } from "@deskohub/workspace-customer-api";
 import { Effect, Match } from "effect";
-import { type AsyncResult, Atom } from "effect/unstable/reactivity";
+import { type AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";
@@ -13,7 +10,11 @@ import {
   type DownloadShareFailure,
   downloadShareFailureOf,
 } from "../../customer-api/share-downloaded-file";
-import { invoiceListOf, invoicePdfName } from "./invoice-list-model";
+import {
+  InvoiceDownload,
+  invoiceListOf,
+  invoicePdfName,
+} from "./invoice-list-model";
 import { shareInvoicePdf } from "./invoice-pdf-share";
 
 /**
@@ -31,28 +32,34 @@ export const invoiceListAtom = Atom.family((locale: CustomerLocale) =>
   )
 );
 
-/** The invoice a download fetches; its number names the file. */
-export interface InvoiceDownload {
-  readonly id: CustomerInvoiceId;
-  readonly invoiceNumber: string;
-}
-
 /**
- * Downloads one invoice's PDF (GET /invoices/:id/pdf) and hands it to the
- * share sheet, a download on the web (`shareInvoicePdf`).
+ * Downloads an invoice's PDF (GET /invoices/:id/pdf) or its credit note's
+ * (GET /invoices/:id/corrective-document/pdf) and hands it to the share
+ * sheet, a download on the web (`shareInvoicePdf`).
  */
-const downloadInvoice = ({ id, invoiceNumber }: InvoiceDownload) =>
-  shareInvoicePdf(
-    invoicePdfName(invoiceNumber),
-    Effect.flatMap(Effect.service(CustomerApi), (api) =>
-      api.invoices.getInvoicePdf({ params: { invoiceId: id } })
-    ).pipe(customerRead({ accountRead: false }))
-  );
+const downloadInvoice = (download: InvoiceDownload) =>
+  InvoiceDownload.$match(download, {
+    Invoice: ({ id, invoiceNumber }) =>
+      shareInvoicePdf(
+        invoicePdfName(invoiceNumber),
+        Effect.flatMap(Effect.service(CustomerApi), (api) =>
+          api.invoices.getInvoicePdf({ params: { invoiceId: id } })
+        ).pipe(customerRead({ accountRead: false }))
+      ),
+    CreditNote: ({ id, correctiveDocumentNumber }) =>
+      shareInvoicePdf(
+        invoicePdfName(correctiveDocumentNumber),
+        Effect.flatMap(Effect.service(CustomerApi), (api) =>
+          api.invoices.getCorrectiveDocumentPdf({ params: { invoiceId: id } })
+        ).pipe(customerRead({ accountRead: false }))
+      ),
+  });
 
 /**
- * The invoice list's download and the outcome of the last one. One at a
- * time: the list holds every row while one downloads, so a failure always
- * belongs to the download the screen reports.
+ * The invoice list's download, of an invoice or a credit note, and the
+ * outcome of the last one. One at a time: the list holds every row while
+ * one downloads, so a failure always belongs to the download the screen
+ * reports.
  */
 export const invoiceDownloadAtom = customerDataRuntime.fn(downloadInvoice);
 

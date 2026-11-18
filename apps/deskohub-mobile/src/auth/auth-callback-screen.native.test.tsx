@@ -68,7 +68,8 @@ mock.module("expo-router", () => ({
   SplashScreen: { hideAsync: unusedRouterExport },
   Stack: unusedRouterExport,
   Tabs: unusedRouterExport,
-  useFocusEffect: unusedRouterExport,
+  // The screen keeps the update banner away while it is focused.
+  useFocusEffect: () => undefined,
   useIsFocused: unusedRouterExport,
   useNavigation: unusedRouterExport,
   usePathname: unusedRouterExport,

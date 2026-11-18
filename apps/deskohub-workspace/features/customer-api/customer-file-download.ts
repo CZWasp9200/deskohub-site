@@ -1,8 +1,8 @@
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpServerResponse } from "effect/http";
 import { attachmentContentDisposition } from "@/shared/utils/download-response";
 
 /** A file an endpoint serves as a download. */
-type CustomerFileDownload = {
+export type CustomerFileDownload = {
   readonly bytes: Uint8Array;
   readonly fileName: string;
 };

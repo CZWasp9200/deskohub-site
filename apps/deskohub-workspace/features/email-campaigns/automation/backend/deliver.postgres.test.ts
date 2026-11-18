@@ -267,11 +267,14 @@ describe.skipIf(!database)("deliver units on disposable Postgres", () => {
     expect(send.status).toBe("active");
   });
 
-  test("the pre-submit check reads each trigger kind's own moment and never withdraws a cancellation trigger", async () => {
+  test("the pre-submit check reads each trigger kind's own moment and withdraws a cancellation trigger only once a restore undid it", async () => {
     const startedNow = customerId("kind-started-now");
     const startedLater = customerId("kind-started-later");
     const finishedGone = customerId("kind-finished-gone");
     const cancellation = customerId("kind-cancellation");
+    const restored = customerId("kind-cancellation-restored");
+    const cancelledAgain = customerId("kind-cancellation-again");
+    const cancelledAt = startedAt.subtract({ minutes: 5 });
     const visits = await seedVisits("kind", [
       {
         // Started at the send instant itself.
@@ -299,13 +302,34 @@ describe.skipIf(!database)("deliver units on disposable Postgres", () => {
         startsAt: startedAt.add({ hours: 24 }),
         endsAt: startedAt.add({ hours: 26 }),
         dotyposStatus: "CANCELLED",
-        cancelledAt: startedAt.subtract({ minutes: 5 }),
+        cancelledAt,
+      },
+      {
+        // Restored since the cancellation.
+        label: "cancellation-restored",
+        customer: restored,
+        startsAt: startedAt.add({ hours: 24 }),
+        endsAt: startedAt.add({ hours: 26 }),
+      },
+      {
+        // Restored, then cancelled again later.
+        label: "cancellation-again",
+        customer: cancelledAgain,
+        startsAt: startedAt.add({ hours: 24 }),
+        endsAt: startedAt.add({ hours: 26 }),
+        dotyposStatus: "CANCELLED",
+        cancelledAt: cancelledAt.add({ minutes: 1 }),
       },
     ]);
     const engine = await setUp({
-      customers: [startedNow, startedLater, finishedGone, cancellation].map(
-        (id) => deliverProfile(id)
-      ),
+      customers: [
+        startedNow,
+        startedLater,
+        finishedGone,
+        cancellation,
+        restored,
+        cancelledAgain,
+      ].map((id) => deliverProfile(id)),
     });
     // Dotypos no longer returns the finished visit.
     engine.dotypos.setReservations(
@@ -328,11 +352,18 @@ describe.skipIf(!database)("deliver units on disposable Postgres", () => {
         triggerKind: "reservation-finished",
         reservationId: visits.ids.get("finished-gone"),
       },
-      {
-        customer: cancellation,
-        triggerKind: "reservation-cancelled",
-        reservationId: visits.ids.get("cancellation"),
-      },
+      ...(
+        [
+          [cancellation, "cancellation"],
+          [restored, "cancellation-restored"],
+          [cancelledAgain, "cancellation-again"],
+        ] as const
+      ).map(([customer, label]) => ({
+        customer,
+        triggerKind: "reservation-cancelled" as const,
+        reservationId: visits.ids.get(label),
+        triggerAt: cancelledAt,
+      })),
     ]);
 
     await engine.tick(startedAt);
@@ -343,6 +374,8 @@ describe.skipIf(!database)("deliver units on disposable Postgres", () => {
       [startedLater]: ["active", null, null],
       [finishedGone]: ["ended", "withdrawn", null],
       [cancellation]: ["ended", "sent", null],
+      [restored]: ["ended", "withdrawn", null],
+      [cancelledAgain]: ["ended", "withdrawn", null],
     });
     expect(runs.get(startedLater)!.events).toEqual(["deferred"]);
   });

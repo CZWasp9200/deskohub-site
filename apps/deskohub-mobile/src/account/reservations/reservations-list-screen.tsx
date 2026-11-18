@@ -6,7 +6,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { DateTime, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useIsFocused, useRouter } from "expo-router";
 import CalendarIcon from "lucide-react-native/icons/calendar";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
@@ -585,27 +585,30 @@ function NextAccessLine({
   const locale = useAppLocale();
   const open = useOpenReservation();
   const stubTextWidth = useStubTextWidth();
+  const withdrawalLink =
+    orderId !== undefined && withdrawable ? (
+      <WithdrawalLink
+        orderId={orderId}
+        style={styles.stubWithdrawal}
+        underlined
+      />
+    ) : null;
   switch (access._tag) {
     case "Pin":
       return orderId === undefined ? null : (
-        <TodayPin code={access.code} until={access.until} orderId={orderId} />
+        <>
+          {withdrawalLink && (
+            <View style={styles.stubActions}>{withdrawalLink}</View>
+          )}
+          <TodayPin code={access.code} until={access.until} orderId={orderId} />
+        </>
       );
     case "Ready":
-      return (
-        <>
-          {orderId !== undefined && (
-            <View style={styles.stubActions}>
-              {withdrawable && (
-                <WithdrawalLink
-                  orderId={orderId}
-                  style={styles.stubWithdrawal}
-                  underlined
-                />
-              )}
-              <AccessPinButton orderId={orderId} />
-            </View>
-          )}
-        </>
+      return orderId === undefined ? null : (
+        <View style={styles.stubActions}>
+          {withdrawalLink}
+          <AccessPinButton orderId={orderId} />
+        </View>
       );
     case "AfterPayment":
       return (

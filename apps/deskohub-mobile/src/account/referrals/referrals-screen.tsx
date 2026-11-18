@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Exit } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import Check from "lucide-react-native/icons/check";
 import Copy from "lucide-react-native/icons/copy";
 import Info from "lucide-react-native/icons/info";
@@ -32,6 +32,7 @@ import { color, radius, space } from "../../ui/tokens";
 import {
   copiedFeedbackMs,
   copyReferralCodeAtom,
+  joinedSentence,
   type ReferralDiscountExample,
   type ReferralsView,
   referralsAtom,
@@ -215,15 +216,7 @@ function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
         <DiscountExample example={view.example} />
       )}
       <Text variant="bodySmall" tone="muted" style={styles.joined}>
-        {view.joined.kind === "nobody"
-          ? m.referrals_joined_nobody({}, { locale })
-          : m.referrals_joined_some(
-              {
-                invitees: String(view.joined.invitees),
-                eligible: String(view.joined.eligibleInvitees),
-              },
-              { locale }
-            )}
+        {joinedSentence(view.joined, locale)}
       </Text>
       <SectionHeader title={m.referrals_how_it_works({}, { locale })} />
       <View role="list" style={styles.steps}>
