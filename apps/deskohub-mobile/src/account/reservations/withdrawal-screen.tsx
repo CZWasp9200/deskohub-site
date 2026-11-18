@@ -147,8 +147,6 @@ function WithdrawalStatement({
     <View style={styles.screen}>
       <ScrollScreen>
         <View style={styles.stack}>
-          <Text variant="body">{m.withdrawal_lead({}, { locale })}</Text>
-
           <Card padding="none">
             <DetailRow label={m.withdrawal_reference({}, { locale })}>
               <Text numeric variant="bodyStrong">
@@ -235,8 +233,8 @@ function WithdrawalStatement({
       </ScrollScreen>
       <ActionFooter>
         <Button
-          variant="secondary"
-          label={m.withdrawal_back({}, { locale })}
+          variant="positive"
+          label={m.withdrawal_decline({}, { locale })}
           disabled={pending}
           onPress={() => router.back()}
         />
