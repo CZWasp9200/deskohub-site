@@ -56,6 +56,7 @@ export function ContractWithdrawalReceiptEmail(
       </WorkspaceEmailBody>
       <WorkspaceEmailDetails
         details={contractWithdrawalReceiptDetails(props)}
+        wrapWords
       />
       {refundBasis.kind === "partial" && (
         <WithdrawalRefundBreakdown {...props} />
