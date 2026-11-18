@@ -5745,6 +5745,7 @@
                                 "type": "string",
                                 "enum": [
                                   "issued",
+                                  "retrying",
                                   "failed",
                                   "not_issued"
                                 ]
