@@ -100,6 +100,7 @@ const makeProviderReservation = (
 type HarnessOptions = {
   readonly accessToken?: ReservationAccessToken;
   readonly authorized?: boolean;
+  readonly viewer?: "customer" | "invitee";
   readonly inputLocale?: Locale;
   readonly reservation?: ReturnType<typeof makeReservation> | null;
   readonly reservationFails?: boolean;
@@ -183,7 +184,9 @@ const runAccess = async (options: HarnessOptions = {}) => {
           authorizeViewer: (input) =>
             isAuthorized(input).pipe(
               Effect.map((authorized) =>
-                authorized ? Option.some("customer" as const) : Option.none()
+                authorized
+                  ? Option.some(options.viewer ?? "customer")
+                  : Option.none()
               )
             ),
         })
@@ -306,6 +309,20 @@ describe("ReservationAccessService", () => {
       dotyposReservationId: "provider-reservation-id",
       reservedFrom: Temporal.Instant.from("2026-06-20T08:15:00Z"),
       reservedUntil: Temporal.Instant.from("2026-06-20T09:00:00Z"),
+    });
+  });
+
+  test("retains the authorized invitee view when the provider lookup fails", async () => {
+    const { access } = await runAccess({
+      authorized: true,
+      viewer: "invitee",
+      providerFails: true,
+    });
+
+    expect(access).toEqual({
+      state: "unavailable",
+      reason: "lookup-failed",
+      viewer: "invitee",
     });
   });
 

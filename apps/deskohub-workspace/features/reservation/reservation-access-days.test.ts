@@ -26,5 +26,23 @@ describe("getReservationAccessDays", () => {
         window("2026-11-18T08:00:00Z", "2026-11-18T16:00:00Z")
       )
     ).toBeUndefined();
+    expect(
+      getReservationAccessDays(
+        window("2026-11-18T08:00:00Z", "2026-11-18T23:00:00Z")
+      )
+    ).toBeUndefined();
+    expect(
+      getReservationAccessDays(
+        window("2026-11-17T23:00:00Z", "2026-11-18T16:00:00Z")
+      )
+    ).toBeUndefined();
+  });
+
+  test("counts Prague dates across daylight saving time", () => {
+    expect(
+      getReservationAccessDays(
+        window("2026-10-23T22:00:00Z", "2026-10-25T23:00:00Z")
+      )
+    ).toEqual({ from: "2026-10-24", through: "2026-10-25" });
   });
 });

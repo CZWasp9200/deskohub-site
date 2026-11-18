@@ -10,6 +10,10 @@ import {
   PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
+import {
+  checkoutOfficePeopleForVisitorServices,
+  findCheckoutOfficePeopleForVisitor,
+} from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import { isOrderBoundPayState } from "@/features/checkout/backend/checkout/pay-state-contract";
 import {
   checkoutReferralAppliedQueryParam,
@@ -111,6 +115,14 @@ const loadPayableCheckout = (payStateToken: string, locale: Locale) =>
     Effect.bind("checkout", ({ payableCheckout }) =>
       payableCheckout.open({ payStateToken, page: { locale } })
     ),
+    Effect.bind("officePeople", ({ checkout }) =>
+      checkout.state.reservation.kind === "office"
+        ? findCheckoutOfficePeopleForVisitor({ payStateToken, locale }).pipe(
+            Effect.provide(checkoutOfficePeopleForVisitorServices),
+            Effect.orElseSucceed(() => Option.none())
+          )
+        : Effect.succeed(Option.none())
+    ),
     Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),
     Effect.bind("freshPayUrl", ({ checkout }) =>
       PayState.reissue(checkout.state, { kind: "reviewed" }).pipe(
@@ -119,12 +131,15 @@ const loadPayableCheckout = (payStateToken: string, locale: Locale) =>
         Effect.map(Option.getOrUndefined)
       )
     ),
-    Effect.map(({ checkout, discountCodeEntryEnabled, freshPayUrl }) => ({
-      status: "payable" as const,
-      checkout,
-      discountCodeEntryEnabled,
-      freshPayUrl,
-    })),
+    Effect.map(
+      ({ checkout, discountCodeEntryEnabled, freshPayUrl, officePeople }) => ({
+        status: "payable" as const,
+        checkout,
+        discountCodeEntryEnabled,
+        freshPayUrl,
+        officePeople: Option.getOrUndefined(officePeople),
+      })
+    ),
     // A key ring or provider configuration that can't be read leaves the
     // checkout unpayable, like any other failure to open it.
     Effect.provide(Layer.merge(PayableCheckout.Live, SealedStateKeys.Default)),
@@ -208,6 +223,7 @@ type CheckoutPayRenderInput = {
 /** The Pay step for a Pay state whose reservation is still held. */
 function renderCheckoutPay(input: CheckoutPayRenderInput) {
   const { locale, payableCheckout, payStateToken, state } = input;
+  const { officePeople } = payableCheckout;
   const orderPath = getReservationStartPath(
     locale,
     state.reservation.kind,
@@ -264,6 +280,15 @@ function renderCheckoutPay(input: CheckoutPayRenderInput) {
         }
         key={earlyPerformanceRequestRequired ? "early-performance" : "standard"}
         payStateToken={state.changedKeys ? undefined : payStateToken}
+        people={
+          officePeople && {
+            ...officePeople,
+            contact: {
+              name: state.reservation.name,
+              email: state.reservation.email,
+            },
+          }
+        }
         summary={PayState.summary(state)}
         variant={getPayPageVariant(state)}
       />

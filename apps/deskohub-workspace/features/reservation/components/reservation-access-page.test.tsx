@@ -40,6 +40,7 @@ describe("ReservationAccessPage", () => {
       <ReservationAccessPage
         access={{
           state: "available",
+          viewer: "customer",
           code: "2468",
           accessStartsAt: Temporal.Instant.from("2026-08-13T08:00:00Z"),
           accessEndsAt: Temporal.Instant.from("2026-08-13T16:00:00Z"),
@@ -95,9 +96,16 @@ describe("ReservationAccessPage", () => {
         <ReservationAccessPage
           access={{
             state: "available",
+            viewer: "customer",
             code: "2468",
             accessStartsAt: pragueMidnight("2026-11-18"),
             accessEndsAt: pragueMidnight(endsOn),
+            accessDays: {
+              from: "2026-11-18",
+              through: Temporal.PlainDate.from(endsOn)
+                .subtract({ days: 1 })
+                .toString(),
+            },
           }}
           locale="en-US"
           orderId="reservation-access-page"
@@ -144,6 +152,7 @@ describe("ReservationAccessPage", () => {
           code: "2468",
           accessStartsAt: pragueMidnight("2026-11-18"),
           accessEndsAt: pragueMidnight("2026-11-19"),
+          accessDays: { from: "2026-11-18", through: "2026-11-18" },
           viewer: "invitee",
           bookedBy: { name: "Alex Sample" },
         }}
@@ -190,5 +199,31 @@ describe("ReservationAccessPage", () => {
     expect(toast.textContent).toBe(
       m.reservationAccessGuestAddressCopied({}, { locale: "en-US" })
     );
+  });
+
+  test("keeps the guest view when an authorized invitee has no PIN", () => {
+    const view = render(
+      <ReservationAccessPage
+        access={{
+          state: "unavailable",
+          reason: "lookup-failed",
+          viewer: "invitee",
+        }}
+        locale="en-US"
+        orderId="reservation-access-page"
+      />
+    );
+
+    expect(
+      view.container.querySelector("[data-reservation-access-code]")
+    ).toBeNull();
+    expect(view.container.querySelector('a[href*="/reservation"]')).toBeNull();
+    expect(
+      view
+        .getByRole("link", {
+          name: m.reservationAccessGuestOpenRoute({}, { locale: "en-US" }),
+        })
+        .getAttribute("href")
+    ).toBe(workspaceGoogleDirectionsUrl);
   });
 });

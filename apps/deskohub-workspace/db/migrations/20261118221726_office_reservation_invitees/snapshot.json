@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "eb78d278-08ab-48f4-b22c-9f63a631e610",
+  "id": "c550c58c-f420-454a-9628-9438a0b298a1",
   "prevIds": [
-    "e6e05683-ca28-4e45-bf7f-2ab8449b68a4"
+    "a686514b-2873-4327-891a-27a2ce9ae1b2"
   ],
   "ddl": [
     {
@@ -295,6 +295,12 @@
     {
       "isRlsEnabled": false,
       "name": "invoice_number_counters",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "invoice_previews",
       "entityType": "tables",
       "schema": "public"
     },
@@ -5877,6 +5883,97 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "invoice_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "administrator_account_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "bytea",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "encrypted_document",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": "uuid_generate_v7()",
       "generated": null,
       "identity": null,
@@ -6219,6 +6316,19 @@
       "generated": null,
       "identity": null,
       "name": "workspace_reservation_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "legal_evidence_events"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "order_id",
       "entityType": "columns",
       "schema": "public",
       "table": "legal_evidence_events"
@@ -6720,7 +6830,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -7961,6 +8071,19 @@
       "generated": null,
       "identity": null,
       "name": "occurred_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "explicit_resend",
       "entityType": "columns",
       "schema": "public",
       "table": "reservation_invitee_notices"
@@ -13050,6 +13173,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "invoice_previews_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "workspace_reservation_id",
           "isExpression": false,
           "asc": true,
@@ -13294,6 +13438,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "legal_evidence_events_workspace_reservation_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "legal_evidence_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "order_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "legal_evidence_events_order_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "legal_evidence_events"
@@ -16422,6 +16587,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "administrator_account_id"
+      ],
+      "schemaTo": "auth",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "invoice_previews_administrator_account_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "workspace_reservation_id"
       ],
       "schemaTo": "public",
@@ -16536,6 +16718,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "legal_evidence_events_workspace_reservation_id_workspace_reserv",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "legal_evidence_events"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "order_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "orders",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "legal_evidence_events_order_id_orders_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "legal_evidence_events"
@@ -17752,6 +17951,16 @@
       "name": "invoice_number_counters_pkey",
       "schema": "public",
       "table": "invoice_number_counters",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "invoice_previews_pkey",
+      "schema": "public",
+      "table": "invoice_previews",
       "entityType": "pks"
     },
     {
@@ -19149,6 +19358,20 @@
       "table": "invoice_number_counters"
     },
     {
+      "value": "\"expires_at\" > \"created_at\"",
+      "name": "invoice_previews_expiry_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
+      "value": "\"key_id\" ~ '^[A-Z][A-Z0-9_]{2,31}$'",
+      "name": "invoice_previews_key_id_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "invoice_previews"
+    },
+    {
       "value": "btrim(\"dotypos_customer_id\") <> ''",
       "name": "invoices_dotypos_customer_id_check",
       "entityType": "checks",
@@ -19233,6 +19456,13 @@
       "table": "legal_evidence_events"
     },
     {
+      "value": "\"workspace_reservation_id\" is null or \"order_id\" is null or \"order_id\" = \"workspace_reservation_id\"",
+      "name": "legal_evidence_events_reservation_order_match_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "legal_evidence_events"
+    },
+    {
       "value": "btrim(\"actor_account_email\") <> ''",
       "name": "manual_invoice_actors_email_check",
       "entityType": "checks",
@@ -19268,7 +19498,7 @@
       "table": "manual_invoice_creation_requests"
     },
     {
-      "value": "\"kind\" in ('reservation')",
+      "value": "\"kind\" in ('reservation', 'pass-purchase')",
       "name": "orders_kind_check",
       "entityType": "checks",
       "schema": "public",
@@ -19546,6 +19776,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "reservation_access_grants"
+    },
+    {
+      "value": "not \"explicit_resend\" or \"kind\" = 'invitation'",
+      "name": "reservation_invitee_notices_explicit_resend_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
     },
     {
       "value": "\"restored_access\" is null or (\n      \"kind\" = 'restoration' and \"restored_access\" in ('past', 'link', 'issued')\n    )",

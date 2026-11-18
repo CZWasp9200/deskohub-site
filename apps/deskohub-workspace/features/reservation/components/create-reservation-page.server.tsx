@@ -14,6 +14,10 @@ import {
   PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
+import {
+  checkoutOfficePeopleForVisitorServices,
+  findCheckoutOfficePeopleForVisitor,
+} from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { PublicOfferingsStructuredData } from "@/features/checkout/components/public-offerings-structured-data";
 import type { PublicPriceListOffering } from "@/features/checkout/public-offerings";
@@ -24,6 +28,7 @@ import {
 } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
+import type { OfficePeople } from "@/features/office/office-people";
 import {
   publicPageMetadata,
   requirePublishedPublicPage,
@@ -92,6 +97,7 @@ type ReservationPageRequest<Kind extends ReservationKind, PageData> = {
 
 type RestoredReservation<Kind extends ReservationKind> = {
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly officePeople?: OfficePeople;
   readonly reservation: ReservationForKind<Kind>;
   readonly replacementToken: string;
   readonly submittedCode?: CanonicalPromotionCode;
@@ -237,8 +243,22 @@ export const loadRestoredReservation = Effect.fn(
   );
   if (!payState) return undefined;
 
+  const officePeople =
+    payState.reservation.kind === "office"
+      ? Option.getOrUndefined(
+          yield* findCheckoutOfficePeopleForVisitor({
+            payStateToken: token,
+            locale,
+          }).pipe(
+            Effect.provide(checkoutOfficePeopleForVisitorServices),
+            Effect.orElseSucceed(() => Option.none())
+          )
+        )
+      : undefined;
+
   return {
     checkoutSessionId: payState.checkoutSessionId,
+    officePeople,
     reservation: payState.reservation as ReservationForKind<Kind>,
     replacementToken: token,
     // Restored requested intent (or the applied code on older tokens) wins
@@ -368,10 +388,7 @@ async function ReservationPageRequestContent<
       Effect.orElseSucceed(() => Option.none()),
       runWorkspaceEffect(`reservation.${definition.kind}.normalize-code`)
     );
-    // None of these depends on another: the restored reservation and the
-    // checkout contact read only their sealed tokens, the checkout account
-    // only the session, and the page data neither. Every step before render
-    // waits on the slowest of them.
+    // The restore, contact, account, and page data loads are independent.
     const [restoredReservation, checkoutContact, checkoutAccount, pageData] =
       await Promise.all([
         loadRestoredReservation(
@@ -548,7 +565,10 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
               prefillsContact: definition.prefillsContact,
             }),
         restored: selection.kind === "restored",
-        values: selection.values,
+        values:
+          selection.kind === "restored" && restoredReservation?.officePeople
+            ? { ...selection.values, people: restoredReservation.officePeople }
+            : selection.values,
       });
     const checkoutCustomer =
       seededCustomer.status === "profile-missing" &&

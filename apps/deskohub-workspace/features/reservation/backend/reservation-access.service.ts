@@ -51,6 +51,7 @@ export type ReservationAccessViewModel =
   | {
       readonly state: "unavailable";
       readonly reason: ReservationAccessUnavailableReason;
+      readonly viewer?: "invitee";
     };
 
 /**
@@ -95,8 +96,13 @@ export interface IReservationAccessService {
 
 const invalidLinkAccess: ReservationAccessViewModel = { state: "invalid_link" };
 const unavailableAccess = (
-  reason: ReservationAccessUnavailableReason
-): ReservationAccessViewModel => ({ state: "unavailable", reason });
+  reason: ReservationAccessUnavailableReason,
+  viewer: ReservationViewer
+): ReservationAccessViewModel => ({
+  state: "unavailable",
+  reason,
+  ...(viewer === "invitee" && { viewer }),
+});
 
 /**
  * Bounds the live Dotypos lookup, including its retries, well inside the
@@ -143,14 +149,15 @@ const implementation = Effect.gen(function* () {
       ),
       Effect.orElseSucceed(() => "failed" as const)
     );
-    if (reservation === "failed") return unavailableAccess("lookup-failed");
+    if (reservation === "failed")
+      return unavailableAccess("lookup-failed", viewer.value);
     if (
       reservation === "missing" ||
       reservation.paymentState !== "paid" ||
       reservation.reservationState !== "confirmed" ||
       !reservation.dotyposReservationId
     ) {
-      return unavailableAccess("reservation-state");
+      return unavailableAccess("reservation-state", viewer.value);
     }
     return {
       state: "granted" as const,
@@ -173,7 +180,7 @@ const implementation = Effect.gen(function* () {
     readonly viewer: ReservationViewer;
   }) {
     if (record?.status !== "CONFIRMED") {
-      return unavailableAccess("reservation-state");
+      return unavailableAccess("reservation-state", viewer);
     }
 
     const timing = yield* getDotyposReservationAccessTiming({
@@ -188,7 +195,7 @@ const implementation = Effect.gen(function* () {
       ),
       Effect.orElseSucceed(() => undefined)
     );
-    if (!timing) return unavailableAccess("lookup-failed");
+    if (!timing) return unavailableAccess("lookup-failed", viewer);
 
     const bookedBy =
       viewer === "invitee"
@@ -227,7 +234,8 @@ const implementation = Effect.gen(function* () {
               failure instanceof ReservationAccessIssuanceError &&
                 failure.refusal
                 ? "reservation-state"
-                : "lookup-failed"
+                : "lookup-failed",
+              viewer
             )
           )
         )
@@ -281,7 +289,8 @@ const implementation = Effect.gen(function* () {
     if (granted.state !== "granted") return granted;
 
     const record = yield* readProviderReservation(granted.dotyposReservationId);
-    if (record === "failed") return unavailableAccess("lookup-failed");
+    if (record === "failed")
+      return unavailableAccess("lookup-failed", granted.viewer);
 
     return yield* resolveCode({ ...granted, record });
   }, annotateRequest);
@@ -298,7 +307,7 @@ const implementation = Effect.gen(function* () {
     if (granted.state !== "granted") return granted;
     // A record of another reservation says nothing about this order's.
     if (record.id !== granted.dotyposReservationId) {
-      return unavailableAccess("lookup-failed");
+      return unavailableAccess("lookup-failed", granted.viewer);
     }
 
     return yield* resolveCode({ ...granted, record });

@@ -34,13 +34,8 @@
   "accountReferralsHowCompound": "पिछले {duration} में हमें विज़िट करने वाले हर आमंत्रित व्यक्ति के लिए आपको {discount} की अतिरिक्त छूट मिलती है। छूटें जुड़ती जाती हैं!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "इसका मतलब है कि सिर्फ़ {count} मान्य रेफ़रल से ही आपको {benchmark} से ज़्यादा की छूट मिल जाती है!",
         "countPlural=other": "इसका मतलब है कि सिर्फ़ {count} मान्य रेफ़रल से ही आपको {benchmark} से ज़्यादा की छूट मिल जाती है!"
@@ -530,13 +525,8 @@
   "reservationTierMeetingRoomDescription": "कॉल, वर्कशॉप या एकाग्र होकर की जाने वाली ग्रुप मीटिंग के लिए निजी कमरा।",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} घंटा",
         "countPlural=other": "{count} घंटे"
@@ -587,9 +577,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=one": "निजी ऑफ़िस – {dayCount} दिन",
         "dayCountPlural=other": "निजी ऑफ़िस – {dayCount} दिन"
@@ -606,13 +594,8 @@
   "reservationOfficeSeatCountLabel": "ऑफ़िस में आपको कितनी सीटें चाहिए?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} सीट",
         "countPlural=other": "{count} सीटें"
@@ -774,9 +757,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=one": "{dayCount} दिन",
         "dayCountPlural=other": "{dayCount} दिन"
@@ -1030,13 +1011,8 @@
   "reservationValidationOfficeMaximumEnd": "बुकिंग का आख़िरी दिन आज से एक महीने के बाद का नहीं हो सकता।",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": [
-        "input hours",
-        "local hoursPlural = hours: plural"
-      ],
-      "selectors": [
-        "hoursPlural"
-      ],
+      "declarations": ["input hours", "local hoursPlural = hours: plural"],
+      "selectors": ["hoursPlural"],
       "match": {
         "hoursPlural=one": "ऑफ़िस की बुकिंग {hours} घंटे से ज़्यादा की नहीं हो सकती।",
         "hoursPlural=other": "ऑफ़िस की बुकिंग {hours} घंटे से ज़्यादा की नहीं हो सकती।"
@@ -1050,13 +1026,8 @@
   "reservationSecurityInvalidOrigin": "बुकिंग के अनुरोध की जाँच नहीं हो सकी। कृपया पेज फिर से लोड करें और फिर से कोशिश करें।",
   "contactValidationNameMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=one": "नाम में कम से कम {min} अक्षर होने चाहिए।",
         "minPlural=other": "नाम में कम से कम {min} अक्षर होने चाहिए।"
@@ -1065,13 +1036,8 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "नाम में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।",
         "maxPlural=other": "नाम में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।"
@@ -1082,13 +1048,8 @@
   "contactValidationEmailInvalid": "मान्य email पता दर्ज करें।",
   "contactValidationEmailMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Email में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।",
         "maxPlural=other": "Email में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।"
@@ -1101,13 +1062,8 @@
   "contactValidationPhoneInvalid": "मान्य फ़ोन नंबर दर्ज करें। शुरुआत में + वाला अंतरराष्ट्रीय फ़ॉर्मेट का नंबर हमेशा स्वीकार होता है।",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "फ़ोन नंबर में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।",
         "maxPlural=other": "फ़ोन नंबर में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।"
@@ -1117,13 +1073,8 @@
   "contactValidationPhoneRequired": "फ़ोन नंबर ज़रूरी है।",
   "contactValidationMessageMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=one": "संदेश में कम से कम {min} अक्षर होने चाहिए।",
         "minPlural=other": "संदेश में कम से कम {min} अक्षर होने चाहिए।"
@@ -1132,13 +1083,8 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "संदेश में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।",
         "maxPlural=other": "संदेश में ज़्यादा से ज़्यादा {max} अक्षर हो सकते हैं।"
@@ -1330,13 +1276,8 @@
   "accountReservationOtherProduct": "Workspace में बुकिंग",
   "accountReservationSeats": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} सीट",
         "countPlural=other": "{count} सीटें"
@@ -1566,13 +1507,8 @@
   "bookingWidgetStartTimeRequired": "शुरुआत का समय चुनें।",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "1 दिन चुनें।",
         "maxPlural=other": "दिनों की संख्या: 1 से {max} तक।"
@@ -1581,13 +1517,8 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "1 सीट चुनें।",
         "maxPlural=other": "सीटों की संख्या: 1 से {max} तक।"
@@ -1752,9 +1683,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=one": "एकमात्र सीट भर चुकी है। किसी और को जोड़ने के लिए किसी को हटाएँ।",
         "maximumPlural=other": "सभी {maximum} सीटें भर चुकी हैं। किसी और को जोड़ने के लिए किसी को हटाएँ।"
@@ -1769,9 +1698,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=one": "इस ऑफ़िस में {maximum} सीट है। आगे बढ़ने के लिए किसी को हटाएँ।",
         "maximumPlural=other": "इस ऑफ़िस में {maximum} सीटें हैं। आगे बढ़ने के लिए किसी को हटाएँ।"
@@ -1781,13 +1708,8 @@
   "officePeoplePriceLabel": "कीमत",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} व्यक्ति × {seatPrice}",
         "countPlural=other": "{count} लोग × {seatPrice}"

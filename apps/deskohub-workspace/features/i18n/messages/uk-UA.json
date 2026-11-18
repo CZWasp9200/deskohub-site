@@ -34,13 +34,8 @@
   "accountReferralsHowCompound": "За кожну запрошену людину, яка відвідала нас за останні {duration}, ви отримуєте додаткову знижку {discount}. Знижки сумуються!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "Тобто лише {count} запрошення — і ви отримуєте знижку понад {benchmark}!",
         "countPlural=few": "Тобто лише {count} запрошення — і ви отримуєте знижку понад {benchmark}!",
@@ -532,13 +527,8 @@
   "reservationTierMeetingRoomDescription": "Приватна кімната для дзвінків, воркшопів або зосереджених групових зустрічей.",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} година",
         "countPlural=few": "{count} години",
@@ -591,9 +581,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=one": "Приватний офіс — {dayCount} день",
         "dayCountPlural=few": "Приватний офіс — {dayCount} дні",
@@ -612,13 +600,8 @@
   "reservationOfficeSeatCountLabel": "Скільки місць в офісі вам потрібно?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} місце",
         "countPlural=few": "{count} місця",
@@ -782,9 +765,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=one": "{dayCount} день",
         "dayCountPlural=few": "{dayCount} дні",
@@ -1040,13 +1021,8 @@
   "reservationValidationOfficeMaximumEnd": "Останній день бронювання має бути не пізніше ніж через місяць від сьогодні.",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": [
-        "input hours",
-        "local hoursPlural = hours: plural"
-      ],
-      "selectors": [
-        "hoursPlural"
-      ],
+      "declarations": ["input hours", "local hoursPlural = hours: plural"],
+      "selectors": ["hoursPlural"],
       "match": {
         "hoursPlural=one": "Бронювання офісу не може перевищувати {hours} годину.",
         "hoursPlural=few": "Бронювання офісу не може перевищувати {hours} години.",
@@ -1062,13 +1038,8 @@
   "reservationSecurityInvalidOrigin": "Не вдалося перевірити запит на бронювання. Перезавантажте сторінку й спробуйте ще раз.",
   "contactValidationNameMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=one": "Імʼя має містити щонайменше {min} символ.",
         "minPlural=few": "Імʼя має містити щонайменше {min} символи.",
@@ -1079,13 +1050,8 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Імʼя може містити не більше ніж {max} символ.",
         "maxPlural=few": "Імʼя може містити не більше ніж {max} символи.",
@@ -1098,13 +1064,8 @@
   "contactValidationEmailInvalid": "Введіть правильну електронну адресу.",
   "contactValidationEmailMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Електронна адреса може містити не більше ніж {max} символ.",
         "maxPlural=few": "Електронна адреса може містити не більше ніж {max} символи.",
@@ -1119,13 +1080,8 @@
   "contactValidationPhoneInvalid": "Введіть дійсний номер телефону. Номер у міжнародному форматі, що починається з +, підійде завжди.",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Номер телефону може містити не більше ніж {max} символ.",
         "maxPlural=few": "Номер телефону може містити не більше ніж {max} символи.",
@@ -1137,13 +1093,8 @@
   "contactValidationPhoneRequired": "Номер телефону обовʼязковий.",
   "contactValidationMessageMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=one": "Повідомлення має містити щонайменше {min} символ.",
         "minPlural=few": "Повідомлення має містити щонайменше {min} символи.",
@@ -1154,13 +1105,8 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Повідомлення може містити не більше ніж {max} символ.",
         "maxPlural=few": "Повідомлення може містити не більше ніж {max} символи.",
@@ -1354,13 +1300,8 @@
   "accountReservationOtherProduct": "Бронювання в коворкінгу Workspace",
   "accountReservationSeats": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} місце",
         "countPlural=few": "{count} місця",
@@ -1592,13 +1533,8 @@
   "bookingWidgetStartTimeRequired": "Оберіть час початку.",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Кількість днів: від 1 до {max}.",
         "maxPlural=few": "Кількість днів: від 1 до {max}.",
@@ -1609,13 +1545,8 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=one": "Кількість місць: від 1 до {max}.",
         "maxPlural=few": "Кількість місць: від 1 до {max}.",
@@ -1782,9 +1713,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=one": "Єдине місце зайняте. Щоб додати ще когось, видаліть когось зі списку.",
         "maximumPlural=few": "Усі {maximum} місця зайняті. Щоб додати ще когось, видаліть когось зі списку.",
@@ -1801,9 +1730,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=one": "У цьому офісі {maximum} місце. Щоб продовжити, видаліть когось зі списку.",
         "maximumPlural=few": "У цьому офісі {maximum} місця. Щоб продовжити, видаліть когось зі списку.",
@@ -1815,13 +1742,8 @@
   "officePeoplePriceLabel": "Ціна",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=one": "{count} особа × {seatPrice}",
         "countPlural=few": "{count} особи × {seatPrice}",

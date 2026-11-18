@@ -4,6 +4,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { Context, Effect, Layer } from "effect";
 import { prerender } from "react-dom/static";
 import type { OrderKind } from "@/features/order";
+import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
+import { getReservationInvitationCookieName } from "@/features/reservation/backend/reservation-invitation-capability";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 
 mock.module("server-only", () => ({}));
 const nextServer = await import("next/server");
@@ -26,9 +29,16 @@ mock.module("next/navigation", () => ({
 }));
 
 const nextHeaders = await import("next/headers");
+const requestCookies = new Map<string, string>();
 mock.module("next/headers", () => ({
   ...nextHeaders,
-  cookies: () => Promise.resolve({ get: () => undefined }),
+  cookies: () =>
+    Promise.resolve({
+      get: (name: string) => {
+        const value = requestCookies.get(name);
+        return value === undefined ? undefined : { value };
+      },
+    }),
   headers: () => Promise.resolve(new Headers()),
 }));
 
@@ -42,10 +52,23 @@ mock.module("@/features/order/backend/order-kind", () => ({
 }));
 
 const accessReads: string[] = [];
+const readAccessCookies: Array<{
+  accessCookie?: string;
+  invitationCookie?: string;
+}> = [];
 const accessService = {
-  getAccess: ({ orderId }: { readonly orderId: string }) =>
+  getAccess: ({
+    orderId,
+    accessCookie,
+    invitationCookie,
+  }: {
+    readonly orderId: string;
+    readonly accessCookie?: string;
+    readonly invitationCookie?: string;
+  }) =>
     Effect.sync(() => {
       accessReads.push(orderId);
+      readAccessCookies.push({ accessCookie, invitationCookie });
       return { state: "unavailable" };
     }),
 };
@@ -77,9 +100,9 @@ mock.module(
 
 const { ReservationAccessRoute } = await import("./reservation-access-route");
 
-const orderId = "reservation-access-route";
+const orderId = workspaceReservationIdSchema.make("reservation-access-route");
 
-const renderRoute = async (order = orderId) => {
+const renderRoute = async (order: string = orderId) => {
   const errors: unknown[] = [];
   const { prelude } = await prerender(
     await ReservationAccessRoute({
@@ -99,6 +122,8 @@ describe("ReservationAccessRoute", () => {
     orderKind = "reservation";
     orderKindReads.length = 0;
     accessReads.length = 0;
+    readAccessCookies.length = 0;
+    requestCookies.clear();
   });
 
   test("serves the reservation access page for a reservation order", async () => {
@@ -118,6 +143,31 @@ describe("ReservationAccessRoute", () => {
     expect(errors).toEqual([]);
     expect(accessReads).toEqual([orderId]);
     expect(html).toContain('data-access="unavailable"');
+  });
+
+  test("passes both access cookies for this reservation to authorization", async () => {
+    requestCookies.set(
+      getReservationAccessCookieName(orderId),
+      "synthetic-owner-cookie"
+    );
+    requestCookies.set(
+      getReservationInvitationCookieName(orderId),
+      "synthetic-invitee-cookie"
+    );
+    const otherOrderId = workspaceReservationIdSchema.make("another-order");
+    requestCookies.set(
+      getReservationInvitationCookieName(otherOrderId),
+      "unrelated-invitee-cookie"
+    );
+    const { errors } = await renderRoute();
+
+    expect(errors).toEqual([]);
+    expect(readAccessCookies).toEqual([
+      {
+        accessCookie: "synthetic-owner-cookie",
+        invitationCookie: "synthetic-invitee-cookie",
+      },
+    ]);
   });
 
   test("answers a pass purchase order with not found without reading reservation access", async () => {

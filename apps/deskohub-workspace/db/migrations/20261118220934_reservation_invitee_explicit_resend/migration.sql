@@ -1,2 +1,0 @@
-ALTER TABLE "reservation_invitee_notices" ADD COLUMN "explicit_resend" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "reservation_invitee_notices" ADD CONSTRAINT "reservation_invitee_notices_explicit_resend_check" CHECK (not "explicit_resend" or "kind" = 'invitation');

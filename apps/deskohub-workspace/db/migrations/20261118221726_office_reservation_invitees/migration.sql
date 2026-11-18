@@ -1,3 +1,29 @@
+CREATE TABLE "reservation_invitee_notices" (
+	"id" text PRIMARY KEY DEFAULT uuid_generate_v7(),
+	"invitee_id" text NOT NULL,
+	"kind" text NOT NULL,
+	"occurred_at" timestamp with time zone NOT NULL,
+	"explicit_resend" boolean DEFAULT false NOT NULL,
+	"next_attempt_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"restored_access" text,
+	"request_started_at" timestamp with time zone,
+	"request_fingerprint" text,
+	"uncertainty" text,
+	"settled_at" timestamp with time zone,
+	CONSTRAINT "reservation_invitee_notices_event_unique" UNIQUE("invitee_id","kind","occurred_at"),
+	CONSTRAINT "reservation_invitee_notices_explicit_resend_check" CHECK (not "explicit_resend" or "kind" = 'invitation'),
+	CONSTRAINT "reservation_invitee_notices_access_check" CHECK ("restored_access" is null or (
+      "kind" = 'restoration' and "restored_access" in ('past', 'link', 'issued')
+    )),
+	CONSTRAINT "reservation_invitee_notices_attempt_check" CHECK (("request_started_at" is null) = ("request_fingerprint" is null)
+        and ("uncertainty" is null or (
+          "settled_at" is not null and "request_started_at" is not null
+          and "uncertainty" in ('request-changed', 'replay-expired', 'not-replayable', 'superseded')
+        ))),
+	CONSTRAINT "reservation_invitee_notices_kind_check" CHECK ("kind" in ('invitation', 'cancellation', 'restoration'))
+);
+--> statement-breakpoint
 CREATE TABLE "reservation_invitees" (
 	"id" text PRIMARY KEY DEFAULT uuid_generate_v7(),
 	"workspace_reservation_id" text NOT NULL,
@@ -8,6 +34,7 @@ CREATE TABLE "reservation_invitees" (
 	"customer_account_id" text,
 	"dotypos_customer_id" text,
 	"retain_until" timestamp with time zone NOT NULL,
+	"retention_retry_at" timestamp with time zone,
 	"last_invitation_sent_at" timestamp with time zone,
 	"invitation_send_count" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -30,11 +57,13 @@ CREATE TABLE "reservation_invitees" (
 );
 --> statement-breakpoint
 ALTER TABLE "workspace_reservations" ADD COLUMN "office_contact_attends" boolean;--> statement-breakpoint
+CREATE INDEX "reservation_invitee_notices_due_idx" ON "reservation_invitee_notices" ("next_attempt_at","id") WHERE "settled_at" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "reservation_invitees_reservation_position_idx" ON "reservation_invitees" ("workspace_reservation_id","position");--> statement-breakpoint
 CREATE UNIQUE INDEX "reservation_invitees_reservation_lookup_idx" ON "reservation_invitees" ("workspace_reservation_id","email_lookup_key");--> statement-breakpoint
 CREATE INDEX "reservation_invitees_email_lookup_idx" ON "reservation_invitees" ("email_lookup_key");--> statement-breakpoint
 CREATE INDEX "reservation_invitees_customer_account_idx" ON "reservation_invitees" ("customer_account_id");--> statement-breakpoint
 CREATE INDEX "reservation_invitees_dotypos_customer_idx" ON "reservation_invitees" ("dotypos_customer_id");--> statement-breakpoint
 CREATE INDEX "reservation_invitees_retain_until_idx" ON "reservation_invitees" ("retain_until");--> statement-breakpoint
+ALTER TABLE "reservation_invitee_notices" ADD CONSTRAINT "reservation_invitee_notices_RJj9n7aiCG8t_fkey" FOREIGN KEY ("invitee_id") REFERENCES "reservation_invitees"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "reservation_invitees" ADD CONSTRAINT "reservation_invitees_gp08lmgljEAv_fkey" FOREIGN KEY ("workspace_reservation_id") REFERENCES "workspace_reservations"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "reservation_invitees" ADD CONSTRAINT "reservation_invitees_QmZdQkL7I0C3_fkey" FOREIGN KEY ("customer_account_id") REFERENCES "customer_accounts"("id");

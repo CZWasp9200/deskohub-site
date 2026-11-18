@@ -34,13 +34,8 @@
   "accountReferralsHowCompound": "Với mỗi người được mời đã đến với chúng tôi trong {duration} qua, bạn được giảm thêm {discount}. Các mức giảm giá được cộng dồn!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=other": "Nghĩa là chỉ cần {count} lượt giới thiệu, bạn đã được giảm hơn {benchmark}!"
       }
@@ -529,13 +524,8 @@
   "reservationTierMeetingRoomDescription": "Phòng riêng cho cuộc gọi, workshop hoặc buổi họp nhóm cần tập trung.",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=other": "{count} giờ"
       }
@@ -585,9 +575,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=other": "Văn phòng riêng - {dayCount} ngày"
       }
@@ -603,13 +591,8 @@
   "reservationOfficeSeatCountLabel": "Bạn cần bao nhiêu chỗ trong văn phòng?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=other": "{count} chỗ"
       }
@@ -770,9 +753,7 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": [
-        "dayCountPlural"
-      ],
+      "selectors": ["dayCountPlural"],
       "match": {
         "dayCountPlural=other": "{dayCount} ngày"
       }
@@ -1025,13 +1006,8 @@
   "reservationValidationOfficeMaximumEnd": "Ngày cuối của đặt chỗ không được muộn hơn một tháng kể từ hôm nay.",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": [
-        "input hours",
-        "local hoursPlural = hours: plural"
-      ],
-      "selectors": [
-        "hoursPlural"
-      ],
+      "declarations": ["input hours", "local hoursPlural = hours: plural"],
+      "selectors": ["hoursPlural"],
       "match": {
         "hoursPlural=other": "Đặt văn phòng không được vượt quá {hours} giờ."
       }
@@ -1044,13 +1020,8 @@
   "reservationSecurityInvalidOrigin": "Không thể xác minh yêu cầu đặt chỗ. Hãy tải lại trang và thử lại.",
   "contactValidationNameMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=other": "Tên phải có ít nhất {min} ký tự."
       }
@@ -1058,13 +1029,8 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Tên chỉ được có tối đa {max} ký tự."
       }
@@ -1074,13 +1040,8 @@
   "contactValidationEmailInvalid": "Hãy nhập địa chỉ email hợp lệ.",
   "contactValidationEmailMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Email chỉ được có tối đa {max} ký tự."
       }
@@ -1092,13 +1053,8 @@
   "contactValidationPhoneInvalid": "Hãy nhập số điện thoại hợp lệ. Số theo định dạng quốc tế bắt đầu bằng + luôn được chấp nhận.",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Số điện thoại chỉ được có tối đa {max} ký tự."
       }
@@ -1107,13 +1063,8 @@
   "contactValidationPhoneRequired": "Số điện thoại là bắt buộc.",
   "contactValidationMessageMinimum": [
     {
-      "declarations": [
-        "input min",
-        "local minPlural = min: plural"
-      ],
-      "selectors": [
-        "minPlural"
-      ],
+      "declarations": ["input min", "local minPlural = min: plural"],
+      "selectors": ["minPlural"],
       "match": {
         "minPlural=other": "Tin nhắn phải có ít nhất {min} ký tự."
       }
@@ -1121,13 +1072,8 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Tin nhắn chỉ được có tối đa {max} ký tự."
       }
@@ -1318,13 +1264,8 @@
   "accountReservationOtherProduct": "Đặt chỗ tại Workspace",
   "accountReservationSeats": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=other": "{count} chỗ"
       }
@@ -1553,13 +1494,8 @@
   "bookingWidgetStartTimeRequired": "Hãy chọn giờ bắt đầu.",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Hãy chọn từ 1 đến {max} ngày."
       }
@@ -1567,13 +1503,8 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": [
-        "input max",
-        "local maxPlural = max: plural"
-      ],
-      "selectors": [
-        "maxPlural"
-      ],
+      "declarations": ["input max", "local maxPlural = max: plural"],
+      "selectors": ["maxPlural"],
       "match": {
         "maxPlural=other": "Hãy chọn từ 1 đến {max} chỗ."
       }
@@ -1737,9 +1668,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=other": "Cả {maximum} chỗ đều đã có người. Hãy xóa bớt một người để thêm người khác."
       }
@@ -1753,9 +1682,7 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": [
-        "maximumPlural"
-      ],
+      "selectors": ["maximumPlural"],
       "match": {
         "maximumPlural=other": "Văn phòng này có {maximum} chỗ. Hãy xóa bớt một người để tiếp tục."
       }
@@ -1764,13 +1691,8 @@
   "officePeoplePriceLabel": "Giá",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
       "match": {
         "countPlural=other": "{count} người × {seatPrice}"
       }

@@ -3,6 +3,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Deferred, Effect, Schema } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
+import { makeOfficePayRouteFixture } from "@/features/checkout/backend/checkout/office-pay-route.test-utils";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import type { PublicPriceListOffering } from "@/features/checkout/public-offerings";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
@@ -84,6 +85,18 @@ mock.module(
 );
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+
+const officeCheckout = makeOfficePayRouteFixture();
+const checkoutView = await import(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view"
+);
+mock.module(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view",
+  () => ({
+    ...checkoutView,
+    checkoutOfficePeopleForVisitorServices: officeCheckout.services,
+  })
+);
 
 const { createReservationPage } = await import(
   "./create-reservation-page.server"
@@ -543,7 +556,7 @@ test("restores office attendees only for the verified contact and its originatin
     kind: "people",
     people: {
       contactAttends: false,
-      invitees: ["guest-one@example.org", "guest-two@example.org"],
+      invitees: [testEmailAddress("guest-one"), testEmailAddress("guest-two")],
     },
   } as const;
   const id = crypto.randomUUID();
@@ -604,6 +617,40 @@ test("restores office attendees only for the verified contact and its originatin
     "redirect to /en-US/reservation/office?startsOn=2026-11-19"
   );
   expect(family.renderForm).toHaveBeenCalledTimes(1);
+});
+
+test("restores the office people from Pay for its author only", async () => {
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+    restore: () => ({
+      kind: "restored" as const,
+      values: {
+        ...restoredValues,
+        name: officeCheckout.reservation.name,
+        email: officeCheckout.reservation.email,
+      },
+    }),
+  };
+  const page = createReservationPage(family);
+  const token = await officeCheckout.seal("en-US");
+  const renderEdit = async () =>
+    renderContent(
+      await page.Page({ searchParams: Promise.resolve({ payState: token }) })
+    );
+
+  await renderEdit();
+  expect(family.renderForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject({
+    name: officeCheckout.reservation.name,
+    people: { contactAttends: true, invitees: [officeCheckout.inviteeEmail] },
+  });
+
+  officeCheckout.signInAsAnotherAccount();
+  await renderEdit();
+  expect(
+    family.renderForm.mock.calls.at(-1)?.[0].initialValues
+  ).not.toHaveProperty("people");
 });
 
 describe("the reservation page recipe", () => {

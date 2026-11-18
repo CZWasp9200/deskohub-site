@@ -1,4 +1,3 @@
-import { Option } from "effect";
 import { KeyRound } from "lucide-react";
 import Link from "next/link";
 import { CheckoutFlowLayout } from "@/features/checkout/components/checkout-flow-layout";
@@ -10,27 +9,47 @@ import { formatReservationDisplayDateTime } from "@/features/reservation/reserva
 import { reservationStatusPath } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
 import { ReservationAccessAddress } from "./reservation-access-address";
-import {
-  formatReservationAccessDay,
-  getReservationAccessDays,
-} from "./reservation-access-days";
-
-/**
- * Who opened the page: the reservation's customer, or a person the booker
- * invited to a private office, who sees only the code, the dates, and the
- * way there. `bookedBy` names the booker for an invited person.
- */
-type ReservationAccessViewer = {
-  readonly viewer?: "customer" | "invitee";
-  readonly bookedBy?: { readonly name: string | null };
-};
 
 type ReservationAccessPageProps = {
-  readonly access: ReservationAccessViewModel & ReservationAccessViewer;
+  readonly access: ReservationAccessViewModel;
   readonly locale: Locale;
   readonly orderId: string;
   readonly presentation?: "page" | "modal";
 };
+
+const formatAccessDay = (day: string, locale: Locale) =>
+  Temporal.PlainDate.from(day).toLocaleString(locale, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+
+function formatAccessWindow(
+  access: Extract<ReservationAccessViewModel, { state: "available" }>,
+  locale: Locale
+) {
+  const days = access.accessDays;
+  if (!days) {
+    return m.reservationAccessLead(
+      {
+        startsAt: formatReservationDisplayDateTime(
+          access.accessStartsAt,
+          locale
+        ),
+        endsAt: formatReservationDisplayDateTime(access.accessEndsAt, locale),
+      },
+      { locale }
+    );
+  }
+
+  const startsOn = formatAccessDay(days.from, locale);
+  return days.from === days.through
+    ? m.reservationAccessDatesSingle({ date: startsOn }, { locale })
+    : m.reservationAccessDatesRange(
+        { startsOn, endsOn: formatAccessDay(days.through, locale) },
+        { locale }
+      );
+}
 
 export function ReservationAccessPage({
   access,
@@ -38,7 +57,10 @@ export function ReservationAccessPage({
   orderId,
   presentation = "page",
 }: ReservationAccessPageProps) {
-  const isGuest = access.viewer === "invitee";
+  const isGuest =
+    access.state !== "invalid_link" && access.viewer === "invitee";
+  const bookerName =
+    access.state === "available" ? access.bookedBy?.name : undefined;
   const title = {
     available: m.reservationAccessTitle({}, { locale }),
     invalid_link: m.reservationAccessInvalidLinkTitle({}, { locale }),
@@ -69,11 +91,11 @@ export function ReservationAccessPage({
                 className="mt-3 text-lg text-navy-blue/70 sm:text-xl"
                 data-reservation-access-booked-by=""
               >
-                {access.bookedBy?.name
+                {bookerName
                   ? m.reservationAccessGuestBookedBy(
                       {
                         product: getWorkspaceOfficeProductTitle(locale),
-                        name: access.bookedBy.name,
+                        name: bookerName,
                       },
                       { locale }
                     )
@@ -115,46 +137,7 @@ export function ReservationAccessPage({
             </output>
 
             <p className="mt-10 text-center font-mono text-sm text-navy-blue/60 sm:mt-14">
-              {Option.match(
-                getReservationAccessDays(
-                  access.accessStartsAt,
-                  access.accessEndsAt
-                ),
-                {
-                  onNone: () =>
-                    m.reservationAccessLead(
-                      {
-                        startsAt: formatReservationDisplayDateTime(
-                          access.accessStartsAt,
-                          locale
-                        ),
-                        endsAt: formatReservationDisplayDateTime(
-                          access.accessEndsAt,
-                          locale
-                        ),
-                      },
-                      { locale }
-                    ),
-                  onSome: ({ firstDay, lastDay }) =>
-                    firstDay.equals(lastDay)
-                      ? m.reservationAccessDatesSingle(
-                          {
-                            date: formatReservationAccessDay(firstDay, locale),
-                          },
-                          { locale }
-                        )
-                      : m.reservationAccessDatesRange(
-                          {
-                            startsOn: formatReservationAccessDay(
-                              firstDay,
-                              locale
-                            ),
-                            endsOn: formatReservationAccessDay(lastDay, locale),
-                          },
-                          { locale }
-                        ),
-                }
-              )}
+              {formatAccessWindow(access, locale)}
             </p>
           </div>
         )}
