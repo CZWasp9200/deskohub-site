@@ -31,6 +31,7 @@ import { Text } from "./text";
 import { color, radius, space, touchTarget } from "./tokens";
 
 export const navigationRailWidth = 112;
+const railIconHeight = 32;
 
 const productIcons = {
   office: DoorClosed,
@@ -264,9 +265,10 @@ const styles = StyleSheet.create({
   },
   pill: {
     alignItems: "center",
-    borderRadius: radius.pill,
-    height: 32,
+    borderRadius: railIconHeight / 2,
+    height: railIconHeight,
     justifyContent: "center",
+    overflow: "hidden",
     width: 56,
   },
   pillActive: { backgroundColor: color.actionTint },
