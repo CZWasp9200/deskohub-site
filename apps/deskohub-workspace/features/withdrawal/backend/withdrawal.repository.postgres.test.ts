@@ -61,6 +61,7 @@ describe.skipIf(!testDatabase)(
         accountId,
         locale: "cs-CZ" as const,
         contractLabel: "Office · 10.–12. 1. 2027",
+        statementName: "Synthetic Customer",
         submittedAt,
         periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
         paidAmount: paid,
@@ -204,22 +205,39 @@ describe.skipIf(!testDatabase)(
         )
       ).toBe(true);
       expect(retried?.receiptSentAt).not.toBeNull();
+      expect(retried?.statementName).toBe(withdrawal.statementName);
 
       if (!retried?.settlementClaimedAt) throw new Error("Not claimed again.");
       const retryClaim = {
         id: recorded.id,
         claimedAt: retried.settlementClaimedAt,
       };
-      for (const step of [
-        "operator_notice",
-        "contract_cancellation",
-      ] as const) {
-        expect(
-          await run((repository) =>
-            repository.markStepDone({ ...retryClaim, step, doneAt: later })
-          )
-        ).toBe(true);
-      }
+      expect(
+        await run((repository) =>
+          repository.markStepDone({
+            ...retryClaim,
+            step: "operator_notice",
+            doneAt: later,
+          })
+        )
+      ).toBe(true);
+      expect(
+        await run((repository) =>
+          repository.findByContract(withdrawal.contract)
+        )
+      ).toMatchObject({
+        _tag: "Some",
+        value: { statementName: null, contractCancelledAt: null },
+      });
+      expect(
+        await run((repository) =>
+          repository.markStepDone({
+            ...retryClaim,
+            step: "contract_cancellation",
+            doneAt: later,
+          })
+        )
+      ).toBe(true);
       await run((repository) =>
         repository.markSettled({ ...retryClaim, settledAt: later })
       );
@@ -230,6 +248,7 @@ describe.skipIf(!testDatabase)(
         _tag: "Some",
         value: {
           settlementClaimedAt: null,
+          statementName: null,
           stepRetries: {
             contract_cancellation: {
               attempts: 1,

@@ -41,6 +41,7 @@ const withdrawal: ContractWithdrawal = {
   accountId: access.administrator.accountId,
   locale: "en-US",
   contractLabel: "Synthetic reservation",
+  statementName: null,
   submittedAt,
   periodEndsAt: submittedAt.add({ hours: 14 * 24 }),
   paidAmount: payment,

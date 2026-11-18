@@ -27,6 +27,7 @@ export type ContractWithdrawal = {
   readonly accountId: CustomerAccountId;
   readonly locale: Locale;
   readonly contractLabel: string;
+  readonly statementName: string | null;
   readonly submittedAt: Temporal.Instant;
   readonly periodEndsAt: Temporal.Instant;
   readonly paidAmount: Money;
@@ -87,7 +88,7 @@ type NewContractWithdrawal = Pick<
   | "paidAmount"
   | "refundAmount"
   | "refundBasis"
->;
+> & { readonly statementName: string };
 
 /** Names the settlement run that holds a withdrawal's claim. */
 type SettlementClaim = {
@@ -395,12 +396,19 @@ export class WithdrawalRepository extends Context.Service<
         }),
         markStepDone: Effect.fn("WithdrawalRepository.markStepDone")(
           function* (input) {
+            const statementName =
+              input.step === "receipt"
+                ? sql`case when ${contractWithdrawals.operatorNotifiedAt} is null then ${contractWithdrawals.statementName} end`
+                : sql`case when ${contractWithdrawals.receiptSentAt} is null then ${contractWithdrawals.statementName} end`;
             const updated = yield* db
               .update(contractWithdrawals)
               .set({
                 [settlementStepColumns[input.step].doneAt]: input.doneAt,
                 [settlementStepColumns[input.step].failureCode]: null,
                 [settlementStepColumns[input.step].retryAt]: null,
+                ...(input.step !== "contract_cancellation" && {
+                  statementName,
+                }),
                 updatedAt: input.doneAt,
               })
               .where(heldClaim(input))
@@ -494,6 +502,7 @@ const toNewRow = (withdrawal: NewContractWithdrawal) => ({
   customerAccountId: withdrawal.accountId,
   locale: withdrawal.locale,
   contractLabel: withdrawal.contractLabel,
+  statementName: withdrawal.statementName,
   submittedAt: withdrawal.submittedAt,
   periodEndsAt: withdrawal.periodEndsAt,
   paidAmountValue: withdrawal.paidAmount.value,
@@ -518,6 +527,7 @@ export const toContractWithdrawal = (
     accountId: row.customerAccountId,
     locale: row.locale,
     contractLabel: row.contractLabel,
+    statementName: row.statementName,
     submittedAt: row.submittedAt,
     periodEndsAt: row.periodEndsAt,
     paidAmount: { value: row.paidAmountValue, ...unit },

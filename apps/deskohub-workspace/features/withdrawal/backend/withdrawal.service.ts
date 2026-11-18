@@ -224,10 +224,7 @@ export class WithdrawalService extends Context.Service<
        */
       const settle = Effect.fnUntraced(function* (
         withdrawal: ContractWithdrawal,
-        known?: {
-          readonly receiptEmail: string;
-          readonly customerName: string | null;
-        }
+        receiptEmail?: string
       ) {
         const claimedAt = withdrawal.settlementClaimedAt;
         if (!claimedAt) return "skipped" as const;
@@ -327,7 +324,7 @@ export class WithdrawalService extends Context.Service<
           if (dueEmailSteps.length === 0) {
             return Effect.succeed(Option.none<string>());
           }
-          if (known) return Effect.succeed(Option.some(known.receiptEmail));
+          if (receiptEmail) return Effect.succeed(Option.some(receiptEmail));
           return accountEmail(withdrawal.accountId).pipe(
             Effect.map(Option.some),
             Effect.catch((cause) =>
@@ -360,7 +357,6 @@ export class WithdrawalService extends Context.Service<
               emails.sendReceipt({
                 withdrawal,
                 receiptEmail: customerEmail.value,
-                customerName: known?.customerName ?? null,
               }),
               () => true,
               () => "receipt_send_failed"
@@ -370,7 +366,6 @@ export class WithdrawalService extends Context.Service<
               emails.sendOperatorNotice({
                 withdrawal,
                 customerEmail: customerEmail.value,
-                customerName: known?.customerName ?? null,
               }),
               () => true,
               () => "operator_notice_failed"
@@ -542,6 +537,7 @@ export class WithdrawalService extends Context.Service<
                       accountId: input.accountId,
                       locale: input.locale,
                       contractLabel: contract.label,
+                      statementName: customerName,
                       submittedAt,
                       periodEndsAt: assessment.periodEndsAt,
                       paidAmount: contract.paidAmount,
@@ -554,7 +550,7 @@ export class WithdrawalService extends Context.Service<
               );
             if (recorded) {
               yield* Effect.logInfo("Withdrawal recorded");
-              yield* settle(withdrawal, { receiptEmail, customerName });
+              yield* settle(withdrawal, receiptEmail);
             }
             return {
               withdrawalId: withdrawal.id,

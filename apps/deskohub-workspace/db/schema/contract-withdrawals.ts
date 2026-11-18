@@ -15,6 +15,7 @@ import type {
   WithdrawalId,
 } from "@/features/withdrawal/withdrawal-identifiers";
 import { instant } from "../instant";
+import { sensitiveText } from "../sensitive-text";
 import { postgresUuidV7 } from "../uuid-v7";
 import { customerAccounts } from "./customer-accounts";
 
@@ -45,6 +46,8 @@ export const contractWithdrawals = pgTable(
     locale: text("locale").notNull().$type<Locale>(),
     /** How the statement identified the contract, in `locale`. */
     contractLabel: text("contract_label").notNull(),
+    /** The confirmed name, retained until both withdrawal emails are sent. */
+    statementName: sensitiveText("statement_name"),
     submittedAt: instant("submitted_at").notNull(),
     periodEndsAt: instant("period_ends_at").notNull(),
     paidAmountValue: integer("paid_amount_value").notNull(),

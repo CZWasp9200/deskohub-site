@@ -5,7 +5,6 @@ import {
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import type { EmailMessage } from "@deskohub/email/types/email.types";
-import { getWorkspaceCanonicalUrl } from "@/shared/utils";
 import { Context, Effect, Layer } from "effect";
 import {
   ContractWithdrawalNoticeEmail,
@@ -23,6 +22,7 @@ import {
   internalWorkspaceEmailSubject,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
+import { getWorkspaceCanonicalUrl } from "@/shared/utils";
 import type { ContractWithdrawal } from "./withdrawal.repository";
 
 type WithdrawalEmailError = EmailSendError | EmailServiceError;
@@ -32,13 +32,11 @@ interface IWithdrawalEmails {
   readonly sendReceipt: (input: {
     readonly withdrawal: ContractWithdrawal;
     readonly receiptEmail: string;
-    readonly customerName: string | null;
   }) => Effect.Effect<void, WithdrawalEmailError>;
   /** Tells staff about the withdrawal; `customerEmail` picks the test inbox in tests. */
   readonly sendOperatorNotice: (input: {
     readonly withdrawal: ContractWithdrawal;
     readonly customerEmail: string;
-    readonly customerName: string | null;
   }) => Effect.Effect<void, WithdrawalEmailError>;
 }
 
@@ -65,12 +63,11 @@ export class WithdrawalEmails extends Context.Service<
         sendReceipt: Effect.fn("WithdrawalEmails.sendReceipt")(function* ({
           withdrawal,
           receiptEmail,
-          customerName,
         }) {
           const props = {
             locale: withdrawal.locale,
             reference: withdrawal.contract.id,
-            customerName,
+            customerName: withdrawal.statementName,
             receiptEmail,
             contractLabel: withdrawal.contractLabel,
             submittedAt: withdrawal.submittedAt,
@@ -94,12 +91,12 @@ export class WithdrawalEmails extends Context.Service<
           yield* emailService.send(message).pipe(Effect.asVoid);
         }),
         sendOperatorNotice: Effect.fn("WithdrawalEmails.sendOperatorNotice")(
-          function* ({ withdrawal, customerEmail, customerName }) {
+          function* ({ withdrawal, customerEmail }) {
             const props = {
               contractLabel: withdrawal.contractLabel,
               contractId: withdrawal.contract.id,
               accountId: withdrawal.accountId,
-              customerName,
+              customerName: withdrawal.statementName,
               customerEmail,
               submittedAt: withdrawal.submittedAt,
               paidAmount: withdrawal.paidAmount,

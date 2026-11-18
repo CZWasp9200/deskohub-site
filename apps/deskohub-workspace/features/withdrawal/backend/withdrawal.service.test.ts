@@ -205,7 +205,7 @@ const makeHarness = (options: {
           return Effect.fail(new Error("Resend unavailable") as never);
         }
         log.push(`receipt to ${message.receiptEmail}`);
-        emailNames.push(message.customerName);
+        emailNames.push(message.withdrawal.statementName);
         return Effect.void;
       }),
     sendOperatorNotice: (message) =>
@@ -216,7 +216,7 @@ const makeHarness = (options: {
           return Effect.fail(new Error("Resend unavailable") as never);
         }
         log.push("operator notice");
-        emailNames.push(message.customerName);
+        emailNames.push(message.withdrawal.statementName);
         return Effect.void;
       }),
   });
@@ -469,8 +469,10 @@ describe("WithdrawalService.withdraw", () => {
   });
 
   test("cancels the booking while the receipt keeps failing, and retries the receipt on its own", async () => {
-    const harness = makeHarness({ receiptFailures: 3 });
-    const receipt = await harness.run((service) => service.withdraw(input));
+    const harness = makeHarness({ receiptFailures: 3, profileName: null });
+    const receipt = await harness.run((service) =>
+      service.withdraw({ ...input, customerName: "Sam Typed" })
+    );
 
     expect(receipt.receiptEmail).toBe(receiptEmail);
     expect(harness.log).toEqual([
@@ -517,6 +519,7 @@ describe("WithdrawalService.withdraw", () => {
     expect(
       harness.log.filter((entry) => entry === "operator notice")
     ).toHaveLength(1);
+    expect(harness.emailNames).toEqual(["Sam Typed", "Sam Typed"]);
     expect(getWithdrawalSettlementStatus(onlyRow(harness))).toEqual({
       settlement: "settled",
       failingSteps: [],
@@ -565,6 +568,7 @@ describe("WithdrawalService.withdraw", () => {
       service.settleDue({ limit: 10 })
     );
     expect(last).toEqual({ claimed: 1, settled: 1, failed: 0 });
+    expect(harness.emailNames).toEqual(["Alex Example", "Alex Example"]);
     expect(
       harness.log.filter((entry) => entry.startsWith("receipt to"))
     ).toHaveLength(1);
