@@ -189,8 +189,8 @@ export const sampleOfferings = (
       name: copy(locale, "Private office", "Soukromá kancelář"),
       description: copy(
         locale,
-        "A lockable office for your team.",
-        "Uzamykatelná kancelář pro váš tým."
+        "A private office reserved only for you for whole days, with the seats you need.",
+        "Soukromá kancelář jen pro tebe na celé dny, s tolika místy, kolik potřebuješ."
       ),
       usage: copy(locale, "Book whole days.", "Rezervace na celé dny."),
       price: czk(samplePrices.officeDay),
