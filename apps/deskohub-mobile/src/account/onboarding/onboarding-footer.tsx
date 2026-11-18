@@ -6,7 +6,10 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { ActionFooter } from "../../ui/action-footer";
 import { Button } from "../../ui/controls";
+import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
 import { Notice } from "../../ui/notice";
+import { idleLiveRegionLayout } from "../../ui/notice-presentation";
+import { Text } from "../../ui/text";
 import { space } from "../../ui/tokens";
 import type { CompletionTextField } from "../profile/profile-draft";
 import { profileFooterView } from "../profile/profile-footer-view";
@@ -83,6 +86,10 @@ export function OnboardingFooter({
   const retryLabel = m.account_retry({}, { locale });
   const idleLabel = failed === undefined ? label : retryLabel;
   const buttonLabel = busy ? busyLabel : idleLabel;
+  const fieldsMessage =
+    message?.kind === "fix-fields"
+      ? fixFieldsMessage(step, message.count, locale)
+      : undefined;
   // Kept mounted so assistive tech announces it.
   const failure = (
     <Notice
@@ -94,18 +101,15 @@ export function OnboardingFooter({
   );
   return (
     <ActionFooter
-      message={
-        message?.kind === "fix-fields"
-          ? fixFieldsMessage(step, message.count, locale)
-          : undefined
-      }
+      message={wide ? undefined : fieldsMessage}
       messageTone="error"
       aside={
         wide ? (
           <>
-            {failed === undefined && (
+            {failed === undefined && fieldsMessage === undefined && (
               <OnboardingStepProgress step={step} locale={locale} wide />
             )}
+            <FieldErrorStatus message={fieldsMessage} />
             {failure}
           </>
         ) : undefined
@@ -121,6 +125,26 @@ export function OnboardingFooter({
         />
       </View>
     </ActionFooter>
+  );
+}
+
+function FieldErrorStatus({
+  message,
+}: {
+  readonly message: string | undefined;
+}) {
+  useLiveRegionAnnouncement(message, "polite");
+  return (
+    <Text
+      role="status"
+      aria-live="polite"
+      accessibilityLiveRegion="polite"
+      variant="hintStrong"
+      tone="danger"
+      style={message === undefined ? idleLiveRegionLayout : undefined}
+    >
+      {message ?? ""}
+    </Text>
   );
 }
 
