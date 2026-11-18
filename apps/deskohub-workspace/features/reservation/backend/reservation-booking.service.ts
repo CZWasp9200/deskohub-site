@@ -43,6 +43,7 @@ import {
 } from "@/features/checkout/checkout-referral-notice";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
+import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
@@ -335,6 +336,16 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
       payStateToken: payState.payStateToken,
       // The Pay page accepts its sealed state until this instant.
       expiresAt: payState.expiresAt,
+      ...(input.prepared.reservation.kind === "office" && {
+        preparedOffice: {
+          startsOn: input.prepared.reservation.startsOn,
+          endsOn: input.prepared.reservation.endsOn,
+          seats: input.prepared.reservation.seats,
+          total: input.prepared.quote.payment.expectedPrice,
+          regularPrice: input.prepared.quote.payment.undiscountedPrice,
+          discount: getReservationQuoteDiscount(input.prepared.quote.payment),
+        },
+      }),
       ...(referralApplied && { referralApplied: true as const }),
     };
 

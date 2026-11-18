@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Effect, Option } from "effect";
+import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
 import { AgentBookingBanner } from "@/features/ai-assistants/components/agent-booking-banner";
@@ -30,14 +31,22 @@ import {
 import type { PublicPageBreadcrumb } from "@/features/public-pages/components/public-page-breadcrumbs";
 import { publicPageDefinitions } from "@/features/public-pages/public-page-definitions";
 import type { PublicPagePathname } from "@/features/public-pages/public-pages";
-import { checkoutContactReturnState } from "@/features/reservation/backend/checkout-contact-return-state";
+import {
+  checkoutContactReturnState,
+  loadCheckoutOfficeSelection,
+} from "@/features/reservation/backend/checkout-contact-return-state";
 import { loadReservationCheckoutAccount } from "@/features/reservation/backend/reservation-existing-customer.server";
 import { ReservationPagePreloads } from "@/features/reservation/backend/reservation-page-preloads.service";
 import {
+  type CheckoutOfficeSelection,
   checkoutContactQueryParam,
   type ReservationCheckoutContact,
 } from "@/features/reservation/reservation-checkout-contact";
 import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
+import {
+  getReservationCheckoutStep,
+  reservationCheckoutStepQueryParam,
+} from "@/features/reservation/reservation-checkout-step";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   type CustomerLastReservationForKind,
@@ -55,6 +64,7 @@ import type {
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { getSearchParam, type SearchParamsRecord } from "@/shared/utils";
+import { toURLSearchParams } from "@/shared/utils/search-params";
 import { ReservationPage, ReservationPageTitle } from "./reservation-page";
 
 type ReservationKind = ReservationOrderData["kind"];
@@ -70,6 +80,7 @@ type ReservationPageRequest<Kind extends ReservationKind, PageData> = {
   readonly checkoutAccount: ReservationCheckoutAccount<Kind>;
   /** Contact details typed before an email verification that led here. */
   readonly checkoutContact?: ReservationCheckoutContact;
+  readonly checkoutOfficeSelection?: CheckoutOfficeSelection;
   readonly locale: Locale;
   /** Customer-independent data from the definition's `loadPageData`. */
   readonly pageData: PageData;
@@ -111,6 +122,7 @@ export type ReservationPageRestoration<Values> =
 /** The data a family's form opens with. */
 export type ReservationPageForm<PageData, Values> = {
   readonly checkoutCustomer: ReservationCheckoutCustomerForm;
+  readonly checkoutOfficeSelection?: CheckoutOfficeSelection;
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly initialAdvertisedPrices: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability>;
@@ -251,6 +263,32 @@ const loadCheckoutContact = (token: string | undefined, locale: Locale) =>
         )
     : Effect.succeed(undefined);
 
+const getCheckoutAccountEmail = (account: ReservationCheckoutAccount) => {
+  switch (account.status) {
+    case "linked":
+      return account.customer.contact.email;
+    case "profile-missing":
+      return account.email;
+    case "review-account":
+      return account.contact.email;
+    default:
+      return undefined;
+  }
+};
+
+const getCheckoutSelectionPath = (
+  locale: Locale,
+  pathname: PublicPagePathname,
+  searchParams: SearchParamsRecord,
+  keepCheckoutContact = false
+) => {
+  const params = toURLSearchParams(searchParams);
+  if (!keepCheckoutContact) params.delete(checkoutContactQueryParam);
+  params.delete(reservationCheckoutStepQueryParam);
+  const search = params.toString();
+  return `/${locale}${pathname}${search ? `?${search}` : ""}`;
+};
+
 export function createReservationPage<
   const Kind extends ReservationKind,
   Values extends ReservationCheckoutFormValues,
@@ -317,6 +355,10 @@ async function ReservationPageRequestContent<
   const resolvedSearchParams = await searchParams;
 
   return runWithRequestLocale(async (locale) => {
+    const checkoutContactToken = getSearchParam(
+      resolvedSearchParams,
+      checkoutContactQueryParam
+    );
     const normalizedCode = await normalizeSubmittedPromotionCode({
       submittedCode: getSearchParam(
         resolvedSearchParams,
@@ -337,19 +379,63 @@ async function ReservationPageRequestContent<
           locale,
           definition.kind
         ).pipe(runWorkspaceEffect(`reservation.${definition.kind}.load-state`)),
-        loadCheckoutContact(
-          getSearchParam(resolvedSearchParams, checkoutContactQueryParam),
-          locale
-        ).pipe(
+        loadCheckoutContact(checkoutContactToken, locale).pipe(
           runWorkspaceEffect(`reservation.${definition.kind}.load-contact`)
         ),
         loadReservationCheckoutAccount(definition.kind),
         definition.loadPageData?.(),
       ]);
 
+    const contactMatchesAccount =
+      checkoutContact !== undefined &&
+      getCheckoutAccountEmail(checkoutAccount)?.toLowerCase() ===
+        checkoutContact.email.toLowerCase();
+    let checkoutOfficeSelection: CheckoutOfficeSelection | undefined;
+    if (checkoutContact?.officeSelectionId) {
+      if (definition.kind === "office" && contactMatchesAccount) {
+        checkoutOfficeSelection = await loadCheckoutOfficeSelection(
+          checkoutContact.officeSelectionId
+        ).pipe(
+          Effect.provide(SealedStateKeys.Default),
+          runWorkspaceEffect("reservation.office.load-checkout-selection")
+        );
+      }
+      if (!checkoutOfficeSelection) {
+        // An expired draft or another browser must choose its own attendees.
+        redirect(
+          getCheckoutSelectionPath(
+            locale,
+            definition.pathname,
+            resolvedSearchParams
+          )
+        );
+      }
+    } else if (
+      definition.kind === "office" &&
+      checkoutContactToken &&
+      (!contactMatchesAccount ||
+        getReservationCheckoutStep(
+          getSearchParam(
+            resolvedSearchParams,
+            reservationCheckoutStepQueryParam
+          )
+        ) === "contact")
+    ) {
+      // An older return can prefill the verified contact but cannot confirm attendees.
+      redirect(
+        getCheckoutSelectionPath(
+          locale,
+          definition.pathname,
+          resolvedSearchParams,
+          contactMatchesAccount
+        )
+      );
+    }
+
     const content = await loadReservationPageContent(definition, {
       checkoutAccount,
       checkoutContact,
+      checkoutOfficeSelection,
       locale,
       // A definition without a loader has `undefined` page data.
       pageData: pageData as PageData,
@@ -452,7 +538,7 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
       } satisfies ReservationPageContent<PageData, Values>;
     }
 
-    const { checkoutCustomer, initialValues } =
+    const { checkoutCustomer: seededCustomer, initialValues } =
       getReservationCheckoutCustomerForm({
         account: checkoutAccount,
         checkoutContact: request.checkoutContact,
@@ -464,6 +550,12 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
         restored: selection.kind === "restored",
         values: selection.values,
       });
+    const checkoutCustomer =
+      seededCustomer.status === "profile-missing" &&
+      definition.kind === "office" &&
+      !request.checkoutOfficeSelection
+        ? { ...seededCustomer, continuesCheckout: false }
+        : seededCustomer;
 
     const replacementToken = restoredReservation?.replacementToken;
     const preload = definition.preload(initialValues, scope);
@@ -483,6 +575,7 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
       kind: "form",
       form: {
         checkoutCustomer,
+        checkoutOfficeSelection: request.checkoutOfficeSelection,
         checkoutSessionId: restoredReservation?.checkoutSessionId,
         initialAdvertisedPrices,
         initialAvailability,

@@ -13,6 +13,8 @@ For date, time, or date-time fields, also read [references/date-time-controls.md
 - Render a branch with no else case as `{condition && <Component />}`, not a ternary with `null`.
 - Map a small variant union to copy, icons, or similar values with an inline object lookup, not ternaries.
 - Inline one-use `className` strings, literals, and lookup objects where they're consumed.
+- Confirm a finished quick action, such as copying an address, with `Toast` (`shared/components/ui/toast.tsx`): render it always and toggle `open`, for example from `useClipboardCopy`'s status, so its status region stays mounted.
+- Underline a link inside a sentence that must keep the sentence's font and colour with `textLink({ tone: "inherit" })`.
 - Use the matching shadcn primitive for standard interactions, for example Tooltip for hover and focus hints. Add a missing primitive through the app's `components.json` and adapt only its shared styling and React conventions.
 - Build administration list counts and their search or filter controls with `AdministrationTableToolbar` and `AdministrationTableCount` (`features/administration/table-toolbar.tsx`).
 - Build date, time, and date-time fields from the shared controls in `shared/components/date-time`, not native `date`, `time`, or `datetime-local` inputs. Keep reservation-family-neutral form shells and reservation policy adapters in `features/reservation/components`. Put only family-specific fields and policy UI under `features/cowork` or `features/meeting-room`.

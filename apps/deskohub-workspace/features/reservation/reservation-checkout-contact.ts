@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { officePeopleSchema } from "@/features/office/office-people";
+import { officeSeatsSchema } from "./office-reservation";
 import { reservationBillingSelectionSchema } from "./reservation-billing";
 import { reservationCustomerSchema } from "./reservation-contact";
 
@@ -24,3 +26,10 @@ export const reservationCheckoutContactSchema = (defaultPhoneRegion: string) =>
 export type ReservationCheckoutContact = ReturnType<
   typeof reservationCheckoutContactSchema
 >["Type"];
+
+/** The office selection that must survive the email check. */
+export const checkoutOfficeSelectionSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("people"), people: officePeopleSchema }),
+  Schema.Struct({ kind: Schema.Literal("seats"), seats: officeSeatsSchema }),
+]);
+export type CheckoutOfficeSelection = typeof checkoutOfficeSelectionSchema.Type;

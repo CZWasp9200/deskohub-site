@@ -11,10 +11,15 @@ import {
 } from "@/features/i18n";
 import { reservationBillingSelectionSchema } from "@/features/reservation/reservation-billing";
 import {
+  checkoutOfficeSelectionSchema,
   type ReservationCheckoutContact,
   reservationCheckoutContactSchema,
 } from "@/features/reservation/reservation-checkout-contact";
 import { normalizedReservationCustomerSchema } from "@/features/reservation/reservation-contact";
+import { makeSealedState } from "@/shared/backend/sealed-state";
+import { getRequestCookies } from "@/shared/backend/utils/request-cookies";
+
+const officeSelectionIdSchema = Schema.String.check(Schema.isUUID(4));
 
 /**
  * The sealed contact and the locale it was typed in, whose region its phone
@@ -26,12 +31,43 @@ const sealedCheckoutContactSchema = Schema.Struct({
   billing: reservationBillingSelectionSchema,
   marketingConsent: Schema.Boolean,
   locale: Schema.optionalKey(Schema.Literals(locales)),
+  officeSelectionId: Schema.optionalKey(officeSelectionIdSchema),
 });
 
 const sealedCheckoutContact = makeAuthReturnState(
   "checkout-contact",
   sealedCheckoutContactSchema
 );
+
+export const checkoutOfficeSelectionMaxAge = 30 * 60;
+
+const sealedOfficeSelection = makeSealedState({
+  purpose: "auth-return:checkout-office-selection",
+  schema: Schema.Struct({
+    id: officeSelectionIdSchema,
+    selection: checkoutOfficeSelectionSchema,
+  }),
+  ttlMilliseconds: checkoutOfficeSelectionMaxAge * 1000,
+  // Leave space for the name and attributes under the browser cookie limit.
+  maxTokenLength: 3800,
+});
+
+export const checkoutOfficeSelectionCookieName = (id: string) =>
+  `checkout-office-${id}`;
+
+export const sealCheckoutOfficeSelection = sealedOfficeSelection.seal;
+
+export const loadCheckoutOfficeSelection = Effect.fn(
+  "reservationPage.loadCheckoutOfficeSelection"
+)(function* (id: string) {
+  const cookies = yield* getRequestCookies;
+  const token = cookies.get(checkoutOfficeSelectionCookieName(id))?.value;
+  if (!token) return undefined;
+  const draft = yield* sealedOfficeSelection.open(token).pipe(Effect.option);
+  return Option.isSome(draft) && draft.value.id === id
+    ? draft.value.selection
+    : undefined;
+});
 
 /**
  * The phone a page in `pageLocale` prefills. A page whose locale reads a
@@ -49,26 +85,35 @@ const phoneForPage = (phone: string, region: string, pageLocale: Locale) =>
 /** The checkout contact details sealed into a sign-in's return path. */
 export const checkoutContactReturnState = {
   /** Seals the contact typed on a page in `locale`. */
-  seal: (contact: ReservationCheckoutContact, locale: Locale) =>
-    sealedCheckoutContact.seal({ ...contact, locale }),
+  seal: (
+    contact: ReservationCheckoutContact,
+    locale: Locale,
+    officeSelectionId?: string
+  ) =>
+    sealedCheckoutContact.seal({
+      ...contact,
+      locale,
+      ...(officeSelectionId && { officeSelectionId }),
+    }),
   /**
    * Opens a sealed contact for a page in `pageLocale`, its phone validated in
    * the region of the locale it was typed in.
    */
   open: (token: string, pageLocale: Locale) =>
     sealedCheckoutContact.open(token).pipe(
-      Effect.flatMap(({ locale = baseLocale, ...sealed }) => {
-        const region = defaultPhoneRegion(locale);
-        return Schema.decodeEffect(reservationCheckoutContactSchema(region))(
-          sealed
-        ).pipe(
-          Effect.map(
-            (contact): ReservationCheckoutContact => ({
+      Effect.flatMap(
+        ({ locale = baseLocale, officeSelectionId, ...sealed }) => {
+          const region = defaultPhoneRegion(locale);
+          return Schema.decodeEffect(reservationCheckoutContactSchema(region))(
+            sealed
+          ).pipe(
+            Effect.map((contact) => ({
               ...contact,
               phone: phoneForPage(contact.phone, region, pageLocale),
-            })
-          )
-        );
-      })
+              ...(officeSelectionId && { officeSelectionId }),
+            }))
+          );
+        }
+      )
     ),
 };

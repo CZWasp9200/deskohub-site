@@ -65,8 +65,6 @@ const reservationContactQueryParams = [
 const unrelatedQueryParams = { utm_source: "workspace-e2e-url-state" };
 
 const urlStateMonitorOption: WorkspaceProductMonitorOption = "2x32-qhd";
-const officeSeatPriceSelector = (seats: number) =>
-  `[data-reservation-type-price="${seats}"]`;
 const coffeeSwitchSelector =
   '[data-cowork-optional-addon-toggle="coffee"] [role="switch"]';
 
@@ -492,9 +490,9 @@ const assertOfficeUrlState = (
 
 /**
  * Opens an office link with a future `startsOn` and checks that the page
- * shows that start date, a seat option per seat of the office table, and the
- * same price the customer sees after choosing that selection on a link-free
- * page.
+ * shows that start date, the contact alone out of the office table's seats
+ * (a link carries no people), and the same price the customer sees after
+ * choosing those dates for the contact alone on a link-free page.
  */
 const assertOfficeStartsOnLink = (
   context: UrlStateCaseContext,
@@ -505,7 +503,6 @@ const assertOfficeStartsOnLink = (
     const { config, openSession, runStep } = context;
     const pathname = "/en-US/reservation/office";
     const state = yield* getOfficeUrlState(data);
-    const seats = yield* getOfficeSeats(data);
     const seatCapacity = yield* runStep({
       execute: loadDotyposOfficeSeatCapacity(datasourceConfig),
       id: "load-office-seat-capacity",
@@ -533,7 +530,11 @@ const assertOfficeStartsOnLink = (
           browser,
           "linked office selection",
           isPrefilledReservation,
-          toPrefilledReservation(data, { includeContact: false }),
+          toPrefilledReservation(data, {
+            includeContact: false,
+            // Links and reloads carry no people: the contact alone.
+            officePeople: "contact-only",
+          }),
           { timeoutMs: config.timeouts.uiTransition }
         )
       ),
@@ -544,17 +545,17 @@ const assertOfficeStartsOnLink = (
       execute: Effect.flatMap(browserOf(context), (browser) =>
         waitForPageCondition(
           browser,
-          "office seat options for the office table capacity",
-          hasOfficeSeatOptions,
+          "the contact alone out of the office table capacity",
+          hasOfficeContactAlone,
           seatCapacity,
           { timeoutMs: config.timeouts.uiTransition }
         )
       ),
-      id: "assert-linked-office-seat-options",
+      id: "assert-linked-office-people",
       timeoutMs: config.timeouts.uiTransition,
     });
     const linkedDisplay = yield* runStep({
-      execute: readOfficeSelectionDisplay(context, seats),
+      execute: readOfficeSelectionDisplay(context),
       id: "read-linked-office-date-and-price",
       timeoutMs: config.timeouts.uiTransition,
     });
@@ -572,7 +573,10 @@ const assertOfficeStartsOnLink = (
       execute: Effect.gen(function* () {
         const browser = yield* openSession;
         yield* prepareReservationSelection({
-          preparation: toReservationSelectionPreparation(data),
+          // The link's dates for the contact alone, as the linked page shows.
+          preparation: toReservationSelectionPreparation(
+            yield* withOfficeContactAlone(data)
+          ),
           session: browser,
           timeoutMs: config.timeouts.uiTransition,
           timeouts: config.timeouts,
@@ -582,7 +586,7 @@ const assertOfficeStartsOnLink = (
       timeoutMs: config.timeouts.uiTransition,
     });
     const selectedDisplay = yield* runStep({
-      execute: readOfficeSelectionDisplay(context, seats),
+      execute: readOfficeSelectionDisplay(context),
       id: "read-selected-office-date-and-price",
       timeoutMs: config.timeouts.uiTransition,
     });
@@ -745,7 +749,11 @@ const reloadAndAssertRestoredSelection = (
       browser,
       "restored reservation selection",
       isPrefilledReservation,
-      toPrefilledReservation(data, { includeContact: false }),
+      toPrefilledReservation(data, {
+        includeContact: false,
+        // Links and reloads carry no people: the contact alone.
+        officePeople: "contact-only",
+      }),
       { timeoutMs: config.timeouts.uiTransition }
     );
     const reloadedUrl = yield* readPageUrl(browser);
@@ -776,10 +784,11 @@ const getOfficeUrlState = (data: CheckoutData) =>
     };
   });
 
-const getOfficeSeats = (data: CheckoutData) =>
-  tryWorkspaceE2ESync("read office seats", () => {
+/** The checkout data with only the contact coming to the office. */
+const withOfficeContactAlone = (data: CheckoutData) =>
+  tryWorkspaceE2ESync("book the office for the contact alone", () => {
     assert(data.office, "office range missing");
-    return data.office.seats;
+    return { ...data, office: { ...data.office, seats: 1 } };
   });
 
 const requireMeetingRoom = (data: CheckoutData) =>
@@ -805,20 +814,16 @@ export const isSwitchChecked = ({
   );
 };
 
-// Live seat cards for exactly one through `seatCapacity` seats, none of them
-// the loading fallback or disabled.
-export const hasOfficeSeatOptions = (seatCapacity: number) => {
-  if (document.querySelector("[data-office-seat-option-fallback]"))
-    return false;
-  const options = [...document.querySelectorAll('input[name="seats"]')];
+// The live people list (not the loading fallback) with the contact alone
+// out of `seatCapacity` seats, its count reading "1 of <seatCapacity>".
+export const hasOfficeContactAlone = (seatCapacity: number) => {
+  if (document.querySelector("[data-office-people-fallback]")) return false;
+  const count = document.querySelector("[data-office-people-count]");
+  const numbers = (count?.textContent ?? "").match(/\d+/g) ?? [];
   return (
-    options.length === seatCapacity &&
-    options.every(
-      (option, index) =>
-        option instanceof HTMLInputElement &&
-        option.value === String(index + 1) &&
-        !option.disabled
-    )
+    numbers.length === 2 &&
+    numbers[0] === "1" &&
+    numbers[1] === String(seatCapacity)
   );
 };
 
@@ -829,19 +834,18 @@ export type OfficeSelectionDisplay = {
 };
 
 /**
- * Waits for the office access and selected-seat prices to be ready, then
- * reads them with the start date field's committed value.
+ * Waits for the office access and per-person prices to be ready, then reads
+ * them with the start date field's committed value.
  */
 const readOfficeSelectionDisplay = (
-  context: UrlStateCaseContext,
-  seats: number
+  context: UrlStateCaseContext
 ): Effect.Effect<OfficeSelectionDisplay, WorkspaceE2EError> =>
   Effect.gen(function* () {
     const browser = yield* browserOf(context);
-    const seatPriceSelector = officeSeatPriceSelector(seats);
+    const seatPriceSelector = "[data-office-seats-price]";
     yield* waitForPageCondition(
       browser,
-      "office access and seat prices",
+      "office access and per-person prices",
       areOfficePricesReady,
       seatPriceSelector,
       { timeoutMs: context.config.timeouts.uiTransition }
@@ -875,7 +879,7 @@ export const areOfficePricesReady = (seatPriceSelector: string) => {
     basePrice instanceof HTMLElement &&
     basePrice.querySelector('[data-slot="skeleton"]') === null &&
     seatPrice instanceof HTMLElement &&
-    seatPrice.dataset.reservationTypePriceReady === "true" &&
+    seatPrice.querySelector('[data-slot="skeleton"]') === null &&
     startDate instanceof HTMLInputElement &&
     submit instanceof HTMLButtonElement &&
     submit.dataset.reservationPriceLoading === "false" &&

@@ -19,6 +19,7 @@ import type {
 } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { payStateDefaultTtlMilliseconds } from "@/features/checkout/backend/checkout/pay-state";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
+import type { PreparedOfficeCheckout } from "@/features/checkout/prepared-office-checkout";
 import type { Locale } from "@/features/i18n";
 import {
   StoredReservationDetails,
@@ -38,9 +39,11 @@ import {
   getStoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
+import { getWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { Money } from "@/shared/money/money";
 import {
   currentInstant,
+  plainDateStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
 import { getReviewPaymentDisabledPath } from "../routes";
@@ -90,6 +93,7 @@ type ReviewSandboxHoldResult = {
   readonly orderId: WorkspaceReservationId;
   readonly redirectUrl: string;
   readonly expiresAt: string;
+  readonly preparedOffice?: PreparedOfficeCheckout;
   readonly reviewSandbox: true;
 };
 
@@ -234,12 +238,29 @@ export class ReviewSandbox extends Context.Service<
           onNone: () => replaceOpenHold({ request, ...keys, now }),
           onSome: Effect.succeed,
         });
+        const details = StoredReservationDetails.project(
+          hold.reservationDetails
+        );
+        const preparedOffice =
+          Option.isSome(details) && details.value.kind === "office"
+            ? {
+                startsOn: plainDateStringSchema.make(
+                  getWorkspaceDate(hold.startsAt).toString()
+                ),
+                endsOn: plainDateStringSchema.make(
+                  getWorkspaceDate(hold.endsAt).subtract({ days: 1 }).toString()
+                ),
+                seats: hold.seats,
+                total: getHoldTotal(hold),
+              }
+            : undefined;
         return {
           status: "ready",
           orderId: hold.id,
           redirectUrl: getReviewPaymentDisabledPath(request.locale, hold.id),
           expiresAt: temporalInstantToIsoString(hold.expiresAt),
           reviewSandbox: true,
+          ...(preparedOffice && { preparedOffice }),
         } satisfies ReviewSandboxHoldResult;
       });
 
@@ -388,6 +409,12 @@ const getSandboxSelection = (reservation: ReviewSandboxOrder) => {
   };
 };
 
+const getHoldTotal = (hold: ReviewAccountHold): Money => ({
+  value: hold.totalValue,
+  exponent: hold.totalExponent,
+  currency: hold.currency,
+});
+
 const toSandboxReservation = (
   hold: WithStoredReservationDetails<ReviewAccountHold>,
   now: Temporal.Instant
@@ -397,11 +424,7 @@ const toSandboxReservation = (
   startsAt: hold.startsAt,
   endsAt: hold.endsAt,
   seats: hold.seats,
-  total: {
-    value: hold.totalValue,
-    exponent: hold.totalExponent,
-    currency: hold.currency,
-  },
+  total: getHoldTotal(hold),
   state: getHoldState(hold, now),
 });
 

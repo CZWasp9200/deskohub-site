@@ -13,6 +13,8 @@ import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/chec
 import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
 import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
+import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
+import type { CheckoutOfficeSelection } from "@/features/reservation/reservation-checkout-contact";
 import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type {
   ReservationOrderData,
@@ -82,6 +84,7 @@ type ReservationCheckoutFormProps<
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly children: ReactNode;
   readonly form: UseFormReturn<Input, unknown, Data>;
+  readonly getOfficeSelection?: (data: Data) => CheckoutOfficeSelection;
   readonly getReservation: (data: Data) => ReservationOrderIssuanceData;
   readonly locale: Locale;
   /** The space picked at the first step, summarized at the contact step. */
@@ -89,6 +92,7 @@ type ReservationCheckoutFormProps<
   /** The family the form books, and its selection values from link parameters. */
   readonly selection: {
     readonly kind: ReservationOrderData["kind"];
+    readonly officeSelection?: OfficeReservationDetails;
     readonly fromSearchParams: (
       searchParams: URLSearchParams
     ) => Partial<Input>;
@@ -178,6 +182,7 @@ function useReservationFormSiteTool<Input extends FieldValues>({
     },
     kind: selection.kind,
     locale,
+    officeSelection: selection.officeSelection,
     readiness: {
       isPending:
         availability.isPending ||
@@ -300,6 +305,7 @@ export function ReservationCheckoutForm<
   checkoutSessionId,
   children,
   form,
+  getOfficeSelection,
   getReservation,
   locale,
   selectionSummary,
@@ -323,6 +329,7 @@ export function ReservationCheckoutForm<
     checkoutStep,
     emailVerification,
     form,
+    getOfficeSelection,
     getReservation,
     locale,
   };

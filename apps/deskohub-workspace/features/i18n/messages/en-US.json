@@ -751,32 +751,6 @@
   "checkoutSummaryItemMeetingRoom": "Meeting room - {duration}",
   "checkoutSummaryItemReferralDiscount": "Referral discount · eligible invitees: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "First booking referral discount",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Private office access · {dayCount} day",
-        "dayCountPlural=other": "Private office access · {dayCount} days"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} office seat",
-        "seatCountPlural=other": "{seatCount} office seats"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -794,7 +768,6 @@
   "checkoutSummaryItemCustomerDiscount": "Customer discount",
   "checkoutSummaryItemTotal": "Total to pay",
   "checkoutPayConsent": "I agree to the <terms>General Terms and Conditions</terms>, <operatingRules>Operating Rules</operatingRules>.<earlyPerformance> Because the service begins during the statutory withdrawal period, I expressly request performance at the reserved time and acknowledge that my withdrawal right ends once the service is fully performed.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Payment finishes on Nexi's secure payment page, which opens in a new tab. Your bank may ask you to confirm the payment in its app. This tab then shows the status of your reservation.",
   "checkoutPayOrderAndPayButton": "Order and pay",
   "checkoutPayOrderAndPayAmountButton": "Order and pay {amount}",
   "checkoutPaySubmitError": "Payment could not be started. Please review the reservation details and try again.",
@@ -1687,5 +1660,78 @@
   "installGuideStepAndroidMenu": "Open your browser's menu, usually <b>⋮</b> next to the address bar.",
   "installGuideStepAndroidAdd": "Tap <b>Add to Home screen</b> or <b>Install app</b>.",
   "installGuideStepAndroidConfirm": "Confirm with <b>Add</b> or <b>Install</b>.",
-  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button."
+  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button.",
+  "officePeopleLabel": "Who is coming?",
+  "officePeopleCount": "{count} of {maximum}",
+  "officePeopleYou": "You",
+  "officePeopleContactEmailLater": "Your email comes in the next step",
+  "officePeopleRemove": "Remove {email}",
+  "officePeopleRemoveYourself": "Remove yourself",
+  "officePeopleAddYourself": "Add yourself",
+  "officePeopleEmailLabel": "Email address",
+  "officePeopleAdd": "Add",
+  "officePeopleReplace": "Replace",
+  "officePeopleSwitchToYourself": "Switch to yourself",
+  "officePeopleInvalidEmail": "Enter a full email address.",
+  "officePeopleDuplicateEmail": "This email is already on the list.",
+  "officePeopleContactEmail": "This is your own email. Use the You row for yourself.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "The only seat is taken. Remove someone to add another person.",
+        "maximumPlural=other": "All {maximum} seats are taken. Remove someone to add another person."
+      }
+    }
+  ],
+  "officePeopleNote": "Everyone gets the door PIN by email.",
+  "officePeopleNoPeople": "Add at least one person.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "This office has {maximum} seat. Remove someone to continue.",
+        "maximumPlural=other": "This office has {maximum} seats. Remove someone to continue."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Price",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} person × {seatPrice}",
+        "countPlural=other": "{count} people × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Total",
+  "checkoutPeopleTitle": "Who is coming",
+  "checkoutPeopleNote": "After you pay, everyone gets the door PIN by email.",
+  "checkoutPayNoteNewTab": "Secure payment in new tab. Click <backToShop/>, or close the tab when done.",
+  "checkoutPayNoteBackToShop": "Back to the shop",
+  "reservationAccessGuestBookedBy": "{product} · booked by {name}",
+  "reservationAccessGuestCopyAddress": "Copy address {address}",
+  "reservationAccessGuestAddressCopied": "Address copied.",
+  "reservationAccessGuestOpenRoute": "Open route",
+  "reservationAccessDatesSingle": "The lock accepts this PIN for {date}.",
+  "reservationAccessDatesRange": "The lock accepts this PIN from {startsOn} through {endsOn}.",
+  "checkoutStatusPeopleLabel": "Who is coming",
+  "checkoutStatusPeopleContact": "{name} (you)",
+  "checkoutStatusPeopleResend": "Resend",
+  "checkoutStatusPeopleResendLabel": "Resend the invitation to {email}",
+  "checkoutStatusPeopleSent": "Sent",
+  "checkoutStatusPeopleSentAnnouncement": "Invitation sent to {email}.",
+  "checkoutStatusPeopleResendFailed": "We couldn't resend the invitation. Try again in a moment.",
+  "checkoutStatusPeopleChangeNote": "To change who is coming, <link>contact us</link>.",
+  "checkoutStatusPeopleChangeMessage": "Hi Deskohub Workspace,\n\nI'd like to change who is coming to my private office reservation.\n\n{reservationDetails}\n\nAdd:\nRemove:"
 }

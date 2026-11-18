@@ -1,15 +1,32 @@
+import { Option } from "effect";
 import { KeyRound } from "lucide-react";
 import Link from "next/link";
 import { CheckoutFlowLayout } from "@/features/checkout/components/checkout-flow-layout";
+import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import type { ReservationAccessViewModel } from "@/features/reservation/backend/reservation-access.service";
 import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
 import { reservationStatusPath } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
+import { ReservationAccessAddress } from "./reservation-access-address";
+import {
+  formatReservationAccessDay,
+  getReservationAccessDays,
+} from "./reservation-access-days";
+
+/**
+ * Who opened the page: the reservation's customer, or a person the booker
+ * invited to a private office, who sees only the code, the dates, and the
+ * way there. `bookedBy` names the booker for an invited person.
+ */
+type ReservationAccessViewer = {
+  readonly viewer?: "customer" | "invitee";
+  readonly bookedBy?: { readonly name: string | null };
+};
 
 type ReservationAccessPageProps = {
-  readonly access: ReservationAccessViewModel;
+  readonly access: ReservationAccessViewModel & ReservationAccessViewer;
   readonly locale: Locale;
   readonly orderId: string;
   readonly presentation?: "page" | "modal";
@@ -21,6 +38,7 @@ export function ReservationAccessPage({
   orderId,
   presentation = "page",
 }: ReservationAccessPageProps) {
+  const isGuest = access.viewer === "invitee";
   const title = {
     available: m.reservationAccessTitle({}, { locale }),
     invalid_link: m.reservationAccessInvalidLinkTitle({}, { locale }),
@@ -46,6 +64,22 @@ export function ReservationAccessPage({
             <h1 className="text-balance text-[1.75rem] leading-none sm:text-5xl">
               {title}
             </h1>
+            {isGuest && (
+              <p
+                className="mt-3 text-lg text-navy-blue/70 sm:text-xl"
+                data-reservation-access-booked-by=""
+              >
+                {access.bookedBy?.name
+                  ? m.reservationAccessGuestBookedBy(
+                      {
+                        product: getWorkspaceOfficeProductTitle(locale),
+                        name: access.bookedBy.name,
+                      },
+                      { locale }
+                    )
+                  : getWorkspaceOfficeProductTitle(locale)}
+              </p>
+            )}
             {access.state === "invalid_link" && (
               <p className="mt-5 text-lg leading-8 text-navy-blue/70">
                 {m.reservationAccessInvalidLinkLead({}, { locale })}
@@ -81,30 +115,61 @@ export function ReservationAccessPage({
             </output>
 
             <p className="mt-10 text-center font-mono text-sm text-navy-blue/60 sm:mt-14">
-              {m.reservationAccessLead(
+              {Option.match(
+                getReservationAccessDays(
+                  access.accessStartsAt,
+                  access.accessEndsAt
+                ),
                 {
-                  startsAt: formatReservationDisplayDateTime(
-                    access.accessStartsAt,
-                    locale
-                  ),
-                  endsAt: formatReservationDisplayDateTime(
-                    access.accessEndsAt,
-                    locale
-                  ),
-                },
-                { locale }
+                  onNone: () =>
+                    m.reservationAccessLead(
+                      {
+                        startsAt: formatReservationDisplayDateTime(
+                          access.accessStartsAt,
+                          locale
+                        ),
+                        endsAt: formatReservationDisplayDateTime(
+                          access.accessEndsAt,
+                          locale
+                        ),
+                      },
+                      { locale }
+                    ),
+                  onSome: ({ firstDay, lastDay }) =>
+                    firstDay.equals(lastDay)
+                      ? m.reservationAccessDatesSingle(
+                          {
+                            date: formatReservationAccessDay(firstDay, locale),
+                          },
+                          { locale }
+                        )
+                      : m.reservationAccessDatesRange(
+                          {
+                            startsOn: formatReservationAccessDay(
+                              firstDay,
+                              locale
+                            ),
+                            endsOn: formatReservationAccessDay(lastDay, locale),
+                          },
+                          { locale }
+                        ),
+                }
               )}
             </p>
           </div>
         )}
 
-        <div className="mt-8 flex justify-center sm:mt-10">
-          <Button asChild variant="secondary" size="lg">
-            <Link href={reservationStatusHref} prefetch={false}>
-              {m.checkoutStatusSummaryTitle({}, { locale })}
-            </Link>
-          </Button>
-        </div>
+        {isGuest ? (
+          <ReservationAccessAddress locale={locale} />
+        ) : (
+          <div className="mt-8 flex justify-center sm:mt-10">
+            <Button asChild variant="secondary" size="lg">
+              <Link href={reservationStatusHref} prefetch={false}>
+                {m.checkoutStatusSummaryTitle({}, { locale })}
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -112,7 +177,12 @@ export function ReservationAccessPage({
   return presentation === "modal" ? (
     content
   ) : (
-    <CheckoutFlowLayout activeStepKey="complete" locale={locale}>
+    <CheckoutFlowLayout
+      activeStepKey="complete"
+      locale={locale}
+      // An invited person never went through checkout, so the page shows no steps.
+      steps={isGuest ? false : undefined}
+    >
       {content}
     </CheckoutFlowLayout>
   );

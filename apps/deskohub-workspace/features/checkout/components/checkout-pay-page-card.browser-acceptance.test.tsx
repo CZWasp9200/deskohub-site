@@ -76,6 +76,7 @@ test.skipIf(!chromiumAvailable)(
   "keeps the pay button's label and icon inside the button from the narrowest phone up, in every locale",
   async () => {
     if (!browser) throw new Error("The pay card browser has not launched.");
+    let sawWrappedLabel = false;
     for (const locale of locales) {
       const page = await browser.newPage();
       try {
@@ -96,25 +97,22 @@ test.skipIf(!chromiumAvailable)(
                 right: box.right - Number.parseFloat(style.paddingRight),
               };
               const label = document.createRange();
-              label.selectNodeContents(button);
-              const icon = button.querySelector("svg")?.getBoundingClientRect();
-              // The first letter of the text shows which line the label
-              // starts on.
-              const walker = document.createTreeWalker(
-                button,
-                NodeFilter.SHOW_TEXT
+              const labelElement = button.querySelector(
+                "[data-checkout-pay-label]"
               );
-              const text = walker.nextNode();
-              const firstLetter = document.createRange();
-              if (text) firstLetter.setStart(text, 0);
-              if (text) firstLetter.setEnd(text, 1);
-              const letter = firstLetter.getBoundingClientRect();
+              if (!labelElement) throw new Error("Missing pay button label");
+              label.selectNodeContents(labelElement);
+              const labelBox = labelElement.getBoundingClientRect();
+              const icon = button.querySelector("svg")?.getBoundingClientRect();
               return {
                 iconWidth: icon?.width,
-                iconBesideFirstLetter:
+                iconCentered:
                   !!icon &&
-                  icon.top < letter.bottom &&
-                  icon.bottom > letter.top,
+                  Math.abs(
+                    (icon.top + icon.bottom) / 2 -
+                      (labelBox.top + labelBox.bottom) / 2
+                  ) <= 0.5,
+                wrapped: label.getClientRects().length > 1,
                 label: label.getBoundingClientRect(),
                 content,
               };
@@ -124,14 +122,19 @@ test.skipIf(!chromiumAvailable)(
           expect(buttons).toHaveLength(4);
           // The pending button shows no icon.
           const [pay, retry, , largePay] = buttons;
-          for (const { iconBesideFirstLetter, iconWidth } of [
+          for (const { iconCentered, iconWidth, wrapped } of [
             pay,
             retry,
             largePay,
-          ])
-            expect({ locale, width, iconBesideFirstLetter, iconWidth }).toEqual(
-              { locale, width, iconBesideFirstLetter: true, iconWidth: 16 }
-            );
+          ]) {
+            sawWrappedLabel ||= wrapped;
+            expect({ locale, width, iconCentered, iconWidth }).toEqual({
+              locale,
+              width,
+              iconCentered: true,
+              iconWidth: 16,
+            });
+          }
           for (const { content, label } of buttons) {
             expect({ locale, width, overflow: false }).toEqual({
               locale,
@@ -146,5 +149,6 @@ test.skipIf(!chromiumAvailable)(
         await page.close();
       }
     }
+    expect(sawWrappedLabel).toBe(true);
   }
 );

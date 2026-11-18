@@ -3,7 +3,7 @@ import { type Browser, chromium, type Page } from "@playwright/test";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import {
   areOfficePricesReady,
-  hasOfficeSeatOptions,
+  hasOfficeContactAlone,
   isSwitchChecked,
   readOfficeDisplay,
 } from "./reservation-url-state";
@@ -69,54 +69,42 @@ test.skipIf(!chromiumAvailable)(
 );
 
 test.skipIf(!chromiumAvailable)(
-  "accepts live seat cards for exactly one through the seat capacity",
+  "accepts the live people list with the contact alone out of the seat capacity",
   async () => {
-    const seats = (values: readonly string[], extra = "") =>
-      `${extra}${values
-        .map((value) => `<input name="seats" type="radio" value="${value}" />`)
-        .join("")}`;
+    const people = (count: string, extra = "") =>
+      `${extra}<span data-office-people-count>${count}</span>`;
 
-    expect(await readOn(seats(["1", "2", "3"]), hasOfficeSeatOptions, 3)).toBe(
-      true
-    );
-    expect(await readOn(seats(["1", "2"]), hasOfficeSeatOptions, 3)).toBe(
+    expect(await readOn(people("1 of 3"), hasOfficeContactAlone, 3)).toBe(true);
+    expect(await readOn(people("2 of 3"), hasOfficeContactAlone, 3)).toBe(
       false
     );
-    expect(await readOn(seats(["1", "3"]), hasOfficeSeatOptions, 2)).toBe(
+    expect(await readOn(people("1 of 2"), hasOfficeContactAlone, 3)).toBe(
       false
     );
     expect(
       await readOn(
-        '<input name="seats" type="radio" value="1" /><input disabled name="seats" type="radio" value="2" />',
-        hasOfficeSeatOptions,
-        2
-      )
-    ).toBe(false);
-    expect(
-      await readOn(
-        seats(["1", "2"], "<div data-office-seat-option-fallback></div>"),
-        hasOfficeSeatOptions,
-        2
+        people("1 of 3", "<div data-office-people-fallback></div>"),
+        hasOfficeContactAlone,
+        3
       )
     ).toBe(false);
   }
 );
 
-const seatPrice = '[data-reservation-type-price="2"]';
+const seatPrice = "[data-office-seats-price]";
 
 const officePrices = ({
   basePrice = "<span>CZK  1 000</span>",
   continueAttributes = 'data-reservation-price-loading="false"',
-  seatReady = "true",
+  seatPrice: seatPriceHtml = "<span>CZK\n    500</span>",
 } = {}) => `
   <div data-office-base-price>${basePrice}</div>
-  <div data-reservation-type-price="2" data-reservation-type-price-ready="${seatReady}">CZK
-    500</div>
+  <div data-office-seats-price>${seatPriceHtml}</div>
   <input name="startsOn" value="2099-09-01" />
   <button id="reservation-continue" ${continueAttributes}>Continue</button>`;
 
 test.skipIf(!chromiumAvailable)(
-  "waits for settled office access and seat prices",
+  "waits for settled office access and per-person prices",
   async () => {
     expect(await readOn(officePrices(), areOfficePricesReady, seatPrice)).toBe(
       true
@@ -130,7 +118,7 @@ test.skipIf(!chromiumAvailable)(
     ).toBe(false);
     expect(
       await readOn(
-        officePrices({ seatReady: "false" }),
+        officePrices({ seatPrice: '<span data-slot="skeleton"></span>' }),
         areOfficePricesReady,
         seatPrice
       )
