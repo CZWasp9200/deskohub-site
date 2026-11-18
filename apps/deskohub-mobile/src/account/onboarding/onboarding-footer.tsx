@@ -1,4 +1,5 @@
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import { StyleSheet, View } from "react-native";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -6,10 +7,12 @@ import { m } from "../../i18n/messages";
 import { ActionFooter } from "../../ui/action-footer";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
+import { space } from "../../ui/tokens";
 import type { CompletionTextField } from "../profile/profile-draft";
 import { profileFooterView } from "../profile/profile-footer-view";
 import type { ProfileSubmitState } from "../profile/profile-save";
 import type { OnboardingStep } from "./onboarding-model";
+import { OnboardingStepProgress } from "./onboarding-step-head";
 
 const fixFieldsMessage = (
   step: OnboardingStep,
@@ -48,8 +51,8 @@ const failureMessage = (error: CustomerViewError, locale: AppLocale) => {
  * An onboarding step's sticky footer, above the keyboard with the screen's
  * keyboard view (boards 06 to 08): the step's button, the count of fields
  * to fix above it, and, when the submit failed, the failure next to a Try
- * again that submits the kept answers again. Only the button shows
- * progress.
+ * again that submits the kept answers again. At wide widths the footer
+ * also shows the current step.
  */
 export function OnboardingFooter({
   step,
@@ -59,6 +62,7 @@ export function OnboardingFooter({
   busyLabel,
   onPress,
   locale,
+  wide,
 }: {
   readonly step: OnboardingStep;
   readonly state: ProfileSubmitState;
@@ -68,6 +72,7 @@ export function OnboardingFooter({
   readonly busyLabel: string;
   readonly onPress: () => void;
   readonly locale: AppLocale;
+  readonly wide: boolean;
 }) {
   // Nothing to compare against a saved profile, so the draft always counts
   // as unsaved. Fields to fix on the other step say nothing here: the flow
@@ -78,6 +83,15 @@ export function OnboardingFooter({
   const retryLabel = m.account_retry({}, { locale });
   const idleLabel = failed === undefined ? label : retryLabel;
   const buttonLabel = busy ? busyLabel : idleLabel;
+  // Kept mounted so assistive tech announces it.
+  const failure = (
+    <Notice
+      tone={failed?._tag === "Unconfirmed" ? "warning" : "error"}
+      message={
+        failed === undefined ? undefined : failureMessage(failed, locale)
+      }
+    />
+  );
   return (
     <ActionFooter
       message={
@@ -86,20 +100,31 @@ export function OnboardingFooter({
           : undefined
       }
       messageTone="error"
+      aside={
+        wide ? (
+          <>
+            {failed === undefined && (
+              <OnboardingStepProgress step={step} locale={locale} wide />
+            )}
+            {failure}
+          </>
+        ) : undefined
+      }
     >
-      {/* Kept mounted so assistive tech announces it. */}
-      <Notice
-        tone={failed?._tag === "Unconfirmed" ? "warning" : "error"}
-        message={
-          failed === undefined ? undefined : failureMessage(failed, locale)
-        }
-      />
-      <Button
-        label={buttonLabel}
-        icon={failed === undefined ? undefined : RotateCcw}
-        busy={busy}
-        onPress={onPress}
-      />
+      <View style={[styles.controls, wide && styles.wideControls]}>
+        {!wide && failure}
+        <Button
+          label={buttonLabel}
+          icon={failed === undefined ? undefined : RotateCcw}
+          busy={busy}
+          onPress={onPress}
+        />
+      </View>
     </ActionFooter>
   );
 }
+
+const styles = StyleSheet.create({
+  controls: { gap: space.sm },
+  wideControls: { minWidth: 200 },
+});
