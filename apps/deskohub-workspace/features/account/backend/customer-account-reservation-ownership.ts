@@ -7,6 +7,7 @@ import type {
 import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
+import type { CustomerAccountSession } from "./customer-authentication.service";
 import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
 interface ICustomerAccountReservationOwnership {
@@ -16,6 +17,15 @@ interface ICustomerAccountReservationOwnership {
    */
   readonly activeAccountId: Effect.Effect<
     CustomerAccountId,
+    CustomerAccountAccessError
+  >;
+  /**
+   * The signed-in account's verified session, verified active like
+   * `activeAccountId`. Its login email finds the reservations that invited
+   * the account.
+   */
+  readonly activeAccount: Effect.Effect<
+    CustomerAccountSession,
     CustomerAccountAccessError
   >;
   /**
@@ -38,9 +48,13 @@ export class CustomerAccountReservationOwnership extends Context.Service<
       const current = yield* CurrentCustomerAccount;
       const links = yield* CustomerAccountLinkRepository;
 
-      const activeAccountId = current.requireActive.pipe(
-        Effect.map((session) => session.accountId),
-        Effect.tap((accountId) => requireAccountActivity(links, accountId))
+      const activeAccount = current.requireActive.pipe(
+        Effect.tap((session) =>
+          requireAccountActivity(links, session.accountId)
+        )
+      );
+      const activeAccountId = activeAccount.pipe(
+        Effect.map((session) => session.accountId)
       );
 
       const resolve = requireLinkedCustomerAccount.pipe(
@@ -52,6 +66,7 @@ export class CustomerAccountReservationOwnership extends Context.Service<
 
       return {
         activeAccountId,
+        activeAccount,
         resolve,
       } satisfies ICustomerAccountReservationOwnership;
     })
