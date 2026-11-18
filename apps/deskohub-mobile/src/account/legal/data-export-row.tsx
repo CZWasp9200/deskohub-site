@@ -1,9 +1,8 @@
+import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/reactivity";
 import Archive from "lucide-react-native/icons/archive";
 import Download from "lucide-react-native/icons/download";
 import { StyleSheet, View } from "react-native";
-import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
 import { DownloadShareFailure } from "../../customer-api/share-downloaded-file";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -31,17 +30,19 @@ const failureMessage = (failure: DownloadShareFailure, locale: AppLocale) =>
  * row offers it; the server decides who may download.
  */
 export function DataExportRow({
+  account,
   offer,
 }: {
+  readonly account: CustomerAccountState | undefined;
   readonly offer?: { readonly title: string; readonly description: string };
 }) {
   const locale = useAppLocale();
-  const account = useAtomValue(accountAtom);
   const result = useAtomValue(dataExportDownloadAtom);
   const download = useAtomSet(dataExportDownloadAtom);
-  const row = AsyncResult.isSuccess(account)
-    ? dataExportRow(account.value, result)
-    : ({ kind: "idle" } as const);
+  const row =
+    account === undefined
+      ? ({ kind: "idle" } as const)
+      : dataExportRow(account, result);
   if (row.kind === "unavailable") {
     if (offer) return null;
     return (

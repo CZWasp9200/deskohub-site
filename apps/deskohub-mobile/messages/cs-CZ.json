@@ -764,7 +764,7 @@
   "danger_consequence_records": "Rezervace, platby a faktury zůstávají zachované tam, kde je vyžadují provoz, účetnictví a zákon.",
   "danger_title": "Tohle nejde vrátit zpět",
   "danger_consequences_lead": "Když smažeš účet:",
-  "danger_data_export_title": "Stáhni si své osobní údaje teď.",
+  "danger_data_export_title": "Stáhni si své osobní údaje hned teď.",
   "danger_data_export_description": "Po smazání účtu už si je nebudeš moct stáhnout.",
   "danger_consequence_access": "Nadcházející zaplacené rezervace zůstávají platné a jejich PIN ke dveřím dál funguje; potvrzovací e-mail obsahuje odkaz na PIN.",
   "danger_signed_in_again": "Znovu přihlášeno",

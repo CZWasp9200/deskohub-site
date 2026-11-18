@@ -1,3 +1,4 @@
+import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Match } from "effect";
 import { AsyncResult } from "effect/reactivity";
@@ -37,7 +38,7 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, radius, space } from "../../ui/tokens";
-import { useViewport } from "../../ui/viewport";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import { DataExportRow } from "../legal/data-export-row";
 import {
   type DeleteScreenView,
@@ -162,12 +163,14 @@ export function DangerZoneScreen() {
       onChange={(confirmed) => dispatch({ type: "confirmation", confirmed })}
     />
   );
-  // The expanded Account menu and rail share the viewport with this pane.
-  // At larger text sizes keep the checkbox in the scrollable content.
+  // Use the actual form footer width within the rail and, in landscape, the menu.
+  const footerWidth = Math.min(
+    contentColumnWidth.form,
+    availableWidth - 2 * wideGutter
+  );
   const confirmationInFooter =
     isWide &&
-    fontScale < 1.3 &&
-    availableWidth >= 464 * Math.max(1, fontScale) &&
+    footerWidth >= 400 * Math.max(1, fontScale) &&
     AsyncResult.isSuccess(account);
   return (
     <View style={styles.screen}>
@@ -177,7 +180,8 @@ export function DangerZoneScreen() {
         <AsyncView result={account} onRetry={refresh}>
           {(current) => (
             <DeleteScreenContent
-              view={deleteScreenView(current, flow)}
+              account={current}
+              flow={flow}
               confirmation={confirmationInFooter ? undefined : confirmation}
               locale={locale}
               isWide={isWide}
@@ -249,17 +253,19 @@ function DangerDisc({ inline = false }: { readonly inline?: boolean }) {
 }
 
 function DeleteScreenContent({
-  view,
+  account,
+  flow,
   confirmation,
   locale,
   isWide,
 }: {
-  readonly view: DeleteScreenView;
+  readonly account: CustomerAccountState;
+  readonly flow: DeletionFlow;
   readonly confirmation?: ReactNode;
   readonly locale: AppLocale;
   readonly isWide: boolean;
 }) {
-  return Match.value(view).pipe(
+  return Match.value(deleteScreenView(account, flow)).pipe(
     Match.discriminatorsExhaustive("kind")({
       withheld: () => (
         <ContactCard
@@ -318,6 +324,7 @@ function DeleteScreenContent({
             />
           </ListGroup>
           <DataExportRow
+            account={account}
             offer={{
               title: m.danger_data_export_title({}, { locale }),
               description: m.danger_data_export_description({}, { locale }),

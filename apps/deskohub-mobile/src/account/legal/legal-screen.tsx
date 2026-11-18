@@ -142,7 +142,9 @@ export function LegalScreen() {
         onOpenPrivacyPolicy={openPrivacyPolicy}
       />
       <SectionHeader title={m.legal_archive_heading({}, { locale })} />
-      <DataExportRow />
+      <DataExportRow
+        account={AsyncResult.isSuccess(account) ? account.value : undefined}
+      />
     </ScrollScreen>
   );
 }
