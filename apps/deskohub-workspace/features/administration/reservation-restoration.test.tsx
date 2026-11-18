@@ -369,6 +369,20 @@ describe("ReservationRestoration", () => {
       ),
     ],
     [
+      { outcome: "retrying", invoiceId: "invoice-2", invoiceNumber: "WS-2" },
+      m.administrationReservationRestorationInvoiceSendRetrying(
+        { invoiceNumber: "WS-2" },
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "retrying", invoiceId: null, invoiceNumber: null },
+      m.administrationReservationRestorationInvoiceRetrying(
+        {},
+        { locale: "en-US" }
+      ),
+    ],
+    [
       { outcome: "failed", invoiceId: "invoice-2", invoiceNumber: "WS-2" },
       m.administrationReservationRestorationInvoiceSendFailed(
         { invoiceNumber: "WS-2" },

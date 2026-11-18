@@ -11,6 +11,7 @@ import {
   toDotyposCustomerBillingDetails,
 } from "@/features/accounting/billing-identity";
 import type { InvoiceBuyer } from "@/features/accounting/invoice";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { Locale } from "@/features/i18n";
 import { openReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
@@ -29,6 +30,7 @@ import {
   type IInvoiceRepository,
   InvoiceRepository,
   type InvoiceRepositoryError,
+  type ReservationInvoice,
 } from "./invoice.repository";
 import { isFulfilledReservation } from "./invoice-eligibility";
 import {
@@ -91,7 +93,57 @@ type InvoiceBuyerOrigin<E> =
       ) => Effect.Effect<void, E>;
     };
 
+/**
+ * What restoring a reservation owes for its latest invoice. `reissue`: the
+ * invoice was cancelled with the reservation, and its replacement issues as
+ * the cancelled one did: `payment` through paid fulfillment's issuance from
+ * the buyer frozen at payment, `post_order` to the cancelled invoice's own
+ * buyer as the post-order page issues one the customer requested after the
+ * order. `unreadable`: the cancelled invoice or its payment snapshot could
+ * not be opened, so no replacement issues. `not_owed`: no invoice, a live
+ * one, or one an administrator cancelled on its own.
+ */
+type RestoredInvoicePlan =
+  | { readonly kind: "not_owed" }
+  | { readonly kind: "unreadable" }
+  | RestoredInvoiceReissue;
+
+type RestoredInvoiceReissue = {
+  readonly kind: "reissue";
+  readonly origin: "payment" | "post_order";
+  readonly cancelled: ReservationInvoice;
+};
+
+/** The replacement a restore issued. */
+type RestoredInvoice = {
+  readonly invoiceId: InvoiceId;
+  readonly invoiceNumber: string;
+  /**
+   * False when a post-order replacement was issued but its email failed; the
+   * customer can resend it from the post-order page, as after creating one.
+   */
+  readonly delivered: boolean;
+};
+
 export interface IReservationInvoiceService {
+  /**
+   * Reads what restoring the reservation owes for its latest invoice; the
+   * restore preview and the restore read the same plan.
+   */
+  readonly planRestoredInvoice: (input: {
+    readonly reservationId: WorkspaceReservationId;
+  }) => Effect.Effect<RestoredInvoicePlan, EffectDrizzleQueryError>;
+  /**
+   * Issues and sends a restored reservation's replacement invoice through
+   * the issuance its cancelled invoice came from. `null` when paid
+   * fulfillment's issuance skipped it.
+   */
+  readonly issueRestoredInvoice: (
+    plan: RestoredInvoiceReissue
+  ) => Effect.Effect<
+    RestoredInvoice | null,
+    ReservationInvoiceProcessingError | PostOrderInvoiceUnavailableError
+  >;
   /**
    * Issues and delivers the invoice a fulfilled reservation's active payment
    * attempt froze; a reservation without an active attempt is skipped.
@@ -214,38 +266,134 @@ export class ReservationInvoiceService extends Context.Service<
         return issuance;
       });
 
-      return ReservationInvoiceService.of({
-        issueAfterFulfillment: Effect.fn(
-          "ReservationInvoiceService.issueAfterFulfillment"
-        )(function* ({ reservationId }) {
-          const reservation = yield* reservations.findById(reservationId);
-          const paymentAttemptId = reservation?.activePaymentAttemptId;
-          if (!paymentAttemptId) {
-            yield* Effect.logWarning(
-              "Reservation invoice processing skipped: payment attempt missing",
-              { workspaceReservationId: reservationId }
-            );
-            return;
-          }
+      const issueAfterFulfillment = Effect.fn(
+        "ReservationInvoiceService.issueAfterFulfillment"
+      )(function* ({
+        reservationId,
+      }: {
+        readonly reservationId: WorkspaceReservationId;
+      }) {
+        const reservation = yield* reservations.findById(reservationId);
+        const paymentAttemptId = reservation?.activePaymentAttemptId;
+        if (!paymentAttemptId) {
+          yield* Effect.logWarning(
+            "Reservation invoice processing skipped: payment attempt missing",
+            { workspaceReservationId: reservationId }
+          );
+          return;
+        }
 
-          const source = yield* accountingSnapshots.find(paymentAttemptId);
-          if (!source?.billing) return;
-          const buyer = getReservationInvoiceBuyer({
+        const source = yield* accountingSnapshots.find(paymentAttemptId);
+        if (!source?.billing) return;
+        const buyer = getReservationInvoiceBuyer({
+          billing: source.billing,
+          customerName: source.buyer.legalName,
+        });
+        if (!buyer) return;
+
+        const issued =
+          yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
+        yield* issueInvoice({
+          request: { paymentAttemptId, buyer },
+          dotyposCustomerId: source.dotyposCustomerId,
+          origin: { kind: "frozen", issued: issued !== null },
+        });
+        yield* invoiceDeliveries.deliverByPaymentAttemptId({
+          paymentAttemptId,
+        });
+      });
+
+      /** An unopenable accounting record makes the plan `unreadable`. */
+      const unreadable = (cause: AccountingRecordUnavailable) =>
+        Effect.logWarning(
+          "A restored reservation's cancelled invoice could not be opened, so no replacement is issued.",
+          cause
+        ).pipe(Effect.as("unreadable" as const));
+
+      const planRestoredInvoice = Effect.fn(
+        "ReservationInvoiceService.planRestoredInvoice"
+      )(function* ({
+        reservationId,
+      }: {
+        readonly reservationId: WorkspaceReservationId;
+      }): Effect.fn.Return<RestoredInvoicePlan, EffectDrizzleQueryError> {
+        const cancelled = yield* invoices
+          .findLatestByReservationId(reservationId)
+          .pipe(Effect.catchTag("AccountingRecordUnavailable", unreadable));
+        if (cancelled === "unreadable") return { kind: "unreadable" };
+        if (cancelled?.cancellation?.cause !== "reservation_cancellation") {
+          return { kind: "not_owed" };
+        }
+        const source = yield* accountingSnapshots
+          .find(cancelled.paymentAttemptId as PaymentAttemptId)
+          .pipe(Effect.catchTag("AccountingRecordUnavailable", unreadable));
+        if (source === "unreadable") return { kind: "unreadable" };
+        // The same buyer paid fulfillment issues to; without one, the
+        // customer requested the cancelled invoice after the order.
+        const frozenBuyer =
+          source?.billing &&
+          getReservationInvoiceBuyer({
             billing: source.billing,
             customerName: source.buyer.legalName,
           });
-          if (!buyer) return;
+        return {
+          kind: "reissue",
+          origin: frozenBuyer ? "payment" : "post_order",
+          cancelled,
+        };
+      });
 
-          const issued =
-            yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
-          yield* issueInvoice({
-            request: { paymentAttemptId, buyer },
-            dotyposCustomerId: source.dotyposCustomerId,
-            origin: { kind: "frozen", issued: issued !== null },
-          });
-          yield* invoiceDeliveries.deliverByPaymentAttemptId({
+      /**
+       * Reissues a post-order invoice to the cancelled invoice's buyer, as the
+       * post-order page creates one: Dotypos takes the buyer first, and a
+       * failed email leaves the issued invoice for the customer to resend.
+       */
+      const reissuePostOrderInvoice = Effect.fnUntraced(function* (
+        cancelled: ReservationInvoice
+      ) {
+        const paymentAttemptId = cancelled.paymentAttemptId as PaymentAttemptId;
+        yield* issueInvoice({
+          request: {
             paymentAttemptId,
-          });
+            buyer: cancelled.document.buyer,
+            provenance: { source: "post-order-link" },
+          },
+          dotyposCustomerId: cancelled.dotyposCustomerId as DotyposCustomerId,
+          origin: { kind: "submitted", acceptCommitted: requirePerson },
+        });
+        return yield* invoiceDeliveries
+          .deliverByPaymentAttemptId({ paymentAttemptId })
+          .pipe(
+            Effect.as(true),
+            Effect.catchTag("InvoiceEmailDeliveryError", (error) =>
+              Effect.succeed(error.customerDelivered === true)
+            )
+          );
+      });
+
+      return ReservationInvoiceService.of({
+        issueAfterFulfillment,
+        planRestoredInvoice,
+        issueRestoredInvoice: Effect.fn(
+          "ReservationInvoiceService.issueRestoredInvoice"
+        )(function* (plan) {
+          const delivered =
+            plan.origin === "payment"
+              ? yield* issueAfterFulfillment({
+                  reservationId: plan.cancelled
+                    .workspaceReservationId as WorkspaceReservationId,
+                }).pipe(Effect.as(true))
+              : yield* reissuePostOrderInvoice(plan.cancelled);
+          const replacement = yield* invoices.findLiveByPaymentAttemptId(
+            plan.cancelled.paymentAttemptId
+          );
+          return replacement && replacement.id !== plan.cancelled.id
+            ? {
+                invoiceId: replacement.id,
+                invoiceNumber: replacement.invoiceNumber,
+                delivered,
+              }
+            : null;
         }),
         getPostOrderState: Effect.fn(
           "ReservationInvoiceService.getPostOrderState"

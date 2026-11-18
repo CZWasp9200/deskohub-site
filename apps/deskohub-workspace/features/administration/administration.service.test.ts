@@ -1,4 +1,5 @@
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import "@/shared/testing/workspace-test-env";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
@@ -98,6 +99,8 @@ const reservationAuthorsMock = (
 
 /** The service over a reservation repository these tests never reach. */
 const testAdministrationLayer = AdministrationService.Default.pipe(
+  // Reached only when a restore would reissue an invoice.
+  Layer.provide(Layer.mock(ReservationInvoiceService, {})),
   Layer.provide(Layer.mock(WorkspaceReservationRepository, {}))
 );
 
@@ -3788,6 +3791,8 @@ describe("AdministrationService reservation restoration", () => {
     }).pipe(
       Effect.provide(
         AdministrationService.Default.pipe(
+          // Reached only when a restore would reissue an invoice.
+          Layer.provide(Layer.mock(ReservationInvoiceService, {})),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {

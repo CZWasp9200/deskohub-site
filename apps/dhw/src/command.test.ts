@@ -644,6 +644,8 @@ describe("dhw mutation commands", () => {
       invoice: [
         null,
         { outcome: "issued", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "retrying", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "retrying", invoiceId: null, invoiceNumber: null },
         { outcome: "failed", invoiceId: null, invoiceNumber: "WS-2" },
         { outcome: "failed", invoiceId: null, invoiceNumber: null },
         { outcome: "not_issued", invoiceId: null, invoiceNumber: null },

@@ -203,20 +203,27 @@ export const planRestorationInvoiceConsequence = (
 /** The new invoice a restore issued, for its output. */
 export const formatRestorationInvoiceOutput = (
   invoice: AdministrationReservationRestorationResultType["invoice"]
-) =>
-  invoice === null
-    ? []
-    : [
-        {
-          issued: `New invoice ${invoice.invoiceNumber} was issued and sent.`,
-          failed:
-            invoice.invoiceNumber === null
-              ? "The new invoice could not be issued; the restore stands and Workspace retries it."
-              : `New invoice ${invoice.invoiceNumber} was issued but could not be sent; Workspace retries it.`,
-          not_issued:
-            "No new invoice was issued because the payment holds no invoice details.",
-        }[invoice.outcome],
-      ];
+) => {
+  if (invoice === null) return [];
+  const { invoiceNumber } = invoice;
+  if (invoice.outcome === "issued") {
+    return [`New invoice ${invoiceNumber} was issued and sent.`];
+  }
+  if (invoice.outcome === "not_issued") {
+    return [
+      "No new invoice was issued because the cancelled invoice could not be opened.",
+    ];
+  }
+  const retry =
+    invoice.outcome === "retrying"
+      ? "Workspace retries it."
+      : "The customer can request it from the invoice link, or restore again to retry.";
+  return [
+    invoiceNumber === null
+      ? `The new invoice could not be issued; the restore stands. ${retry}`
+      : `New invoice ${invoiceNumber} was issued but could not be sent. ${retry}`,
+  ];
+};
 
 export const formatInvoiceArchiveOutput = (
   invoiceNumber: string,

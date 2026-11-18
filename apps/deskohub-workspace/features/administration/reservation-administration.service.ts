@@ -1,5 +1,5 @@
 import { DotyposService } from "@deskohub/dotypos";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option, Result } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { isDatabaseQueryError } from "@/db/sql-constraint";
 import { CustomerEmailLocaleService } from "@/features/account";
@@ -70,13 +70,15 @@ type ReservationCancellationResult = {
 
 /**
  * The new invoice a restore issues for the one cancelled with the
- * reservation. `failed`: issuing or sending it failed after the restore
- * committed; the restore stands and the paid-fulfillment queue retries it.
- * `not_issued`: the payment froze no invoice details, as for an invoice the
- * customer requested after the order, so Workspace issues none.
+ * reservation. Issuing or sending it can fail after the restore committed;
+ * the restore stands. `retrying`: the paid-fulfillment queue retries it.
+ * `failed`: nothing retries it on its own; the customer's post-order page
+ * offers the invoice (or resends an issued one), and a rerun of the restore
+ * issues one still owed. `not_issued`: the cancelled invoice could not be
+ * opened, so none issues.
  */
 type ReservationRestorationInvoice = {
-  readonly outcome: "issued" | "failed" | "not_issued";
+  readonly outcome: "issued" | "retrying" | "failed" | "not_issued";
   /** Set once the new invoice exists, even when sending it failed. */
   readonly invoiceId: InvoiceId | null;
   readonly invoiceNumber: string | null;
@@ -414,87 +416,125 @@ export class ReservationAdministrationService extends Context.Service<
             latest && latest.state === "live" && latest.id !== cancelled
               ? latest
               : null
-          )
+          ),
+          Effect.orElseSucceed(() => null)
         );
 
       /**
-       * Issues the replacement of the invoice cancelled with the reservation,
-       * once the restore committed, and sends it as paid fulfillment does: a
-       * credit note is never undone, so the restored reservation gets a new
-       * invoice. A failure keeps the restore; the paid-fulfillment queue, whose
-       * run for a fulfilled order issues and sends its invoice alone, retries
-       * it. A rerun of the restore issues it too, while it is still owed.
+       * After a failed replacement, the retry its origin has: the
+       * paid-fulfillment queue, whose run for a fulfilled order issues and
+       * sends its invoice alone, retries a `payment` one (`retrying`). A
+       * `post_order` one isn't queued (`failed`): the customer's post-order
+       * page offers the invoice again, and a rerun of the restore issues it.
        */
-      const issueReplacementInvoice = (reservationId: WorkspaceReservationId) =>
-        readReservationInvoiceStanding(db, reservationId).pipe(
-          Effect.flatMap((cancelled) =>
-            cancelled && isInvoiceReplacedOnRestoration(cancelled)
-              ? reservationInvoices
-                  .issueAfterFulfillment({ reservationId })
-                  .pipe(
-                    Effect.andThen(
-                      findReplacement(reservationId, cancelled.id)
-                    ),
-                    Effect.map(
-                      (replacement): ReservationRestorationInvoice =>
-                        replacement
-                          ? {
-                              outcome: "issued",
-                              invoiceId: replacement.id,
-                              invoiceNumber: replacement.invoiceNumber,
-                            }
-                          : {
-                              outcome: "not_issued",
-                              invoiceId: null,
-                              invoiceNumber: null,
-                            }
-                    ),
-                    Effect.catch((cause) =>
-                      Effect.logError(
-                        "The restored reservation's replacement invoice failed; the paid-fulfillment queue retries it.",
-                        cause
-                      ).pipe(
-                        Effect.andThen(
-                          paidFulfillment
-                            .enqueue({
-                              orderId: reservationId,
-                              replacesInvoiceId: cancelled.id,
-                            })
-                            .pipe(
-                              Effect.catch((enqueueCause) =>
-                                Effect.logFatal(
-                                  "The restored reservation's replacement invoice could not be queued for retry.",
-                                  enqueueCause
-                                )
-                              )
-                            )
-                        ),
-                        Effect.andThen(
-                          findReplacement(reservationId, cancelled.id).pipe(
-                            Effect.orElseSucceed(() => null)
-                          )
-                        ),
-                        Effect.map(
-                          (replacement): ReservationRestorationInvoice => ({
-                            outcome: "failed",
-                            invoiceId: replacement?.id ?? null,
-                            invoiceNumber: replacement?.invoiceNumber ?? null,
-                          })
-                        )
-                      )
-                    )
-                  )
-              : Effect.succeed(null)
-          ),
-          // The restore committed; an unreadable invoice standing leaves the
-          // replacement to a rerun of the restore.
+      const settleFailedReplacement = Effect.fnUntraced(function* (input: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly cancelled: InvoiceId;
+        readonly origin: "payment" | "post_order";
+        readonly cause: unknown;
+      }) {
+        yield* Effect.logError(
+          "The restored reservation's replacement invoice failed after the restore committed.",
+          { origin: input.origin, cause: input.cause }
+        );
+        const queued =
+          input.origin === "payment" &&
+          (yield* paidFulfillment
+            .enqueue({
+              orderId: input.reservationId,
+              replacesInvoiceId: input.cancelled,
+            })
+            .pipe(
+              Effect.as(true),
+              Effect.catch((cause) =>
+                Effect.logFatal(
+                  "The restored reservation's replacement invoice could not be queued for retry.",
+                  cause
+                ).pipe(Effect.as(false))
+              )
+            ));
+        const replacement = yield* findReplacement(
+          input.reservationId,
+          input.cancelled
+        );
+        return {
+          outcome: queued ? "retrying" : "failed",
+          invoiceId: replacement?.id ?? null,
+          invoiceNumber: replacement?.invoiceNumber ?? null,
+        } satisfies ReservationRestorationInvoice;
+      });
+
+      const notIssued: ReservationRestorationInvoice = {
+        outcome: "not_issued",
+        invoiceId: null,
+        invoiceNumber: null,
+      };
+
+      /**
+       * Issues the replacement of the invoice cancelled with the reservation,
+       * once the restore committed, through the issuance the cancelled one
+       * came from: a credit note is never undone, so the restored reservation
+       * gets a new invoice. A failure keeps the restore. A rerun of the
+       * restore issues a replacement still owed. Like the restore email and
+       * the cancellation notices, it absorbs typed failures only.
+       */
+      const issueReplacementInvoice = Effect.fnUntraced(function* (
+        reservationId: WorkspaceReservationId
+      ) {
+        const standing = yield* readReservationInvoiceStanding(
+          db,
+          reservationId
+        ).pipe(
           Effect.catch((cause) =>
             Effect.logFatal(
-              "The restored reservation's invoice could not be read, so no replacement was issued.",
+              "The restored reservation's invoice could not be read, so no replacement was issued; a rerun of the restore issues it.",
               cause
             ).pipe(Effect.as(null))
           )
         );
+        if (!(standing && isInvoiceReplacedOnRestoration(standing))) {
+          return null;
+        }
+        const plan = yield* reservationInvoices
+          .planRestoredInvoice({ reservationId })
+          .pipe(Effect.result);
+        if (Result.isFailure(plan)) {
+          yield* Effect.logFatal(
+            "The restored reservation's replacement invoice could not be planned; a rerun of the restore issues it.",
+            plan.failure
+          );
+          return {
+            outcome: "failed",
+            invoiceId: null,
+            invoiceNumber: null,
+          } satisfies ReservationRestorationInvoice;
+        }
+        if (plan.success.kind === "not_owed") return null;
+        if (plan.success.kind === "unreadable") return notIssued;
+        const reissue = plan.success;
+        return yield* reservationInvoices.issueRestoredInvoice(reissue).pipe(
+          Effect.map(
+            (issued): ReservationRestorationInvoice =>
+              issued === null
+                ? notIssued
+                : {
+                    // A post-order replacement whose email failed waits for
+                    // the customer's resend, as after creating one.
+                    outcome: issued.delivered ? "issued" : "failed",
+                    invoiceId: issued.invoiceId,
+                    invoiceNumber: issued.invoiceNumber,
+                  }
+          ),
+          Effect.catch((cause) =>
+            settleFailedReplacement({
+              reservationId,
+              cancelled: reissue.cancelled.id,
+              origin: reissue.origin,
+              cause,
+            })
+          )
+        );
+      });
 
       return {
         cancel: Effect.fn("ReservationAdministrationService.cancel")(

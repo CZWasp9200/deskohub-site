@@ -23,6 +23,7 @@ import type { AdministrationActor } from "@/features/administrators/administrati
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
+import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { holdPostgresTransaction } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import type { WorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -173,8 +174,12 @@ export const makeInvoiceCancellationTestKit = (
   /**
    * A confirmed, paid and fulfilled cowork reservation with its accounting
    * snapshot; `issueInvoice` issues (or, on retry, returns) its invoice.
+   * Without `billing`, the snapshot asks for no invoice, as when the customer
+   * requests one after the order.
    */
-  const createPaidReservation = async () => {
+  const createPaidReservation = async (
+    options: { readonly billing?: ReservationBillingSelection } = {}
+  ) => {
     const paymentAttemptId = paymentAttemptIdSchema.make(randomUUID());
     const dotyposCustomerId = DotyposCustomerIdSchema.make(
       `invoice-cancellation-customer-${randomUUID()}`
@@ -195,6 +200,7 @@ export const makeInvoiceCancellationTestKit = (
         name: "Synthetic Reservation Customer",
         email: testEmailAddress("invoice-cancellation-reservation"),
         phone: "+420 700 000 000",
+        ...(options.billing && { billing: options.billing }),
       },
       quote: buildCoworkReservationQuote(order),
     } as PreparedCustomerQuote;
@@ -263,8 +269,10 @@ export const makeInvoiceCancellationTestKit = (
   };
 
   /** A paid reservation, as `createPaidReservation` makes, with its invoice. */
-  const issueReservationInvoice = async () => {
-    const paid = await createPaidReservation();
+  const issueReservationInvoice = async (
+    options: Parameters<typeof createPaidReservation>[0] = {}
+  ) => {
+    const paid = await createPaidReservation(options);
     const { invoice } = await Effect.runPromise(paid.issueInvoice());
     return { ...paid, invoice };
   };

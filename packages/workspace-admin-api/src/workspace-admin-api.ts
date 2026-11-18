@@ -1767,7 +1767,8 @@ export const AdministrationReservationRestoration = Schema.Struct({
   /**
    * The reservation's invoice was cancelled with it, so restoring issues and
    * sends a new invoice; the cancelled one and its credit note stay. False
-   * from servers that predate invoice reissue.
+   * when that invoice can't be opened, and from servers that predate invoice
+   * reissue.
    */
   issuesNewInvoice: fieldWithDefault(Schema.Boolean, false),
   /** Some payment awaits a refund Nexi hasn't recorded; restoring clears it. */
@@ -1893,14 +1894,16 @@ export const AdministrationReservationRestorationResult = Schema.Struct({
   access: Schema.Literals(["issued", "failed", "not_needed"]),
   /**
    * The new invoice issued for the one cancelled with the reservation; null
-   * when none was owed, and from servers that predate invoice reissue.
-   * `failed` keeps the restore, and Workspace retries the invoice; its number
-   * is set when it was issued but not sent. `not_issued`: the payment froze
-   * no invoice details, so Workspace issues none.
+   * when none was owed, and from servers that predate invoice reissue. A
+   * failure keeps the restore; the number is set when the invoice was issued
+   * but not sent. `retrying`: Workspace retries it. `failed`: nothing retries
+   * it on its own; the customer can request it from the invoice link, and
+   * restoring again issues it. `not_issued`: the cancelled invoice could not
+   * be opened, so none was issued.
    */
   invoice: nullableField(
     Schema.Struct({
-      outcome: Schema.Literals(["issued", "failed", "not_issued"]),
+      outcome: Schema.Literals(["issued", "retrying", "failed", "not_issued"]),
       invoiceId: Schema.NullOr(AdministrationInvoiceId),
       invoiceNumber: Schema.NullOr(Schema.String),
     })

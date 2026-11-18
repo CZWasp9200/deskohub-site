@@ -10,6 +10,7 @@ import { InvoiceRepository } from "@/features/accounting/backend/invoice.reposit
 import { InvoiceCancellationService } from "@/features/accounting/backend/invoice-cancellation.service";
 import { makeInvoiceCancellationTestKit } from "@/features/accounting/backend/invoice-cancellation.test-utils";
 import { InvoiceCancellationNotices } from "@/features/accounting/backend/invoice-cancellation-notices";
+import { InvoiceEmailDeliveryService } from "@/features/accounting/backend/invoice-email-delivery.service";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import { PaidFulfillmentQueueService } from "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
@@ -148,14 +149,24 @@ const makeCancellation = (
 /**
  * Reservation restore over the suite database. The restore itself confirms
  * the reservation with the real repository write, as main's restore does in
- * its finalize transaction; issuance issues through the real invoice
- * repository and records each delivery.
+ * its finalize transaction; the replacement issues through the real invoice
+ * service and repositories, with Dotypos and the invoice email faked.
  */
 const makeRestoration = (
-  options: { readonly issuanceFails?: boolean } = {}
+  options: {
+    readonly billingUpdateFails?: boolean;
+    readonly decryptionKeyFails?: boolean;
+  } = {}
 ) => {
-  const repositories = kit.layer();
-  const delivered = mock((_reservationId: WorkspaceReservationId) => {});
+  const repositories = kit.layer({
+    getActive: Effect.succeed(readableKey),
+    getById: () =>
+      options.decryptionKeyFails
+        ? Effect.fail(missingKey)
+        : Effect.succeed(readableKey),
+  });
+  const delivered = mock((_input: { readonly paymentAttemptId: string }) => {});
+  const billingUpdates = mock((_customerId: string) => {});
   const enqueue = mock(
     (
       _input: Parameters<PaidFulfillmentQueueService["Service"]["enqueue"]>[0]
@@ -194,55 +205,41 @@ const makeRestoration = (
       });
     })
   ).pipe(Layer.provide(Layer.merge(reservations, repositories)));
-  // Paid fulfillment's issuance: the reservation's payment attempt issues
-  // through the repository, then its invoice is sent.
-  const reservationInvoices = Layer.effect(
-    ReservationInvoiceService,
-    Effect.gen(function* () {
-      const invoices = yield* InvoiceRepository;
-      const repository = yield* WorkspaceReservationRepository;
-      return ReservationInvoiceService.of({
-        issueAfterFulfillment: ({ reservationId }) =>
-          options.issuanceFails
-            ? // A typed failure, as Dotypos or the invoice repository fails.
-              Effect.fail(new Error("Synthetic issuance failure.") as never)
-            : repository.findById(reservationId).pipe(
-                Effect.flatMap((reservation) =>
-                  invoices.issue({
-                    paymentAttemptId: reservation!.activePaymentAttemptId!,
-                    buyer: {
-                      kind: "person",
-                      legalName: "Synthetic Reservation Customer",
-                      address: {
-                        line1: "Synthetic 1",
-                        city: "Praha",
-                        postalCode: "100 00",
-                        country: "CZ",
-                      },
-                    },
-                  })
-                ),
-                Effect.tap(() => Effect.sync(() => delivered(reservationId))),
-                Effect.asVoid,
-                Effect.orDie
-              ),
-      } as never);
-    })
-  ).pipe(Layer.provide(Layer.merge(reservations, repositories)));
-  const layer = ReservationAdministrationService.Default.pipe(
+  const reservationInvoices = ReservationInvoiceService.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
         repositories,
         reservations,
-        restoration,
-        reservationInvoices,
-        Layer.mock(PaidFulfillmentQueueService, { enqueue }),
-        Layer.mock(InvoiceCancellationService, {}),
-        Layer.mock(DotyposService, {}),
-        Layer.mock(WorkspaceReservationEmailService, {}),
-        Layer.mock(WorkspaceReservationService, {})
+        Layer.mock(DotyposService, {
+          updateCustomerBillingDetails: (customerId) =>
+            options.billingUpdateFails
+              ? // A typed failure, as Dotypos fails.
+                Effect.fail(new Error("Synthetic Dotypos failure.") as never)
+              : Effect.sync(() => billingUpdates(customerId)),
+        }),
+        Layer.mock(InvoiceEmailDeliveryService, {
+          deliverByPaymentAttemptId: (input) =>
+            Effect.sync(() => delivered(input)).pipe(
+              Effect.as({ status: "sent" } as never)
+            ),
+        })
       )
     )
+  );
+  const services = Layer.mergeAll(
+    repositories,
+    reservations,
+    restoration,
+    reservationInvoices,
+    Layer.mock(PaidFulfillmentQueueService, { enqueue }),
+    Layer.mock(InvoiceCancellationService, {}),
+    Layer.mock(DotyposService, {}),
+    Layer.mock(WorkspaceReservationEmailService, {}),
+    Layer.mock(WorkspaceReservationService, {})
+  );
+  const layer = Layer.merge(
+    ReservationAdministrationService.Default.pipe(Layer.provide(services)),
+    reservationInvoices
   );
   const restore = (reservationId: WorkspaceReservationId) =>
     Effect.runPromise(
@@ -257,8 +254,25 @@ const makeRestoration = (
         Effect.provide(layer)
       )
     );
-  return { delivered, enqueue, restore };
+  /** What the restore preview reads. */
+  const plan = (reservationId: WorkspaceReservationId) =>
+    Effect.runPromise(
+      ReservationInvoiceService.pipe(
+        Effect.flatMap((service) =>
+          service.planRestoredInvoice({ reservationId })
+        ),
+        Effect.provide(layer)
+      )
+    );
+  return { billingUpdates, delivered, enqueue, plan, restore };
 };
+
+const readLatestInvoice = (reservationId: WorkspaceReservationId) =>
+  kit.run(
+    Effect.flatMap(InvoiceRepository, (invoices) =>
+      invoices.findLatestByReservationId(reservationId)
+    )
+  );
 
 const readInvoiceChain = (reservationId: string) =>
   kit.query<{
@@ -521,26 +535,54 @@ describe.skipIf(!testDatabase)(
 describe.skipIf(!testDatabase)(
   "Reservation restore with its cancelled invoice on disposable Postgres",
   () => {
-    const cancelWithInvoice = async () => {
-      const issued = await kit.issueReservationInvoice();
+    const requestedInvoice = {
+      purpose: "personal",
+      invoice: "requested",
+      address: {
+        line1: "Synthetic 1",
+        city: "Praha",
+        postalCode: "100 00",
+        country: "CZ",
+      },
+    } as const;
+
+    const cancelWithInvoice = async (
+      options: Parameters<typeof kit.issueReservationInvoice>[0] = {}
+    ) => {
+      const issued = await kit.issueReservationInvoice(options);
       await makeCancellation().cancel(
         await cancellationInput(issued.reservation.id)
       );
       return issued;
     };
 
-    test("issues and sends one replacement for the invoice cancelled with the reservation; its credit note stays", async () => {
-      const { invoice, reservation } = await cancelWithInvoice();
-      const creditNotes = await readCreditNotes(invoice.id);
-      const { delivered, enqueue, restore } = makeRestoration();
+    const expectReplacement = async (
+      reservationId: WorkspaceReservationId,
+      cancelled: { readonly id: string; readonly invoiceNumber: string }
+    ) => {
+      const chain = await readInvoiceChain(reservationId);
+      expect(chain).toHaveLength(2);
+      const replacement = chain.find(({ id }) => id !== cancelled.id)!;
+      expect(replacement.replaces_invoice_id).toBe(cancelled.id);
+      expect(replacement.invoice_number).not.toBe(cancelled.invoiceNumber);
+      return replacement;
+    };
 
+    test("reissues an invoice whose buyer was frozen at payment through paid fulfillment's issuance; its credit note stays", async () => {
+      const { invoice, reservation } = await cancelWithInvoice({
+        billing: requestedInvoice,
+      });
+      const creditNotes = await readCreditNotes(invoice.id);
+      const { billingUpdates, delivered, enqueue, plan, restore } =
+        makeRestoration();
+
+      expect(await plan(reservation.id)).toMatchObject({
+        kind: "reissue",
+        origin: "payment",
+      });
       const result = await restore(reservation.id);
 
-      const chain = await readInvoiceChain(reservation.id);
-      expect(chain).toHaveLength(2);
-      const replacement = chain.find(({ id }) => id !== invoice.id)!;
-      expect(replacement.replaces_invoice_id).toBe(invoice.id);
-      expect(replacement.invoice_number).not.toBe(invoice.invoiceNumber);
+      const replacement = await expectReplacement(reservation.id, invoice);
       expect(result).toEqual({
         outcome: "restored",
         email: "not_requested",
@@ -552,6 +594,7 @@ describe.skipIf(!testDatabase)(
         },
       });
       expect(delivered).toHaveBeenCalledTimes(1);
+      expect(billingUpdates).toHaveBeenCalledTimes(1);
       expect(enqueue).not.toHaveBeenCalled();
       expect(await readCreditNotes(invoice.id)).toEqual(creditNotes);
       expect(
@@ -559,12 +602,64 @@ describe.skipIf(!testDatabase)(
       ).toEqual([{ cause: "reservation_cancellation", source: "dhw-cli" }]);
 
       // A rerun finds the replacement live and issues nothing more.
-      const rerun = await restore(reservation.id);
-      expect(rerun).toMatchObject({
+      expect(await restore(reservation.id)).toMatchObject({
         outcome: "already_confirmed",
         invoice: null,
       });
       expect(await readInvoiceChain(reservation.id)).toHaveLength(2);
+      expect(await plan(reservation.id)).toEqual({ kind: "not_owed" });
+    });
+
+    test("reissues a post-order invoice to the cancelled invoice's buyer and sends it once", async () => {
+      // No invoice was asked for at payment: the cancelled one was requested
+      // after the order.
+      const { invoice, reservation } = await cancelWithInvoice();
+      const cancelled = await readLatestInvoice(reservation.id);
+      const { billingUpdates, delivered, enqueue, plan, restore } =
+        makeRestoration();
+
+      expect(await plan(reservation.id)).toMatchObject({
+        kind: "reissue",
+        origin: "post_order",
+      });
+      const result = await restore(reservation.id);
+
+      const replacement = await expectReplacement(reservation.id, invoice);
+      expect(result).toMatchObject({
+        outcome: "restored",
+        invoice: {
+          outcome: "issued",
+          invoiceId: replacement.id,
+          invoiceNumber: replacement.invoice_number,
+        },
+      });
+      const reissued = await readLatestInvoice(reservation.id);
+      expect(reissued?.id).toBe(replacement.id);
+      expect(reissued?.document.buyer).toEqual(cancelled!.document.buyer);
+      expect(delivered).toHaveBeenCalledTimes(1);
+      // Dotypos takes the buyer before the invoice commits it.
+      expect(billingUpdates).toHaveBeenCalledTimes(1);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    test("an unreadable cancelled invoice makes the preview promise none and the restore report not_issued", async () => {
+      const { reservation } = await cancelWithInvoice();
+      const { delivered, plan, restore } = makeRestoration({
+        decryptionKeyFails: true,
+      });
+
+      expect(await plan(reservation.id)).toEqual({ kind: "unreadable" });
+      expect(await restore(reservation.id)).toMatchObject({
+        outcome: "restored",
+        invoice: {
+          outcome: "not_issued",
+          invoiceId: null,
+          invoiceNumber: null,
+        },
+      });
+      expect((await readState(reservation.id)).reservation).toBe("confirmed");
+      expect(delivered).not.toHaveBeenCalled();
+      expect(await readInvoiceChain(reservation.id)).toHaveLength(1);
     });
 
     test("issues nothing for a reservation without an invoice, or whose invoice is still live", async () => {
@@ -605,8 +700,9 @@ describe.skipIf(!testDatabase)(
         })
       );
       await makeCancellation().cancel(await cancellationInput(reservation.id));
-      const { delivered, restore } = makeRestoration();
+      const { delivered, plan, restore } = makeRestoration();
 
+      expect(await plan(reservation.id)).toEqual({ kind: "not_owed" });
       expect(await restore(reservation.id)).toMatchObject({
         outcome: "restored",
         invoice: null,
@@ -615,9 +711,11 @@ describe.skipIf(!testDatabase)(
       expect(await readInvoiceChain(reservation.id)).toHaveLength(1);
     });
 
-    test("a failed issuance keeps the restore and queues the replacement for the paid-fulfillment retry", async () => {
-      const { invoice, reservation } = await cancelWithInvoice();
-      const failing = makeRestoration({ issuanceFails: true });
+    test("a failed reissue of a payment invoice keeps the restore and queues it for the paid-fulfillment retry", async () => {
+      const { invoice, reservation } = await cancelWithInvoice({
+        billing: requestedInvoice,
+      });
+      const failing = makeRestoration({ billingUpdateFails: true });
 
       const result = await failing.restore(reservation.id);
 
@@ -625,7 +723,7 @@ describe.skipIf(!testDatabase)(
         outcome: "restored",
         email: "not_requested",
         access: "not_needed",
-        invoice: { outcome: "failed", invoiceId: null, invoiceNumber: null },
+        invoice: { outcome: "retrying", invoiceId: null, invoiceNumber: null },
       });
       expect((await readState(reservation.id)).reservation).toBe("confirmed");
       expect(failing.enqueue.mock.calls).toEqual([
@@ -640,7 +738,28 @@ describe.skipIf(!testDatabase)(
         invoice: { outcome: "issued" },
       });
       expect(retry.delivered).toHaveBeenCalledTimes(1);
-      expect(await readInvoiceChain(reservation.id)).toHaveLength(2);
+      await expectReplacement(reservation.id, invoice);
+    });
+
+    test("a failed reissue of a post-order invoice keeps the restore, isn't queued, and a rerun issues it", async () => {
+      const { invoice, reservation } = await cancelWithInvoice();
+      const failing = makeRestoration({ billingUpdateFails: true });
+
+      expect(await failing.restore(reservation.id)).toMatchObject({
+        outcome: "restored",
+        invoice: { outcome: "failed", invoiceId: null, invoiceNumber: null },
+      });
+      expect((await readState(reservation.id)).reservation).toBe("confirmed");
+      // The paid-fulfillment queue issues only from billing frozen at payment.
+      expect(failing.enqueue).not.toHaveBeenCalled();
+
+      const retry = makeRestoration();
+      expect(await retry.restore(reservation.id)).toMatchObject({
+        outcome: "already_confirmed",
+        invoice: { outcome: "issued" },
+      });
+      expect(retry.delivered).toHaveBeenCalledTimes(1);
+      await expectReplacement(reservation.id, invoice);
     });
   }
 );

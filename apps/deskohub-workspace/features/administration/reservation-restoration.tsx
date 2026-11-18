@@ -126,13 +126,21 @@ const getRestorationInvoiceNotices = (
       m.administrationReservationRestorationInvoiceNotIssued({}, { locale })
     );
   }
+  // `retrying`: Workspace retries it; `failed`: nothing does on its own.
+  const messages =
+    invoice.outcome === "retrying"
+      ? {
+          unissued: m.administrationReservationRestorationInvoiceRetrying,
+          unsent: m.administrationReservationRestorationInvoiceSendRetrying,
+        }
+      : {
+          unissued: m.administrationReservationRestorationInvoiceFailed,
+          unsent: m.administrationReservationRestorationInvoiceSendFailed,
+        };
   return warning(
     invoiceNumber === null
-      ? m.administrationReservationRestorationInvoiceFailed({}, { locale })
-      : m.administrationReservationRestorationInvoiceSendFailed(
-          { invoiceNumber },
-          { locale }
-        )
+      ? messages.unissued({}, { locale })
+      : messages.unsent({ invoiceNumber }, { locale })
   );
 };
 
