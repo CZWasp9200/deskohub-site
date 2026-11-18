@@ -1,16 +1,18 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient } from "@/db/database-client";
-import { paymentAttempts } from "@/db/schema";
+import { orders, paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
+import type { OrderId } from "@/features/order";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -24,8 +26,12 @@ describe.skipIf(!testDatabase)(
   () => {
     if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
+    const purchaseOrderIds: OrderId[] = [];
 
     afterAll(async () => {
+      await testDatabase.pool.query("delete from orders where id = any($1)", [
+        purchaseOrderIds,
+      ]);
       await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
@@ -142,6 +148,48 @@ describe.skipIf(!testDatabase)(
       );
       return attempts;
     };
+
+    test("leaves payments without a reservation outside the reservation refund batch", async () => {
+      const [order] = await Effect.runPromise(
+        testDatabase.db
+          .insert(orders)
+          .values({
+            kind: "pass-purchase",
+            dotyposCustomerId: DotyposCustomerIdSchema.make(
+              "synthetic-pass-buyer"
+            ),
+            paymentState: "paid",
+            paidAt: Temporal.Now.instant(),
+            fulfillmentState: "not_started",
+          })
+          .returning({ id: orders.id })
+      );
+      purchaseOrderIds.push(order!.id);
+      const [attempt] = await Effect.runPromise(
+        testDatabase.db
+          .insert(paymentAttempts)
+          .values({
+            orderId: order!.id,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(
+              `order-${crypto.randomUUID()}`
+            ),
+            state: "paid",
+            refundState: "required",
+            amountValue: 29_000,
+            amountExponent: 2,
+            currency: "CZK",
+          })
+          .returning({ id: paymentAttempts.id })
+      );
+      const reservationAttempt = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+      });
+
+      expect(await claimedIds({ limit: 1 })).toEqual([reservationAttempt]);
+      expect((await readAttempt(attempt!.id))?.refundCheckedAt).toBeNull();
+    });
 
     test("lists paid attempts awaiting a refund and recent paid attempts without a full refund", async () => {
       const awaiting = await insertCheckout({

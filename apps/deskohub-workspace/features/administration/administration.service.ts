@@ -1267,14 +1267,14 @@ const latePaymentRecoverySelection = {
 const latePaymentSelection = {
   eventId: webhookEvents.eventId,
   receivedAt: webhookEvents.receivedAt,
-  reservationId: paymentAttempts.workspaceReservationId,
+  reservationId: workspaceReservations.id,
 } as const;
 
 const latePaymentCondition = (
   reservationIds: readonly WorkspaceReservationId[]
 ) =>
   and(
-    equalsAny(paymentAttempts.workspaceReservationId, reservationIds),
+    equalsAny(workspaceReservations.id, reservationIds),
     eq(webhookEvents.errorCode, "nexi_webhook_late_payment")
   );
 
@@ -1692,6 +1692,13 @@ export class AdministrationService extends Context.Service<
                   .innerJoin(
                     paymentAttempts,
                     eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
+                  )
+                  .innerJoin(
+                    workspaceReservations,
+                    eq(
+                      workspaceReservations.id,
+                      paymentAttempts.workspaceReservationId
+                    )
                   )
                   .where(latePaymentCondition(rows.map(({ id }) => id))),
                 recoveryRows: db
@@ -2263,6 +2270,13 @@ export class AdministrationService extends Context.Service<
               .innerJoin(
                 paymentAttempts,
                 eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
+              )
+              .innerJoin(
+                workspaceReservations,
+                eq(
+                  workspaceReservations.id,
+                  paymentAttempts.workspaceReservationId
+                )
               )
               .where(latePaymentCondition([row.id]))
               .orderBy(webhookEvents.receivedAt),
