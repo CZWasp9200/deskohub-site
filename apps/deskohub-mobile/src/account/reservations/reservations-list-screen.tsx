@@ -460,6 +460,8 @@ function ReservationRow({
               // chevron's column too.
               marginRight:
                 Math.max(0, badgeSize.width - rowChevronColumn) + space.sm,
+              // At least the badge's height, so the lines below start under it.
+              minHeight: badgeSize.height,
             },
           ]}
         >
