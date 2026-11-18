@@ -34,9 +34,12 @@ export const sampleCustomerDataLayer = (
   kind: SampleAccountKind,
   history: SampleHistory = sampleHistoryOf(
     process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_HISTORY
-  )
+  ),
+  /** Sets answers the samples don't, such as the withdrawal quote. */
+  configure?: (workspace: FakeWorkspace) => void
 ): Layer.Layer<CustomerDataServices> => {
   const workspace = withSampleHistory(FakeWorkspace.forKind(kind), history);
+  configure?.(workspace);
   for (const [endpoint, outcome] of sampleRequestOutcomes(
     process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_OUTCOMES
   ))

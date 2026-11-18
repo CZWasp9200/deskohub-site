@@ -26,6 +26,9 @@ import {
   CustomerPaymentPageClosed,
   type CustomerPaymentPageClosedReason,
   CustomerPaymentRetryRefused,
+  type CustomerWithdrawalQuote,
+  CustomerWithdrawalRefused,
+  type CustomerWithdrawalRefusedReason,
   type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
   type CustomerProfileSave,
@@ -192,6 +195,17 @@ export class FakeWorkspace {
     | CustomerCheckout
     | CustomerPaymentRetryRefusedReason
     | undefined;
+  /**
+   * What the withdrawal quote answers for every order: the quote, or why the
+   * customer can't withdraw. Unset, every order is refused as not
+   * withdrawable.
+   */
+  withdrawal: CustomerWithdrawalQuote | CustomerWithdrawalRefusedReason =
+    "not_withdrawable";
+  /** Awaited before the quote answers, as a slow response. */
+  withdrawalQuoteDelay: Promise<void> | undefined;
+  /** Awaited before a withdrawal is recorded, as a slow response. */
+  withdrawalDelay: Promise<void> | undefined;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -705,6 +719,33 @@ const serverLayer = (workspace: FakeWorkspace) => {
               return typeof answer === "string"
                 ? Effect.fail(new CustomerPaymentPageClosed({ reason: answer }))
                 : Effect.succeed(answer);
+            })
+          )
+        )
+        .handle("getWithdrawalQuote", () =>
+          Effect.andThen(
+            Effect.promise(() => workspace.withdrawalQuoteDelay ?? Promise.resolve()),
+            Effect.suspend(() => {
+              const answer = workspace.withdrawal;
+              return typeof answer === "string"
+                ? Effect.fail(new CustomerWithdrawalRefused({ reason: answer }))
+                : Effect.succeed(answer);
+            })
+          )
+        )
+        .handle("withdrawFromReservation", () =>
+          Effect.andThen(
+            Effect.promise(() => workspace.withdrawalDelay ?? Promise.resolve()),
+            Effect.suspend(() => {
+              const answer = workspace.withdrawal;
+              return typeof answer === "string"
+                ? Effect.fail(new CustomerWithdrawalRefused({ reason: answer }))
+                : Effect.succeed({
+                    withdrawalId: "sample-withdrawal-1",
+                    submittedAt: new Date().toISOString(),
+                    refundAmount: answer.refundAmount,
+                    receiptEmail: answer.receiptEmail,
+                  });
             })
           )
         )

@@ -14,6 +14,7 @@ import {
 } from "../../src/account/reservations/access-screen-state";
 import { OrderStatusScreen } from "../../src/account/reservations/order-status-screen";
 import { ReservationsListScreen } from "../../src/account/reservations/reservations-list-screen";
+import { WithdrawalScreen } from "../../src/account/reservations/withdrawal-screen";
 import { statusVisitOf } from "../../src/account/reservations/status-refresh-rules";
 import { customerDataLayer } from "../../src/customer-api/customer-data-runtime";
 import {
@@ -55,13 +56,16 @@ export default function ReservationsSampleRoute() {
     after?: string;
     access?: string;
     locale?: string;
+    withdraw?: string;
   }>();
   if (!__DEV__ || sampleData === undefined) return <Redirect href="/" />;
   // A fresh registry for each state, as a new account would get.
   return (
     <SampleRegistry
-      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}`}
+      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}/${params.withdraw ?? ""}/${params.locale ?? ""}`}
       history={params.history}
+      withdraw={params.withdraw}
+      locale={params.locale}
     >
       <SampleLocale locale={params.locale}>
         <SampleScreen params={params} />
@@ -87,9 +91,13 @@ function SampleLocale({
 
 function SampleRegistry({
   history,
+  withdraw,
+  locale,
   children,
 }: {
   readonly history: string | undefined;
+  readonly withdraw?: string | undefined;
+  readonly locale?: string | undefined;
   readonly children: ReactNode;
 }) {
   const [initialValues] = useState(() =>
@@ -98,7 +106,11 @@ function SampleRegistry({
       : [
           Atom.initialValue(
             customerDataLayer,
-            sampleData.layer("linked", sampleData.historyOf(history))
+            sampleData.layer(
+              "linked",
+              sampleData.historyOf(history),
+              (workspace) => configureWithdrawal(workspace, withdraw, locale)
+            )
           ),
         ]
   );
@@ -117,8 +129,12 @@ function SampleScreen({
     readonly order?: string;
     readonly after?: string;
     readonly access?: string;
+    readonly withdraw?: string;
   };
 }) {
+  if (params.withdraw !== undefined) {
+    return <SampleWithdrawalView />;
+  }
   if (params.access !== undefined) {
     return <SampleAccessView orderId={params.access} />;
   }
@@ -187,6 +203,69 @@ function SampleAccessView({ orderId }: { readonly orderId: string }) {
       />
       <View style={{ flex: 1 }}>
         <ReservationAccessScreen orderId={id} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const czk = (value: number) => ({ value: value * 100, exponent: 2, currency: "CZK" }) as const;
+
+/**
+ * `?withdraw=` picks the withdrawal quote the fake Workspace answers: `full`
+ * (a day desk not started), `partial` (an office with 3 of 4 days started),
+ * `fallback` (an account without a name), `pending` (the confirm never
+ * answers), `refused` (the period ended), `loading` (the quote never answers).
+ */
+const configureWithdrawal = (
+  workspace: { withdrawal: unknown; withdrawalQuoteDelay: unknown; withdrawalDelay: unknown },
+  withdraw: string | undefined,
+  locale: string | undefined
+) => {
+  const en = locale === "en-US";
+  if (withdraw === undefined) return;
+  const partial = withdraw === "partial";
+  workspace.withdrawal =
+    withdraw === "refused"
+      ? "period_ended"
+      : {
+          contractId: partial ? "sample-order-office" : "sample-desk-fulfilled",
+          // As the Workspace names the contract, in the requested language.
+          contractLabel: partial
+            ? en
+              ? "Private office · Nov 16 – 19, 2026"
+              : "Soukromá kancelář · 16.–19. 11. 2026"
+            : en
+              ? "Profi · Dec 7, 2026"
+              : "Profi · 7. 12. 2026",
+          customerName: withdraw === "fallback" ? null : "Jana Nováková",
+          receiptEmail: "jana.novakova@deskohub.test",
+          paidAmount: partial ? czk(4800) : czk(550),
+          refundAmount: partial ? czk(1200) : czk(550),
+          refundBasis: partial
+            ? { kind: "partial", unit: "day", unstarted: 1, total: 4 }
+            : { kind: "full" },
+          periodEndsAt: "2026-12-01T23:00:00.000Z",
+        };
+  if (withdraw === "loading") workspace.withdrawalQuoteDelay = new Promise(() => undefined);
+  if (withdraw === "pending") workspace.withdrawalDelay = new Promise(() => undefined);
+};
+
+/** The withdrawal confirm step under the app bar its stack would give it. */
+function SampleWithdrawalView() {
+  const locale = useAppLocale();
+  return (
+    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: color.paper }}>
+      <FocusedStatusBar style="dark" />
+      <AppBar
+        title={m.reservations_withdraw_title({}, { locale })}
+        back="back"
+        onBack={() => undefined}
+      />
+      <View style={{ flex: 1 }}>
+        <WithdrawalScreen
+          orderId={CustomerReservationOrderId.make("sample-desk-fulfilled")}
+          reference="R-20261117-0042"
+        />
       </View>
     </SafeAreaView>
   );
