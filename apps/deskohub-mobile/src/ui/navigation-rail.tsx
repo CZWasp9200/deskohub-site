@@ -52,12 +52,13 @@ function RailLink({
 }) {
   const router = useRouter();
   const foreground = product || active ? color.action : color.ink2;
+  const canNavigate = product || !active;
   return (
     <Pressable
       role="link"
       accessibilityLabel={label}
       aria-current={active ? "page" : undefined}
-      onPress={() => router.navigate(href)}
+      onPress={canNavigate ? () => router.navigate(href) : undefined}
       style={styles.link}
     >
       {({ pressed }) => (
