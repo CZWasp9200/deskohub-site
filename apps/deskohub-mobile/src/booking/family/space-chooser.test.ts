@@ -79,13 +79,18 @@ describe("spaceCards", () => {
   });
 
   test("starts the office from its advertised day with one seat, up to its seats", () => {
-    const office = catalog.find((each) => each.family === "office");
+    // Not the live office's capacity, so a hard-coded maximum fails.
+    const maximumSeats = 4;
+    const offerings = catalog.map((each) =>
+      each.family === "office" ? { ...each, maximumSeats } : each
+    );
+    const office = offerings.find((each) => each.family === "office");
     if (office?.family !== "office") throw new Error("no office");
 
-    expect(cardOf(catalog, "office")).toMatchObject({
+    expect(cardOf(offerings, "office")).toMatchObject({
       fromPrice: office.advertisedPrice.price,
       unit: { kind: "day" },
-      facts: { kind: "office-seats", maximum: office.maximumSeats },
+      facts: { kind: "office-seats", maximum: maximumSeats },
     });
   });
 
