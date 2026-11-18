@@ -91,9 +91,6 @@ export function MeetingRoomHero({ image, locale }: MeetingRoomHeroProps) {
             <li className="sm:pr-4">
               {m.meetingRoomFactCapacity({}, { locale })}
             </li>
-            <li className="sm:border-l sm:border-white/22 sm:px-4">
-              {m.meetingRoomFactTv({}, { locale })}
-            </li>
             <li className="sm:border-l sm:border-white/22 sm:pl-4">
               {m.meetingRoomFactPrivacy({}, { locale })}
             </li>
