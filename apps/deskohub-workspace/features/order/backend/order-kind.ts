@@ -10,9 +10,7 @@ import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
  * The ID is any non-empty route value, not necessarily a valid order ID, so
  * an ID no order has reads as absent instead of failing to decode.
  */
-const findOrderKind = Effect.fn("orders.findKind")(function* (
-  orderId: string
-) {
+const findOrderKind = Effect.fn("orders.findKind")(function* (orderId: string) {
   const { db } = yield* WorkspaceDatabase;
   const [order] = yield* db
     .select({ kind: orders.kind })
