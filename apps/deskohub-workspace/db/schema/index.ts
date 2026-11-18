@@ -132,6 +132,7 @@ export {
 } from "./referrals";
 export { requestBudgetSpends } from "./request-budget-spends";
 export { reservationAccessGrants } from "./reservation-access-grants";
+export { reservationInvitees } from "./reservation-invitees";
 export {
   type ReviewAccountHold,
   reviewAccountHolds,

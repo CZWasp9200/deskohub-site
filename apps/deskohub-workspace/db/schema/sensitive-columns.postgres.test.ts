@@ -72,6 +72,7 @@ import {
   paymentAttempts,
   promotionCodes,
   reservationAccessGrants,
+  reservationInvitees,
   standaloneAccessCodeAttemptEvents,
 } from "./index";
 import { schemaColumns } from "./schema-columns.test-utils";
@@ -414,6 +415,19 @@ const rowFixtures = new Map([
           scheduledAccessStartsAt: now(),
           accessStartsAt: now(),
           accessEndsAt: inAnHour(),
+        };
+      }),
+  }),
+  rowFixture(reservationInvitees, {
+    row: (db) =>
+      Effect.gen(function* () {
+        return {
+          id: syntheticId("invitee"),
+          workspaceReservationId: yield* heldReservation(db),
+          position: 0,
+          keyId: "synthetic",
+          encryptedEmail: Buffer.from("synthetic-ciphertext"),
+          retainUntil: inAnHour(),
         };
       }),
   }),
