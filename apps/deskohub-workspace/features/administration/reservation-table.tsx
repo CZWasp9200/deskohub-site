@@ -310,11 +310,12 @@ function ReservationStatus({
           group="attention"
           label={
             reservation.statusNoteCode === "needs_refund" &&
-            reservation.withdrawal
+            reservation.withdrawal &&
+            reservation.withdrawal.refundAmountDue.value > 0
               ? `${getAdministrationReservationStatusNoteLabel(
                   reservation.statusNoteCode,
                   locale
-                )} · ${formatMoney(reservation.withdrawal.refundAmount, locale)}`
+                )} · ${formatMoney(reservation.withdrawal.refundAmountDue, locale)}`
               : getAdministrationReservationStatusNoteLabel(
                   reservation.statusNoteCode,
                   locale

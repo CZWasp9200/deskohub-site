@@ -129,6 +129,7 @@ import {
   type IPaymentAdministrationService,
   PaymentAdministrationService,
 } from "./payment-administration.service";
+import { getRefundAmountDue } from "./payment-presentation";
 import type { AdministrationPaymentTimelineEvent } from "./payment-timeline";
 import {
   buildPaymentAttemptTimeline,
@@ -273,6 +274,7 @@ export type AdministrationReservationSummary = {
   /** The customer's withdrawal, once submitted: what it owes, how it settles. */
   readonly withdrawal?: {
     readonly refundAmount: Money;
+    readonly refundAmountDue: Money;
     readonly settlement: WithdrawalSettlementStatus["settlement"];
   };
   readonly dotyposReservationId: DotyposReservationId | null;
@@ -620,6 +622,7 @@ type SafeReservationRow = WithStoredReservationDetails<
   Pick<
     WorkspaceReservationRow,
     | "id"
+    | "activePaymentAttemptId"
     | "dotyposCustomerId"
     | "dotyposReservationId"
     | "reservationState"
@@ -643,6 +646,7 @@ type SafeReservationRow = WithStoredReservationDetails<
 
 const safeReservationSelection = {
   id: workspaceReservations.id,
+  activePaymentAttemptId: workspaceReservations.activePaymentAttemptId,
   dotyposCustomerId: workspaceReservations.dotyposCustomerId,
   dotyposReservationId: workspaceReservations.dotyposReservationId,
   reservationState: workspaceReservations.reservationState,
@@ -878,6 +882,7 @@ const isReservationRefunded = (
   !attempts.some(({ refundState }) => refundState === "required");
 
 const toReservationSummary = ({
+  attemptRows,
   latePayment = false,
   needsRefund = false,
   refunded = false,
@@ -888,6 +893,7 @@ const toReservationSummary = ({
   row,
   withdrawal,
 }: {
+  readonly attemptRows: readonly SafePaymentAttemptRow[];
   readonly latePayment?: boolean;
   /** Any payment attempt of the reservation, not only the latest, needs a refund. */
   readonly needsRefund?: boolean;
@@ -917,6 +923,11 @@ const toReservationSummary = ({
     ...(withdrawal && {
       withdrawal: {
         refundAmount: withdrawal.refundAmount,
+        refundAmountDue: getRefundAmountDue(
+          withdrawal.refundAmount,
+          attemptRows.find(({ id }) => id === row.activePaymentAttemptId)
+            ?.refundedAmountValue ?? null
+        ),
         settlement: getWithdrawalSettlementStatus(withdrawal).settlement,
       },
     }),
@@ -1821,23 +1832,23 @@ export class AdministrationService extends Context.Service<
           }
 
           const now = yield* DateTime.nowAsDate;
-          return liveRows.map(({ live, row }) =>
-            toReservationSummary({
+          return liveRows.map(({ live, row }) => {
+            const attempts = attemptsByReservation.get(row.id) ?? [];
+            return toReservationSummary({
+              attemptRows: attempts,
               latestPayment: latestPaymentByReservation.get(row.id) ?? null,
               latePayment: recoveryByReservation.has(row.id)
                 ? recoveryByReservation.get(row.id)?.state === "refund_required"
                 : latePaymentReservationIds.has(row.id),
               recoveryState: recoveryByReservation.get(row.id)?.state,
               needsRefund: refundReservationIds.has(row.id),
-              refunded: isReservationRefunded(
-                attemptsByReservation.get(row.id) ?? []
-              ),
+              refunded: isReservationRefunded(attempts),
               live,
               now,
               row,
               withdrawal: withdrawalByReservation.get(row.id),
-            })
-          );
+            });
+          });
         }
       );
 
@@ -2420,6 +2431,7 @@ export class AdministrationService extends Context.Service<
         return {
           author,
           reservation: toReservationSummary({
+            attemptRows,
             latestPayment: attempts.at(-1) ?? null,
             latePayment,
             recoveryState,

@@ -16,6 +16,7 @@ import {
   NexiOrderIdSchema,
   NexiWebhookEventIdSchema,
 } from "@deskohub/nexi";
+import { eq } from "drizzle-orm";
 import { Effect, Layer, Option } from "effect";
 import {
   contractWithdrawals,
@@ -27,6 +28,7 @@ import {
   type ReservationState,
   reservationAccessGrants,
   webhookEvents,
+  workspaceReservations,
 } from "@/db/schema";
 import { ReservationAuthorDirectory } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
@@ -1193,6 +1195,30 @@ describe.skipIf(!testDatabase)(
           receiptSentAt: paidAt,
           operatorNotifiedAt: paidAt,
         });
+        const activePaymentAttemptId = paymentAttemptIdSchema.make(
+          `attempt-partial-withdrawal-${runId}`
+        );
+        await Effect.runPromise(
+          testDatabase.db.insert(paymentAttempts).values({
+            id: activePaymentAttemptId,
+            workspaceReservationId: owesRefund,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(`withdrawal-${runId}`),
+            state: "paid",
+            amountValue: 480_000,
+            amountExponent: 2,
+            currency: "CZK",
+            refundState: "refunded",
+            refundedAmountValue: 60_000,
+            refundedAt: paidAt,
+          })
+        );
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({ activePaymentAttemptId })
+            .where(eq(workspaceReservations.id, owesRefund))
+        );
         const failingReceipt = await insertWithdrawn("failing", {
           paidAmountValue: 0,
           refundAmountValue: 0,
@@ -1279,6 +1305,7 @@ describe.skipIf(!testDatabase)(
         expect(item(owesRefund)).toMatchObject({
           withdrawal: {
             refundAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+            refundAmountDue: { value: 60_000, exponent: 2, currency: "CZK" },
             settlement: "in_progress",
           },
           status: { code: "withdrawn" },

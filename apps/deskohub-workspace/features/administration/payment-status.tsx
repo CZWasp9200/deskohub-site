@@ -7,6 +7,7 @@ import {
   getAdministrationPaymentStatus,
 } from "./formatters";
 import { m } from "./i18n";
+import { getRefundAmountDue } from "./payment-presentation";
 
 type DisplayedPayment = Pick<
   AdministrationPaymentAttempt,
@@ -117,7 +118,13 @@ export function PaymentRefundRequiredLabel({
       {payment.refundTarget && (
         <span className="font-normal">
           {" · "}
-          {formatMoney(payment.refundTarget, locale)}
+          {formatMoney(
+            getRefundAmountDue(
+              payment.refundTarget,
+              payment.refundedAmount?.value ?? null
+            ),
+            locale
+          )}
         </span>
       )}
     </span>
