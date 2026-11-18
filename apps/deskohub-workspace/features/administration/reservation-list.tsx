@@ -42,11 +42,16 @@ type ReservationsData = {
  */
 export async function AdministrationReservationList({
   searchParams,
+  load = loadAdministrationReservationsPage,
+  loadRefundAttention = loadAdministrationRefundAttention,
 }: {
   readonly searchParams: AdministrationSearchParams;
+  /** Design preview only: where the page and its refund count come from. */
+  readonly load?: typeof loadAdministrationReservationsPage;
+  readonly loadRefundAttention?: typeof loadAdministrationRefundAttention;
 }) {
-  const { input, result } = loadAdministrationReservationsPage(searchParams);
-  const refundAttention = loadAdministrationRefundAttention();
+  const { input, result } = load(searchParams);
+  const refundAttention = loadRefundAttention();
   const locale = await getRequestLocale();
 
   return (

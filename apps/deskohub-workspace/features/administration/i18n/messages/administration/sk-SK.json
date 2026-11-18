@@ -710,6 +710,7 @@
   "administrationReservationStatusAwaitingPayment": "Čaká na platbu",
   "administrationReservationStatusCancellationIssue": "Problém so zrušením",
   "administrationReservationStatusCancelled": "Zrušené",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "Ruší sa",
   "administrationReservationStatusComplete": "Dokončené",
   "administrationReservationStatusConfirmationIssue": "Problém s potvrdením",

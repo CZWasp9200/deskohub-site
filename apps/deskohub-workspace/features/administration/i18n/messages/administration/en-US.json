@@ -684,6 +684,7 @@
   "administrationReservationStatusAwaitingPayment": "Awaiting payment",
   "administrationReservationStatusCancellationIssue": "Cancellation issue",
   "administrationReservationStatusCancelled": "Cancelled",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "Cancelling",
   "administrationReservationStatusComplete": "Complete",
   "administrationReservationStatusConfirmationIssue": "Confirmation issue",

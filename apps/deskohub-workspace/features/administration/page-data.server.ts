@@ -100,7 +100,7 @@ export const loadAdministrationReservationOverview = async () => {
   );
 };
 
-const getAdministrationReservationListInput = (
+export const getAdministrationReservationListInput = (
   searchParams: AdministrationSearchParams
 ) =>
   runAdministrationPage(

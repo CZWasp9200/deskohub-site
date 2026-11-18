@@ -671,6 +671,7 @@
   "administrationReservationStatusAwaitingPayment": "Đang chờ thanh toán",
   "administrationReservationStatusCancellationIssue": "Có vấn đề khi hủy",
   "administrationReservationStatusCancelled": "Đã hủy",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "Đang hủy",
   "administrationReservationStatusComplete": "Đã hoàn tất",
   "administrationReservationStatusConfirmationIssue": "Có vấn đề khi xác nhận",

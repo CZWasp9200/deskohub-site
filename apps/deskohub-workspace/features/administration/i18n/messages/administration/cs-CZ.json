@@ -697,6 +697,7 @@
   "administrationReservationStatusAwaitingPayment": "Čeká na platbu",
   "administrationReservationStatusCancellationIssue": "Problém se zrušením",
   "administrationReservationStatusCancelled": "Zrušeno",
+  "administrationReservationStatusWithdrawn": "Odstoupeno zákazníkem",
   "administrationReservationStatusCancelling": "Ruší se",
   "administrationReservationStatusComplete": "Dokončeno",
   "administrationReservationStatusConfirmationIssue": "Problém s potvrzením",

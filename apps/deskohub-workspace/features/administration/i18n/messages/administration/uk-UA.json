@@ -710,6 +710,7 @@
   "administrationReservationStatusAwaitingPayment": "Очікує оплати",
   "administrationReservationStatusCancellationIssue": "Проблема зі скасуванням",
   "administrationReservationStatusCancelled": "Скасовано",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "Скасовується",
   "administrationReservationStatusComplete": "Завершено",
   "administrationReservationStatusConfirmationIssue": "Проблема з підтвердженням",

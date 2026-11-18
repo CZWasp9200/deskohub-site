@@ -684,6 +684,7 @@
   "administrationReservationStatusAwaitingPayment": "भुगतान का इंतज़ार",
   "administrationReservationStatusCancellationIssue": "रद्दीकरण में समस्या",
   "administrationReservationStatusCancelled": "रद्द",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "रद्द की जा रही है",
   "administrationReservationStatusComplete": "पूरी हुई",
   "administrationReservationStatusConfirmationIssue": "पुष्टि में समस्या",

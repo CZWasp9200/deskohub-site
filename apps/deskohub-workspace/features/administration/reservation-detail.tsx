@@ -42,8 +42,11 @@ import { getAdministrationReservationProductTitle } from "./reservation-product"
  */
 export async function AdministrationReservationDetail({
   params,
+  load = loadAdministrationReservation,
 }: {
   readonly params: Promise<{ readonly reservationId: string }>;
+  /** Design preview only: where the detail comes from. */
+  readonly load?: (id: string) => Promise<ReservationDetailData>;
 }) {
   const locale = await getRequestLocale();
   return (
@@ -55,21 +58,23 @@ export async function AdministrationReservationDetail({
           />
         }
       >
-        <ReservationDetailContent locale={locale} params={params} />
+        <ReservationDetailContent load={load} locale={locale} params={params} />
       </Suspense>
     </AdministrationPage>
   );
 }
 
 async function ReservationDetailContent({
+  load,
   locale,
   params,
 }: {
+  readonly load: (id: string) => Promise<ReservationDetailData>;
   readonly locale: Locale;
   readonly params: Promise<{ readonly reservationId: string }>;
 }) {
   const { reservationId } = await params;
-  const detail = await loadAdministrationReservation(reservationId);
+  const detail = await load(reservationId);
   const { reservation } = detail;
   return (
     <>

@@ -684,6 +684,7 @@
   "administrationReservationStatusAwaitingPayment": "Wartet auf Zahlung",
   "administrationReservationStatusCancellationIssue": "Problem mit der Stornierung",
   "administrationReservationStatusCancelled": "Storniert",
+  "administrationReservationStatusWithdrawn": "Withdrawn by customer",
   "administrationReservationStatusCancelling": "Wird storniert",
   "administrationReservationStatusComplete": "Abgeschlossen",
   "administrationReservationStatusConfirmationIssue": "Problem mit der Bestätigung",

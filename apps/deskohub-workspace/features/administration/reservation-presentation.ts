@@ -11,6 +11,7 @@ export const getAdministrationReservationStatusLabel = (
   locale: Locale
 ) =>
   ({
+    withdrawn: m.administrationReservationStatusWithdrawn,
     recovering_payment: m.administrationReservationStatusRecoveringPayment,
     recovery_review: m.administrationReservationStatusRecoveryReview,
     refunded: m.administrationReservationStatusRefunded,

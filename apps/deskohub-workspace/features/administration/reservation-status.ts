@@ -32,6 +32,7 @@ const reservationStatusLabels = {
   awaiting_payment: "Awaiting payment",
   starting: "Starting",
   in_progress: "In progress",
+  withdrawn: "Withdrawn by customer",
 } as const;
 
 export type AdministrationReservationStatusCode =
