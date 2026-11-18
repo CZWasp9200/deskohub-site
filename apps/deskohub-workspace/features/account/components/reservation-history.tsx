@@ -640,23 +640,23 @@ function PastReservationTable({
     <CardContent className="min-w-0 overflow-hidden p-0">
       <table
         aria-labelledby="account-reservations-past-title"
-        className="block w-full text-left @4xl:table @4xl:table-fixed"
+        className="block w-full text-left @4xl:table"
       >
         <thead className="hidden border-b border-[#dfe4ec] text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b] @4xl:table-header-group">
           <tr className="block @4xl:table-row">
-            <th className="px-3 py-3 @4xl:w-[30%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationDate({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[25%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationProduct({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[12%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationSeatsLabel({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[17%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationStatus({}, { locale })}
             </th>
-            <th className="px-3 py-3 text-right @4xl:w-[16%]" scope="col">
+            <th className="px-3 py-3 text-right" scope="col">
               <span className="sr-only">
                 {m.accountReservationView({}, { locale })}
               </span>
@@ -669,7 +669,7 @@ function PastReservationTable({
               className="block min-w-0 border-b border-[#dfe4ec] last:border-0 @max-4xl:p-4 @4xl:table-row"
               key={reservation.id}
             >
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[30%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationDate({}, { locale })}
@@ -684,7 +684,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] @4xl:table-cell @4xl:w-[25%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationProduct({}, { locale })}
@@ -702,7 +702,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[12%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationSeatsLabel({}, { locale })}
@@ -717,7 +717,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[17%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationStatus({}, { locale })}
@@ -731,7 +731,7 @@ function PastReservationTable({
                   </StatusBadge>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 pt-3 align-top text-right @4xl:table-cell @4xl:w-[16%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 px-0 pt-3 align-top text-right @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 justify-end">
                   <ReservationDetailLink
                     locale={locale}
