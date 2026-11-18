@@ -3,7 +3,6 @@ import Check from "lucide-react-native/icons/check";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import X from "lucide-react-native/icons/x";
 import type { ReactNode } from "react";
-import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Badge, type BadgeTone } from "../../ui/badge";
 import { Icon, type IconComponent } from "../../ui/icon";
@@ -176,7 +175,6 @@ export function BookingTicket({
   readonly onPress?: () => void;
   readonly children?: ReactNode;
 }) {
-  const [badgeWidth, setBadgeWidth] = useState(0);
   const inline = badgePlacement === "inline";
   const top = (
     <>
@@ -191,26 +189,24 @@ export function BookingTicket({
       <View style={styles.what}>
         {date !== undefined && <DateTile parts={date} tone={dateTone} />}
         <View style={styles.whatText}>
-          <Text
-            variant="headline"
-            style={inline ? { marginRight: badgeWidth + space.sm } : undefined}
-          >
-            {title}
-          </Text>
+          {inline ? (
+            // Title and badge share one row, laid out in one pass: only the
+            // title line gives the badge room, and the title wraps beside it.
+            <View style={styles.titleRow}>
+              <Text variant="headline" style={styles.flexShrink}>
+                {title}
+              </Text>
+              <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+            </View>
+          ) : (
+            <Text variant="headline">{title}</Text>
+          )}
           {lines.map((line) => (
             <Text key={line} variant="bodySmall">
               {line}
             </Text>
           ))}
         </View>
-        {inline && (
-          <View
-            onLayout={(event) => setBadgeWidth(event.nativeEvent.layout.width)}
-            style={styles.badgeInline}
-          >
-            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
-          </View>
-        )}
       </View>
       {meta.length > 0 && (
         <View style={styles.meta}>
@@ -475,8 +471,13 @@ const styles = StyleSheet.create({
     paddingTop: 7,
   },
   // At large font sizes the tile grows with its text rather than cutting it.
-  // A badge beside the date tile, aligned to its top.
-  badgeInline: { position: "absolute", right: 0, top: 0 },
+  // The title beside its badge, both aligned to the top of the date tile.
+  titleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    justifyContent: "space-between",
+  },
   tileCompact: { minWidth: 52, paddingBottom: 7, paddingTop: 6 },
   tileSmall: brandText(12, 14, 600),
   tileDay: brandText(24, 28, 700),

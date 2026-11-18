@@ -18,7 +18,6 @@ import { AccessPinButton } from "./access-pin-button";
 import { WithdrawalLink } from "./withdrawal-link";
 import { type ReactNode, useEffect, useState } from "react";
 import {
-  type LayoutChangeEvent,
   Pressable,
   StyleSheet,
   useWindowDimensions,
@@ -434,13 +433,8 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
-  // The row's width: its badge wraps past about a third of it.
-  const [rowWidth, setRowWidth] = useState(0);
-  // The pinned badge's size: the title keeps clear of it, the chevron
-  // centres below it.
-  const [badgeSize, setBadgeSize] = useState({ width: 0, height: 0 });
-  const measureRow = (event: LayoutChangeEvent) =>
-    setRowWidth(event.nativeEvent.layout.width);
+  // The badge's height: the chevron centres in the space below it.
+  const [badgeHeight, setBadgeHeight] = useState(0);
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -451,22 +445,35 @@ function ReservationRow({
         onNone: () => <DateTilePlaceholder />,
       })}
       <View style={styles.rowText}>
-        <Text
-          variant="bodyStrong"
-          style={[
-            past ? styles.pastTitle : undefined,
-            Option.isSome(badge) && {
-              // Only the title line makes room for the badge; it spans the
-              // chevron's column too.
-              marginRight:
-                Math.max(0, badgeSize.width - rowChevronColumn) + space.sm,
-              // At least the badge's height, so the lines below start under it.
-              minHeight: badgeSize.height,
-            },
-          ]}
-        >
-          {view.title}
-        </Text>
+        {/* Title and badge share one row, laid out in one pass: only the
+            title line gives the badge room, the badge reaches over the
+            chevron's column, and the lines below start under both. */}
+        <View style={styles.rowTitleLine}>
+          <Text
+            variant="bodyStrong"
+            style={[styles.rowTitle, past ? styles.pastTitle : undefined]}
+          >
+            {view.title}
+          </Text>
+          {Option.match(badge, {
+            onSome: (badge) => (
+              <View
+                onLayout={(event) =>
+                  setBadgeHeight(event.nativeEvent.layout.height)
+                }
+                style={Option.isSome(target) && styles.rowBadge}
+              >
+                <Badge
+                  label={badge.label}
+                  tone={badge.tone}
+                  icon={badge.icon}
+                  stacked
+                />
+              </View>
+            ),
+            onNone: () => null,
+          })}
+        </View>
         <Text variant="bodySmall" style={styles.rowDetail}>
           {view.detail}
         </Text>
@@ -484,47 +491,23 @@ function ReservationRow({
         <View
           style={[
             styles.rowChevron,
-            Option.isSome(badge) && {
-              paddingTop: badgeSize.height + space.xs,
-            },
+            Option.isSome(badge) && { paddingTop: badgeHeight + space.xs },
           ]}
         >
           <Icon icon={ChevronRight} size={20} color={color.ink3} />
         </View>
       )}
-      {Option.match(badge, {
-        onSome: (badge) => (
-          <View
-            onLayout={(event) =>
-              setBadgeSize({
-                width: event.nativeEvent.layout.width,
-                height: event.nativeEvent.layout.height,
-              })
-            }
-            style={styles.rowBadge}
-          >
-            <Badge
-              label={badge.label}
-              tone={badge.tone}
-              icon={badge.icon}
-              wrapAt={rowWidth / 3}
-            />
-          </View>
-        ),
-        onNone: () => null,
-      })}
     </>
   );
   return Option.match(target, {
     onNone: () => (
-      <View accessible onLayout={measureRow} style={styles.row}>
+      <View accessible style={styles.row}>
         {content}
       </View>
     ),
     onSome: (orderId) => (
       <Pressable
         role="link"
-        onLayout={measureRow}
         onPress={() => open(orderId)}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >
@@ -719,8 +702,15 @@ const styles = StyleSheet.create({
   rowDetail: { marginTop: 2 },
   // A row's chevron, centred in the row or in the space below its badge.
   rowChevron: { alignSelf: "stretch", justifyContent: "center" },
-  // A row's status badge, pinned top right over its chevron's column.
-  rowBadge: { position: "absolute", right: 14, top: space.md },
+  // Line 1: the title, then the status badge reaching over the chevron.
+  rowTitleLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    justifyContent: "space-between",
+  },
+  rowTitle: { flexShrink: 1 },
+  rowBadge: { marginRight: -rowChevronColumn },
   rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
   stubWithdrawal: { alignSelf: "center", textAlign: "center" },

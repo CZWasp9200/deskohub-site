@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { Text } from "./text";
@@ -27,60 +26,29 @@ export function Badge({
   label,
   tone,
   icon,
-  wrapAt,
+  stacked = false,
 }: {
   readonly label: string;
   readonly tone: BadgeTone;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
   /**
-   * The width past which the label wraps onto more lines, between words only:
-   * the badge never gets narrower than its longest word. The icon stays
-   * centred against the whole label.
+   * Sets the label one word per line, for a narrow corner: it never breaks
+   * inside a word and needs no measuring. The icon stays centred against it.
    */
-  readonly wrapAt?: number;
+  readonly stacked?: boolean;
 }) {
   const { background, ink } = badgeColors[tone];
-  const wrap = wrapAt !== undefined;
-  const [longestWord, setLongestWord] = useState(0);
-  // Padding, icon and gap around the label.
-  const chrome = 2 * 10 + (icon ? 16 + space.xs : 0);
-  const word = wrap
-    ? label.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), "")
-    : "";
   return (
-    <View
-      style={[
-        styles.badge,
-        wrap && { maxWidth: Math.max(wrapAt, longestWord + chrome) },
-        { backgroundColor: background },
-      ]}
-    >
+    <View style={[styles.badge, { backgroundColor: background }]}>
       {icon && <Icon icon={icon} size={16} color={ink} />}
       <Text
         variant="badge"
-        style={[
-          styles.label,
-          wrap && { minWidth: longestWord },
-          { color: ink },
-        ]}
+        aria-label={stacked ? label : undefined}
+        style={[styles.label, { color: ink }]}
       >
-        {label}
+        {stacked ? label.split(/\s+/).join("\n") : label}
       </Text>
-      {wrap && (
-        // Measures the longest word, so the label never breaks inside it.
-        <Text
-          aria-hidden
-          variant="badge"
-          numberOfLines={1}
-          onLayout={(event) =>
-            setLongestWord(Math.ceil(event.nativeEvent.layout.width))
-          }
-          style={styles.measure}
-        >
-          {word}
-        </Text>
-      )}
     </View>
   );
 }
@@ -98,5 +66,4 @@ const styles = StyleSheet.create({
     paddingVertical: space.xs,
   },
   label: { flexShrink: 1 },
-  measure: { opacity: 0, position: "absolute" },
 });
