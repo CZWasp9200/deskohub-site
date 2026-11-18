@@ -2,6 +2,7 @@ import { mock } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
 import { postHogStandIn } from "./posthog-stand-in";
+import { TestWindowDimensions } from "./window-dimensions";
 
 // React Native defines `__DEV__` before any module runs, and Expo's modules
 // read it on import. Tests run as a release build; one that switches it on
@@ -121,13 +122,7 @@ mock.module("react-native", () => ({
     isVisible: () => false,
     metrics: () => undefined,
   },
-  // The design's narrowest phone at the default font size.
-  useWindowDimensions: () => ({
-    width: 360,
-    height: 780,
-    scale: 3,
-    fontScale: 1,
-  }),
+  useWindowDimensions: () => useContext(TestWindowDimensions),
 }));
 
 // Insets come from the context, as in the library, so a test can provide some.

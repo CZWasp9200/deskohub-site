@@ -65,32 +65,41 @@ describe("the signed-in rail", () => {
     const root: NavigationState = {
       ...book,
       key: "root",
-      index: 0,
-      routeNames: ["(account)"],
+      index: 1,
+      routeNames: ["sign-in", "(account)"],
       routes: [
+        { key: "sign-in", name: "sign-in" },
         {
           key: "account",
           name: "(account)",
           state: {
             ...book,
             key: "account-stack",
-            index: 1,
+            index: 2,
             routeNames: ["(tabs)", "book"],
             routes: [
               { key: "tabs", name: "(tabs)" },
+              {
+                key: "older-booking",
+                name: "book",
+                state: { ...book, key: "older-book" },
+              },
               { key: "booking", name: "book", state: book },
             ],
           },
         },
       ],
     };
+    expect(
+      bookingFamilyReset({ ...root, index: 0 }, "meeting-room")
+    ).toBeUndefined();
     const destination = bookingFamilyReset(root, "meeting-room");
     if (destination === undefined) throw new Error("Missing booking reset");
     expect(destination.target).toBe("book");
     const action = { ...reset(destination.state), target: destination.target };
 
     const options = { routeNames, routeParamList: {}, routeGetIdList: {} };
-    const router = StackRouter(options);
+    const router = StackRouter({});
     expect(
       router.getStateForAction({ ...book, type: "stack" }, action, options)
     ).toMatchObject({

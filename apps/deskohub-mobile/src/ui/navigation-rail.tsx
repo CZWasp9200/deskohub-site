@@ -49,19 +49,18 @@ function RailLink({
   readonly label: string;
   readonly icon: ComponentProps<typeof Icon>["icon"];
   readonly active: boolean;
-  readonly onPress: () => void;
+  readonly onPress?: () => void;
   readonly product?: boolean;
   readonly dot?: boolean;
 }) {
   const foreground = product || active ? color.action : color.ink2;
-  const canNavigate = product || !active;
   return (
     <Pressable
       role="link"
       accessibilityLabel={label}
       accessibilityState={{ selected: active }}
       aria-current={active ? "page" : undefined}
-      onPress={canNavigate ? onPress : undefined}
+      onPress={onPress}
       style={styles.link}
     >
       {({ pressed }) => (
@@ -152,6 +151,7 @@ export function NavigationRail({
     )
   );
   const group = segments[1];
+  const inAccess = group === "reservations" && segments[3] === "access";
   const open = (href: Href) => {
     if (group === "book" || group === "reservations") {
       router.dismissTo(href);
@@ -160,18 +160,18 @@ export function NavigationRail({
     }
   };
   const openProduct = (family: CustomerReservationFamily) => {
-    if (group === "book") {
-      if (segments[2] === family) return;
-      const reset = bookingFamilyReset(navigation.getRootState(), family);
-      if (reset !== undefined) {
-        navigation.dispatch({
-          ...CommonActions.reset(reset.state),
-          target: reset.target,
-        });
-        return;
-      }
+    if (group !== "book") {
+      open(bookFamilyHref(family));
+      return;
     }
-    open(bookFamilyHref(family));
+    if (segments[2] === family) return;
+    const reset = bookingFamilyReset(navigation.getRootState(), family);
+    if (reset !== undefined) {
+      navigation.dispatch({
+        ...CommonActions.reset(reset.state),
+        target: reset.target,
+      });
+    }
   };
   return (
     <View role="navigation" style={styles.rail}>
@@ -201,14 +201,18 @@ export function NavigationRail({
           {canBook && <ProductLinks active={active} onOpen={openProduct} />}
         </View>
         <RailLink
-          onPress={() => open("/account")}
+          onPress={active === "account" ? undefined : () => open("/account")}
           icon={CircleUser}
           active={active === "account"}
           label={m.account_tab_account({}, { locale })}
           dot={profileMissing}
         />
         <RailLink
-          onPress={() => open("/reservations")}
+          onPress={
+            active !== "reservations" || inAccess
+              ? () => open("/reservations")
+              : undefined
+          }
           icon={CalendarCheck}
           active={active === "reservations"}
           label={m.account_tab_reservations({}, { locale })}

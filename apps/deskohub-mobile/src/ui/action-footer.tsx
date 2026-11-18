@@ -50,19 +50,9 @@ export function ActionFooter({
   const inline = isWide && width >= 400 * Math.max(1, fontScale);
   const inlineMessage =
     inline && aside === undefined && messageTone !== "error";
-  const messageLayout = inlineMessage ? styles.inlineMessage : styles.message;
-  const announcement = (
-    <Text
-      role="status"
-      aria-live="polite"
-      accessibilityLiveRegion="polite"
-      variant={messageTone === "error" ? "hintStrong" : "hint"}
-      tone={messageTone === "error" ? "danger" : "muted"}
-      style={shown ? messageLayout : idleLiveRegionLayout}
-    >
-      {shown ? message : ""}
-    </Text>
-  );
+  const messageLayout = inlineMessage
+    ? styles.inlineMessage
+    : [styles.message, inline && styles.messageRow];
   return (
     <View
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
@@ -72,19 +62,24 @@ export function ActionFooter({
           styles.wideFooter,
           { width, marginLeft: left, marginRight: right },
         ],
+        inline && styles.row,
         { paddingBottom: space.md + bottom },
       ]}
     >
-      {!inlineMessage && announcement}
-      <View style={inline ? styles.row : styles.stacked}>
-        {aside !== undefined && (
-          <View style={inline ? styles.aside : undefined}>{aside}</View>
-        )}
-        {inlineMessage && announcement}
-        <View style={[styles.buttons, inline && styles.actions]}>
-          {children}
-        </View>
-      </View>
+      <Text
+        role="status"
+        aria-live="polite"
+        accessibilityLiveRegion="polite"
+        variant={messageTone === "error" ? "hintStrong" : "hint"}
+        tone={messageTone === "error" ? "danger" : "muted"}
+        style={shown ? messageLayout : idleLiveRegionLayout}
+      >
+        {shown ? message : ""}
+      </Text>
+      {aside !== undefined && (
+        <View style={inline ? styles.aside : undefined}>{aside}</View>
+      )}
+      <View style={[styles.buttons, inline && styles.actions]}>{children}</View>
     </View>
   );
 }
@@ -109,12 +104,13 @@ const styles = StyleSheet.create({
   row: {
     alignItems: "center",
     flexDirection: "row",
-    gap: space.md,
+    flexWrap: "wrap",
+    columnGap: space.md,
   },
-  stacked: { gap: space.sm },
   aside: { flex: 1, minWidth: 0 },
   buttons: { gap: space.sm },
   actions: { flexShrink: 1, marginLeft: "auto", maxWidth: "60%" },
   message: { textAlign: "center" },
+  messageRow: { width: "100%" },
   inlineMessage: { flex: 1, minWidth: 0 },
 });

@@ -36,8 +36,13 @@ export function bookingFamilyReset(
   root: NavigationState | undefined,
   family: CustomerReservationFamily
 ) {
-  const account = root?.routes.find(({ name }) => name === "(account)")?.state;
-  const book = account?.routes.find(({ name }) => name === "book")?.state;
+  const current = root?.routes[root.index];
+  if (current?.name !== "(account)" || current.state?.stale !== false) {
+    return undefined;
+  }
+  const { state: account } = current;
+  const route = account.routes[account.index];
+  const book = route?.name === "book" ? route.state : undefined;
   if (book?.stale !== false) return undefined;
 
   // One removal action lets the existing dirty Profile guard replay or cancel
