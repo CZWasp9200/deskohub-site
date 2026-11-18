@@ -36,6 +36,7 @@ import { Notice } from "../../ui/notice";
 import { Text } from "../../ui/text";
 import { color, radius, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { useContentColumn } from "../../ui/viewport";
 import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type { CheckoutIntent } from "../checkout/checkout-flow";
 import {
@@ -55,6 +56,7 @@ import { describePriceLine } from "../ui/price-line-description";
 import { PriceLines } from "../ui/price-lines";
 import { bookingOverviewOf } from "./booking-overview";
 import { productLabel, retryMessage } from "./checkout-copy";
+import { checkoutTrackStyles, useCheckoutLayout } from "./checkout-layout";
 import {
   type CodeFieldView,
   type CodeProblem,
@@ -108,6 +110,9 @@ export function ReviewStep({
   // The payment page's tab comes up sooner when Pay is pressed.
   usePaymentBrowserWarmUp();
   const keyboardShown = useKeyboardShown();
+  const { contentWidth, isWide } = useCheckoutLayout();
+  const column = useContentColumn(contentWidth);
+  const split = contentWidth === "wide";
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const focusedField = useFocusedFieldScroll(scroll);
@@ -117,9 +122,14 @@ export function ReviewStep({
       keyboardVerticalOffset={keyboardOffset}
       style={styles.screen}
     >
-      <BookingSteps current="pay" raised={raised} locale={locale} />
+      <BookingSteps
+        current="pay"
+        raised={raised}
+        locale={locale}
+        contentWidth={contentWidth}
+      />
       {hold.phase === "ending" && (
-        <View style={styles.banner}>
+        <View style={[styles.banner, isWide && column]}>
           <Notice
             tone="warning"
             title={m.booking_review_last_minute_title({}, { locale })}
@@ -132,7 +142,7 @@ export function ReviewStep({
           ref={scroll}
           onLayout={focusedField.onLayout}
           style={styles.body}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, isWide && column]}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={32}
           onScroll={({ nativeEvent }) =>
@@ -149,64 +159,71 @@ export function ReviewStep({
               />
             </View>
           )}
-          <BookingSectionHeading
-            title={m.booking_review_booking_heading({}, { locale })}
-            action={
-              view.retry
-                ? undefined
-                : {
-                    label: m.booking_review_change({}, { locale }),
-                    onPress: onChangeBooking,
-                    disabled: view.busy,
-                  }
-            }
-            first={!view.retry}
-          />
-          <BookingCard
-            selection={selection}
-            earlySetup={view.earlySetup}
-            overnightStay={overnightStay}
-            party={view.party}
-            invoice={view.invoice}
-            locale={locale}
-          />
-          <BookingSectionHeading
-            title={m.booking_review_price_heading({}, { locale })}
-          />
-          <Card padding="none">
-            <View style={styles.priceCard}>
-              {Option.isSome(view.priceChange) && (
-                <PriceChange
-                  change={view.priceChange.value}
-                  busy={view.busy}
-                  send={send}
-                  onChangeBooking={view.retry ? undefined : onChangeBooking}
-                  locale={locale}
-                />
-              )}
-              <PriceLines
-                breakdown={view.price.breakdown}
-                describeLine={describePriceLine(selection, locale)}
+          <View style={split && checkoutTrackStyles.container}>
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_review_booking_heading({}, { locale })}
+                action={
+                  view.retry
+                    ? undefined
+                    : {
+                        label: m.booking_review_change({}, { locale }),
+                        onPress: onChangeBooking,
+                        disabled: view.busy,
+                      }
+                }
+                first={!view.retry}
+              />
+              <BookingCard
+                selection={selection}
+                earlySetup={view.earlySetup}
+                overnightStay={overnightStay}
+                party={view.party}
+                invoice={view.invoice}
                 locale={locale}
-                variant="card"
-                total={{
-                  label: m.booking_review_total({}, { locale }),
-                  was: Option.getOrUndefined(view.price.was),
-                }}
               />
             </View>
-          </Card>
-          {!view.retry && (
-            <View style={styles.code}>
-              <CodeRow code={view.code} send={send} locale={locale} />
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_review_price_heading({}, { locale })}
+                first={split && !view.retry}
+              />
+              <Card padding="none">
+                <View style={styles.priceCard}>
+                  {Option.isSome(view.priceChange) && (
+                    <PriceChange
+                      change={view.priceChange.value}
+                      busy={view.busy}
+                      send={send}
+                      onChangeBooking={view.retry ? undefined : onChangeBooking}
+                      locale={locale}
+                    />
+                  )}
+                  <PriceLines
+                    breakdown={view.price.breakdown}
+                    describeLine={describePriceLine(selection, locale)}
+                    locale={locale}
+                    variant="card"
+                    total={{
+                      label: m.booking_review_total({}, { locale }),
+                      was: Option.getOrUndefined(view.price.was),
+                    }}
+                  />
+                </View>
+              </Card>
+              {!view.retry && (
+                <View style={styles.code}>
+                  <CodeRow code={view.code} send={send} locale={locale} />
+                </View>
+              )}
+              <LegalConsent
+                consent={view.consent}
+                send={send}
+                onOpenDocument={onOpenDocument}
+                locale={locale}
+              />
             </View>
-          )}
-          <LegalConsent
-            consent={view.consent}
-            send={send}
-            onOpenDocument={onOpenDocument}
-            locale={locale}
-          />
+          </View>
           <ReviewNoticeView
             notice={review.notice}
             idle={!view.busy}
@@ -217,6 +234,7 @@ export function ReviewStep({
       </FocusedFieldContext>
       <BookingBar
         locale={locale}
+        contentWidth={contentWidth}
         action={payAction(view, send, locale)}
         // With the keyboard up only the button rides above it.
         reason={
