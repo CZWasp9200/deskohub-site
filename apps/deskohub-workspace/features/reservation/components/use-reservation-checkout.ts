@@ -77,6 +77,7 @@ export function useReservationCheckout({
   );
   const {
     executeAsync: prepareCheckout,
+    hasSucceeded,
     input,
     isExecuting,
     result,
@@ -113,7 +114,10 @@ export function useReservationCheckout({
       setSubmissionError(m.reservationErrorMessage({}, { locale }));
     },
   });
-  const preparedCheckout = getPreparedCheckout(result.data, input?.reservation);
+  // During a retry, the action can expose its new input with the previous result.
+  const preparedCheckout = hasSucceeded
+    ? getPreparedCheckout(result.data, input.reservation)
+    : undefined;
   const hasPreparedPayRedirect = preparedCheckout !== undefined;
   const failedCheckout = (message?: string): CheckoutSubmission => ({
     status: "error",

@@ -10,9 +10,13 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { useAction } from "next-safe-action/hooks";
+import type { PreparedOfficeCheckout } from "@/features/checkout/prepared-office-checkout";
 import { m } from "@/features/i18n";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
+import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
+import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import {
   workspaceRouterPush as push,
   workspaceUseAction,
@@ -22,12 +26,14 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import { plainDateStringSchema } from "@/shared/utils/temporal";
 
 type PreparePayStateData =
   | {
       readonly status: "pricing_changed" | "ready";
       readonly redirectUrl?: string;
       readonly expiresAt?: string;
+      readonly preparedOffice?: PreparedOfficeCheckout;
     }
   | { readonly status: "error"; readonly message: string };
 
@@ -65,7 +71,7 @@ const track = mock(
 mock.module("@vercel/analytics/react", () => ({ ...vercelAnalytics, track }));
 
 mock.module("@/features/reservation/actions/prepare-pay-state", () => ({
-  preparePayState: mock(),
+  preparePayState: executeAsync,
 }));
 
 const { useReservationCheckout } = await import("./use-reservation-checkout");
@@ -146,6 +152,67 @@ describe("useReservationCheckout", () => {
     expect(changed).toBeString();
     expect(changed).not.toBe(first);
     expect(changedResubmitted).toBe(changed);
+  });
+
+  test("never exposes a rejected office checkout while a matching retry is pending", async () => {
+    workspaceUseAction.mockImplementation(useAction as never);
+    const { result } = renderCheckout();
+    const startsOn = plainDateStringSchema.make("2099-07-30");
+    const endsOn = plainDateStringSchema.make("2099-07-31");
+    const rejectedUrl = "/en-US/checkout/pay?payState=rejected";
+    const retryUrl = "/en-US/checkout/pay?payState=retry";
+    const rejected: PreparePayStateData = {
+      status: "ready",
+      redirectUrl: rejectedUrl,
+      expiresAt,
+      preparedOffice: {
+        startsOn,
+        endsOn,
+        seats: 2,
+        total: { value: 175_000, exponent: 2, currency: "CZK" },
+      },
+    };
+    const pending = Promise.withResolvers<{ data: PreparePayStateData }>();
+    executeAsync
+      .mockResolvedValueOnce({ data: rejected })
+      .mockImplementationOnce(() => pending.promise);
+    const start = (seats: number) =>
+      result.current.startCheckout({
+        advertisedPriceToken: "signed-office-price",
+        reservation: normalizedOfficeReservationOrderSchema.make({
+          kind: "office",
+          startsOn,
+          endsOn,
+          seats,
+          name: "Ada Lovelace",
+          email: testEmailAddress("ada"),
+          phone: "+420777777777",
+          billing: defaultReservationBillingSelection,
+        }),
+      });
+
+    await act(async () => {
+      expect(await start(3)).toMatchObject({ status: "error" });
+    });
+    expect(result.current.preparedCheckout).toBeUndefined();
+
+    let retry: ReturnType<typeof start> | undefined;
+    await act(async () => {
+      retry = start(2);
+    });
+    try {
+      expect(result.current.isSubmittingCheckout).toBe(true);
+      expect(result.current.hasPreparedPayRedirect).toBe(false);
+      expect(result.current.preparedCheckout).toBeUndefined();
+      expect(push).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        pending.resolve({ data: { ...rejected, redirectUrl: retryUrl } });
+        await retry;
+      });
+    }
+    expect(result.current.preparedCheckout?.redirectUrl).toBe(retryUrl);
+    expect(push.mock.calls).toEqual([[retryUrl]]);
   });
 
   test("follows a pricing-changed redirect to the pay page", () => {
