@@ -428,8 +428,17 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
-  // The pinned badge's width, so the title keeps clear of it.
-  const [badgeWidth, setBadgeWidth] = useState(0);
+  // The pinned badge's size and the text column's width, so the title keeps
+  // clear of the badge: beside it when that leaves the title room, else
+  // starting under it.
+  const [badgeSize, setBadgeSize] = useState({ width: 0, height: 0 });
+  const [textWidth, setTextWidth] = useState(0);
+  const besideBadge = Math.max(0, badgeSize.width - rowChevronColumn) + space.sm;
+  const titleClearance = Option.isNone(badge)
+    ? undefined
+    : textWidth - besideBadge >= textWidth * 0.55
+      ? { marginRight: besideBadge }
+      : { marginTop: badgeSize.height + space.xs };
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -439,15 +448,15 @@ function ReservationRow({
         ),
         onNone: () => <DateTilePlaceholder />,
       })}
-      <View style={styles.rowText}>
+      <View
+        onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)}
+        style={styles.rowText}
+      >
         <Text
           variant="bodyStrong"
           style={[
             past ? styles.pastTitle : undefined,
-            Option.isSome(badge) && {
-              // The badge spans the chevron's column; keep clear of the rest.
-              marginRight: Math.max(0, badgeWidth - rowChevronColumn) + space.sm,
-            },
+            titleClearance,
           ]}
         >
           {view.title}
@@ -472,7 +481,10 @@ function ReservationRow({
         onSome: (badge) => (
           <View
             onLayout={(event) =>
-              setBadgeWidth(event.nativeEvent.layout.width)
+              setBadgeSize({
+                width: event.nativeEvent.layout.width,
+                height: event.nativeEvent.layout.height,
+              })
             }
             style={styles.rowBadge}
           >
