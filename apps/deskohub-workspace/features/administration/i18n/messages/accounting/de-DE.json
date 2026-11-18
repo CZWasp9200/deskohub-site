@@ -170,7 +170,7 @@
   "accountingInvoiceIdReused": "Diese Rechnungs-ID wurde bereits mit anderen Angaben verwendet.",
   "accountingInvoiceCustomerIdMissing": "Dotypos hat einen Kunden ohne ID zurückgegeben.",
   "accountingInvoiceCustomerIdInvalid": "Die ID des ausgewählten Kunden ist ungültig.",
-  "accountingInvoiceCustomerDeleted": "Der ausgewählte Kunde wurde gelöscht.",
+  "accountingInvoiceCustomerInactive": "Der Kunde ist in Dotypos nicht mehr aktiv (gelöscht oder abgelaufen). Für ihn kann keine Rechnung ausgestellt werden.",
   "accountingInvoiceCustomerEmailAmbiguous": "Diese E-Mail-Adresse wird von mehreren Kunden in Dotypos verwendet. Wählen Sie den richtigen bestehenden Kunden.",
   "accountingInvoiceBillingDetailsInvalid": "Geben Sie vollständige und gültige Rechnungsdaten ein.",
   "accountingInvoiceCustomerSearchUnavailable": "Die Kundensuche ist vorübergehend nicht verfügbar.",

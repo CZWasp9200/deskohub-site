@@ -167,7 +167,7 @@
   "accountingInvoiceIdReused": "ID hóa đơn này đã được dùng với thông tin khác.",
   "accountingInvoiceCustomerIdMissing": "Dotypos trả về một khách hàng không có ID.",
   "accountingInvoiceCustomerIdInvalid": "ID của khách hàng đã chọn không hợp lệ.",
-  "accountingInvoiceCustomerDeleted": "Khách hàng đã chọn đã bị xóa.",
+  "accountingInvoiceCustomerInactive": "Khách hàng không còn hoạt động trong Dotypos (đã bị xóa hoặc đã hết hạn) nên không thể xuất hóa đơn cho khách hàng này.",
   "accountingInvoiceCustomerEmailAmbiguous": "Nhiều khách hàng trong Dotypos đang dùng email này. Vui lòng chọn đúng khách hàng hiện có.",
   "accountingInvoiceBillingDetailsInvalid": "Vui lòng điền đầy đủ thông tin xuất hóa đơn hợp lệ.",
   "accountingInvoiceCustomerSearchUnavailable": "Tìm kiếm khách hàng tạm thời không khả dụng.",

@@ -170,7 +170,7 @@
   "accountingInvoiceIdReused": "यह इनवॉइस ID पहले ही किसी दूसरे विवरण के साथ इस्तेमाल हो चुकी है।",
   "accountingInvoiceCustomerIdMissing": "Dotypos ने बिना ID का ग्राहक लौटाया।",
   "accountingInvoiceCustomerIdInvalid": "चुने गए ग्राहक की ID अमान्य है।",
-  "accountingInvoiceCustomerDeleted": "चुना गया ग्राहक हटा दिया गया है।",
+  "accountingInvoiceCustomerInactive": "ग्राहक अब Dotypos में सक्रिय नहीं है (हटा दिया गया है या उसकी अवधि समाप्त हो गई है), इसलिए उसके लिए इनवॉइस जारी नहीं किया जा सकता।",
   "accountingInvoiceCustomerEmailAmbiguous": "Dotypos में यह email एक से ज़्यादा ग्राहक इस्तेमाल करते हैं। सही मौजूदा ग्राहक चुनें।",
   "accountingInvoiceBillingDetailsInvalid": "पूरा और मान्य बिलिंग विवरण भरें।",
   "accountingInvoiceCustomerSearchUnavailable": "ग्राहक खोज अस्थायी रूप से उपलब्ध नहीं है।",

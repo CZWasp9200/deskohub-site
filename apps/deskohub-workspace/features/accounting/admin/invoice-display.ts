@@ -33,7 +33,7 @@ export const getInvoiceCustomerErrorMessage = (
   ({
     "billing-details-invalid": m.accountingInvoiceBillingDetailsInvalid,
     "currency-not-payable": m.accountingInvoiceCurrencyNotPayable,
-    "customer-deleted": m.accountingInvoiceCustomerDeleted,
+    "customer-deleted": m.accountingInvoiceCustomerInactive,
     "customer-email-ambiguous": m.accountingInvoiceCustomerEmailAmbiguous,
     "customer-id-invalid": m.accountingInvoiceCustomerIdInvalid,
     "customer-id-missing": m.accountingInvoiceCustomerIdMissing,

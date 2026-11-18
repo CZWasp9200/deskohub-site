@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.38.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.37.0...dhw-v1.38.0) (2026-11-18)
+
+
+### Features
+
+* **workspace:** cancel invoices with credit notes and hide cancelled ones ([9586124](https://github.com/totalolage/deskohub-site/commit/9586124639dc5739e45b1c57378a42f26184c547))
+* **workspace:** issue a new invoice when a reservation restore follows its invoice's cancellation ([d81fe40](https://github.com/totalolage/deskohub-site/commit/d81fe40b059d46c28c9c63c8673ffc38e2391539))
+* **workspace:** reissue post-order invoices on restore, and promise only what the restore issues ([6f0d1f1](https://github.com/totalolage/deskohub-site/commit/6f0d1f15c49b5f664e4aaf97d9b78d1c951ca1b5))
+
+
+### Bug Fixes
+
+* **dhw:** run on Effect 4.1.4, with its stricter flag parsing and PowerShell completions ([4bc9ca4](https://github.com/totalolage/deskohub-site/commit/4bc9ca40e700a4b3e6b3c86d6b02587557c6baf0))
+* **invoices:** adapt invoice cancellation to Effect 4.1 and drizzle-orm rc.5 ([aee3f2b](https://github.com/totalolage/deskohub-site/commit/aee3f2b572c9eb85b25894c6adc725aba53bf28e))
+
 ## [1.37.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.36.1...dhw-v1.37.0) (2026-11-18)
 
 
