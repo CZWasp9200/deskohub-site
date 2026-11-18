@@ -603,6 +603,23 @@ describe("getReservationStatus", () => {
     });
   });
 
+  test("answers a reservation cancellation with its separate payment status", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(() =>
+        Effect.succeed({ ...fulfilledOrder, status: "reservation_cancelled" })
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "cancelled",
+      reservationCancelled: true,
+      paymentStatus: "paid",
+    });
+  });
+
   test("answers the order's booked selection beside its status", async () => {
     const refreshStatus = mock(() =>
       Effect.succeed({

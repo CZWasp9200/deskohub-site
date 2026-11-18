@@ -227,7 +227,11 @@ const canUseAttemptForSummary = (
 /** The Dotypos reservation a retry reopens, for a payment that ended unpaid. */
 const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
   Option.fromNullishOr(reservation.dotyposReservationId).pipe(
-    Option.filter(() => isEndedUnpaidPaymentState(reservation.paymentState))
+    Option.filter(
+      () =>
+        isEndedUnpaidPaymentState(reservation.paymentState) &&
+        reservation.cancellationCause !== "operator"
+    )
   );
 
 /**
@@ -235,9 +239,7 @@ const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
  * reservation can load alongside the attempt instead of after it.
  */
 const isSummaryLikelyDisplayable = (reservation: WorkspaceReservation) =>
-  reservation.paymentState === "not_started" ||
-  reservation.paymentState === "pending" ||
-  reservation.paymentState === "paid";
+  !isEndedUnpaidPaymentState(reservation.paymentState);
 
 const toOptionalString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
@@ -358,6 +360,26 @@ const implementation = Effect.gen(function* () {
   const finalization = yield* ProviderPaymentFinalizationService;
   const seatingMap = yield* SeatingMapReleaseGate;
 
+  /** Shares the live reservation read between the status and its summary. */
+  const loadReservationRecord = (id: DotyposReservationId | null) =>
+    id === null
+      ? Effect.undefined
+      : Effect.suspend(() => records.get(id)).pipe(
+          Effect.timeoutOrElse({
+            duration: summaryTimeout,
+            orElse: () =>
+              Effect.logWarning(
+                "Checkout status reservation load timed out"
+              ).pipe(Effect.as(undefined)),
+          }),
+          Effect.tapError((cause) =>
+            Effect.logWarning("Checkout status reservation load failed", {
+              cause,
+            })
+          ),
+          Effect.orElseSucceed(() => undefined)
+        );
+
   /**
    * Loads what the summary needs at once: the displayable payment attempt, the
    * Dotypos reservation when the attempt is likely usable, the table
@@ -399,7 +421,10 @@ const implementation = Effect.gen(function* () {
   const reconstructSummary = Effect.fn(
     "CheckoutStatusService.reconstructSummary"
   )(
-    function* (reservation: WorkspaceReservation) {
+    function* (
+      reservation: WorkspaceReservation,
+      loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
+    ) {
       yield* Effect.logDebug("Checkout status summary reconstruction started");
       const emptyReconstruction: CheckoutStatusReconstruction = {
         reservation: getEmptyCheckoutStatusReservation(
@@ -414,17 +439,6 @@ const implementation = Effect.gen(function* () {
         return emptyReconstruction;
       }
 
-      const dotyposReservationId = reservation.dotyposReservationId;
-      const loadDotyposReservation = Effect.suspend(() =>
-        records.get(dotyposReservationId)
-      ).pipe(
-        Effect.tapError((cause) =>
-          Effect.logWarning("Checkout status summary reservation load failed", {
-            cause,
-          })
-        ),
-        Effect.orElseSucceed(() => undefined)
-      );
       const prefetchDotyposReservation =
         isSummaryLikelyDisplayable(reservation);
 
@@ -699,7 +713,8 @@ const implementation = Effect.gen(function* () {
   )(function* (
     reservation: WorkspaceReservation,
     includeSupportContact: boolean,
-    refreshed: PaymentPageProviderObservation | undefined
+    refreshed: PaymentPageProviderObservation | undefined,
+    loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
   ) {
     const latePaymentRecovery =
       yield* latePaymentRecoveries.findLatestByWorkspaceReservationId(
@@ -709,8 +724,27 @@ const implementation = Effect.gen(function* () {
       reservation,
       latePaymentRecovery
     );
+    const paymentEndedUnpaid = isEndedUnpaidPaymentState(
+      reservation.paymentState
+    );
+    const recordedCancellation =
+      (reservation.reservationState === "cancelled" &&
+        reservation.cancellationCause === "operator") ||
+      (!paymentEndedUnpaid &&
+        (reservation.reservationState === "cancelled" ||
+          reservation.reservationState === "hold_expired"));
+    // An unpaid hold released after a failed, cancelled or expired payment
+    // keeps its payment outcome so the customer can retry where eligible.
+    const cancelledInDotypos =
+      !latePaymentStatusKind &&
+      !recordedCancellation &&
+      !paymentEndedUnpaid &&
+      (yield* loadDotyposReservation)?.status === "CANCELLED";
     const now = yield* currentInstant;
-    const reservationStatusKind = toCheckoutStatusKind(reservation, now);
+    const reservationStatusKind =
+      recordedCancellation || cancelledInDotypos
+        ? "reservation_cancelled"
+        : toCheckoutStatusKind(reservation, now);
     const pendingPaymentTiming =
       !latePaymentStatusKind && reservationStatusKind === "pending"
         ? yield* getPendingPaymentTiming(reservation, now, refreshed)
@@ -770,6 +804,9 @@ const implementation = Effect.gen(function* () {
           reservation.reservationDetails
         ),
       };
+      const loadDotyposReservation = yield* Effect.cached(
+        loadReservationRecord(reservation.dotyposReservationId)
+      );
       const [
         {
           latePaymentStatusKind,
@@ -785,9 +822,10 @@ const implementation = Effect.gen(function* () {
             resolveStatusKind(
               reservation,
               input.includeSupportContact ?? true,
-              refreshed
+              refreshed,
+              loadDotyposReservation
             ),
-            reconstructSummary(reservation).pipe(
+            reconstructSummary(reservation, loadDotyposReservation).pipe(
               Effect.timeoutOrElse({
                 duration: summaryTimeout,
                 orElse: () =>
@@ -809,9 +847,11 @@ const implementation = Effect.gen(function* () {
         status: statusKind,
         paymentStatus: reservation.paymentState,
         fulfillmentStatus: reservation.fulfillmentState,
-        // A late payment has no booked place to show until recovery confirms
-        // a reservation; the original hold's table may belong to someone else.
-        ...(!latePaymentStatusKind && reconstruction.placement),
+        // A cancelled reservation or one still in late-payment recovery
+        // has no assigned place to show.
+        ...(!latePaymentStatusKind &&
+          statusKind !== "reservation_cancelled" &&
+          reconstruction.placement),
         supportContactPrefill,
         ...(paymentPageReopenable && { paymentPageReopenable: true as const }),
         // A late payment that settled takes over the status, and with it the

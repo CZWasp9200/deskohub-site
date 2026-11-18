@@ -148,7 +148,7 @@ function MoreActions({
           trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
           onPress={openContactPage}
         />
-        {!withdrawn && (
+        {!withdrawn && !order.reservationCancelled && (
           <WhenWithdrawable orderId={order.orderId}>
             <ListRow
               kind="action"

@@ -43,11 +43,15 @@ export const ticketBadge = (
       tone: "warning" as const,
       icon: TriangleAlert,
     }),
+    cancelled: () => ({
+      label: m.reservationStatusCancelled({}, { locale }),
+      tone: "neutral" as const,
+    }),
     "not-booked": () => ({
       label: m.reservations_badge_not_booked({}, { locale }),
       tone: "neutral" as const,
     }),
-    cancelled: () => ({
+    withdrawn: () => ({
       label: m.reservationStatusCancelled({}, { locale }),
       tone: "neutral" as const,
       icon: X,

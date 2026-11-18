@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.4](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.3...mobile-v0.2.4) (2026-11-18)
+
+### Bug Fixes
+
+* **mobile:** opening a cancelled reservation shows Cancelled, even while its payment is still pending
+
 ## [0.2.3](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.2...mobile-v0.2.3) (2026-11-18)
 
 ### Features

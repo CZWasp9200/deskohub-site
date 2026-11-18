@@ -864,6 +864,8 @@
   "checkoutStatusPaymentFailedLead": "भुगतान नहीं हो सका, इसलिए इस ऑर्डर के लिए पहुँच जारी नहीं की गई है। आपकी बुकिंग की जानकारी सहेजी गई है, इसलिए आप भुगतान फिर से कर सकते हैं।",
   "checkoutStatusCancelledTitle": "भुगतान रद्द कर दिया गया।",
   "checkoutStatusCancelledLead": "भुगतान रद्द कर दिया गया, इसलिए इस ऑर्डर के लिए पहुँच जारी नहीं की गई है। आपकी बुकिंग की जानकारी सहेजी गई है, इसलिए आप भुगतान फिर से कर सकते हैं।",
+  "checkoutStatusReservationCancelledTitle": "बुकिंग रद्द कर दी गई है।",
+  "checkoutStatusReservationCancelledLead": "इस बुकिंग के लिए प्रवेश अब उपलब्ध नहीं है।",
   "checkoutStatusExpiredTitle": "भुगतान लिंक की वैधता समाप्त हो गई है।",
   "checkoutStatusExpiredLead": "भुगतान समय पर पूरा नहीं हुआ, इसलिए हमने बुक किया गया समय फिर से खाली कर दिया है। आपकी बुकिंग की जानकारी सहेजी गई है, इसलिए आप भुगतान फिर से कर सकते हैं।",
   "checkoutStatusLatePaymentCheckingTitle": "हम आपकी बुकिंग की जाँच कर रहे हैं।",

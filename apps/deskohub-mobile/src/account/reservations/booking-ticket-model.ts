@@ -1,4 +1,6 @@
 import type {
+  CustomerOrderPaymentStatus,
+  CustomerOrderState,
   CustomerOrderStatus,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -13,9 +15,9 @@ export type TicketBadgeKind =
   | "pending"
   | "confirmed"
   | "attention"
-  | "not-booked"
-  /** A paid booking the customer withdrew from. */
-  | "cancelled";
+  | "cancelled"
+  | "withdrawn"
+  | "not-booked";
 
 /** Why the header names a reason instead of the countdown. */
 export type TicketReason =
@@ -164,8 +166,8 @@ const notBooked = (
  * A booking the customer withdrew from: cancelled, its invoice and Contact
  * us kept, never its PIN or calendar.
  */
-export const withdrawnTicket = (refundAmount: Money): BookingTicketModel => ({
-  badge: "cancelled",
+const withdrawnTicket = (refundAmount: Money): BookingTicketModel => ({
+  badge: "withdrawn",
   reason: Option.none(),
   price: "paid",
   stub: { _tag: "Withdrawn", refundAmount },
@@ -218,6 +220,17 @@ const awaitingPayment: ReadonlyArray<TicketStep> = [
   step("confirm", "todo"),
   step("pin", "todo"),
 ];
+
+const cancelledBookingTicket = (
+  payment: CustomerOrderPaymentStatus
+): BookingTicketModel => ({
+  badge: "cancelled",
+  reason: Option.none(),
+  price: "none",
+  stub: { _tag: "BookAgain", refundNote: false },
+  followUp: payment === "paid" ? "more-actions" : "contact",
+  dim: true,
+});
 
 /**
  * The booking ticket of an order in `status`, while the screen is checking
@@ -311,17 +324,20 @@ export const orderCheckingOf = (automatic: AutomaticRefresh): OrderChecking =>
   });
 
 /**
- * An order's ticket: the withdrawal once the customer withdrew from it,
- * else its status.
+ * An order's ticket, with the customer's withdrawal taking precedence over
+ * the resulting reservation cancellation.
  */
 export const orderTicketModel = (
-  order: {
-    readonly status: CustomerOrderStatus;
-    readonly withdrawal?: { readonly refundAmount: Money } | undefined;
-  },
+  order: Pick<
+    CustomerOrderState,
+    "status" | "paymentStatus" | "reservationCancelled" | "withdrawal"
+  >,
   checking: OrderChecking,
   recovery?: PaymentRecovery
-): BookingTicketModel =>
-  order.withdrawal === undefined
-    ? bookingTicketOf(order.status, checking, recovery)
-    : withdrawnTicket(order.withdrawal.refundAmount);
+): BookingTicketModel => {
+  if (order.withdrawal) return withdrawnTicket(order.withdrawal.refundAmount);
+  if (order.reservationCancelled) {
+    return cancelledBookingTicket(order.paymentStatus);
+  }
+  return bookingTicketOf(order.status, checking, recovery);
+};

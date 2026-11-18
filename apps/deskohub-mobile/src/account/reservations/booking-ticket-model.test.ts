@@ -198,14 +198,23 @@ describe("orderCheckingOf", () => {
 
 describe("orderTicketModel", () => {
   const refundAmount = { value: 55_000, exponent: 2, currency: "CZK" };
+  const withdrawal = { refundAmount, submittedAt: "2026-11-18T09:00:00Z" };
 
-  test("shows a withdrawn order as cancelled with its refund, whatever its status", () => {
+  test("shows the withdrawal and refund even once the reservation is cancelled", () => {
     for (const status of statuses)
       for (const checking of checkings)
         expect(
-          orderTicketModel({ status, withdrawal: { refundAmount } }, checking)
+          orderTicketModel(
+            {
+              status,
+              paymentStatus: "paid",
+              ...(status === "cancelled" && { reservationCancelled: true }),
+              withdrawal,
+            },
+            checking
+          )
         ).toEqual({
-          badge: "cancelled",
+          badge: "withdrawn",
           reason: Option.none(),
           price: "paid",
           stub: { _tag: "Withdrawn", refundAmount },
@@ -217,8 +226,12 @@ describe("orderTicketModel", () => {
   test("shows any other order by its status", () => {
     for (const status of statuses)
       for (const checking of checkings)
-        expect(orderTicketModel({ status }, checking, noRecovery)).toEqual(
-          bookingTicketOf(status, checking, noRecovery)
-        );
+        expect(
+          orderTicketModel(
+            { status, paymentStatus: "paid" },
+            checking,
+            noRecovery
+          )
+        ).toEqual(bookingTicketOf(status, checking, noRecovery));
   });
 });

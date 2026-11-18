@@ -6012,6 +6012,17 @@
           "fulfillmentStatus": {
             "$ref": "#/components/schemas/CustomerOrderFulfillmentStatus"
           },
+          "reservationCancelled": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reviewSandbox": {
             "anyOf": [
               {

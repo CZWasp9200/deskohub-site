@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Effect, Layer } from "effect";
+import type { PaymentState } from "@/db/schema";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
   type CheckoutStatusKind,
@@ -12,6 +13,14 @@ import { ReferralReleaseGateRequest } from "@/features/referrals/referral-releas
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 
+const hasSettledPayment = (
+  status: CheckoutStatusKind,
+  paymentStatus: PaymentState | undefined
+) =>
+  status === "reservation_cancelled"
+    ? paymentStatus === "paid"
+    : checkoutStatusTraits[status].paid;
+
 /**
  * Whether the status page forgets the browser's remembered referral code: its
  * order is paid and the booker's own referral is settled. The payment
@@ -21,8 +30,8 @@ import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
  */
 export const isRememberedReferralSettledByStatus = Effect.fn(
   "checkout.isRememberedReferralSettledByStatus"
-)(function* (status: CheckoutStatusKind) {
-  if (!checkoutStatusTraits[status].paid) return false;
+)(function* (status: CheckoutStatusKind, paymentStatus?: PaymentState) {
+  if (!hasSettledPayment(status, paymentStatus)) return false;
   const remembered = yield* RememberedReferral;
   return yield* remembered.isSettled({ kind: "order", paid: true });
 });
@@ -35,11 +44,16 @@ export const isRememberedReferralSettledByStatus = Effect.fn(
  */
 export async function CheckoutStatusReferralCodeSettlement({
   status,
+  paymentStatus,
 }: {
   readonly status: CheckoutStatusKind;
+  readonly paymentStatus?: PaymentState;
 }) {
-  if (!checkoutStatusTraits[status].paid) return null;
-  const settled = await isRememberedReferralSettledByStatus(status).pipe(
+  if (!hasSettledPayment(status, paymentStatus)) return null;
+  const settled = await isRememberedReferralSettledByStatus(
+    status,
+    paymentStatus
+  ).pipe(
     Effect.provide(
       RememberedReferral.Cookies.pipe(
         Layer.provide(

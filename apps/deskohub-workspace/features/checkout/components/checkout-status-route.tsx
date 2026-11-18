@@ -177,7 +177,12 @@ async function renderReservationStatus({
       <RouteAutoRefresh
         enabled={checkoutStatusTraits[status.status].autoRefresh}
       />
-      <CheckoutStatusReferralCodeSettlement status={status.status} />
+      <CheckoutStatusReferralCodeSettlement
+        status={status.status}
+        {...(status.status === "reservation_cancelled" && {
+          paymentStatus: status.paymentStatus,
+        })}
+      />
       <CheckoutStatusPage
         locale={locale}
         presentation={presentation}

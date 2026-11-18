@@ -857,6 +857,8 @@
   "checkoutStatusPaymentFailedLead": "Thanh toán không thành công, nên chúng tôi không cấp quyền ra vào cho đơn hàng này. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
   "checkoutStatusCancelledTitle": "Thanh toán đã bị hủy.",
   "checkoutStatusCancelledLead": "Thanh toán đã bị hủy, nên chúng tôi không cấp quyền ra vào cho đơn hàng này. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
+  "checkoutStatusReservationCancelledTitle": "Đặt chỗ đã bị hủy.",
+  "checkoutStatusReservationCancelledLead": "Quyền ra vào cho đặt chỗ này không còn hiệu lực.",
   "checkoutStatusExpiredTitle": "Liên kết thanh toán đã hết hạn.",
   "checkoutStatusExpiredLead": "Thanh toán không được hoàn tất kịp thời, nên chúng tôi đã mở lại khung giờ bạn đặt. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
   "checkoutStatusLatePaymentCheckingTitle": "Chúng tôi đang kiểm tra đặt chỗ của bạn.",

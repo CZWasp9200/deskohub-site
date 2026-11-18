@@ -165,35 +165,32 @@ export const orderTicketView = ({
   readonly locale: AppLocale;
 }): OrderTicketView => {
   const times = bookedTimesOf(order, reservation);
+  const reservationEnded =
+    model.badge === "cancelled" || model.badge === "withdrawn";
+  const scheduledTimes = reservationEnded ? Option.none() : times;
   const accessStartsAt = Option.flatMap(reservation, (row) =>
     instantOf(row.accessStartsAt)
   );
   const title = orderTitle(order, reservation, locale);
-  // A withdrawn booking won't happen: no countdown, PIN hint or calendar.
-  const withdrawn = model.stub._tag === "Withdrawn";
   return {
-    event: withdrawn
-      ? undefined
-      : Option.getOrUndefined(
-          Option.map(times, ([start, end]) => ({
-            orderId: order.orderId,
-            title,
-            start,
-            end,
-            location: Option.getOrUndefined(
-              Option.map(establishment, (place) => place.formattedAddress)
-            ),
-          }))
+    event: Option.getOrUndefined(
+      Option.map(scheduledTimes, ([start, end]) => ({
+        orderId: order.orderId,
+        title,
+        start,
+        end,
+        location: Option.getOrUndefined(
+          Option.map(establishment, (place) => place.formattedAddress)
         ),
-    lead: withdrawn
-      ? undefined
-      : ticketLead(
-          model.reason,
-          Option.flatMap(times, ([start, end]) =>
-            bookingCountdown(now, start, end)
-          ),
-          locale
-        ),
+      }))
+    ),
+    lead: ticketLead(
+      model.reason,
+      Option.flatMap(scheduledTimes, ([start, end]) =>
+        bookingCountdown(now, start, end)
+      ),
+      locale
+    ),
     date: Option.getOrUndefined(
       Option.map(times, ([start]) => dateTileParts(start, locale))
     ),
@@ -227,7 +224,7 @@ export const orderTicketView = ({
             },
           ]),
     ],
-    accessHint: withdrawn
+    accessHint: reservationEnded
       ? undefined
       : Option.getOrUndefined(
           Option.map(accessStartsAt, (from) =>
