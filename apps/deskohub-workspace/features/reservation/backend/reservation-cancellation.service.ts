@@ -31,7 +31,7 @@ export type ReservationCancellationFailureReason =
   | "dotypos_failed"
   | "record_failed";
 
-export class ReservationCancellationError extends Data.TaggedError(
+class ReservationCancellationError extends Data.TaggedError(
   "ReservationCancellationError"
 )<{
   readonly code: "not_found" | "not_cancellable" | "cancellation_failed";
@@ -50,7 +50,7 @@ export type ReservationCancellationInput = {
   readonly refund?: RequestedCancellationRefund;
 };
 
-export type ReservationCancellationResult =
+type ReservationCancellationResult =
   | { readonly outcome: "already_cancelled" }
   | {
       readonly outcome: "cancelled";

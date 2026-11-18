@@ -3,7 +3,7 @@ import type {
   AdministrationWorkspaceReservationIdType,
 } from "@deskohub/workspace-admin-api";
 import { AlertCircle, CheckCircle2, Clock } from "lucide-react";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m as reservationMessages } from "@/features/i18n";
 import {
   StatusBadge,
   type StatusTone,
@@ -153,8 +153,8 @@ export function ReservationWithdrawalSection({
                 <div className="flex justify-between gap-4 text-navy-blue/60">
                   <dt>
                     {(basis.unit === "hour"
-                      ? m.administrationWithdrawalStartedHours
-                      : m.administrationWithdrawalStartedDays)(
+                      ? reservationMessages.withdrawalStartedHours
+                      : reservationMessages.withdrawalStartedDays)(
                       {
                         started: basis.total - basis.unstarted,
                         total: basis.total,

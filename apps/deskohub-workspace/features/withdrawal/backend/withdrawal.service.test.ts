@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
@@ -27,7 +28,7 @@ import { WithdrawalEmails } from "./withdrawal-emails.service";
 import { getWithdrawalSettlementStatus } from "./withdrawal-settlement-status";
 
 const accountId = "account-1" as CustomerAccountId;
-const receiptEmail = "customer@example.test";
+const receiptEmail = testEmailAddress("customer");
 const paid: Money = { value: 100_000, exponent: 2, currency: "CZK" };
 const contract = { kind: "reservation", id: "reservation-1" } as const;
 const input = { accountId, contract, locale: "cs-CZ" } as const;

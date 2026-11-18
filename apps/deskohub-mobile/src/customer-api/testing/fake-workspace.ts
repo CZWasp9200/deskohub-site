@@ -267,7 +267,7 @@ export class FakeWorkspace {
       contractId: orderId,
       contractLabel: "Sample booking",
       customerName: "Jana Nováková",
-      receiptEmail: "jana.novakova@deskohub.test",
+      receiptEmail: this.data.account.email,
       paidAmount: total,
       refundAmount: total,
       refundBasis: { kind: "full" },

@@ -759,8 +759,6 @@
   "administrationWithdrawalNoName": "प्रोफ़ाइल में नाम नहीं",
   "administrationWithdrawalRefund": "धनवापसी",
   "administrationWithdrawalPaid": "भुगतान किया",
-  "administrationWithdrawalStartedDays": "शुरू हो चुके दिनों के लिए ({started}/{total})",
-  "administrationWithdrawalStartedHours": "शुरू हो चुके घंटों के लिए ({started}/{total})",
   "administrationWithdrawalSteps": "निपटान",
   "administrationWithdrawalStepDone": "पूरा {time}",
   "administrationWithdrawalStepFailed": "विफल, प्रयास: {attempts}",

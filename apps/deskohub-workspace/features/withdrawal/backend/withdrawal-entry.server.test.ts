@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -14,7 +15,6 @@ let released = true;
 mock.module(
   "@/features/withdrawal/backend/withdrawal-release-gate.server",
   () => ({
-    isWithdrawalEnabled: async () => released,
     WithdrawalReleaseGateRequest: WithdrawalReleaseGate.fromEvaluation(
       Effect.suspend(() => Effect.succeed(released))
     ),
@@ -95,7 +95,7 @@ describe("readReservationWithdrawalEntry", () => {
     released = true;
     currentUser = {
       accountId: "@test/account-id",
-      email: "customer@example.test",
+      email: testEmailAddress("customer"),
       deletionRequested: false,
     };
     recorded = undefined;

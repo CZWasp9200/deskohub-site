@@ -91,7 +91,7 @@ type WithdrawalSettleNowOutcome =
   | "in_progress";
 
 /** What one settlement pass did. */
-export type WithdrawalSettlementSummary = {
+type WithdrawalSettlementSummary = {
   readonly claimed: number;
   readonly settled: number;
   readonly failed: number;
@@ -681,7 +681,7 @@ const settlementClaimLifetime = Duration.minutes(10);
  * ones: five minutes, doubling up to six hours, so a lasting failure keeps
  * being retried while administrators see it waiting.
  */
-export const settlementRetryDelay = (attempts: number) =>
+const settlementRetryDelay = (attempts: number) =>
   Duration.min(
     Duration.minutes(5 * 2 ** Math.min(attempts, 10)),
     Duration.hours(6)

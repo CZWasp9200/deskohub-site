@@ -26,7 +26,7 @@ export type WithdrawableContract = {
 };
 
 /** What a family's cancellation acts on after a withdrawal was recorded. */
-export type ContractCancellation = {
+type ContractCancellation = {
   readonly contractId: string;
   readonly refundAmount: Money;
   readonly refundBasis: WithdrawalRefundBasis;

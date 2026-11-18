@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
@@ -35,7 +36,7 @@ const quote: WithdrawalQuote = {
   contractId: "reservation-1",
   contractLabel: "Office · Jan 10 – 12, 2027",
   customerName: "Alex Example",
-  receiptEmail: "customer@example.test",
+  receiptEmail: testEmailAddress("customer"),
   paidAmount: paid,
   refundAmount: { ...paid, value: 200_000 },
   refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
@@ -45,7 +46,7 @@ const receipt: WithdrawalReceipt = {
   withdrawalId: "withdrawal-1" as WithdrawalId,
   submittedAt: Temporal.Instant.from("2027-01-10T08:00:00Z"),
   refundAmount: { ...paid, value: 200_000 },
-  receiptEmail: "customer@example.test",
+  receiptEmail: testEmailAddress("customer"),
 };
 
 /** The withdrawal service, recording each call, behind a gate decided `released`. */

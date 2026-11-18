@@ -759,8 +759,6 @@
   "administrationWithdrawalNoName": "Kein Name im Profil",
   "administrationWithdrawalRefund": "Erstattung",
   "administrationWithdrawalPaid": "Bezahlt",
-  "administrationWithdrawalStartedDays": "Für begonnene Tage ({started}/{total})",
-  "administrationWithdrawalStartedHours": "Für begonnene Stunden ({started}/{total})",
   "administrationWithdrawalSteps": "Abwicklung",
   "administrationWithdrawalStepDone": "Erledigt {time}",
   "administrationWithdrawalStepFailed": "Fehlgeschlagen, Versuche: {attempts}",

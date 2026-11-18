@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   CustomerFeatureUnavailable,
   CustomerReservationNotFound,
@@ -39,7 +40,7 @@ const quote = (
   contractId: "order-1" as CustomerReservationOrderId,
   contractLabel: "Meeting room, 20 Nov 2026",
   customerName: "Alex Example",
-  receiptEmail: "alex@example.test",
+  receiptEmail: testEmailAddress("alex"),
   paidAmount: money(120_000),
   refundAmount: money(120_000),
   refundBasis: { kind: "full" },
@@ -50,7 +51,7 @@ const receipt: CustomerWithdrawalReceipt = {
   withdrawalId: "withdrawal-1",
   submittedAt: "2026-11-18T10:00:00Z",
   refundAmount: money(120_000),
-  receiptEmail: "alex@example.test",
+  receiptEmail: testEmailAddress("alex"),
 };
 const failed = (error: WithdrawalFailure) =>
   AsyncResult.failure<never, WithdrawalFailure>(Cause.fail(error));

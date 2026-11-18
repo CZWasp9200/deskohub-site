@@ -66,7 +66,7 @@ export const withdrawalSettlementSteps = [
  * How a settlement step fared: its failed attempts, the last failure's code
  * until the step succeeds, and when it may run again.
  */
-export type WithdrawalStepRetry = {
+type WithdrawalStepRetry = {
   readonly attempts: number;
   readonly failureCode: string | null;
   readonly retryAt: Temporal.Instant | null;
@@ -81,7 +81,7 @@ export const withdrawalStepDoneAt = (
   step: WithdrawalSettlementStep
 ): Temporal.Instant | null => withdrawal[settlementStepColumns[step].doneAt];
 
-export class WithdrawalContractChangedError extends Data.TaggedError(
+class WithdrawalContractChangedError extends Data.TaggedError(
   "WithdrawalContractChangedError"
 ) {}
 

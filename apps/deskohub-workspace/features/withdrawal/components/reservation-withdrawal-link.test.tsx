@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { useAction } from "next-safe-action/hooks";
 import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -29,7 +30,7 @@ const quote = (customerName: string | null) => ({
   contractId: "reservation-1",
   contractLabel: "Office · 10.–12. 1. 2027",
   customerName,
-  receiptEmail: "customer@example.test",
+  receiptEmail: testEmailAddress("customer"),
   paidAmount: paid,
   refundAmount: { ...paid, value: 200_000 },
   refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
@@ -39,7 +40,7 @@ const receipt = {
   withdrawalId: "withdrawal-1",
   submittedAt: "2027-01-10T08:00:00Z",
   refundAmount: { ...paid, value: 200_000 },
-  receiptEmail: "customer@example.test",
+  receiptEmail: testEmailAddress("customer"),
 };
 
 const quoteReservationWithdrawal = mock(

@@ -772,8 +772,6 @@
   "administrationWithdrawalNoName": "Bez jména v profilu",
   "administrationWithdrawalRefund": "Vrátit",
   "administrationWithdrawalPaid": "Zaplaceno",
-  "administrationWithdrawalStartedDays": "Za začaté dny ({started}/{total})",
-  "administrationWithdrawalStartedHours": "Za začaté hodiny ({started}/{total})",
   "administrationWithdrawalSteps": "Vyřízení",
   "administrationWithdrawalStepDone": "Hotovo {time}",
   "administrationWithdrawalStepFailed": "Selhalo, pokusů: {attempts}",

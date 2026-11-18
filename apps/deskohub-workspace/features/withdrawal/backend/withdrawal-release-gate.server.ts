@@ -11,8 +11,5 @@ const withdrawalRequest = releaseGateForRequest(WithdrawalReleaseGate, {
   ...withdrawalReleaseRunPolicy,
 });
 
-/** Whether the online withdrawal function is released for this request. */
-export const isWithdrawalEnabled = withdrawalRequest.isOpen;
-
 /** The online-withdrawal gate backed by the request's one decision. */
 export const WithdrawalReleaseGateRequest = withdrawalRequest.layer;

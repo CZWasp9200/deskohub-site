@@ -746,8 +746,6 @@
   "administrationWithdrawalNoName": "Không có tên trong hồ sơ",
   "administrationWithdrawalRefund": "Hoàn tiền",
   "administrationWithdrawalPaid": "Đã thanh toán",
-  "administrationWithdrawalStartedDays": "Cho các ngày đã bắt đầu ({started}/{total})",
-  "administrationWithdrawalStartedHours": "Cho các giờ đã bắt đầu ({started}/{total})",
   "administrationWithdrawalSteps": "Xử lý",
   "administrationWithdrawalStepDone": "Xong lúc {time}",
   "administrationWithdrawalStepFailed": "Lỗi, số lần thử: {attempts}",

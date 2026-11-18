@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -18,7 +19,6 @@ let released = true;
 mock.module(
   "@/features/withdrawal/backend/withdrawal-release-gate.server",
   () => ({
-    isWithdrawalEnabled: async () => released,
     WithdrawalReleaseGateRequest: WithdrawalReleaseGate.fromEvaluation(
       Effect.suspend(() => Effect.succeed(released))
     ),
@@ -32,7 +32,7 @@ type TestUser = {
 };
 let currentUser: Effect.Effect<TestUser | null> = Effect.succeed({
   accountId: "@test/account-id",
-  email: "customer@example.test",
+  email: testEmailAddress("customer"),
   deletionRequested: false,
 });
 const Authentication = Context.Service<
@@ -67,7 +67,7 @@ Object.assign(WithdrawalService, {
           contractId: input.contract.id,
           contractLabel: "Office · 10.–12. 1. 2027",
           customerName: null,
-          receiptEmail: "customer@example.test",
+          receiptEmail: testEmailAddress("customer"),
           paidAmount: paid,
           refundAmount: paid,
           refundBasis: { kind: "full" } as const,
@@ -86,7 +86,7 @@ Object.assign(WithdrawalService, {
           withdrawalId: "withdrawal-1" as WithdrawalId,
           submittedAt: Temporal.Instant.from("2027-01-10T08:00:00Z"),
           refundAmount: paid,
-          receiptEmail: "customer@example.test",
+          receiptEmail: testEmailAddress("customer"),
         });
       }),
   }),
@@ -101,7 +101,7 @@ describe("reservation withdrawal actions", () => {
     calls.length = 0;
     currentUser = Effect.succeed({
       accountId: "@test/account-id",
-      email: "customer@example.test",
+      email: testEmailAddress("customer"),
       deletionRequested: false,
     });
   });
@@ -148,7 +148,7 @@ describe("reservation withdrawal actions", () => {
         withdrawalId: "withdrawal-1",
         submittedAt: "2027-01-10T08:00:00Z",
         refundAmount: paid,
-        receiptEmail: "customer@example.test",
+        receiptEmail: testEmailAddress("customer"),
       },
     });
     expect(calls).toEqual([

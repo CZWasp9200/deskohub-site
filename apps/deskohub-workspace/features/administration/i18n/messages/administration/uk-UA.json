@@ -785,8 +785,6 @@
   "administrationWithdrawalNoName": "Без імені в профілі",
   "administrationWithdrawalRefund": "Повернути",
   "administrationWithdrawalPaid": "Сплачено",
-  "administrationWithdrawalStartedDays": "За розпочаті дні ({started}/{total})",
-  "administrationWithdrawalStartedHours": "За розпочаті години ({started}/{total})",
   "administrationWithdrawalSteps": "Опрацювання",
   "administrationWithdrawalStepDone": "Виконано {time}",
   "administrationWithdrawalStepFailed": "Не вдалося, спроб: {attempts}",
