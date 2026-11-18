@@ -50,6 +50,7 @@ const readableText = (element: Element | null | undefined) =>
   element?.textContent?.replace(/\s+/g, " ");
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   getAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
 }));

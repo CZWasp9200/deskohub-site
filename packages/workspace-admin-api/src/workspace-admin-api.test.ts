@@ -574,6 +574,11 @@ describe("administration contract", () => {
         type: "office",
       })
     ).toEqual({ type: "office" });
+    expect(
+      Schema.decodeUnknownSync(AdministrationReservationQuery)({
+        status: "needs_attention",
+      })
+    ).toEqual({ status: "needs_attention" });
     const invoice = Schema.decodeUnknownSync(AdministrationInvoiceListItem)({
       id: "01980000-0000-7000-8000-000000000009",
       invoiceNumber: "WS-FV-2026-000001",

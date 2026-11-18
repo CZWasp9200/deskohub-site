@@ -11,9 +11,10 @@ import {
 import type { NexiOrderId } from "@deskohub/nexi";
 import type {
   AdministrationReservationFamily,
+  AdministrationReservationListStatusFilter,
   AdministrationReservationSort,
   AdministrationReservationSortDirection,
-  AdministrationReservationStatusFilter,
+  AdministrationReservationWithdrawalType,
 } from "@deskohub/workspace-admin-api";
 import {
   and,
@@ -37,7 +38,6 @@ import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import {
-  type ContractWithdrawalRow,
   contractWithdrawals,
   customerMarketingConsents,
   discountApplications,
@@ -79,16 +79,13 @@ import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { getReservationAccessName } from "@/features/reservation-access";
 import {
+  type ContractWithdrawal,
   toContractWithdrawal,
-  type WithdrawalSettlementStep,
-  withdrawalSettlementSteps,
-  withdrawalStepDoneAt,
 } from "@/features/withdrawal/backend/withdrawal.repository";
 import {
   getWithdrawalSettlementStatus,
   type WithdrawalSettlementStatus,
 } from "@/features/withdrawal/backend/withdrawal-settlement-status";
-import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { Money } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -174,6 +171,7 @@ import {
   successfulReservationCondition,
 } from "./reservation-status-condition";
 import type { AdministrationReservationTimelineEvent } from "./reservation-timeline";
+import { toAdministrationWithdrawal } from "./reservation-withdrawal";
 
 const reservationPageSize = 24;
 const bookingPageSize = 24;
@@ -203,7 +201,7 @@ export type AdministrationReservationListInput = {
   readonly from?: string;
   readonly page?: number;
   readonly sort?: AdministrationReservationSort;
-  readonly status?: AdministrationReservationStatusFilter;
+  readonly status?: AdministrationReservationListStatusFilter;
   readonly to?: string;
   readonly type?: AdministrationReservationFamily;
 };
@@ -473,7 +471,7 @@ export type AdministrationReservationDetail = {
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
   /** The customer's online withdrawal from the reservation, once submitted. */
-  readonly withdrawal: AdministrationReservationWithdrawal | null;
+  readonly withdrawal: AdministrationReservationWithdrawalType | null;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -828,54 +826,11 @@ type LiveReservationDetails = {
  * required one. Any successful refund counts, including a partial one.
  */
 /**
- * A customer's online withdrawal as operators see it: when it was submitted,
- * what it owes back, and whether its receipt, notice and cancellation are
- * done (`settled`), still running (`in_progress`), or have a step that failed
- * and is being retried on its own (`needs_attention`), listed in
- * `failingSteps` in settlement order.
+ * The withdrawal owes a refund its cancellation hasn't put on the payment
+ * yet; once cancelled, the payment's own refund state carries it.
  */
-export type AdministrationReservationWithdrawal = {
-  readonly submittedAt: string;
-  readonly paidAmount: Money;
-  readonly refundAmount: Money;
-  readonly refundBasis: WithdrawalRefundBasis;
-  /** Every settlement step in run order, with its progress and retries. */
-  readonly steps: readonly AdministrationWithdrawalStep[];
-} & WithdrawalSettlementStatus;
-
-/** One settlement step: done when, or how its retries stand. */
-export type AdministrationWithdrawalStep = {
-  readonly step: WithdrawalSettlementStep;
-  readonly doneAt: string | null;
-  readonly attempts: number;
-  readonly failureCode: string | null;
-  readonly retryAt: string | null;
-};
-
-const toReservationWithdrawal = (
-  row: ContractWithdrawalRow | undefined
-): AdministrationReservationWithdrawal | null => {
-  if (!row) return null;
-  const withdrawal = toContractWithdrawal(row);
-  return {
-    submittedAt: toIsoString(withdrawal.submittedAt),
-    paidAmount: withdrawal.paidAmount,
-    refundAmount: withdrawal.refundAmount,
-    refundBasis: withdrawal.refundBasis,
-    steps: withdrawalSettlementSteps.map((step) => {
-      const doneAt = withdrawalStepDoneAt(withdrawal, step);
-      const { attempts, failureCode, retryAt } = withdrawal.stepRetries[step];
-      return {
-        step,
-        doneAt: doneAt && toIsoString(doneAt),
-        attempts,
-        failureCode: doneAt ? null : failureCode,
-        retryAt: !doneAt && retryAt ? toIsoString(retryAt) : null,
-      };
-    }),
-    ...getWithdrawalSettlementStatus(withdrawal),
-  };
-};
+const withdrawalOwesRefund = (withdrawal: ContractWithdrawal) =>
+  withdrawal.refundAmount.value > 0 && withdrawal.contractCancelledAt === null;
 
 const isReservationRefunded = (
   attempts: readonly Pick<SafePaymentAttemptRow, "refundState">[]
@@ -891,6 +846,7 @@ const toReservationSummary = ({
   latestPayment = null,
   live,
   row,
+  withdrawal,
 }: {
   readonly latePayment?: boolean;
   /** Any payment attempt of the reservation, not only the latest, needs a refund. */
@@ -901,6 +857,8 @@ const toReservationSummary = ({
   readonly latestPayment?: AdministrationPaymentAttempt | null;
   readonly live: LiveReservationDetails;
   readonly row: SafeReservationRow;
+  /** The customer's withdrawal from the reservation, if they withdrew. */
+  readonly withdrawal?: ContractWithdrawal;
 }): AdministrationReservationSummary => {
   // An early-setup booking's Dotypos start is its setup start, so show the
   // booked start beside it. Other bookings keep the provider's values as is;
@@ -914,6 +872,12 @@ const toReservationSummary = ({
   const dotyposStatus = live.reservation?.status;
   return {
     id: row.id,
+    ...(withdrawal && {
+      withdrawal: {
+        refundAmount: withdrawal.refundAmount,
+        settlement: getWithdrawalSettlementStatus(withdrawal).settlement,
+      },
+    }),
     dotyposReservationId: row.dotyposReservationId,
     customerId: row.dotyposCustomerId,
     customer: live.customer ? toCustomer(live.customer) : null,
@@ -943,13 +907,17 @@ const toReservationSummary = ({
       paymentState: row.paymentState,
       refunded,
       reservationState: row.reservationState,
+      withdrawn: Boolean(withdrawal),
     }),
     ...getAdministrationReservationStatusNoteFields(
       getReservationStatusNote({
         dotyposStatus,
         failureCode: row.failureCode,
         latePayment,
-        needsRefund: needsRefund || latestPayment?.refundState === "required",
+        needsRefund:
+          needsRefund ||
+          latestPayment?.refundState === "required" ||
+          (withdrawal !== undefined && withdrawalOwesRefund(withdrawal)),
         recoveryState,
         refunded,
         reservationState: row.reservationState,
@@ -1627,41 +1595,58 @@ export class AdministrationService extends Context.Service<
           policy: ProviderReadPolicy<E> = degradeProviderRead
         ) {
           if (rows.length === 0) return [];
-          const { attemptRows, latePaymentRows, liveRows, recoveryRows } =
-            yield* Effect.all(
-              {
-                attemptRows: db
-                  .select(safePaymentAttemptSelection)
-                  .from(paymentAttempts)
-                  .where(
+          const {
+            attemptRows,
+            latePaymentRows,
+            liveRows,
+            recoveryRows,
+            withdrawalRows,
+          } = yield* Effect.all(
+            {
+              withdrawalRows: db
+                .select()
+                .from(contractWithdrawals)
+                .where(
+                  and(
+                    eq(contractWithdrawals.contractKind, "reservation"),
                     equalsAny(
-                      paymentAttempts.workspaceReservationId,
+                      contractWithdrawals.contractId,
                       rows.map(({ id }) => id)
                     )
                   )
-                  .orderBy(desc(paymentAttempts.createdAt)),
-                latePaymentRows: db
-                  .select(latePaymentSelection)
-                  .from(webhookEvents)
-                  .innerJoin(
-                    paymentAttempts,
-                    eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
+                ),
+              attemptRows: db
+                .select(safePaymentAttemptSelection)
+                .from(paymentAttempts)
+                .where(
+                  equalsAny(
+                    paymentAttempts.workspaceReservationId,
+                    rows.map(({ id }) => id)
                   )
-                  .where(latePaymentCondition(rows.map(({ id }) => id))),
-                recoveryRows: db
-                  .select(latePaymentRecoverySelection)
-                  .from(latePaymentRecoveries)
-                  .where(
-                    equalsAny(
-                      latePaymentRecoveries.workspaceReservationId,
-                      rows.map(({ id }) => id)
-                    )
+                )
+                .orderBy(desc(paymentAttempts.createdAt)),
+              latePaymentRows: db
+                .select(latePaymentSelection)
+                .from(webhookEvents)
+                .innerJoin(
+                  paymentAttempts,
+                  eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
+                )
+                .where(latePaymentCondition(rows.map(({ id }) => id))),
+              recoveryRows: db
+                .select(latePaymentRecoverySelection)
+                .from(latePaymentRecoveries)
+                .where(
+                  equalsAny(
+                    latePaymentRecoveries.workspaceReservationId,
+                    rows.map(({ id }) => id)
                   )
-                  .orderBy(asc(latePaymentRecoveries.createdAt)),
-                liveRows: loadLiveReservations(rows, knownReservations, policy),
-              },
-              { concurrency: 3 }
-            );
+                )
+                .orderBy(asc(latePaymentRecoveries.createdAt)),
+              liveRows: loadLiveReservations(rows, knownReservations, policy),
+            },
+            { concurrency: 3 }
+          );
           const latePaymentReservationIds = new Set(
             latePaymentRows.map(({ reservationId }) => reservationId)
           );
@@ -1678,6 +1663,12 @@ export class AdministrationService extends Context.Service<
           );
           const recoveryByReservation = new Map(
             recoveryRows.map((recovery) => [recovery.reservationId, recovery])
+          );
+          const withdrawalByReservation = new Map(
+            withdrawalRows.map((withdrawal) => [
+              withdrawal.contractId,
+              toContractWithdrawal(withdrawal),
+            ])
           );
           const latestPaymentByReservation = new Map<
             string,
@@ -1707,6 +1698,7 @@ export class AdministrationService extends Context.Service<
               ),
               live,
               row,
+              withdrawal: withdrawalByReservation.get(row.id),
             })
           );
         }
@@ -2228,6 +2220,10 @@ export class AdministrationService extends Context.Service<
           latePaymentRows
         );
         const accessGrant = accessRows[0] ?? null;
+        const [withdrawalRow] = withdrawalRows;
+        const withdrawal = withdrawalRow
+          ? toContractWithdrawal(withdrawalRow)
+          : null;
 
         return {
           author,
@@ -2238,6 +2234,7 @@ export class AdministrationService extends Context.Service<
             refunded,
             live,
             row,
+            withdrawal: withdrawal ?? undefined,
           }),
           booking: toLinkedBookingSummary({
             live,
@@ -2290,7 +2287,7 @@ export class AdministrationService extends Context.Service<
             customerId: row.dotyposCustomerId,
           },
           canCancel: canCancelReservation(row),
-          withdrawal: toReservationWithdrawal(withdrawalRows[0]),
+          withdrawal: withdrawal && toAdministrationWithdrawal(withdrawal),
         } satisfies AdministrationReservationDetail;
       });
 

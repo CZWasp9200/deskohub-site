@@ -1,29 +1,34 @@
+import type {
+  AdministrationReservationWithdrawalType,
+  AdministrationWorkspaceReservationIdType,
+} from "@deskohub/workspace-admin-api";
 import { AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import type { Locale } from "@/features/i18n";
-import { Button } from "@/shared/components/ui/button";
-import { StatusBadge, type StatusTone } from "@/shared/components/ui/status-badge";
+import {
+  StatusBadge,
+  type StatusTone,
+} from "@/shared/components/ui/status-badge";
 import { formatMoney } from "@/shared/money/money";
 import { cn } from "@/shared/utils";
-import type {
-  AdministrationReservationWithdrawal,
-  AdministrationWithdrawalStep,
-} from "./administration.service";
 import type { AdministrationCustomer } from "./customer-identity";
 import { formatAdministrationDateTime } from "./formatters";
 import { m } from "./i18n";
-import { AdministrationAlert } from "./notice";
+import { ReservationWithdrawalRetry } from "./reservation-withdrawal-retry";
+
+type AdministrationWithdrawalStep =
+  AdministrationReservationWithdrawalType["steps"][number];
 
 const settlementTone = {
   settled: "positive",
   in_progress: "progress",
   needs_attention: "attention",
 } as const satisfies Record<
-  AdministrationReservationWithdrawal["settlement"],
+  AdministrationReservationWithdrawalType["settlement"],
   StatusTone
 >;
 
 const settlementLabel = (
-  settlement: AdministrationReservationWithdrawal["settlement"],
+  settlement: AdministrationReservationWithdrawalType["settlement"],
   locale: Locale
 ) =>
   ({
@@ -32,7 +37,10 @@ const settlementLabel = (
     needs_attention: m.administrationWithdrawalNeedsAttention,
   })[settlement]({}, { locale });
 
-const stepLabel = (step: AdministrationWithdrawalStep["step"], locale: Locale) =>
+const stepLabel = (
+  step: AdministrationWithdrawalStep["step"],
+  locale: Locale
+) =>
   ({
     receipt: m.administrationWithdrawalStepReceipt,
     operator_notice: m.administrationWithdrawalStepOperatorNotice,
@@ -53,15 +61,15 @@ const pragueTime = (value: string, locale: Locale) =>
 export function ReservationWithdrawalSection({
   customer,
   locale,
+  reservationId,
   withdrawal,
 }: {
   readonly customer: AdministrationCustomer | null;
   readonly locale: Locale;
-  readonly withdrawal: AdministrationReservationWithdrawal;
+  readonly reservationId: AdministrationWorkspaceReservationIdType;
+  readonly withdrawal: AdministrationReservationWithdrawalType;
 }) {
-  const failing = withdrawal.steps.filter(
-    (step) => !step.doneAt && step.failureCode
-  );
+  const failing = withdrawal.steps.filter((step) => step.status === "failed");
   const kept = {
     ...withdrawal.paidAmount,
     value: withdrawal.paidAmount.value - withdrawal.refundAmount.value,
@@ -85,26 +93,25 @@ export function ReservationWithdrawalSection({
         </StatusBadge>
       </div>
 
-      {failing.length > 0 && (
-        <AdministrationAlert className="mt-4" status="error">
-          <p className="font-semibold">
-            {m.administrationWithdrawalFailingTitle(
-              {
-                steps: failing
-                  .map((step) => stepLabel(step.step, locale))
-                  .join(", "),
-              },
-              { locale }
-            )}
-          </p>
-          <p className="mt-1">
-            {m.administrationWithdrawalFailingBody({}, { locale })}
-          </p>
-          <Button className="mt-3" size="sm" type="button" variant="secondary">
-            {m.administrationWithdrawalRetry({}, { locale })}
-          </Button>
-        </AdministrationAlert>
-      )}
+      <ReservationWithdrawalRetry locale={locale} reservationId={reservationId}>
+        {failing.length > 0 && (
+          <>
+            <p className="font-semibold">
+              {m.administrationWithdrawalFailingTitle(
+                {
+                  steps: failing
+                    .map((step) => stepLabel(step.step, locale))
+                    .join(", "),
+                },
+                { locale }
+              )}
+            </p>
+            <p className="mt-1">
+              {m.administrationWithdrawalFailingBody({}, { locale })}
+            </p>
+          </>
+        )}
+      </ReservationWithdrawalRetry>
 
       <dl className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-3">
         <div className="min-w-0">
@@ -148,7 +155,10 @@ export function ReservationWithdrawalSection({
                     {(basis.unit === "hour"
                       ? m.administrationWithdrawalStartedHours
                       : m.administrationWithdrawalStartedDays)(
-                      { started: basis.total - basis.unstarted, total: basis.total },
+                      {
+                        started: basis.total - basis.unstarted,
+                        total: basis.total,
+                      },
                       { locale }
                     )}
                   </dt>
@@ -180,6 +190,33 @@ export function ReservationWithdrawalSection({
   );
 }
 
+const stepProgressIcon = {
+  done: { Icon: CheckCircle2, iconClassName: "text-aquamarine-ink" },
+  failed: { Icon: AlertCircle, iconClassName: "text-red-700" },
+  pending: { Icon: Clock, iconClassName: "text-navy-blue/45" },
+} as const satisfies Record<
+  AdministrationWithdrawalStep["status"],
+  { readonly Icon: typeof Clock; readonly iconClassName: string }
+>;
+
+const stepProgressText = (
+  step: AdministrationWithdrawalStep,
+  locale: Locale
+) => {
+  if (step.doneAt) {
+    return m.administrationWithdrawalStepDone(
+      { time: pragueTime(step.doneAt, locale) },
+      { locale }
+    );
+  }
+  return step.status === "pending"
+    ? m.administrationWithdrawalStepPending({}, { locale })
+    : m.administrationWithdrawalStepFailed(
+        { attempts: step.attempts },
+        { locale }
+      );
+};
+
 function WithdrawalStepRow({
   locale,
   step,
@@ -187,35 +224,24 @@ function WithdrawalStepRow({
   readonly locale: Locale;
   readonly step: AdministrationWithdrawalStep;
 }) {
-  const failed = !step.doneAt && step.failureCode !== null;
-  const Icon = step.doneAt ? CheckCircle2 : failed ? AlertCircle : Clock;
+  const progress = step.status;
+  const failed = progress === "failed";
+  const { Icon, iconClassName } = stepProgressIcon[progress];
   return (
     <li className="flex min-w-0 items-start gap-3 px-4 py-3 text-sm">
       <Icon
         aria-hidden="true"
-        className={cn(
-          "mt-0.5 size-4 shrink-0",
-          step.doneAt
-            ? "text-aquamarine-ink"
-            : failed
-              ? "text-red-700"
-              : "text-navy-blue/45"
-        )}
+        className={cn("mt-0.5 size-4 shrink-0", iconClassName)}
       />
       <div className="min-w-0 flex-1">
         <p className="font-semibold">{stepLabel(step.step, locale)}</p>
-        <p className={cn("mt-0.5", failed ? "text-red-800" : "text-navy-blue/65")}>
-          {step.doneAt
-            ? m.administrationWithdrawalStepDone(
-                { time: pragueTime(step.doneAt, locale) },
-                { locale }
-              )
-            : failed
-              ? m.administrationWithdrawalStepFailed(
-                  { attempts: step.attempts },
-                  { locale }
-                )
-              : m.administrationWithdrawalStepPending({}, { locale })}
+        <p
+          className={cn(
+            "mt-0.5",
+            failed ? "text-red-800" : "text-navy-blue/65"
+          )}
+        >
+          {stepProgressText(step, locale)}
         </p>
         {failed && (
           <p className="mt-1 text-navy-blue/65">

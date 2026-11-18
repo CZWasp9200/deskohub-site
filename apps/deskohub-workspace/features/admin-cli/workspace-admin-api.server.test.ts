@@ -120,6 +120,7 @@ import {
   recordingRequestLedger,
   UnrecordedAdministrationActions,
   UnusedCliSessionAuthentication,
+  UnusedWithdrawalService,
 } from "./cli-api.test-utils";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
@@ -270,6 +271,7 @@ const callAdministrationApi = <A, E>(
   administrationClient.pipe(
     Effect.flatMap(call),
     Effect.provide(AdminCliAdministrationApiHandlers),
+    Effect.provide(UnusedWithdrawalService),
     Effect.provide(GrantedAdministrator),
     Effect.provide(actorAuthorizedCliRequest(services.channel)),
     Effect.provide(UnusedStandaloneAccessCodeAdministration),
@@ -559,6 +561,7 @@ describe("Workspace Admin API", () => {
       Layer.succeed(CampaignOperations, {} as never),
       UnusedReservationAdministration,
       UnusedReservationProductDetailsBackfill,
+      UnusedWithdrawalService,
       UnusedReservationAccessAdministration,
       UnusedDiscountAdministration,
       GrantedAdministrator,
@@ -687,6 +690,7 @@ describe("Workspace Admin API", () => {
       });
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
@@ -781,6 +785,7 @@ describe("Workspace Admin API", () => {
         .pipe(Effect.flip);
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
@@ -984,6 +989,7 @@ describe("Workspace Admin API", () => {
       return { created, pending };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(invoiceAdministration),
@@ -1147,6 +1153,7 @@ describe("Workspace Admin API", () => {
       return { recovered, rejected };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(ledger.layer),
@@ -1280,6 +1287,7 @@ describe("Workspace Admin API", () => {
       };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(authentication),
@@ -1403,6 +1411,7 @@ describe("Workspace Admin API", () => {
       return { renamed, revoked, sessions };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(
         Layer.mergeAll(
@@ -1471,6 +1480,7 @@ describe("Workspace Admin API", () => {
         .pipe(Effect.flip);
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(ledger.layer),
@@ -1878,6 +1888,7 @@ describe("customer and reservation administration endpoints", () => {
             Layer.succeed(LegacyAdministratorBackfill, {} as never),
             Layer.succeed(CampaignOperations, {} as never),
             UnusedReservationProductDetailsBackfill,
+            UnusedWithdrawalService,
             UnusedReservationAccessAdministration,
             UnusedDiscountAdministration,
             GrantedAdministrator,
@@ -2048,6 +2059,7 @@ describe("standalone access-code CLI endpoint", () => {
   ) =>
     operation.pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(UnusedWithdrawalService),
       Effect.provide(GrantedAdministrator),
       Effect.provide(bearer),
       Effect.provide(UnusedCliSessionAuthentication),

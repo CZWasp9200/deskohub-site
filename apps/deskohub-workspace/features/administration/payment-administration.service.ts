@@ -50,6 +50,8 @@ type AdministrationOrderLink = {
   readonly stateLabel: string;
   readonly failureCode: string | null;
   readonly amount: Money;
+  /** What the payment owes back once a refund is required; null without one. */
+  readonly refundTarget: Money | null;
   /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
   readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
@@ -104,6 +106,7 @@ type LocalOrderRow = {
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
   readonly refundState: PaymentRefundState;
+  readonly refundTargetValue: number | null;
   readonly refundedAmountValue: number | null;
   readonly refundedAt: Temporal.Instant | null;
   readonly failureCode: string | null;
@@ -145,6 +148,14 @@ const toOrderLink = (row: LocalOrderRow): AdministrationOrderLink => {
       exponent: row.amountExponent,
       currency: row.currency,
     },
+    refundTarget:
+      row.refundState === "not_required"
+        ? null
+        : {
+            value: row.refundTargetValue ?? row.amountValue,
+            exponent: row.amountExponent,
+            currency: row.currency,
+          },
     refundedAmount:
       row.refundedAmountValue === null
         ? null
@@ -168,6 +179,7 @@ const localOrderSelection = {
   reservationId: paymentAttempts.workspaceReservationId,
   state: paymentAttempts.state,
   refundState: paymentAttempts.refundState,
+  refundTargetValue: paymentAttempts.refundTargetValue,
   refundedAmountValue: paymentAttempts.refundedAmountValue,
   refundedAt: paymentAttempts.refundedAt,
   failureCode: paymentAttempts.failureCode,

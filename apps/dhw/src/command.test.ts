@@ -427,6 +427,36 @@ describe("dhw mutation commands", () => {
     expect(revocations).toBe(0);
   });
 
+  test("retries only the confirmed reservation withdrawal and prints its result", async () => {
+    const retries: string[] = [];
+    const result = {
+      outcome: "already_settled",
+      withdrawal: {
+        settlement: "settled",
+        submittedAt: "2026-11-18T12:01:00Z",
+        paidAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+        refundAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+        refundBasis: { kind: "full" },
+        steps: [],
+      },
+    } as const;
+    const { layer, output } = makeCommandLayer({
+      retryReservationWithdrawal: (_accessToken, id) =>
+        Effect.sync(() => {
+          retries.push(id);
+          return result;
+        }),
+    });
+
+    await runCommand(
+      ["--json", "reservations", "retry-withdrawal", "reservation-1", "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(retries).toEqual(["reservation-1"]);
+    expect(output).toEqual([JSON.stringify(result)]);
+  });
+
   test("confirms reservation cancellation and forwards the email choice", async () => {
     const cancellations: unknown[] = [];
     const { layer } = makeCommandLayer({
@@ -1708,6 +1738,7 @@ const makeCommandLayer = ({
     } as never),
   authenticatedSession = session,
   revokeSession = () => Effect.succeed({ changed: false }),
+  retryReservationWithdrawal = () => Effect.die("not used"),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
 }: {
   readonly backfillLegacyAdministrator?: WorkspaceAdminApiClient["Service"]["backfillLegacyAdministrator"];
@@ -1725,6 +1756,7 @@ const makeCommandLayer = ({
   readonly getReservation?: WorkspaceAdminApiClient["Service"]["getReservation"];
   readonly authenticatedSession?: CliSessionType;
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
+  readonly retryReservationWithdrawal?: WorkspaceAdminApiClient["Service"]["retryReservationWithdrawal"];
   readonly stateDirectory?: string;
 } = {}) => {
   const mutations: unknown[] = [];
@@ -1741,6 +1773,7 @@ const makeCommandLayer = ({
     backfillLegacyAdministrator,
     backfillReservationProductDetails,
     cancelReservation,
+    retryReservationWithdrawal,
     createInvoice,
     createStandaloneAccessCode: (
       accessToken: Redacted.Redacted<CliAccessTokenType>,

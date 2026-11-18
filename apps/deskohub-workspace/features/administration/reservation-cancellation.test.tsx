@@ -45,6 +45,7 @@ type ActionOptions = {
 let actionOptions: ActionOptions | undefined;
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   cancelAdministrationReservation: mock(),
 }));
 

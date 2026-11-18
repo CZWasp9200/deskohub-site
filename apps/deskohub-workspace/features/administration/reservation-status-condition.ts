@@ -1,4 +1,7 @@
-import type { AdministrationReservationStatusFilter } from "@deskohub/workspace-admin-api";
+import type {
+  AdministrationReservationListStatusFilter,
+  AdministrationReservationStatusFilter,
+} from "@deskohub/workspace-admin-api";
 import {
   and,
   eq,
@@ -121,6 +124,28 @@ const needsRefundCondition = sql`(exists (
 ))`;
 
 /**
+ * A customer's withdrawal whose settlement has a step that failed and waits
+ * for its retry.
+ */
+const withdrawalSettlementFailingCondition = sql`exists (
+  select 1 from ${contractWithdrawals}
+  where ${contractWithdrawals.contractKind} = 'reservation'
+    and ${contractWithdrawals.contractId} = ${workspaceReservations.id}
+    and ${contractWithdrawals.settledAt} is null
+    and (
+      (${contractWithdrawals.receiptSentAt} is null
+        and ${contractWithdrawals.receiptFailureCode} is not null)
+      or (${contractWithdrawals.operatorNotifiedAt} is null
+        and ${contractWithdrawals.operatorNoticeFailureCode} is not null)
+      or (${contractWithdrawals.contractCancelledAt} is null
+        and ${contractWithdrawals.cancellationFailureCode} is not null)
+    )
+)`;
+
+/** Owes a refund, or has a withdrawal whose settlement keeps failing. */
+const needsAttentionCondition = sql`(${needsRefundCondition} or ${withdrawalSettlementFailingCondition})`;
+
+/**
  * SQL condition selecting Workspace reservations in an operator-facing status
  * group, so every reservation filter shares the admin status vocabulary.
  * Given `asOf`, the group the reservation was in then, as far as the stored
@@ -128,12 +153,15 @@ const needsRefundCondition = sql`(exists (
  * reservations where they can't.
  */
 export const reservationStatusCondition = (
-  status: AdministrationReservationStatusFilter,
+  status: AdministrationReservationListStatusFilter,
   asOf?: Temporal.Instant
 ): SQL => {
   const states = statesAt(asOf);
   if (status === "needs_refund") {
     return needsRefundCondition;
+  }
+  if (status === "needs_attention") {
+    return needsAttentionCondition;
   }
   if (status === "complete") {
     return successful(states);

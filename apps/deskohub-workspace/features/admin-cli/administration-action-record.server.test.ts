@@ -29,6 +29,8 @@ import {
 import { DiscountAdministration } from "@/features/discounts/admin/discount-administration.service";
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
+import { withdrawalIdSchema } from "@/features/withdrawal/withdrawal-identifiers";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { CurrentAdministrationAction } from "./administration-action";
 import {
@@ -122,6 +124,7 @@ const serve = ({
   invoices = {},
   standalone = {},
   backfill = {},
+  withdrawals = {},
 }: {
   readonly channel?: AdministrationChannel;
   readonly actionLog: Layer.Layer<AdministrationActionLog>;
@@ -130,6 +133,7 @@ const serve = ({
   readonly invoices?: Partial<InvoiceAdministrationService["Service"]>;
   readonly standalone?: Partial<StandaloneAccessCodeAdministration["Service"]>;
   readonly backfill?: Partial<ReservationProductDetailsBackfill["Service"]>;
+  readonly withdrawals?: Partial<WithdrawalService["Service"]>;
 }) =>
   HttpRouter.toWebHandler(
     makeWorkspaceAdminApiLayer({
@@ -169,6 +173,7 @@ const serve = ({
           Layer.succeed(DiscountAdministration, {} as never),
           GrantedAdministrator,
           UnusedAdministrationCustomerDirectory,
+          Layer.mock(WithdrawalService, withdrawals),
           Layer.succeed(CampaignOperations, {} as never),
           NodeHttpServer.layerHttpServices
         )
@@ -198,6 +203,91 @@ const renameSession = {
 };
 
 describe("administration action record", () => {
+  test("records a withdrawal retry and returns the current settlement over HTTP", async () => {
+    const { events, layer } = makeActionLog();
+    const reservationId = "reservation-withdrawal-retry";
+    const at = Temporal.Instant.from("2026-11-18T12:01:00Z");
+    const retryAt = at.add({ hours: 1 });
+    const noRetry = { attempts: 0, failureCode: null, retryAt: null };
+    const payment = { value: 120_000, exponent: 2, currency: "CZK" };
+    const handler = serve({
+      actionLog: layer,
+      withdrawals: {
+        settleNow: (contract) =>
+          Effect.sync(() => {
+            expect(contract).toEqual({
+              kind: "reservation",
+              id: reservationId,
+            });
+            events.push({ event: "operation" });
+            return Option.some({
+              outcome: "failed",
+              withdrawal: {
+                id: withdrawalIdSchema.make("withdrawal-api"),
+                contract,
+                accountId: cliSessionAdministrator.accountId,
+                locale: "en-US",
+                contractLabel: "Synthetic reservation",
+                submittedAt: at,
+                periodEndsAt: at.add({ hours: 14 * 24 }),
+                paidAmount: payment,
+                refundAmount: payment,
+                refundBasis: { kind: "full" },
+                receiptSentAt: at,
+                operatorNotifiedAt: at,
+                contractCancelledAt: null,
+                settledAt: null,
+                settlementClaimedAt: null,
+                stepRetries: {
+                  receipt: noRetry,
+                  operator_notice: noRetry,
+                  contract_cancellation: {
+                    attempts: 2,
+                    failureCode: "reservation_dotypos_unavailable",
+                    retryAt,
+                  },
+                },
+              },
+            });
+          }),
+      },
+    });
+
+    const response = await call(handler, {
+      path: `/reservations/${reservationId}/withdrawal/retry`,
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      outcome: "failed",
+      withdrawal: {
+        refundAmount: payment,
+        settlement: "needs_attention",
+        steps: [
+          { step: "receipt", status: "done" },
+          { step: "operator_notice", status: "done" },
+          {
+            step: "contract_cancellation",
+            status: "failed",
+            attempts: 2,
+            failureCode: "reservation_dotypos_unavailable",
+            retryAt: retryAt.toString(),
+          },
+        ],
+      },
+    });
+    expect(events).toEqual([
+      {
+        event: "start",
+        operation: "administration.retryReservationWithdrawal",
+        channel: sessionChannel,
+      },
+      { event: "operation" },
+      { event: "finish", end: { outcome: "succeeded" } },
+    ]);
+  });
+
   test("records a state-changing operation's caller before it runs and its outcome after", async () => {
     const { events, layer } = makeActionLog();
     const handler = serve({

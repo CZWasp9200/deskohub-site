@@ -1,4 +1,4 @@
-import type { AdministrationReservationStatusFilter } from "@deskohub/workspace-admin-api";
+import type { AdministrationReservationListStatusFilter } from "@deskohub/workspace-admin-api";
 import { Option } from "effect";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -54,12 +54,12 @@ export const getAdministrationReservationListDateRange = (
     ...filters
   }: Parameters<typeof getAdministrationReservationDateRange>[0] & {
     readonly customerId?: string;
-    readonly status?: AdministrationReservationStatusFilter;
+    readonly status?: AdministrationReservationListStatusFilter;
   },
   currentDate = getCurrentWorkspaceDate()
 ): AdministrationReservationDateRange | undefined =>
   getAdministrationReservationDateRange(filters) ??
-  (customerId || status === "needs_refund"
+  (customerId || status === "needs_refund" || status === "needs_attention"
     ? undefined
     : getAdministrationReservationListDefaultDateRange(currentDate));
 
