@@ -217,10 +217,9 @@ export interface ICheckoutStatusService {
   readonly getStatus: (
     input: CheckoutStatusLookup
   ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
-  readonly refreshStatus: (input: {
-    readonly orderId: WorkspaceReservationId;
-    readonly returnOutcome: CheckoutStatusReturnOutcome;
-  }) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
+  readonly refreshStatus: (
+    input: CheckoutStatusLookup
+  ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
 }
 
 const canUseAttemptForSummary = (

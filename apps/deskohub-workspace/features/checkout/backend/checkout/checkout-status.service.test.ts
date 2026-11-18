@@ -1020,17 +1020,14 @@ describe("CheckoutStatusService", () => {
             }
           );
         }
-        if (refreshedAs) {
-          return yield* service.refreshStatus({
-            orderId: "reservation-provider-return",
-            returnOutcome: "success",
-          });
-        }
-        return yield* service.getStatus({
+        const lookup = {
           orderId: "reservation-provider-return",
           returnOutcome: "success",
           ...(includeSupportContact !== undefined && { includeSupportContact }),
-        });
+        } as const;
+        return yield* refreshedAs
+          ? service.refreshStatus(lookup)
+          : service.getStatus(lookup);
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
@@ -1170,10 +1167,15 @@ describe("CheckoutStatusService", () => {
         expect(denied).toMatchObject({ status: "not_found" });
         expect(denied).not.toHaveProperty("people");
         expect(denied).not.toHaveProperty("supportContactPrefill");
-        await getPaidStatus(afterVisit, order, {
+        const apiStatus = await getPaidStatus(afterVisit, order, {
           dotypos,
           invitees,
           includeSupportContact: false,
+          refreshedAs: "terminal",
+        });
+        expect(apiStatus).toMatchObject({
+          supportContactPrefill: undefined,
+          people: { resendable, invitees: [{ email }] },
         });
         expect(dotypos.getCustomer).not.toHaveBeenCalled();
       }

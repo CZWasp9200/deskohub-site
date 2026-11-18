@@ -593,6 +593,7 @@ describe("getReservationStatus", () => {
       total: { value: 35_000, exponent: 2, currency: "CZK" },
     });
     expect(refreshStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
       orderId,
       returnOutcome: "unknown",
     });
@@ -775,11 +776,12 @@ describe("getReservationStatus", () => {
     expect(refreshStatus).not.toHaveBeenCalled();
   });
 
-  test("answers the local status when the refresh fails", async () => {
+  test("answers the local status without requesting support contact when refresh fails", async () => {
+    const getStatus = mock(() => Effect.succeed(fulfilledOrder));
     const api = makeCustomerApiTestServer({
       reservations: statusServices(
         () => Effect.fail(new Error("refresh failed") as never),
-        { getStatus: () => Effect.succeed(fulfilledOrder) }
+        { getStatus }
       ),
     });
 
@@ -787,6 +789,11 @@ describe("getReservationStatus", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "fulfilled" });
+    expect(getStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
+      orderId,
+      returnOutcome: "unknown",
+    });
   });
 
   test("answers unavailable when no status can be read", async () => {

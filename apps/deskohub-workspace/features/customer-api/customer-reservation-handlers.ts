@@ -190,6 +190,7 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
         // disconnects.
         .handle("getReservationStatus", ({ params: { orderId } }) =>
           loadAuthorizedCheckoutStatus({
+            includeSupportContact: false,
             orderId,
             locale: defaultLocale,
             returnOutcome: "unknown",
