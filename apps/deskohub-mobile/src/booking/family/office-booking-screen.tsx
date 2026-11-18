@@ -15,7 +15,6 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { LiveMessage } from "../../ui/controls";
-import { Icon } from "../../ui/icon";
 import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { Text } from "../../ui/text";
@@ -41,6 +40,7 @@ import { pragueToday } from "../selection/prague-date";
 import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingStepLayout } from "../ui/booking-step-layout";
+import { ChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
 import { formatShortPragueDate } from "../ui/prague-date-format";
 import { describeOfficePriceLine } from "../ui/price-line-description";
@@ -235,6 +235,7 @@ function OfficeSelection({
 
   const { name } = offering;
   const tracks = useChooseTracks(2);
+  const access = m.booking_space_always_open({}, { locale });
   const { isWide } = useViewport();
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const blocked = enablement.blockers.flatMap((blocker) => {
@@ -318,7 +319,14 @@ function OfficeSelection({
         />
       }
     >
-      <Stack.Screen options={{ title: name }} />
+      <Stack.Screen
+        options={{
+          title: name,
+          headerRight: tracks
+            ? () => <ChooseHeaderFact icon={KeyRound} text={access} />
+            : undefined,
+        }}
+      />
       <BookingReadView read={catalog} onRetry={onRetryCatalog}>
         {() => (
           <>
@@ -346,11 +354,10 @@ function OfficeSelection({
               onRetry={retrySupportingReads}
             />
 
-            {isWide && (
+            {isWide && !tracks && (
               <OfficeBookingHero
+                access={access}
                 description={offering.description}
-                inline={tracks}
-                locale={locale}
               />
             )}
             <View style={tracks && chooseStyles.row}>
@@ -485,29 +492,18 @@ export function OfficeStayControls({
 }
 
 function OfficeBookingHero({
+  access,
   description,
-  inline,
-  locale,
 }: {
+  readonly access: string;
   readonly description: string;
-  readonly inline: boolean;
-  readonly locale: AppLocale;
 }) {
-  const access = (
-    <View style={[styles.access, inline && styles.inlineAccess]}>
-      <Icon icon={KeyRound} size={16} color={color.ink2} />
-      <Text variant="hint" tone="muted" style={styles.accessText}>
-        {m.booking_space_always_open({}, { locale })}
-      </Text>
-    </View>
-  );
-  if (inline) return access;
   return (
     <View style={styles.hero}>
       <SpaceIllustration family="office" height={132} span="full" />
       <View style={styles.heroText}>
         <Text variant="bodySmall">{description}</Text>
-        {access}
+        <ChooseHeaderFact icon={KeyRound} text={access} />
       </View>
     </View>
   );
@@ -533,7 +529,4 @@ const styles = StyleSheet.create({
     ...shadow.group,
   },
   heroText: { gap: space.sm, padding: space.lg },
-  access: { alignItems: "center", flexDirection: "row", gap: space.xs },
-  accessText: { flexShrink: 1 },
-  inlineAccess: { justifyContent: "flex-end", paddingBottom: space.sm },
 });

@@ -13,6 +13,7 @@ import { Option } from "effect";
 import { Atom } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import Users from "lucide-react-native/icons/users";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
@@ -48,6 +49,7 @@ import { pragueToday } from "../selection/prague-date";
 import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingStepLayout } from "../ui/booking-step-layout";
+import { ChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
 import {
   formatPragueTime,
@@ -294,6 +296,7 @@ function MeetingRoomSelection({
 
   const [first] = offerings;
   const { name, facts } = first;
+  const capacity = facts.find(({ kind }) => kind === "capacity")?.text;
   const lengthOf = (duration: CustomerMeetingRoomDuration) =>
     offerings.find((offering) => offering.duration === duration);
   const lengthLabel = (duration: CustomerMeetingRoomDuration) =>
@@ -413,7 +416,15 @@ function MeetingRoomSelection({
         />
       }
     >
-      <Stack.Screen options={{ title: name }} />
+      <Stack.Screen
+        options={{
+          title: name,
+          headerRight:
+            tracks && capacity !== undefined
+              ? () => <ChooseHeaderFact icon={Users} text={capacity} />
+              : undefined,
+        }}
+      />
       <BookingReadView read={catalog} onRetry={onRetryCatalog}>
         {() => (
           <>
@@ -441,12 +452,15 @@ function MeetingRoomSelection({
               onRetry={retrySupportingReads}
             />
 
-            <MeetingRoomHero
-              facts={
-                isWide ? facts.filter(({ kind }) => kind === "capacity") : facts
-              }
-              inline={tracks}
-            />
+            {!tracks && (
+              <MeetingRoomHero
+                facts={
+                  isWide
+                    ? facts.filter(({ kind }) => kind === "capacity")
+                    : facts
+                }
+              />
+            )}
 
             <View style={tracks && chooseStyles.row}>
               <View style={tracks && chooseStyles.meetingCalendar}>
