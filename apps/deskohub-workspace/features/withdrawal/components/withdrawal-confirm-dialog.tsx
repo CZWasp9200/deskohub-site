@@ -121,6 +121,7 @@ export function WithdrawalConfirmDialog({
         </DialogHeader>
 
         <form className="mt-6 grid gap-6" noValidate onSubmit={submit}>
+          <div className="grid gap-3">
           <dl className="m-0 grid gap-3">
             <ContractRow label={m.withdrawalConfirmReferenceLabel({}, { locale })}>
               <span className="font-mono text-sm">{reference}</span>
@@ -168,6 +169,7 @@ export function WithdrawalConfirmDialog({
               {quote.receiptEmail}
             </ContractRow>
           </dl>
+          </div>
 
           <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
             <dl className="m-0 grid gap-2 text-sm tabular-nums">
