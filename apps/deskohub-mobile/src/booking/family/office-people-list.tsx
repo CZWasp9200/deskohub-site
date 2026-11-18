@@ -122,7 +122,6 @@ export function OfficePeopleList({
                   icon={Plus}
                   width="content"
                   label={m.booking_office_person_add({}, { locale })}
-                  disabled={typed.trim() === ""}
                   onPress={add}
                 />
               }
