@@ -21,8 +21,8 @@ import Lock from "lucide-react-native/icons/lock";
 import Mail from "lucide-react-native/icons/mail";
 import MapPin from "lucide-react-native/icons/map-pin";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
-import { Fragment, type ReactNode } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Fragment, type ReactNode, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { bookKindHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView } from "../../customer-api/async-view";
 import { useAppLocale } from "../../i18n/locale-context";
@@ -38,11 +38,13 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
-import { color, radius, space, touchTarget } from "../../ui/tokens";
+import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import {
   accessPinBox,
   accessPinBoxSize,
   accessPinGroups,
+  wideAccessPinBox,
 } from "./access-pin-groups";
 import { useAccessPinView } from "./access-pin-view";
 import {
@@ -95,32 +97,35 @@ export const accessStackHeader = {
   paper: (props: NativeStackHeaderProps) => (
     <StackHeader {...props} backFallback={reservationsHref} />
   ),
+  paperWide: (props: NativeStackHeaderProps) => (
+    <StackHeader
+      {...props}
+      backFallback={reservationsHref}
+      contentWidth="wide"
+    />
+  ),
 } as const;
 
-/**
- * An order's door PIN (board 24): the PIN large on navy in groups, its
- * Copy action top right, how to use it, and a status chip from the lock's
- * window; under it the window, the address that copies on tap, Get
- * directions and Add to calendar. An ended PIN is struck through, with Book
- * again. An order without a PIN explains why and offers Contact us. Pull
- * to read it again.
- */
 export function ReservationAccessScreen({
   orderId,
 }: {
   readonly orderId: CustomerReservationOrderId;
 }) {
   const locale = useAppLocale();
+  const { isExpanded, isWide } = useViewport();
   const read = shownAccess(useAtomValue(reservationAccessAtom(orderId)));
   const refresh = useAtomRefresh(reservationAccessAtom(orderId));
   const row = useAtomValue(reservationOfOrderAtom(orderId));
   const state = accessScreenStateOf(read);
   const refreshing = !AsyncResult.isInitial(read) && read.waiting;
-  // Always mounted, so the header follows the state both ways: a No PIN
-  // that a refresh turns into a PIN gets the navy header back.
+  const headerTone = isWide ? "paper" : accessHeaderTone(state);
   const header = (
     <Stack.Screen
-      options={{ header: accessStackHeader[accessHeaderTone(state)] }}
+      options={{
+        header: isExpanded
+          ? accessStackHeader.paperWide
+          : accessStackHeader[headerTone],
+      }}
     />
   );
   if (AccessScreenState.$is("NoPin")(state)) {
@@ -144,16 +149,15 @@ export function ReservationAccessScreen({
         onRetry={refresh}
         errorMessage={(error) => accessErrorMessage(error, locale)}
         loading={
-          <ScrollScreen
-            overlap={false}
-            masthead={
+          <AccessLayout
+            hero={
               <PinHero name={name}>
                 <PinDigits groups={placeholderGroups} placeholder />
               </PinHero>
             }
           >
             <LoadingWindow />
-          </ScrollScreen>
+          </AccessLayout>
         }
       >
         {(access) => (
@@ -168,6 +172,41 @@ export function ReservationAccessScreen({
         )}
       </AsyncView>
     </>
+  );
+}
+
+function AccessLayout({
+  hero,
+  children,
+  refreshing,
+  onRefresh,
+}: {
+  readonly hero: ReactNode;
+  readonly children: ReactNode;
+  readonly refreshing?: boolean;
+  readonly onRefresh?: () => void;
+}) {
+  const { isExpanded, isWide } = useViewport();
+  return (
+    <ScrollScreen
+      contentWidth={isExpanded ? "wide" : "form"}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+      <View style={[styles.accessLayout, isExpanded && styles.expandedLayout]}>
+        <View
+          style={[
+            isExpanded && styles.expandedPane,
+            !isWide && styles.compactHeroPane,
+          ]}
+        >
+          {hero}
+        </View>
+        <View style={[styles.detailsPane, isExpanded && styles.expandedPane]}>
+          {children}
+        </View>
+      </View>
+    </ScrollScreen>
   );
 }
 
@@ -202,27 +241,18 @@ function AccessDetails({
   );
   const ended = chip?._tag === "Ended";
   return (
-    <ScrollScreen
-      overlap={false}
+    <AccessLayout
       refreshing={refreshing}
       onRefresh={onRefresh}
-      masthead={
+      hero={
         <PinHero
           name={name}
+          chip={chip}
           action={
             ended ? undefined : <CopyPin orderId={orderId} code={access.code} />
           }
         >
           <PinDigits groups={accessPinGroups(access.code)} ended={ended} />
-          {!ended && (
-            <View style={styles.how}>
-              <Icon icon={DoorOpen} size={16} color={color.onNavyMuted} />
-              <Text variant="hint" style={styles.howText}>
-                {m.reservations_access_how({}, { locale })}
-              </Text>
-            </View>
-          )}
-          {chip !== undefined && <StatusChip chip={chip} />}
         </PinHero>
       }
     >
@@ -243,30 +273,51 @@ function AccessDetails({
       ) : (
         <WindowAndPlace orderId={orderId} window={window} row={row} />
       )}
-    </ScrollScreen>
+    </AccessLayout>
   );
 }
 
-/**
- * The navy band under the app bar: the space's name (a line held while it
- * is unknown), an action at its top end, and the PIN with what follows it.
- */
 function PinHero({
   name,
+  chip,
   action,
   children,
 }: {
   readonly name: string | undefined;
+  readonly chip?: AccessChip | undefined;
   readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
-  return (
-    <View style={styles.hero}>
-      <Text variant="lead" style={styles.name}>
-        {name ?? " "}
+  const locale = useAppLocale();
+  const { isWide } = useViewport();
+  const how = action !== undefined && (
+    <View style={[styles.how, isWide && styles.wideHow]}>
+      <Icon icon={DoorOpen} size={16} color={color.onNavyMuted} />
+      <Text
+        variant="hint"
+        style={[styles.howText, isWide && styles.wideHowText]}
+      >
+        {m.reservations_access_how({}, { locale })}
       </Text>
-      {action !== undefined && <View style={styles.heroAction}>{action}</View>}
+    </View>
+  );
+  return (
+    <View style={[styles.hero, isWide && styles.wideHero]}>
+      <View style={isWide && styles.heroHeading}>
+        <Text variant="lead" style={[styles.name, isWide && styles.wideName]}>
+          {name ?? " "}
+        </Text>
+        {isWide && chip !== undefined && <StatusChip chip={chip} />}
+      </View>
       {children}
+      {!isWide && how}
+      {!isWide && chip !== undefined && <StatusChip chip={chip} />}
+      {action !== undefined && (
+        <View style={isWide ? styles.heroFooter : styles.heroAction}>
+          {isWide && how}
+          {action}
+        </View>
+      )}
     </View>
   );
 }
@@ -287,8 +338,19 @@ function PinDigits({
   readonly placeholder?: boolean;
 }) {
   const locale = useAppLocale();
-  const { width, fontScale } = useWindowDimensions();
-  const size = accessPinBoxSize(groups, width - 2 * space.gutter, fontScale);
+  const { availableWidth, fontScale, isExpanded, isWide } = useViewport();
+  const [measuredWidth, setMeasuredWidth] = useState<number>();
+  const gutter = isWide ? wideGutter : space.gutter;
+  const contentWidth = Math.min(
+    availableWidth - 2 * gutter,
+    contentColumnWidth[isExpanded ? "wide" : "form"]
+  );
+  // Bound the last measurement by the new pane width during live resize.
+  const paneWidth = isExpanded ? (contentWidth - space.xxl) / 2 : contentWidth;
+  const digitWidth = paneWidth - (isWide ? 2 * space.xxl : 0);
+  const available = Math.min(digitWidth, measuredWidth ?? digitWidth);
+  const size = accessPinBoxSize(groups, available, fontScale, isWide);
+  const { digitGap, groupGap } = isWide ? wideAccessPinBox : accessPinBox;
   const box = {
     borderRadius: size.radius,
     height: size.height,
@@ -307,7 +369,8 @@ function PinDigits({
               { locale }
             )
       }
-      style={styles.pin}
+      onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}
+      style={[styles.pin, { columnGap: groupGap }, isWide && styles.widePin]}
     >
       {groups.map((group, groupIndex) => (
         <View
@@ -315,7 +378,7 @@ function PinDigits({
           importantForAccessibility="no-hide-descendants"
           // biome-ignore lint/suspicious/noArrayIndexKey: PIN groups are positional.
           key={groupIndex}
-          style={styles.group}
+          style={[styles.group, { columnGap: digitGap }]}
         >
           {Array.from(group).map((digit, index) => (
             <View
@@ -350,10 +413,6 @@ function PinDigits({
   );
 }
 
-/**
- * Copy PIN, top right: copies the PIN and nothing else, and turns into a
- * check for two seconds instead of a toast.
- */
 function CopyPin({
   orderId,
   code,
@@ -362,8 +421,12 @@ function CopyPin({
   readonly code: string;
 }) {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const [copied, copy] = useAtom(copyPinWithFeedbackAtom(orderId));
   const done = showsCopied(copied);
+  const label = done
+    ? m.reservations_access_copied({}, { locale })
+    : m.reservations_access_copy({}, { locale });
   useLiveRegionAnnouncement(
     done ? m.reservations_access_copied({}, { locale }) : undefined,
     "polite"
@@ -377,15 +440,11 @@ function CopyPin({
   return (
     <Pressable
       role="button"
-      aria-label={
-        done
-          ? m.reservations_access_copied({}, { locale })
-          : m.reservations_access_copy({}, { locale })
-      }
+      aria-label={label}
       disabled={copied.waiting && !done}
       onPress={() => copy(code)}
       style={({ pressed }) => [
-        styles.iconButton,
+        isWide ? styles.copyButton : styles.iconButton,
         pressed && styles.onNavyPressed,
       ]}
     >
@@ -394,13 +453,18 @@ function CopyPin({
         size={done ? 24 : 20}
         color={done ? color.positive : color.white}
       />
+      {isWide && (
+        <Text variant="label" style={styles.copyLabel}>
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
 
-/** The status chip under the PIN: when it starts, that it works now, or that it ended. */
 function StatusChip({ chip }: { readonly chip: AccessChip }) {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const tone = {
     Starts: styles.chipSoon,
     Active: styles.chipLive,
@@ -412,7 +476,7 @@ function StatusChip({ chip }: { readonly chip: AccessChip }) {
     Ended: color.onNavyMuted,
   }[chip._tag];
   return (
-    <View style={styles.chipRow}>
+    <View style={isWide ? styles.wideChipRow : styles.chipRow}>
       <View style={[styles.chip, tone]}>
         {chip._tag === "Starts" && <Icon icon={Clock} size={16} color={ink} />}
         {chip._tag === "Active" && <View aria-hidden style={styles.liveDot} />}
@@ -435,6 +499,7 @@ function WindowAndPlace({
   readonly row: Option.Option<ReservationListRow>;
 }) {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const [calendar, shareEvent] = useAtom(calendarShareAtom(orderId));
   const event = Option.getOrUndefined(
@@ -460,24 +525,32 @@ function WindowAndPlace({
     ...Option.match(window, {
       onNone: () => [],
       onSome: (parsed) =>
-        AccessWindowSpan.$match(accessWindowSpanOf(parsed), {
-          Days: ({ first, last }) => [
-            [
-              m.reservations_access_for({}, { locale }),
-              accessDaysText(first, last, locale),
-            ] as const,
-          ],
-          Times: ({ from, until }) => [
-            [
-              m.reservations_access_from({}, { locale }),
-              accessDateTimeText(from, locale, "start"),
-            ] as const,
-            [
-              m.reservations_access_until({}, { locale }),
-              accessDateTimeText(until, locale, "end"),
-            ] as const,
-          ],
-        }),
+        AccessWindowSpan.$match(
+          isWide
+            ? AccessWindowSpan.Times({
+                from: parsed.startsAt,
+                until: parsed.endsAt,
+              })
+            : accessWindowSpanOf(parsed),
+          {
+            Days: ({ first, last }) => [
+              [
+                m.reservations_access_for({}, { locale }),
+                accessDaysText(first, last, locale),
+              ] as const,
+            ],
+            Times: ({ from, until }) => [
+              [
+                m.reservations_access_from({}, { locale }),
+                accessDateTimeText(from, locale, "start"),
+              ] as const,
+              [
+                m.reservations_access_until({}, { locale }),
+                accessDateTimeText(until, locale, "end"),
+              ] as const,
+            ],
+          }
+        ),
     }),
     ...Option.match(establishment, {
       onNone: () => [],
@@ -497,12 +570,20 @@ function WindowAndPlace({
             {rows.map(([label, value], index) => (
               <Fragment key={label}>
                 {index > 0 && <View style={styles.divider} />}
-                <View style={styles.row}>
-                  <Text variant="rowValue" tone="muted" style={styles.rowLabel}>
+                <View style={[styles.row, isWide && styles.wideRow]}>
+                  <Text
+                    variant="rowValue"
+                    tone="muted"
+                    style={[styles.rowLabel, isWide && styles.wideRowLabel]}
+                  >
                     {label}
                   </Text>
                   {typeof value === "string" ? (
-                    <Text variant="rowValue" numeric style={styles.rowValue}>
+                    <Text
+                      variant="rowValue"
+                      numeric
+                      style={[styles.rowValue, isWide && styles.wideRowValue]}
+                    >
                       {value}
                     </Text>
                   ) : (
@@ -514,7 +595,7 @@ function WindowAndPlace({
           </View>
         </Card>
       )}
-      <View style={rows.length > 0 && styles.actionsAfterCard}>
+      <View style={!isWide && rows.length > 0 && styles.actionsAfterCard}>
         <ListGroup>
           {Option.isSome(establishment) && (
             <ListRow
@@ -552,6 +633,7 @@ function WindowAndPlace({
 /** The address in postal format; a tap copies it, confirmed in place. */
 function AddressValue({ place }: { readonly place: CustomerEstablishment }) {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const [copied, copy] = useAtom(copyAddressAtom);
   const done = showsCopied(copied);
   const [street, city] = establishmentAddressLines(place);
@@ -564,17 +646,21 @@ function AddressValue({ place }: { readonly place: CustomerEstablishment }) {
       role="button"
       aria-label={`${m.reservations_access_copy_address({}, { locale })}: ${place.formattedAddress}`}
       onPress={() => copy(establishmentCopyText(place))}
-      style={({ pressed }) => [styles.address, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.address,
+        isWide && styles.wideAddress,
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={styles.addressLines}>
-        <Text variant="rowValue" style={styles.rowValue}>
+      <View style={[styles.addressLines, isWide && styles.wideAddressLines]}>
+        <Text variant="rowValue" style={!isWide && styles.rowValue}>
           {street}
         </Text>
-        <Text variant="rowValue" style={styles.rowValue}>
+        <Text variant="rowValue" style={!isWide && styles.rowValue}>
           {city}
         </Text>
       </View>
-      <View style={styles.addressIcon}>
+      <View style={[styles.addressIcon, isWide && styles.wideAddressIcon]}>
         <Icon
           icon={done ? Check : Copy}
           size={16}
@@ -633,16 +719,52 @@ function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
 }
 
 const styles = StyleSheet.create({
+  accessLayout: { gap: space.lg },
+  expandedLayout: { flexDirection: "row", gap: space.xxl },
+  expandedPane: { flex: 1, minWidth: 0 },
+  // Extend the narrow PIN band to the screen edges under the navy header.
+  compactHeroPane: { marginHorizontal: -space.gutter, marginTop: -space.sm },
+  detailsPane: { gap: space.md },
   hero: {
     backgroundColor: color.navy,
     paddingBottom: 28,
     paddingHorizontal: space.gutter,
+  },
+  wideHero: {
+    ...shadow.card,
+    borderRadius: radius.card,
+    flexGrow: 1,
+    padding: space.xxl,
+  },
+  heroHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.sm,
+    justifyContent: "space-between",
   },
   name: {
     color: color.onNavyMuted,
     paddingHorizontal: touchTarget,
     paddingTop: space.xl,
     textAlign: "center",
+  },
+  wideName: {
+    color: color.white,
+    flexShrink: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    textAlign: "left",
+  },
+  heroFooter: {
+    alignItems: "center",
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.md,
+    justifyContent: "space-between",
+    paddingTop: space.lg,
   },
   heroAction: { position: "absolute", right: space.sm, top: space.xs },
   iconButton: {
@@ -652,17 +774,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: touchTarget,
   },
+  copyButton: {
+    alignItems: "center",
+    borderColor: color.onNavyMuted,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: space.sm,
+    maxWidth: "100%",
+    minHeight: touchTarget,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+  },
+  copyLabel: { color: color.white, flexShrink: 1 },
   onNavyPressed: { backgroundColor: "rgba(255, 255, 255, 0.12)" },
   pressed: { opacity: 0.7 },
   pin: {
-    columnGap: accessPinBox.groupGap,
+    alignSelf: "stretch",
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
     paddingTop: 14,
     rowGap: space.md,
   },
-  group: { columnGap: accessPinBox.digitGap, flexDirection: "row" },
+  widePin: {
+    alignContent: "center",
+    flexGrow: 1,
+    paddingBottom: space.xxxl,
+    paddingTop: space.xxxl,
+  },
+  group: { flexDirection: "row" },
   box: {
     alignItems: "center",
     backgroundColor: "rgba(255, 255, 255, 0.1)",
@@ -689,7 +830,17 @@ const styles = StyleSheet.create({
     marginTop: space.md,
   },
   howText: { color: color.onNavyMuted, flexShrink: 1, textAlign: "center" },
+  wideHow: {
+    flexBasis: 156,
+    flexGrow: 1,
+    flexShrink: 1,
+    justifyContent: "flex-start",
+    marginTop: 0,
+    minWidth: 0,
+  },
+  wideHowText: { textAlign: "left" },
   chipRow: { alignItems: "center", marginTop: space.lg },
+  wideChipRow: { flexShrink: 1, maxWidth: "100%" },
   chip: {
     alignItems: "center",
     borderRadius: radius.pill,
@@ -721,6 +872,9 @@ const styles = StyleSheet.create({
   divider: { backgroundColor: color.divider, height: 1 },
   rowLabel: { flexShrink: 0 },
   rowValue: { flexShrink: 1, marginLeft: "auto", textAlign: "right" },
+  wideRow: { flexWrap: "nowrap", justifyContent: "flex-start" },
+  wideRowLabel: { flexBasis: "16%", minWidth: 64 },
+  wideRowValue: { flex: 1, marginLeft: 0, minWidth: 0, textAlign: "left" },
   address: {
     alignItems: "flex-start",
     columnGap: space.sm,
@@ -730,6 +884,9 @@ const styles = StyleSheet.create({
   },
   addressLines: { alignItems: "flex-end", flexShrink: 1 },
   addressIcon: { paddingTop: space.xs },
+  wideAddress: { flex: 1, marginLeft: 0, minHeight: touchTarget, minWidth: 0 },
+  wideAddressLines: { alignItems: "flex-start", flex: 1, minWidth: 0 },
+  wideAddressIcon: { paddingTop: 0 },
   skeleton: { gap: space.md },
   actions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
   // Board 24 has 16 between the window card and the actions; the screen's
