@@ -10,26 +10,17 @@ type OfficeCheckoutSummaryItem = Extract<
   { readonly product: { readonly kind: "office" } }
 >;
 
-/** The office's first day as order lines name it, such as "Wed, Nov 18". */
-const formatOfficeOrderDate = (date: Temporal.PlainDate, locale: Locale) =>
-  new Intl.DateTimeFormat(locale, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(date.toZonedDateTime("UTC").epochMilliseconds);
-
 export function OfficeCheckoutSummaryItem({
   changed,
   item,
   locale,
-  startsOn,
+  startDateLabel,
 }: {
   readonly changed?: boolean;
   readonly item: OfficeCheckoutSummaryItem;
   readonly locale: Locale;
   /** The office's first day, when the page knows the reservation. */
-  readonly startsOn?: Temporal.PlainDate;
+  readonly startDateLabel?: string;
 }) {
   const discountAmount = item.originalAmount
     ? moneyWithValue(item.amount.value - item.originalAmount.value, item.amount)
@@ -42,7 +33,7 @@ export function OfficeCheckoutSummaryItem({
         changed={changed}
         label={[
           getWorkspaceOfficeProductTitle(locale),
-          ...(startsOn ? [formatOfficeOrderDate(startsOn, locale)] : []),
+          ...(startDateLabel ? [startDateLabel] : []),
           m.checkoutSummaryItemOfficeDayCount(
             { dayCount: item.dayCount },
             { locale }

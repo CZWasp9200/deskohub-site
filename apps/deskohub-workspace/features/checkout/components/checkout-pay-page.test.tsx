@@ -414,7 +414,7 @@ describe("CheckoutPayPage provider handoff", () => {
     const view = render(
       <CheckoutPayPage
         locale="en-US"
-        officeStartsOn={Temporal.PlainDate.from(startsOn)}
+        officeStartDateLabel="Wed, Nov 18"
         payStateToken="signed-summary"
         people={{
           contact: { name: "Alex Sample", email: "alex.sample@deskohub.test" },
@@ -433,6 +433,7 @@ describe("CheckoutPayPage provider handoff", () => {
     expect(people.querySelectorAll("li")).toHaveLength(2);
     expect(people.textContent).toContain("Alex Sample");
     expect(people.textContent).toContain("jana.novak@example.org");
+    expect(view.container.textContent).toContain("Wed, Nov 18");
     expect(
       view.getByText(
         m.officePeopleCount({ count: 2, maximum: 6 }, { locale: "en-US" })

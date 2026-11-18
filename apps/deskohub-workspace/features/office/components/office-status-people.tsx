@@ -13,7 +13,7 @@ export type OfficeStatusInvitee = {
   readonly id: string;
   readonly email: string;
   /** When the booker may send the invitation again; absent when they may now. */
-  readonly resendAvailableAt?: Temporal.Instant;
+  readonly resendAvailableAt?: string;
 };
 
 /** Who is coming to a booked office, as its booker's status page lists them. */
@@ -24,8 +24,8 @@ export type OfficeStatusPeople = {
 
 /** What sending an invitation again did. */
 export type OfficeInvitationResend =
-  | { readonly status: "sent"; readonly resendAvailableAt?: Temporal.Instant }
-  | { readonly status: "cooldown"; readonly retryAt?: Temporal.Instant }
+  | { readonly status: "sent"; readonly resendAvailableAt: string }
+  | { readonly status: "cooldown"; readonly retryAt: string }
   | { readonly status: "failed" };
 
 /** Sends one invitee their invitation again. */
@@ -128,7 +128,10 @@ function OfficeStatusInviteeRow({
   const resend = async () => {
     if (!resendInvitation) return;
     setState("sending");
-    const outcome = await resendInvitation({ orderId, inviteeId: invitee.id });
+    const outcome = await resendInvitation({
+      orderId,
+      inviteeId: invitee.id,
+    }).catch(() => ({ status: "failed" as const }));
     if (outcome.status === "sent") {
       setAvailableAt(outcome.resendAvailableAt);
       setState("sent");
@@ -145,7 +148,7 @@ function OfficeStatusInviteeRow({
       </span>
       {resendInvitation && (
         <span className="shrink-0">
-          {state === "sent" ? (
+          {state === "sent" && coolingDown ? (
             <span className="inline-flex h-9 items-center gap-2 rounded-full border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 text-xs font-semibold uppercase tracking-[0.08em] text-aquamarine-ink">
               <Check aria-hidden="true" className="size-4" />
               {m.checkoutStatusPeopleSent({}, { locale })}
@@ -195,8 +198,11 @@ function OfficeStatusInviteeRow({
  * reads the clock only after hydration, so the server and the first client
  * render agree.
  */
-function useCoolingDown(availableAt: Temporal.Instant | undefined) {
-  const until = availableAt?.epochMilliseconds;
+function useCoolingDown(availableAt: string | undefined) {
+  const until =
+    availableAt === undefined
+      ? undefined
+      : Temporal.Instant.from(availableAt).epochMilliseconds;
   const [passedUntil, setPassedUntil] = useState<number>();
 
   useEffect(() => {

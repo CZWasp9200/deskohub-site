@@ -522,7 +522,7 @@ describe("CheckoutStatusPage", () => {
     const reservedFrom = Temporal.Instant.from("2026-11-17T23:00:00Z");
     const resendInvitation = mock(async () => ({
       status: "sent" as const,
-      resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }),
+      resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }).toString(),
     }));
     const view = render(
       <CheckoutStatusPage
@@ -544,7 +544,15 @@ describe("CheckoutStatusPage", () => {
           },
           people: {
             contactAttends: true,
-            invitees: [{ id: "invitee-jana", email: "jana.novak@example.org" }],
+            invitees: [
+              { id: "invitee-jana", email: "jana.novak@example.org" },
+              {
+                id: "invitee-petr",
+                email: "petr.svoboda@example.org",
+                resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }),
+              },
+            ],
+            resendable: true,
           },
         }}
       />
@@ -558,6 +566,14 @@ describe("CheckoutStatusPage", () => {
       )
     );
     expect(people?.textContent).toContain("jana.novak@example.org");
+    expect(
+      view.getByRole("button", {
+        name: m.checkoutStatusPeopleResendLabel(
+          { email: "petr.svoboda@example.org" },
+          { locale: "en-US" }
+        ),
+      })
+    ).toHaveProperty("disabled", true);
     expect(
       view.queryByText(
         m.checkoutStatusSummarySeatsLabel({}, { locale: "en-US" })

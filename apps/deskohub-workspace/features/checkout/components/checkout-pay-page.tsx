@@ -31,7 +31,7 @@ type CheckoutPayPageProps = {
   readonly freshPayUrl?: string;
   readonly locale: Locale;
   /** An office order's first day, which its order line names. */
-  readonly officeStartsOn?: Temporal.PlainDate;
+  readonly officeStartDateLabel?: string;
   readonly payStateToken?: string;
   /** Who is coming to an office order with a people list. */
   readonly people?: OfficeCheckoutPeople;
@@ -46,7 +46,7 @@ export function CheckoutPayPage({
   earlyPerformanceRequestRequired = true,
   freshPayUrl,
   locale,
-  officeStartsOn,
+  officeStartDateLabel,
   payStateToken,
   people,
   retryOutcome,
@@ -101,7 +101,7 @@ export function CheckoutPayPage({
             <CheckoutSummary
               changedKeys={changedKeys}
               locale={locale}
-              officeStartsOn={officeStartsOn}
+              officeStartDateLabel={officeStartDateLabel}
               summary={summary}
             />
             <OfficeCheckoutPeopleReview locale={locale} people={people} />
@@ -111,7 +111,7 @@ export function CheckoutPayPage({
         <CheckoutSummary
           changedKeys={changedKeys}
           locale={locale}
-          officeStartsOn={officeStartsOn}
+          officeStartDateLabel={officeStartDateLabel}
           summary={summary}
         />
       )}

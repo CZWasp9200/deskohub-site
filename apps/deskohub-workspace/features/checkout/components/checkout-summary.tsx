@@ -17,7 +17,7 @@ import {
 type CheckoutSummaryProps = {
   readonly locale: Locale;
   /** An office order's first day, which its order line names. */
-  readonly officeStartsOn?: Temporal.PlainDate;
+  readonly officeStartDateLabel?: string;
   readonly summary: CheckoutSummaryData;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
 };
@@ -41,7 +41,7 @@ const getSummaryItemLabel = (
 export function CheckoutSummary({
   changedKeys,
   locale,
-  officeStartsOn,
+  officeStartDateLabel,
   summary,
 }: CheckoutSummaryProps) {
   return (
@@ -85,7 +85,7 @@ export function CheckoutSummary({
                       changed={itemChanged}
                       item={productItem}
                       locale={locale}
-                      startsOn={officeStartsOn}
+                      startDateLabel={officeStartDateLabel}
                     />
                   )),
                   Match.exhaustive

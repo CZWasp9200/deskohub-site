@@ -15,7 +15,6 @@ import { type Locale, m } from "@/features/i18n";
 import { getMeetingRoomCheckoutStatusSummary } from "@/features/meeting-room/components/meeting-room-checkout-status-summary";
 import { getOfficeCheckoutStatusSummary } from "@/features/office/components/office-checkout-status-summary";
 import {
-  type OfficeStatusPeople,
   OfficeStatusPeopleList,
   type ResendOfficeInvitation,
 } from "@/features/office/components/office-status-people";
@@ -46,7 +45,15 @@ type CheckoutStatusPageProps = {
   readonly resendInvitation?: ResendOfficeInvitation;
   readonly status: CheckoutStatusViewModel & {
     /** Who is coming to an office booked with a people list. */
-    readonly people?: OfficeStatusPeople;
+    readonly people?: {
+      readonly contactAttends: boolean;
+      readonly invitees: ReadonlyArray<{
+        readonly id: string;
+        readonly email: string;
+        readonly resendAvailableAt?: Temporal.Instant;
+      }>;
+      readonly resendable: boolean;
+    };
   };
 };
 
@@ -277,8 +284,17 @@ export function CheckoutStatusPage({
       contact={status.supportContactPrefill}
       locale={locale}
       orderId={status.orderId}
-      people={status.people}
-      resendInvitation={resendInvitation}
+      people={{
+        contactAttends: status.people.contactAttends,
+        invitees: status.people.invitees.map(
+          ({ id, email, resendAvailableAt }) => ({
+            id,
+            email,
+            resendAvailableAt: resendAvailableAt?.toString(),
+          })
+        ),
+      }}
+      resendInvitation={status.people.resendable ? resendInvitation : undefined}
     />
   );
   const summaryPresentation = getSummaryPresentation(
