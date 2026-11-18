@@ -43,6 +43,14 @@ import type { StoredMeetingRoomReservationDetails } from "@/features/reservation
 import type { StoredOfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
+import {
+  getBookedPeopleQuery,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import {
+  type ReservationPeopleView,
+  toReservationPeopleView,
+} from "@/features/reservation-invitees/reservation-people-view";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
@@ -148,6 +156,11 @@ type CheckoutMeetingRoomStatusViewModel =
 type CheckoutOfficeStatusViewModel = CheckoutReservationStatusViewModelBase & {
   readonly kind: "office";
   readonly summary?: CheckoutOfficeStatusSummary;
+  /**
+   * Who is coming, for an office booked with a people list; absent for one
+   * booked by seats alone and once the retention purge removed an invitee.
+   */
+  readonly people?: ReservationPeopleView;
 };
 
 type CheckoutStatusNotFoundViewModel = CheckoutStatusViewModelBase & {
@@ -357,6 +370,29 @@ const implementation = Effect.gen(function* () {
   const inventory = yield* AdvisoryAvailabilityInventory;
   const finalization = yield* ProviderPaymentFinalizationService;
   const seatingMap = yield* SeatingMapReleaseGate;
+  const invitees = yield* ReservationInvitees;
+
+  // Who is coming is extra detail: a status still answers without it.
+  const loadOfficePeople = Effect.fnUntraced(function* (
+    reservation: WorkspaceReservation
+  ) {
+    const booked = yield* invitees
+      .findBookedPeople(getBookedPeopleQuery(reservation))
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Checkout status people unavailable", {
+            cause,
+          }).pipe(Effect.as(Option.none()))
+        )
+      );
+    const now = yield* currentInstant;
+    return Option.map(booked, (people) =>
+      toReservationPeopleView(people, {
+        now,
+        resendable: reservation.reservationState === "confirmed",
+      })
+    );
+  });
 
   /**
    * Loads what the summary needs at once: the displayable payment attempt, the
@@ -822,9 +858,17 @@ const implementation = Effect.gen(function* () {
           bookedSelection: reconstruction.bookedSelection,
         }),
       };
+      const people =
+        reconstruction.reservation.kind === "office"
+          ? yield* loadOfficePeople(reservation)
+          : Option.none();
       const result: CheckoutReservationStatusViewModel = {
         ...resultBase,
         ...reconstruction.reservation,
+        ...Option.match(people, {
+          onNone: () => ({}),
+          onSome: (found) => ({ people: found }),
+        }),
       };
 
       yield* Effect.annotateLogsScoped({
@@ -955,6 +999,7 @@ export class CheckoutStatusService extends Context.Service<
       Layer.provide(PaymentAttemptRepository.Default),
       Layer.provide(WorkspaceReservationRepository.Default),
       Layer.provide(ReviewSandbox.Default),
+      Layer.provide(ReservationInvitees.Default),
       Layer.provide(WorkspaceDatabase.Default),
       Layer.provide(WorkspaceDotyposLayer),
       Layer.provide(SharedAvailabilityInventoryLive),
