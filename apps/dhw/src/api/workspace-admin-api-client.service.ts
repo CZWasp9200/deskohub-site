@@ -76,6 +76,8 @@ import {
   type AdministrationReservationProductDetailsBackfillBatchType,
   type AdministrationReservationProductDetailsBackfillInputType,
   type AdministrationReservationQueryType,
+  type AdministrationReservationRestorationInputType,
+  type AdministrationReservationRestorationResultType,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
   type AdministrationStandaloneAccessCodeCreationOutcomeType,
@@ -254,6 +256,18 @@ interface IWorkspaceAdminApiClient {
     input: AdministrationReservationCancellationInputType
   ) => Effect.Effect<
     AdministrationReservationCancellationResultType,
+    | CliApiRequestError
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly restoreReservation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    reservationId: AdministrationWorkspaceReservationIdType,
+    input: AdministrationReservationRestorationInputType
+  ) => Effect.Effect<
+    AdministrationReservationRestorationResultType,
     | CliApiRequestError
     | CliMutationRejected
     | CliResourceNotFound
@@ -1095,6 +1109,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             })
           ),
           Effect.mapError(sanitizeVersionedRejectedResourceError)
+        )
+    ),
+    restoreReservation: Effect.fn("WorkspaceAdminApiClient.restoreReservation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        reservationId: AdministrationWorkspaceReservationIdType,
+        input: AdministrationReservationRestorationInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.restoreReservation({
+              params: { reservationId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeRejectedResourceError)
         )
     ),
     getDiscountCode: Effect.fn("WorkspaceAdminApiClient.getDiscountCode")(

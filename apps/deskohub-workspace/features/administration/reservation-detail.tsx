@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Locale } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { formatMoney } from "@/shared/money/money";
+import { restoreAdministrationReservation } from "./actions";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationDetail as ReservationDetailData } from "./administration.service";
 import { administrationHref } from "./administration-href";
@@ -38,6 +39,7 @@ import { ReservationAccessAdministration } from "./reservation-access-administra
 import { ReservationCancellation } from "./reservation-cancellation";
 import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 import { getAdministrationReservationProductTitle } from "./reservation-product";
+import { ReservationRestoration } from "./reservation-restoration";
 
 /**
  * The reservation detail screen. It awaits only the route locale, which
@@ -162,7 +164,7 @@ type ReservationDetailSectionProps = {
   readonly locale: Locale;
 };
 
-/** The reservation's booking status, cancellation, schedule and booked facts. */
+/** The reservation's booking status, cancellation or restoration, schedule and booked facts. */
 function ReservationSummarySection({
   detail,
   locale,
@@ -190,6 +192,11 @@ function ReservationSummarySection({
           <ReservationCancellation
             canCancel={detail.canCancel}
             reservationId={reservation.id}
+          />
+          <ReservationRestoration
+            reservationId={reservation.id}
+            restoration={detail.canRestore ? detail.restoration : null}
+            restoreReservation={restoreAdministrationReservation}
           />
         </div>
       </div>

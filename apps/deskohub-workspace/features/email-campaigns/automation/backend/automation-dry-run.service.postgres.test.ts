@@ -1213,12 +1213,16 @@ describe.skipIf(!testDatabase)(
         { length: 1005 },
         (_, index) => `many-${index}`
       );
+      // A customer's events a tick apart, so none is held off.
+      const cancelledAt = (index: number) =>
+        ago({ hours: 1, minutes: 5 * index });
       await seedReservations(
         labels.map((label, index) => ({
           label,
           customer: customers[index % 3]!,
           startsAt: ago({ hours: 24 * 40 }),
           endsAt: ago({ hours: 24 * 40 - 1 }),
+          workspaceCancelledAt: cancelledAt(index),
         }))
       );
       await seedEvents(
@@ -1226,8 +1230,7 @@ describe.skipIf(!testDatabase)(
           kind: "reservation-cancelled",
           reservation: label,
           customer: customers[index % 3]!,
-          // A customer's events a tick apart, so none is held off.
-          occurredAt: ago({ hours: 1, minutes: 5 * index }),
+          occurredAt: cancelledAt(index),
         }))
       );
       const campaignId = await seedAutomation({
@@ -1345,7 +1348,7 @@ describe.skipIf(!testDatabase)(
       ).toEqual(localBefore);
     });
 
-    test("a Workspace-cancelled reservation skips the live re-check, which compares at stored precision, and a cancellation trigger is never withdrawn", async () => {
+    test("a Workspace-cancelled reservation skips the live re-check, which compares at stored precision, and a standing cancellation trigger is not withdrawn", async () => {
       const [moved, movedCancelled, sameMoment, cancellation] = [
         "recheck-moved",
         "recheck-moved-cancelled",
@@ -1363,7 +1366,8 @@ describe.skipIf(!testDatabase)(
         startsAt: finishedAt.subtract({ hours: 2 }),
         endsAt: finishedAt.add({ hours: 1 }),
       };
-      const cancelledAt = ago({ minutes: 31 });
+      // The newest cancellation, so the 1,000-event cap keeps it.
+      const cancelledAt = ago({ minutes: 30 });
       await seedReservations([
         { label: "recheck-moved", customer: moved, ...extended },
         {
@@ -1407,8 +1411,7 @@ describe.skipIf(!testDatabase)(
           kind: "reservation-cancelled",
           reservation: "recheck-cancellation",
           customer: cancellation,
-          // The newest cancellation, so the 1,000-event cap keeps it.
-          occurredAt: cancelledAt.add({ minutes: 1 }),
+          occurredAt: cancelledAt,
         },
       ]);
       const finishedCampaign = await seedAutomation({
@@ -1458,8 +1461,80 @@ describe.skipIf(!testDatabase)(
       expect(byEvent.get(cancellationEvent!)?.outcome).toBe("would-send");
     });
 
+    test("a cancellation a restore undid is withdrawn before entry, and the reservation's later cancellation replays", async () => {
+      const [restored, cancelledAgain] = [
+        "undone-restored",
+        "undone-again",
+      ].map(customerId) as [DotyposCustomerId, DotyposCustomerId];
+      // The newest cancellations, so the 1,000-event cap keeps them.
+      const firstCancelledAt = ago({ minutes: 45 });
+      const secondCancelledAt = ago({ minutes: 20 });
+      await seedReservations([
+        {
+          label: "undone-restored",
+          customer: restored,
+          startsAt: ago({ hours: 24 * 4 }),
+          endsAt: ago({ hours: 24 * 4 - 2 }),
+        },
+        {
+          label: "undone-again",
+          customer: cancelledAgain,
+          startsAt: ago({ hours: 24 * 4 }),
+          endsAt: ago({ hours: 24 * 4 - 2 }),
+          workspaceCancelledAt: secondCancelledAt,
+        },
+      ]);
+      const [restoredEvent, undoneEvent, againEvent] = await seedEvents([
+        {
+          kind: "reservation-cancelled",
+          reservation: "undone-restored",
+          customer: restored,
+          occurredAt: firstCancelledAt,
+        },
+        {
+          kind: "reservation-cancelled",
+          reservation: "undone-again",
+          customer: cancelledAgain,
+          occurredAt: firstCancelledAt,
+        },
+        {
+          kind: "reservation-cancelled",
+          reservation: "undone-again",
+          customer: cancelledAgain,
+          occurredAt: secondCancelledAt,
+        },
+      ]);
+      const campaignId = await seedAutomation({
+        flow: decodeFlow({
+          trigger: { _tag: "ReservationCancelled" },
+          steps: [send],
+        }),
+      });
+
+      const started = await start(campaignId);
+      await processAll(started.previewId);
+
+      const byEvent = new Map(
+        (await rowsOf(started.previewId)).map((row) => [
+          row.customerEventId,
+          row,
+        ])
+      );
+      expect(byEvent.get(restoredEvent!)).toMatchObject({
+        outcome: "withdrawn",
+        stepId: null,
+      });
+      expect(byEvent.get(undoneEvent!)).toMatchObject({
+        outcome: "withdrawn",
+        stepId: null,
+      });
+      expect(byEvent.get(againEvent!)?.outcome).toBe("would-send");
+    });
+
     test("a saved audience edited after planning still evaluates", async () => {
       const mia = customerId("mia");
+      // The newest cancellation, so the 1,000-event cap keeps it.
+      const cancelledAt = ago({ minutes: 30 });
       await seedReservations([
         {
           label: "mia",
@@ -1467,14 +1542,20 @@ describe.skipIf(!testDatabase)(
           startsAt: ago({ hours: 24 * 20 }),
           endsAt: ago({ hours: 24 * 20 - 2 }),
         },
+        {
+          label: "mia-cancelled",
+          customer: mia,
+          startsAt: ago({ hours: 24 * 2 }),
+          endsAt: ago({ hours: 24 * 2 - 2 }),
+          workspaceCancelledAt: cancelledAt,
+        },
       ]);
       const [event] = await seedEvents([
         {
           kind: "reservation-cancelled",
-          reservation: "mia",
+          reservation: "mia-cancelled",
           customer: mia,
-          // The newest cancellation, so the 1,000-event cap keeps it.
-          occurredAt: ago({ minutes: 30 }),
+          occurredAt: cancelledAt,
         },
       ]);
       const savedAudience = await seedAudience({

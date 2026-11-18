@@ -59,7 +59,9 @@ import { automationTickAtOrAfter } from "../automation-ticks";
 import {
   readsTriggeringVisit,
   triggeringVisitVerdict,
+  type WorkspaceCancellations,
   withdrawnByCancellation,
+  withdrawnByWorkspaceCancellation,
 } from "../automation-trigger-verification";
 import { automationTriggerKind } from "../automation-triggers";
 import type { AutomationConditionAudienceMissing } from "../errors";
@@ -675,13 +677,13 @@ export const makePreviewUnitHandler = Effect.gen(function* () {
             Effect.mapError(databaseFailure)
           );
 
-  /** When Workspace cancelled each reservation, for the pre-submit check. */
+  /**
+   * When Workspace cancelled each reservation, for the re-check of
+   * cancellation events and the pre-submit check.
+   */
   const workspaceCancellations = (
     reservationIds: readonly WorkspaceReservationId[]
-  ): Effect.Effect<
-    ReadonlyMap<WorkspaceReservationId, Temporal.Instant>,
-    AutomationUnitFetchFailure
-  > =>
+  ): Effect.Effect<WorkspaceCancellations, AutomationUnitFetchFailure> =>
     reservationIds.length === 0
       ? Effect.succeed(new Map<WorkspaceReservationId, Temporal.Instant>())
       : db
@@ -693,7 +695,7 @@ export const makePreviewUnitHandler = Effect.gen(function* () {
           .where(inArray(workspaceReservations.id, [...reservationIds]))
           .pipe(
             Effect.map(
-              (rows): ReadonlyMap<WorkspaceReservationId, Temporal.Instant> =>
+              (rows): WorkspaceCancellations =>
                 new Map(
                   rows.flatMap(({ id, cancelledAt }) =>
                     cancelledAt === null ? [] : [[id, cancelledAt] as const]
@@ -863,8 +865,11 @@ export const conditionFilterOf = (
  * Intake's live re-check of the triggering visit (§5.6), as of the event
  * and at stored precision: a withdrawn trigger withdraws the event, and a
  * moved one is superseded and hidden, because the sweep records the moved
- * visit as a later event. A reservation Workspace cancelled is left to the
- * pre-submit check, which knows when. None when the event stands.
+ * visit as a later event. A cancellation a restore undid is withdrawn
+ * before it enters, as intake and the pre-submit check withdraw it; a
+ * later cancellation of the reservation replays as an event of its own. A
+ * reservation Workspace cancelled is otherwise left to the pre-submit
+ * check, which knows when. None when the event stands.
  */
 const recheck = (input: {
   readonly kind: AutomationTriggerKind;
@@ -873,12 +878,24 @@ const recheck = (input: {
     WorkspaceReservationId,
     Option.Option<ReservationVisit>
   >;
-  readonly cancellations: ReadonlyMap<WorkspaceReservationId, Temporal.Instant>;
+  readonly cancellations: WorkspaceCancellations;
 }): Option.Option<ReplayedEvent> => {
   const reservationId = input.event.workspaceReservationId;
-  if (reservationId === null || input.cancellations.has(reservationId)) {
-    return Option.none();
+  if (reservationId === null) return Option.none();
+  if (
+    !withdrawnByCancellation(input.kind) &&
+    withdrawnByWorkspaceCancellation(
+      { kind: input.kind, at: input.event.occurredAt, reservationId },
+      input.cancellations
+    )
+  ) {
+    return Option.some({
+      _tag: "Withdrawn",
+      stepId: Option.none(),
+      at: Option.none(),
+    });
   }
+  if (input.cancellations.has(reservationId)) return Option.none();
   const verdict = triggeringVisitVerdict({
     kind: input.kind,
     visit: Option.flatten(
@@ -910,13 +927,13 @@ const recheck = (input: {
  * The deliver unit's pre-submit check (§5.9): a reservation Workspace
  * cancelled before the send instant withdraws the run then (D28); one
  * cancelled after it was already sent. Runs a cancellation triggered are
- * never withdrawn.
+ * not withdrawn here: the re-check already withdrew those a restore undid.
  */
 const preSubmit = (input: {
   readonly kind: AutomationTriggerKind;
   readonly event: ReplayEvent;
   readonly end: Extract<ReplayedEvent, { _tag: "Entered" }>["end"];
-  readonly cancellations: ReadonlyMap<WorkspaceReservationId, Temporal.Instant>;
+  readonly cancellations: WorkspaceCancellations;
 }): ReplayedEvent => {
   const cancelledAt = Option.fromNullishOr(
     input.event.workspaceReservationId === null ||

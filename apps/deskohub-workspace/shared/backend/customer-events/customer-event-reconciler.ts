@@ -1,7 +1,16 @@
 import "@/shared/polyfills/temporal";
 
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { and, asc, eq, gte, isNotNull, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  isNotNull,
+  notExists,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -60,7 +69,7 @@ export class CustomerEventReconciler extends Context.Service<
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
 
-      const recordedEvent = (kind: CustomerEventKind) =>
+      const recordedEvent = (kind: CustomerEventKind, ...occurrence: SQL[]) =>
         db
           .select({ id: customerEvents.id })
           .from(customerEvents)
@@ -70,7 +79,8 @@ export class CustomerEventReconciler extends Context.Service<
               eq(
                 customerEvents.workspaceReservationId,
                 workspaceReservations.id
-              )
+              ),
+              ...occurrence
             )
           );
 
@@ -115,7 +125,17 @@ export class CustomerEventReconciler extends Context.Service<
                   // Only a booked reservation's cancellation is an event.
                   isNotNull(workspaceReservations.reservationConfirmedAt),
                   gte(workspaceReservations.reservationCancelledAt, since),
-                  notExists(recordedEvent("reservation-cancelled"))
+                  // Each cancellation is its own event: a reservation
+                  // restored and cancelled again gets one for the new time.
+                  notExists(
+                    recordedEvent(
+                      "reservation-cancelled",
+                      eq(
+                        customerEvents.occurredAt,
+                        workspaceReservations.reservationCancelledAt
+                      )
+                    )
+                  )
                 )
               )
               .orderBy(asc(workspaceReservations.reservationCancelledAt))

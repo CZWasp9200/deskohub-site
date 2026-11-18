@@ -46,6 +46,7 @@ import {
   AdministrationPaymentAttempt,
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
+  AdministrationReservationDetail,
   AdministrationReservationLookupQuery,
   AdministrationReservationProductDetailsBackfillBatch,
   AdministrationReservationProductDetailsBackfillInput,
@@ -958,6 +959,91 @@ describe("reservation summary contract", () => {
       Schema.decodeUnknownSync(AdministrationReservationSummary)(summary)
         .setupStartsAt
     ).toBeNull();
+  });
+});
+
+describe("reservation detail contract", () => {
+  // `AdministrationReservationDetail` as released dhw binaries decode it,
+  // before restoring reservations.
+  const ReleasedAdministrationReservationDetail =
+    AdministrationReservationDetail.mapFields(
+      Struct.omit(["canRestore", "restoration"])
+    );
+  const detail = {
+    reservation: {
+      id: "reservation-id",
+      customerId: "customer-id",
+      customer: null,
+      liveDetailsAvailable: true,
+      startsAt: "2026-08-10T08:00:00Z",
+      endsAt: "2026-08-10T09:00:00Z",
+      date: "2026-08-10",
+      type: "meeting-room",
+      typeLabel: "Meeting Room",
+      purpose: null,
+      status: { group: "cancelled", label: "Cancelled" },
+      statusNote: null,
+      createdAt: "2026-08-01T12:00:00Z",
+      latestPayment: null,
+      updatedAt: "2026-08-01T12:00:00Z",
+    },
+    booking: null,
+    lifecycle: {
+      currentStage: "cancelled",
+      label: "Reservation cancelled",
+      reachedStages: ["started", "held", "cancelled"],
+      tone: "neutral",
+    },
+    timeline: [],
+    paymentAttempts: [],
+    orders: [],
+    discounts: [],
+    accessGrant: null,
+    otherCustomerReservations: [],
+    sameDateReservations: [],
+    references: {
+      workspaceReservationId: "reservation-id",
+      dotyposReservationId: "booking-id",
+      customerId: "customer-id",
+    },
+    canCancel: false,
+  } as const;
+
+  test("keeps a restorable detail readable by released dhw", () => {
+    const restorable = {
+      ...detail,
+      canRestore: true,
+      restoration: {
+        cancellationEmailRecorded: true,
+        issuesNewAccess: true,
+        clearsRefundRequirement: false,
+        refundedPayment: {
+          amount: { value: 25_000, exponent: 2, currency: "CZK" },
+          coverage: "partial",
+        },
+      },
+    } as const;
+    const response = Schema.encodeSync(AdministrationReservationDetail)(
+      Schema.decodeUnknownSync(AdministrationReservationDetail)(restorable)
+    );
+
+    expect(response).toMatchObject(restorable);
+    expect(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationDetail)(
+        response
+      )
+    ).toEqual(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationDetail)(detail)
+    );
+  });
+
+  test("reads an older server's detail as not restorable", () => {
+    const decoded = Schema.decodeUnknownSync(AdministrationReservationDetail)(
+      detail
+    );
+
+    expect(decoded.canRestore).toBe(false);
+    expect(decoded.restoration).toBeNull();
   });
 });
 

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "react-email";
-import type { Locale } from "@/features/i18n";
+import { type Locale, locales } from "@/features/i18n";
 import { formatReservationDisplayDateTimeRange } from "@/features/reservation/reservation-date";
 import { staffLocale } from "@/shared/backend/staff-locale";
+import { reservationEmailDetails } from "./_components/reservation-email-details";
 import {
   contactBusinessPreviewProps,
   contactConfirmationPreviewProps,
@@ -11,6 +12,7 @@ import {
   reservationAuthorPreviewProps,
   reservationCancellationPreviewProps,
   reservationNotificationPreviewProps,
+  reservationRestorationPreviewProps,
   workspaceCampaignPreviewProps,
 } from "./_fixtures/preview-props";
 import { ContactBusinessEmail } from "./contact-business";
@@ -23,6 +25,10 @@ import {
 import { ReservationAuthorEmail } from "./reservation-author";
 import { ReservationCancellationEmail } from "./reservation-cancellation";
 import { ReservationNotificationEmail } from "./reservation-notification";
+import {
+  ReservationRestorationEmail,
+  reservationRestorationEmailSubject,
+} from "./reservation-restoration";
 import { WorkspaceCampaignEmail } from "./workspace-campaign";
 
 describe("Workspace React Email templates", () => {
@@ -348,5 +354,48 @@ describe("reservation emails", () => {
     expect(czech).toContain('lang="cs-CZ"');
     expect(english).toContain('lang="en-US"');
     expect(czech).not.toBe(english);
+  });
+});
+
+describe("reservation restoration email", () => {
+  const englishSubject = reservationRestorationEmailSubject({
+    locale: "en-US",
+  });
+
+  test.each(locales)(
+    "renders in %s with the booking details and the access link",
+    async (locale) => {
+      const props = { ...reservationRestorationPreviewProps, locale };
+      const [html, text] = await Promise.all([
+        render(<ReservationRestorationEmail {...props} />),
+        render(<ReservationRestorationEmail {...props} />, { plainText: true }),
+      ]);
+
+      expect(html).toContain(`lang="${locale}"`);
+      const subject = reservationRestorationEmailSubject(props);
+      expect(subject).not.toBe("");
+      // Every catalog carries its own subject instead of the base fallback.
+      if (locale !== "en-US") expect(subject).not.toBe(englishSubject);
+      for (const { value } of reservationEmailDetails(
+        props.reservation,
+        locale
+      )) {
+        expect(text).toContain(value);
+      }
+      expect(html).toContain(`href="${props.accessUrl}"`);
+    }
+  );
+
+  test("links no access page when the restoration issued no new access code", async () => {
+    const { accessUrl, ...props } = reservationRestorationPreviewProps;
+    const [withAccess, withoutAccess] = await Promise.all([
+      render(<ReservationRestorationEmail {...props} accessUrl={accessUrl} />),
+      render(<ReservationRestorationEmail {...props} />),
+    ]);
+
+    expect(withAccess).toContain("/reservation/access/");
+    expect(withoutAccess).not.toContain("/reservation/access/");
+    expect(withoutAccess).not.toContain("accessToken=");
+    expect(withoutAccess).toContain(props.reservation.id);
   });
 });

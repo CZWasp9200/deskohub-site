@@ -104,13 +104,16 @@ export const getOccupancyWindow = (
 
 export const getWorkspaceReservationIntervalDates = (
   input: ReservationInterval | Temporal.PlainDate
-): DotyposReservationInterval => {
-  const window = getOccupancyWindow(input);
-  return {
-    startDate: new Date(window.startsAt),
-    endDate: new Date(window.endsAt),
-  };
-};
+): DotyposReservationInterval =>
+  getOccupancyWindowDates(getOccupancyWindow(input));
+
+/** The Dotypos query interval of an occupancy window. */
+export const getOccupancyWindowDates = (
+  window: OccupancyWindow
+): DotyposReservationInterval => ({
+  startDate: new Date(window.startsAt),
+  endDate: new Date(window.endsAt),
+});
 
 export const excludeDotyposReservationsById = <
   Reservation extends Pick<DotyposReservation, "id">,

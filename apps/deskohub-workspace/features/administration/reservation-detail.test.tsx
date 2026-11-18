@@ -14,6 +14,7 @@ import type { AdministrationReservationDetail as ReservationDetailData } from ".
 import { inactiveCustomerDisplayNames } from "./customer-name";
 import { loadFixtureReservation } from "./fixtures";
 import { formatAdministrationDateTime } from "./formatters";
+import { m } from "./i18n";
 
 mock.module("server-only", () => ({}));
 mock.module("next/server", () => ({ connection: () => Promise.resolve() }));
@@ -26,6 +27,7 @@ mock.module("@/features/i18n/server/request-locale", () => ({
 mock.module("./actions", () => ({
   cancelAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
+  restoreAdministrationReservation: mock(),
 }));
 
 let detail: ReservationDetailData | null = null;
@@ -148,6 +150,47 @@ describe("AdministrationReservationDetail", () => {
     expect(
       onTime.queryByText(formatAdministrationDateTime(setupStartsAt, locale))
     ).toBeNull();
+  });
+
+  test("offers restoring exactly when the detail says the reservation can be restored", async () => {
+    locale = "en-US";
+    const fixture = loadFixtureReservation("0198-admin-fixture-attention");
+    if (!fixture) throw new Error("Missing reservation fixture");
+    const restoration = {
+      cancellationEmailRecorded: true,
+      issuesNewAccess: true,
+      clearsRefundRequirement: false,
+      refundedPayment: null,
+    };
+    const offers = async (
+      state: Pick<
+        ReservationDetailData,
+        "canCancel" | "canRestore" | "restoration"
+      >
+    ) => {
+      detail = { ...fixture, ...state };
+      const view = await prerenderReservationDetail();
+      const offered = (name: string) =>
+        view.queryByRole("button", { name }) !== null;
+      return {
+        cancel: offered(
+          m.administrationReservationCancellationOpen({}, { locale })
+        ),
+        restore: offered(
+          m.administrationReservationRestorationOpen({}, { locale })
+        ),
+      };
+    };
+
+    expect(
+      await offers({ canCancel: false, canRestore: true, restoration })
+    ).toEqual({ cancel: false, restore: true });
+    expect(
+      await offers({ canCancel: true, canRestore: false, restoration: null })
+    ).toEqual({ cancel: true, restore: false });
+    expect(
+      await offers({ canCancel: false, canRestore: false, restoration })
+    ).toEqual({ cancel: false, restore: false });
   });
 
   const authorEmail = testEmailAddress("ada.author");

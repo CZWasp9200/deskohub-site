@@ -8,18 +8,25 @@ import {
   emailCampaignAutomationRuns as runs,
 } from "@/db/schema";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
+import {
+  holdPostgresTransaction,
+  waitForPostgresLockWaiter,
+} from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   deleteAutomatedCampaigns,
   seedAutomatedCampaign,
+  seedAutomatedSend,
   seedAutomation,
   seedAutomationVersion,
 } from "../../backend/email-campaigns.test-utils";
 import type { CampaignId } from "../../campaign-identifiers";
 import type {
+  AutomationRunId,
   AutomationStepId,
   AutomationVersionId,
 } from "../automation-identifiers";
+import type { AutomationTriggerKind } from "../automation-states";
 import {
   entryEngineLayer,
   makeEngineDotypos,
@@ -107,6 +114,64 @@ describe.skipIf(!database)("AutomationIntakePlanning on Postgres", () => {
     };
   };
 
+  /** A run of the reservation in `state`, triggered at `triggerAt`. */
+  const insertRun = async (input: {
+    readonly campaignId: CampaignId;
+    readonly versionId: AutomationVersionId;
+    readonly customer: Awaited<ReturnType<typeof fixtures.addCustomer>>;
+    readonly triggerKind: AutomationTriggerKind;
+    readonly triggerAt: Temporal.Instant;
+    readonly reservationId: Awaited<ReturnType<typeof fixtures.book>>;
+    readonly state?: "active" | "sending" | "ended";
+  }): Promise<AutomationRunId> => {
+    const state = input.state ?? "active";
+    const sendId =
+      state === "sending"
+        ? await seedAutomatedSend(db, {
+            campaignId: input.campaignId,
+            versionId: input.versionId,
+            purpose: "operational",
+            recipients: [{ dotyposCustomerId: input.customer, status: "sent" }],
+          })
+        : null;
+    const [run] = await Effect.runPromise(
+      db
+        .insert(runs)
+        .values({
+          campaignId: input.campaignId,
+          versionId: input.versionId,
+          dotyposCustomerId: input.customer,
+          triggerKind: input.triggerKind,
+          triggerAt: input.triggerAt,
+          triggerReservationId: input.reservationId,
+          status: state,
+          stepId: "send" as AutomationStepId,
+          stepEnteredAt: input.triggerAt,
+          ...(state === "active" && {
+            phase: "waiting" as const,
+            dueAt: now.add({ hours: 1 }),
+          }),
+          ...(state === "sending" && { sendId }),
+          ...(state === "ended" && {
+            outcome: "sent" as const,
+            endedAt: now.subtract({ minutes: 1 }),
+          }),
+        })
+        .returning({ id: runs.id })
+    );
+    return run!.id;
+  };
+
+  const runStates = async (runIds: readonly AutomationRunId[]) => {
+    const { rows } = await pool.query(
+      "select id, status, outcome from email_campaign_automation_runs where id = any($1)",
+      [runIds]
+    );
+    return Object.fromEntries(
+      rows.map((row) => [row.id, [row.status, row.outcome]])
+    );
+  };
+
   test("withdraws the active runs of a cancelled reservation, except those its cancellation started", async () => {
     const { campaignId, versionId } = await automation({
       flow: flowOf({ _tag: "ReservationBooked" }),
@@ -119,35 +184,36 @@ describe.skipIf(!database)("AutomationIntakePlanning on Postgres", () => {
       endsAt: now.add({ hours: 26 }),
     });
     const other = await fixtures.addCustomer("withdrawal-other");
-    const insertRun = (
+    const cancelledAt = now.subtract({ minutes: 5 });
+    const run = (
       dotyposCustomerId: typeof customer,
-      triggerKind: "reservation-booked" | "reservation-cancelled"
+      triggerKind: "reservation-booked" | "reservation-cancelled",
+      triggerAt: Temporal.Instant
     ) =>
-      Effect.runPromise(
-        db
-          .insert(runs)
-          .values({
-            campaignId,
-            versionId: versionId as AutomationVersionId,
-            dotyposCustomerId,
-            triggerKind,
-            triggerAt: now.subtract({ hours: 1 }),
-            triggerReservationId: reservationId,
-            status: "active",
-            stepId: "send" as AutomationStepId,
-            phase: "waiting",
-            stepEnteredAt: now.subtract({ hours: 1 }),
-            dueAt: now.add({ hours: 1 }),
-          })
-          .returning({ id: runs.id })
-      ).then(([run]) => run!.id);
-    const booked = await insertRun(customer, "reservation-booked");
-    const byCancellation = await insertRun(other, "reservation-cancelled");
+      insertRun({
+        campaignId,
+        versionId: versionId as AutomationVersionId,
+        customer: dotyposCustomerId,
+        triggerKind,
+        triggerAt,
+        reservationId,
+      });
+    const booked = await run(
+      customer,
+      "reservation-booked",
+      now.subtract({ hours: 1 })
+    );
+    const byCancellation = await run(
+      other,
+      "reservation-cancelled",
+      cancelledAt
+    );
+    await fixtures.cancelInWorkspace(reservationId, cancelledAt);
     await fixtures.recordEvent({
       kind: "reservation-cancelled",
       customer,
       reservationId,
-      occurredAt: now.subtract({ minutes: 5 }),
+      occurredAt: cancelledAt,
     });
 
     const summary = await plan();
@@ -168,6 +234,170 @@ describe.skipIf(!database)("AutomationIntakePlanning on Postgres", () => {
       [booked]
     );
     expect(entries.map(({ kind }) => kind)).toEqual(["withdrawn"]);
+  });
+
+  test("a cancellation a restore undid withdraws nothing and doesn't wait for the reservation's runs", async () => {
+    const { campaignId, versionId } = await automation({
+      flow: flowOf({ _tag: "ReservationBooked" }),
+    });
+    const customer = await fixtures.addCustomer("undone-withdrawal");
+    const reservationId = await fixtures.book({
+      label: "undone-withdrawal",
+      customer,
+      startsAt: now.add({ hours: 24 }),
+      endsAt: now.add({ hours: 26 }),
+    });
+    const booked = await insertRun({
+      campaignId,
+      versionId: versionId as AutomationVersionId,
+      customer,
+      triggerKind: "reservation-booked",
+      triggerAt: now.subtract({ hours: 1 }),
+      reservationId,
+    });
+    const cancelledAt = now.subtract({ minutes: 5 });
+    // Restored after the cancellation, then cancelled again later: the
+    // first event is undone, and the later cancellation's event isn't
+    // recorded yet.
+    await fixtures.cancelInWorkspace(
+      reservationId,
+      cancelledAt.add({ minutes: 1 })
+    );
+    const undone = await fixtures.recordEvent({
+      kind: "reservation-cancelled",
+      customer,
+      reservationId,
+      occurredAt: cancelledAt,
+    });
+
+    const summary = await plan();
+
+    expect(summary.withdrawnRuns).toBe(0);
+    expect(await runStates([booked])).toEqual({ [booked]: ["active", null] });
+    // No automation takes a cancellation, so the planner processes it.
+    expect(await eventState(undone)).toEqual({
+      planned: false,
+      processed: true,
+    });
+  });
+
+  test("an eager withdrawal waiting for the lifecycle lock leaves the runs of a reservation restored meanwhile", async () => {
+    const { campaignId, versionId } = await automation({
+      flow: flowOf({ _tag: "ReservationBooked" }),
+    });
+    const customer = await fixtures.addCustomer("restored-meanwhile");
+    const reservationId = await fixtures.book({
+      label: "restored-meanwhile",
+      customer,
+      startsAt: now.add({ hours: 24 }),
+      endsAt: now.add({ hours: 26 }),
+    });
+    const booked = await insertRun({
+      campaignId,
+      versionId: versionId as AutomationVersionId,
+      customer,
+      triggerKind: "reservation-booked",
+      triggerAt: now.subtract({ hours: 1 }),
+      reservationId,
+    });
+    const cancelledAt = now.subtract({ minutes: 5 });
+    await fixtures.cancelInWorkspace(reservationId, cancelledAt);
+    await fixtures.recordEvent({
+      kind: "reservation-cancelled",
+      customer,
+      reservationId,
+      occurredAt: cancelledAt,
+    });
+    // Holding the lifecycle lock stops the withdrawal after its select.
+    const lifecycle = await holdPostgresTransaction(
+      pool,
+      "select 1 from email_campaign_automations where campaign_id = $1 for update",
+      [campaignId]
+    );
+    const planning = plan();
+    try {
+      await waitForPostgresLockWaiter(pool, {
+        condition: "$1::int = any(pg_blocking_pids(pid))",
+        values: [lifecycle.pid],
+        description: "the withdrawal waiting for the lifecycle lock",
+      });
+      expect(
+        await fixtures.restoreInWorkspace(reservationId, cancelledAt, now)
+      ).toBe("retracted");
+    } finally {
+      await lifecycle.commit();
+    }
+
+    expect((await planning).withdrawnRuns).toBe(0);
+    expect(await runStates([booked])).toEqual({ [booked]: ["active", null] });
+  });
+
+  test("ends the active runs a restore's undone cancellation started, leaving sending and ended runs", async () => {
+    const { campaignId, versionId } = await automation({
+      flow: flowOf({ _tag: "ReservationCancelled" }),
+    });
+    const cancelledAt = now.subtract({ minutes: 30 });
+    const reservationOf = async (label: string) => {
+      const customer = await fixtures.addCustomer(label);
+      const reservationId = await fixtures.book({
+        label,
+        customer,
+        startsAt: now.add({ hours: 24 }),
+        endsAt: now.add({ hours: 26 }),
+      });
+      return { customer, reservationId };
+    };
+    const cancellationRun = async (
+      label: string,
+      state: "active" | "sending" | "ended" = "active"
+    ) => {
+      const { customer, reservationId } = await reservationOf(label);
+      const runId = await insertRun({
+        campaignId,
+        versionId: versionId as AutomationVersionId,
+        customer,
+        triggerKind: "reservation-cancelled",
+        triggerAt: cancelledAt,
+        reservationId,
+        state,
+      });
+      return { runId, reservationId };
+    };
+    // Restored: no longer cancelled.
+    const restored = await cancellationRun("undone-restored");
+    const sending = await cancellationRun("undone-sending", "sending");
+    const ended = await cancellationRun("undone-ended", "ended");
+    // Restored, then cancelled again later.
+    const again = await cancellationRun("undone-again");
+    await fixtures.cancelInWorkspace(
+      again.reservationId,
+      cancelledAt.add({ minutes: 10 })
+    );
+    // Still cancelled at the trigger.
+    const standing = await cancellationRun("undone-standing");
+    await fixtures.cancelInWorkspace(standing.reservationId, cancelledAt);
+
+    const summary = await plan();
+
+    expect(summary.withdrawnRuns).toBe(2);
+    expect(
+      await runStates(
+        [restored, sending, ended, again, standing].map(({ runId }) => runId)
+      )
+    ).toEqual({
+      [restored.runId]: ["ended", "withdrawn"],
+      [sending.runId]: ["sending", null],
+      [ended.runId]: ["ended", "sent"],
+      [again.runId]: ["ended", "withdrawn"],
+      [standing.runId]: ["active", null],
+    });
+    const { rows: entries } = await pool.query(
+      "select kind from email_campaign_automation_run_events where run_id = $1",
+      [restored.runId]
+    );
+    expect(entries.map(({ kind }) => kind)).toEqual(["withdrawn"]);
+    // A later plan has nothing left to end.
+    expect((await plan()).withdrawnRuns).toBe(0);
   });
 
   test("keeps a cancellation unprocessed until later plans have withdrawn all its runs", async () => {

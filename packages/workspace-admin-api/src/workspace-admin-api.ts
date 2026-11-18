@@ -1644,6 +1644,25 @@ export const AdministrationReservationAuthor = Schema.Union([
 export type AdministrationReservationAuthor =
   typeof AdministrationReservationAuthor.Type;
 
+/** What restoring a cancelled reservation would do. */
+export const AdministrationReservationRestoration = Schema.Struct({
+  /** The cancellation email reached the customer; a restoration email can follow. */
+  cancellationEmailRecorded: Schema.Boolean,
+  /** The reservation hasn't ended, so restoring issues a new access code. */
+  issuesNewAccess: Schema.Boolean,
+  /** Some payment awaits a refund Nexi hasn't recorded; restoring clears it. */
+  clearsRefundRequirement: Schema.Boolean,
+  /** What Nexi already refunded, in total; null when nothing was refunded. */
+  refundedPayment: Schema.NullOr(
+    Schema.Struct({
+      amount: AdministrationMoney,
+      coverage: Schema.Literals(["full", "partial"]),
+    })
+  ),
+});
+export type AdministrationReservationRestoration =
+  typeof AdministrationReservationRestoration.Type;
+
 export const AdministrationReservationDetail = Schema.Struct({
   /**
    * Null when the reservation is authorless or its customer booked it, and
@@ -1668,6 +1687,14 @@ export const AdministrationReservationDetail = Schema.Struct({
     customerId: AdministrationDotyposCustomerId,
   }),
   canCancel: Schema.Boolean,
+  /** False from servers that predate restoring reservations. */
+  canRestore: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(false))
+  ),
+  /** Null when `canRestore` is false. */
+  restoration: Schema.NullOr(AdministrationReservationRestoration).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+  ),
 });
 export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
@@ -1687,6 +1714,26 @@ export const AdministrationReservationCancellationResult = Schema.Struct({
 });
 export type AdministrationReservationCancellationResult =
   typeof AdministrationReservationCancellationResult.Type;
+
+export const AdministrationReservationRestorationInput = Schema.Struct({
+  /** Restore although Nexi already refunded some or all of the payment. */
+  acknowledgeRefundedPayment: Schema.Boolean,
+  /** Send the restoration email; honoured only when the cancellation email was recorded. */
+  sendRestorationEmail: Schema.Boolean,
+}).annotate({
+  parseOptions: { errors: "all", onExcessProperty: "error" },
+});
+export type AdministrationReservationRestorationInput =
+  typeof AdministrationReservationRestorationInput.Type;
+
+export const AdministrationReservationRestorationResult = Schema.Struct({
+  outcome: Schema.Literals(["restored", "already_confirmed"]),
+  email: Schema.Literals(["not_requested", "sent", "failed", "not_available"]),
+  /** `failed` keeps the restore; retrying access recovers the grant. */
+  access: Schema.Literals(["issued", "failed", "not_needed"]),
+});
+export type AdministrationReservationRestorationResult =
+  typeof AdministrationReservationRestorationResult.Type;
 
 export const AdministrationReservationProductDetailsBackfillInput =
   Schema.Struct({
@@ -2660,6 +2707,28 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         })
       )
       .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "restoreReservation",
+      "/reservations/:reservationId/restoration",
+      {
+        params: { reservationId: AdministrationWorkspaceReservationId },
+        payload: AdministrationReservationRestorationInput,
+        success: AdministrationReservationRestorationResult,
+        error: [
+          CliMutationRejected.schema,
+          CliResourceNotFound.schema,
+          CliServiceUnavailable.schema,
+        ],
+      }
+    ).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: false,
+        preview: readPreview("administration.getReservation"),
+      })
+    )
   )
   .add(
     HttpApiEndpoint.post(
