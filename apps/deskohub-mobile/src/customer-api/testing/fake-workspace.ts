@@ -199,11 +199,13 @@ export class FakeWorkspace {
     | undefined;
   /**
    * What the withdrawal quote answers for every order: the quote, or why the
-   * customer can't withdraw. Unset, every order is refused as not
-   * withdrawable.
+   * customer can't withdraw. Unset, each order answers for itself
+   * (`withdrawalFor`).
    */
-  withdrawal: CustomerWithdrawalQuote | CustomerWithdrawalRefusedReason =
-    "not_withdrawable";
+  withdrawal:
+    | CustomerWithdrawalQuote
+    | CustomerWithdrawalRefusedReason
+    | undefined;
   /** Awaited before the quote answers, as a slow response. */
   withdrawalQuoteDelay: Promise<void> | undefined;
   /** Awaited before a withdrawal is recorded, as a slow response. */
@@ -240,6 +242,36 @@ export class FakeWorkspace {
         ...order,
         state: { ...order.state, status },
       }),
+    };
+  }
+
+  /**
+   * What the withdrawal quote answers for the order: already withdrawn once
+   * recorded, else the set answer, else a full refund of its total while its
+   * list entry is withdrawable, and not withdrawable otherwise.
+   */
+  withdrawalFor(
+    orderId: CustomerReservationOrderId
+  ): CustomerWithdrawalQuote | CustomerWithdrawalRefusedReason {
+    const order = this.data.orders.get(orderId);
+    if (order?.state.withdrawal !== undefined) return "already_withdrawn";
+    if (this.withdrawal !== undefined) return this.withdrawal;
+    const { history } = this.data;
+    const entry = [...history.current, ...history.past].find(
+      (row) => row.orderId === orderId
+    );
+    const total = order?.state.total;
+    if (entry?.withdrawal?.eligible !== true || total === undefined)
+      return "not_withdrawable";
+    return {
+      contractId: orderId,
+      contractLabel: "Sample booking",
+      customerName: "Jana Nováková",
+      receiptEmail: "jana.novakova@deskohub.test",
+      paidAmount: total,
+      refundAmount: total,
+      refundBasis: { kind: "full" },
+      periodEndsAt: entry.withdrawal.periodEndsAt,
     };
   }
 
@@ -770,13 +802,13 @@ const serverLayer = (workspace: FakeWorkspace) => {
             })
           )
         )
-        .handle("getWithdrawalQuote", () =>
+        .handle("getWithdrawalQuote", ({ params }) =>
           Effect.andThen(
             Effect.promise(
               () => workspace.withdrawalQuoteDelay ?? Promise.resolve()
             ),
             Effect.suspend(() => {
-              const answer = workspace.withdrawal;
+              const answer = workspace.withdrawalFor(params.orderId);
               return typeof answer === "string"
                 ? Effect.fail(new CustomerWithdrawalRefused({ reason: answer }))
                 : Effect.succeed(answer);
@@ -793,7 +825,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
                 CustomerWithdrawalReceipt,
                 CustomerWithdrawalRefused | CustomerWithdrawalNameRequired
               > => {
-                const answer = workspace.withdrawal;
+                const answer = workspace.withdrawalFor(params.orderId);
                 if (typeof answer === "string")
                   return Effect.fail(
                     new CustomerWithdrawalRefused({ reason: answer })

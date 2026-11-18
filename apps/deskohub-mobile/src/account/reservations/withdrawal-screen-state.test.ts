@@ -9,12 +9,24 @@ import {
   type CustomerWithdrawalReceipt,
   CustomerWithdrawalRefused,
 } from "@deskohub/workspace-customer-api";
-import { Cause, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { Cause, Effect, Option, Result } from "effect";
+import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
+import {
+  makeFakeCustomerData,
+  settle,
+} from "../../customer-api/testing/customer-data-test-registry";
+import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
+import type { AppLocale } from "../../i18n/app-locale";
+import {
+  type ReservationsList,
+  reservationHistoryAtom,
+} from "./reservations-list-state";
+import { rowOffersWithdrawal } from "./withdrawal-eligibility";
 import {
   type WithdrawalFailure,
   WithdrawalScreenState,
+  withdrawAtom,
   withdrawalScreenState,
   withdrawalSubmission,
 } from "./withdrawal-screen-state";
@@ -217,5 +229,73 @@ describe("withdrawalSubmission", () => {
         withdrawalSubmission({ kind: "input", missing: true }, "   ", "en-US")
       )
     ).toBe(true);
+  });
+});
+
+describe("withdrawAtom over the Workspace", () => {
+  const orderId = sampleOrderIds.fulfilled;
+
+  /** Confirms the withdrawal and waits for its answer, like the screen. */
+  const confirm = async (
+    registry: AtomRegistry.AtomRegistry,
+    payload: { readonly locale: AppLocale; readonly customerName?: string }
+  ) => {
+    const atom = withdrawAtom(orderId);
+    registry.mount(atom);
+    registry.set(atom, payload);
+    await Effect.runPromise(
+      Effect.result(
+        AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
+      )
+    );
+    return registry.get(atom);
+  };
+
+  const listed = (history: ReservationsList) =>
+    [
+      ...Option.toArray(history.groups.featured),
+      ...history.groups.moreCurrent,
+      ...history.groups.past,
+      ...history.groups.undated,
+    ].find((row) => row.orderId === orderId);
+
+  test("reads the list again once recorded, which no longer offers the withdrawal", async () => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    workspace.withdrawal = quote({ contractId: orderId });
+    const before = await settle(registry, reservationHistoryAtom);
+    expect(Result.isSuccess(before)).toBe(true);
+
+    const submission = await confirm(registry, { locale: "en-US" });
+
+    expect(AsyncResult.isSuccess(submission)).toBe(true);
+    const after = await settle(registry, reservationHistoryAtom);
+    if (!Result.isSuccess(after)) throw new Error("the list didn't load");
+    const row = listed(after.success);
+    expect(row?.status).toBe("cancelled");
+    expect(rowOffersWithdrawal(row ?? {})).toBe(false);
+  });
+
+  test("answers a statement without a name as needing one, and records it once named", async () => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    workspace.withdrawal = quote({ contractId: orderId, customerName: null });
+
+    const unnamed = await confirm(registry, { locale: "en-US" });
+    expect(
+      withdrawalScreenState({
+        quote: AsyncResult.success(quote({ customerName: null })),
+        submission: unnamed,
+        typedName: "",
+        nameAttempted: true,
+      })
+    ).toMatchObject({
+      _tag: "Statement",
+      name: { kind: "input", missing: true },
+    });
+
+    const named = await confirm(registry, {
+      locale: "en-US",
+      customerName: "Alex Example",
+    });
+    expect(AsyncResult.isSuccess(named)).toBe(true);
   });
 });
