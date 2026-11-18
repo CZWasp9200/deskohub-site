@@ -156,7 +156,9 @@ export function AccountRootGroups({
                     if (activeSection === undefined) {
                       router.push(accountSectionHref[section]);
                     } else if (section !== activeSection) {
-                      router.navigate(accountSectionHref[section]);
+                      router.navigate(accountSectionHref[section], {
+                        dangerouslySingular: true,
+                      });
                     }
                   },
                 })}

@@ -31,7 +31,9 @@ export default function AccountRoute() {
     // Select the real Profile route once, keeping the index below it for Back.
     if (isExpanded && focused && !openedDetail.current) {
       openedDetail.current = true;
-      router.navigate(accountSectionHref.profile);
+      router.navigate(accountSectionHref.profile, {
+        dangerouslySingular: true,
+      });
     }
   }, [focused, isExpanded, router]);
 
