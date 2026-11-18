@@ -27,21 +27,24 @@ export function Badge({
   label,
   tone,
   icon,
-  wrap = false,
+  wrapAt,
 }: {
   readonly label: string;
   readonly tone: BadgeTone;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
   /**
-   * Lets the label wrap onto more lines in a narrow space, between words
-   * only (it never gets narrower than its longest word), the icon kept on
+   * The width past which the label wraps onto more lines, between words only:
+   * the badge never gets narrower than its longest word. The icon stays on
    * the first line.
    */
-  readonly wrap?: boolean;
+  readonly wrapAt?: number;
 }) {
   const { background, ink } = badgeColors[tone];
+  const wrap = wrapAt !== undefined;
   const [longestWord, setLongestWord] = useState(0);
+  // Padding, icon and gap around the label.
+  const chrome = 2 * 10 + (icon ? 16 + space.xs : 0);
   const word = wrap
     ? label.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), "")
     : "";
@@ -50,6 +53,7 @@ export function Badge({
       style={[
         styles.badge,
         wrap && styles.badgeWrap,
+        wrap && { maxWidth: Math.max(wrapAt, longestWord + chrome) },
         { backgroundColor: background },
       ]}
     >

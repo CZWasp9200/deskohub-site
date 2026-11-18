@@ -17,7 +17,13 @@ import KeyRound from "lucide-react-native/icons/key-round";
 import { AccessPinButton } from "./access-pin-button";
 import { WithdrawalLink } from "./withdrawal-link";
 import { type ReactNode, useEffect, useState } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  type LayoutChangeEvent,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
@@ -428,6 +434,10 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
+  // The row's width: its badge wraps past about a third of it.
+  const [rowWidth, setRowWidth] = useState(0);
+  const measureRow = (event: LayoutChangeEvent) =>
+    setRowWidth(event.nativeEvent.layout.width);
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -466,7 +476,7 @@ function ReservationRow({
               label={badge.label}
               tone={badge.tone}
               icon={badge.icon}
-              wrap
+              wrapAt={rowWidth / 3}
             />
             {Option.isSome(target) && (
               <View style={styles.rowAsideChevron}>
@@ -484,13 +494,14 @@ function ReservationRow({
   );
   return Option.match(target, {
     onNone: () => (
-      <View accessible style={styles.row}>
+      <View accessible onLayout={measureRow} style={styles.row}>
         {content}
       </View>
     ),
     onSome: (orderId) => (
       <Pressable
         role="link"
+        onLayout={measureRow}
         onPress={() => open(orderId)}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >
@@ -681,7 +692,7 @@ const styles = StyleSheet.create({
   stack: { gap: space.lg },
   rowDetail: { marginTop: 2 },
   // A row's status badge over its chevron, at most about a third of the row.
-  rowAside: { alignItems: "flex-end", alignSelf: "stretch", maxWidth: "34%" },
+  rowAside: { alignItems: "flex-end", alignSelf: "stretch", flexShrink: 0 },
   rowAsideChevron: { flex: 1, justifyContent: "center", paddingTop: space.xs },
   rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
