@@ -100,6 +100,9 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
   {
     args: ["reservations", "restore", reservationId],
     operation: "administration.restoreReservation",
+    reads: {
+      getReservation: () => Effect.succeed({ restoration: null } as never),
+    },
   },
   {
     args: ["reservations", "backfill-product-details"],

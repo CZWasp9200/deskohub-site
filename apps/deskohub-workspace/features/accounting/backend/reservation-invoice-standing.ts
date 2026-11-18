@@ -8,6 +8,7 @@ import {
   invoices,
 } from "@/db/schema";
 import type { InvoiceNumber } from "@/features/accounting/invoice";
+import type { InvoiceCancellationCause } from "@/features/accounting/invoice-cancellation";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { isChainTail } from "./invoice-reads";
@@ -20,10 +21,22 @@ export interface ReservationInvoiceStanding {
   readonly id: InvoiceId;
   readonly invoiceNumber: InvoiceNumber;
   readonly state: "live" | "cancelled";
+  /** Why a cancelled invoice was cancelled; `null` for a live one. */
+  readonly cancellationCause: InvoiceCancellationCause | null;
   /** Hidden from the Admin UI, which then shows no link to it. */
   readonly archived: boolean;
   readonly customerNotice: "owed" | "not_owed";
 }
+
+const getCancellationCause = (row: {
+  readonly cancelled: unknown;
+  readonly cancelledWithReservation: unknown;
+}): InvoiceCancellationCause | null => {
+  if (row.cancelled !== true) return null;
+  return row.cancelledWithReservation === true
+    ? "reservation_cancellation"
+    : "invoice_cancellation";
+};
 
 /**
  * Reads the reservation's latest invoice without decrypting it; `null`
@@ -43,6 +56,17 @@ export const readReservationInvoiceStanding = (
           .select({ invoiceId: invoiceCancellations.invoiceId })
           .from(invoiceCancellations)
           .where(eq(invoiceCancellations.invoiceId, invoices.id))
+      ),
+      cancelledWithReservation: exists(
+        db
+          .select({ invoiceId: invoiceCancellations.invoiceId })
+          .from(invoiceCancellations)
+          .where(
+            and(
+              eq(invoiceCancellations.invoiceId, invoices.id),
+              eq(invoiceCancellations.cause, "reservation_cancellation")
+            )
+          )
       ),
       archived: exists(
         db
@@ -78,6 +102,7 @@ export const readReservationInvoiceStanding = (
               id: row.id as InvoiceId,
               invoiceNumber: row.invoiceNumber,
               state: row.cancelled === true ? "cancelled" : "live",
+              cancellationCause: getCancellationCause(row),
               archived: row.archived === true,
               customerNotice:
                 row.customerNoticeOwed === true ? "owed" : "not_owed",
@@ -85,3 +110,13 @@ export const readReservationInvoiceStanding = (
           : null
       )
     );
+
+/**
+ * Whether restoring the reservation issues a replacement for its latest
+ * invoice: the invoice was cancelled with the reservation. A credit note is
+ * never undone, so the restored reservation gets a new invoice instead; one
+ * an administrator cancelled on its own stays without a replacement.
+ */
+export const isInvoiceReplacedOnRestoration = (
+  standing: ReservationInvoiceStanding | null
+) => standing?.cancellationCause === "reservation_cancellation";

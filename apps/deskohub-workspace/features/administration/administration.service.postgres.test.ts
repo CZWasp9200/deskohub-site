@@ -1268,6 +1268,8 @@ describe.skipIf(!testDatabase)(
       expect(restorableDetail?.restoration).toEqual({
         cancellationEmailRecorded: true,
         issuesNewAccess: true,
+        // It had no invoice, so restoring issues none.
+        issuesNewInvoice: false,
         clearsRefundRequirement: false,
         refundedPayment: null,
       });

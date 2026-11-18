@@ -56,6 +56,7 @@ import {
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import {
+  isInvoiceReplacedOnRestoration,
   type ReservationInvoiceStanding,
   readReservationInvoiceStanding,
 } from "@/features/accounting/backend/reservation-invoice-standing";
@@ -467,6 +468,11 @@ type AdministrationReservationRestoration = {
   readonly cancellationEmailRecorded: boolean;
   /** The reservation hasn't ended, so restoring issues a new access code. */
   readonly issuesNewAccess: boolean;
+  /**
+   * The reservation's invoice was cancelled with it, so restoring issues and
+   * sends a new one; the cancelled invoice and its credit note stay.
+   */
+  readonly issuesNewInvoice: boolean;
   /** Restoring clears a refund still awaiting Nexi; it is no longer owed. */
   readonly clearsRefundRequirement: boolean;
   /** What Nexi already refunded. The refund stays; the operator acknowledges it. */
@@ -1277,6 +1283,7 @@ type ReservationRestorationSource = {
   readonly attemptRows: readonly SafePaymentAttemptRow[];
   readonly cancellationEmailSentAt: Temporal.Instant | null;
   readonly checkoutSessionKey: CheckoutSessionKey;
+  readonly invoice: ReservationInvoiceStanding | null;
   readonly live: LiveReservationDetails;
   readonly row: SafeReservationRow;
 };
@@ -1312,7 +1319,7 @@ const loadRestorableAccess = ({
 const getReservationRestoration = (
   input: Pick<
     ReservationRestorationSource,
-    "accessGrant" | "attemptRows" | "cancellationEmailSentAt"
+    "accessGrant" | "attemptRows" | "cancellationEmailSentAt" | "invoice"
   > & {
     readonly access: { readonly reservedUntil: Temporal.Instant };
     readonly now: Temporal.Instant;
@@ -1323,6 +1330,7 @@ const getReservationRestoration = (
   issuesNewAccess:
     getRestoredReservationAccess(input.accessGrant, input.access, input.now) !==
     "not_needed",
+  issuesNewInvoice: isInvoiceReplacedOnRestoration(input.invoice),
   ...getRestorationRefund(input.attemptRows),
 });
 
@@ -2283,11 +2291,13 @@ export class AdministrationService extends Context.Service<
           latePaymentRows
         );
         const accessGrant = accessRows[0] ?? null;
+        const invoice = yield* readReservationInvoiceStanding(db, row.id);
         const restoration = yield* loadRestoration({
           accessGrant,
           attemptRows,
           cancellationEmailSentAt,
           checkoutSessionKey,
+          invoice,
           live,
           row,
         });
@@ -2358,7 +2368,7 @@ export class AdministrationService extends Context.Service<
           canCancel: canCancelReservation(row),
           canRestore: restoration !== null,
           restoration,
-          invoice: yield* readReservationInvoiceStanding(db, row.id),
+          invoice,
         } satisfies AdministrationReservationDetail;
       });
 

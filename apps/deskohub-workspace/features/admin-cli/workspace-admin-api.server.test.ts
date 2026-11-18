@@ -57,7 +57,6 @@ import {
 } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiTest } from "effect/unstable/httpapi";
-import { WorkspaceDatabase } from "@/db/database.service";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,
@@ -68,10 +67,12 @@ import {
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { InvoiceCancellationService } from "@/features/accounting/backend/invoice-cancellation.service";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
 import { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
-import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
@@ -89,6 +90,7 @@ import {
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
 import type { AdministratorAccountActor } from "@/features/administrators/account-role";
+import { PaidFulfillmentQueueService } from "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation/workspace-table-assignment.service";
@@ -2065,6 +2067,11 @@ describe("customer and reservation administration endpoints", () => {
       "01980000-0000-7000-8000-000000000001"
     );
     const restorations: unknown[] = [];
+    const replacement = {
+      outcome: "issued",
+      invoiceId: "0b6f3c7e-2f4a-4c1e-9d55-6a1f2e3b4c5d" as InvoiceId,
+      invoiceNumber: "WS-2026-000002",
+    } as const;
     const reservations = Layer.succeed(ReservationAdministrationService, {
       ...({} as ReservationAdministrationService["Service"]),
       restore: (input) =>
@@ -2074,6 +2081,7 @@ describe("customer and reservation administration endpoints", () => {
             outcome: "restored",
             email: "sent",
             access: "failed",
+            invoice: replacement,
           } as const;
         }),
     });
@@ -2101,6 +2109,7 @@ describe("customer and reservation administration endpoints", () => {
       outcome: "restored",
       email: "sent",
       access: "failed",
+      invoice: replacement,
     });
   });
 
@@ -2318,6 +2327,8 @@ describe("customer and reservation administration endpoints", () => {
       ),
       // What only a reservation restore uses.
       Layer.mock(AccountingDocumentSnapshots, {}),
+      Layer.mock(PaidFulfillmentQueueService, {}),
+      Layer.mock(ReservationInvoiceService, {}),
       Layer.mock(PaymentRefundService, {}),
       Layer.mock(ReservationAccessService, {}),
       Layer.mock(WorkspaceTableAssignmentService, {})

@@ -77,6 +77,7 @@ beforeEach(() => {
     outcome: "restored",
     email: "not_requested",
     access: "issued",
+    invoice: null,
   });
 });
 
@@ -85,7 +86,12 @@ describe("restoreAdministrationReservation action", () => {
     const result = await restoreAdministrationReservation(restoration);
 
     expect(result).toEqual({
-      data: { outcome: "restored", email: "not_requested", access: "issued" },
+      data: {
+        outcome: "restored",
+        email: "not_requested",
+        access: "issued",
+        invoice: null,
+      },
     });
     expect(restoreCalls).toEqual([restoration]);
     expect(revalidatedPaths).toEqual([

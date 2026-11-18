@@ -113,9 +113,11 @@ import {
   formatInvoiceCancellationOutput,
   formatInvoiceResendOutput,
   formatReservationInvoiceOutput,
+  formatRestorationInvoiceOutput,
   getInvoiceStateLabel,
   planInvoiceCancellation,
   planReservationInvoiceConsequences,
+  planRestorationInvoiceConsequence,
 } from "./invoice-output";
 import {
   formatProviderListSummary,
@@ -446,11 +448,21 @@ const reservationsRestoreCommand = Command.make(
   ({ acknowledgeRefundedPayment, reservationId, sendRestorationEmail, yes }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
-        const confirmed = yield* confirmChange(
+        const decodedReservationId = yield* Schema.decodeUnknownEffect(
+          AdministrationWorkspaceReservationId
+        )(reservationId);
+        const detail = yield* api.getReservation(
+          accessToken,
+          decodedReservationId
+        );
+        const confirmed = yield* confirmChangeShowingConsequences(
           "administration.restoreReservation",
           yes,
           json,
-          "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN."
+          [
+            "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN.",
+            ...planRestorationInvoiceConsequence(detail.restoration),
+          ].join("\n")
         );
         if (!confirmed) {
           yield* reportCancellation(json);
@@ -470,6 +482,7 @@ const reservationsRestoreCommand = Command.make(
             restorationOutcomeMessages[result.outcome],
             restorationEmailMessages[result.email],
             restorationAccessMessages(reservationId)[result.access],
+            ...formatRestorationInvoiceOutput(result.invoice),
           ]
             .filter((line) => line !== null)
             .join(" ")

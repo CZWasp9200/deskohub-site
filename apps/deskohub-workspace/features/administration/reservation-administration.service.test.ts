@@ -24,12 +24,21 @@ const invoiceCancellationFakes = async () => {
   const { InvoiceCancellationService } = await import(
     "@/features/accounting/backend/invoice-cancellation.service"
   );
+  const { ReservationInvoiceService } = await import(
+    "@/features/accounting/backend/reservation-invoice.service"
+  );
+  const { PaidFulfillmentQueueService } = await import(
+    "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service"
+  );
   return Layer.mergeAll(
     (await makeRecordingWorkspaceDatabase()).layer,
     Layer.mock(InvoiceCancellationService, {
       planForReservation: () => Effect.succeed(null),
       recordForReservation: () => Effect.succeed(null),
-    })
+    }),
+    // What only a restore's replacement invoice uses.
+    Layer.mock(ReservationInvoiceService, {}),
+    Layer.mock(PaidFulfillmentQueueService, {})
   );
 };
 

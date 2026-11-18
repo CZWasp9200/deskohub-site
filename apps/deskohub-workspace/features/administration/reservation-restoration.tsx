@@ -1,10 +1,7 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import type {
-  AdministrationReservationRestorationResultType,
-  AdministrationWorkspaceReservationIdType,
-} from "@deskohub/workspace-admin-api";
+import type { AdministrationWorkspaceReservationIdType } from "@deskohub/workspace-admin-api";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
 import { useRouter } from "next/navigation";
@@ -40,6 +37,7 @@ import type { AdministrationReservationDetail } from "./administration.service";
 import type { ReservationRestorationInput } from "./contracts";
 import { m } from "./i18n";
 import { AdministrationAlert } from "./notice";
+import type { ReservationAdministrationRestorationResult } from "./reservation-administration.service";
 
 /** What restoring the reservation would do, from the reservation detail. */
 export type ReservationRestorationPreview = NonNullable<
@@ -51,7 +49,7 @@ export type ReservationRestorationRequest = ReservationRestorationInput;
 
 /** How a restoration ended, as the restore action reports it. */
 export type ReservationRestorationResult =
-  AdministrationReservationRestorationResultType;
+  ReservationAdministrationRestorationResult;
 
 /** The operator action that restores a cancelled reservation. */
 export type ReservationRestorationAction = SingleInputActionFn<
@@ -100,6 +98,44 @@ type ReservationRestorationNotice = {
   readonly message: string;
 };
 
+/** What the restore did about the invoice cancelled with the reservation. */
+const getRestorationInvoiceNotices = (
+  invoice: ReservationRestorationResult["invoice"],
+  locale: Locale
+): readonly ReservationRestorationNotice[] => {
+  if (invoice === null) return [];
+  const { invoiceNumber } = invoice;
+  if (invoice.outcome === "issued" && invoiceNumber !== null) {
+    return [
+      {
+        status: "success",
+        message: m.administrationReservationRestorationInvoiceIssued(
+          { invoiceNumber },
+          { locale }
+        ),
+      },
+    ];
+  }
+  const warning = (
+    message: string
+  ): readonly ReservationRestorationNotice[] => [
+    { status: "warning", message },
+  ];
+  if (invoice.outcome === "not_issued") {
+    return warning(
+      m.administrationReservationRestorationInvoiceNotIssued({}, { locale })
+    );
+  }
+  return warning(
+    invoiceNumber === null
+      ? m.administrationReservationRestorationInvoiceFailed({}, { locale })
+      : m.administrationReservationRestorationInvoiceSendFailed(
+          { invoiceNumber },
+          { locale }
+        )
+  );
+};
+
 const getReservationRestorationNotices = (
   result: ReservationRestorationResult,
   locale: Locale
@@ -144,6 +180,7 @@ const getReservationRestorationNotices = (
       readonly ReservationRestorationNotice[]
     >
   )[result.access],
+  ...getRestorationInvoiceNotices(result.invoice, locale),
 ];
 
 /**
@@ -320,7 +357,8 @@ function ReservationRestorationDialog({
               </AdministrationAlert>
             )}
             {(restoration.clearsRefundRequirement ||
-              restoration.issuesNewAccess) && (
+              restoration.issuesNewAccess ||
+              restoration.issuesNewInvoice) && (
               <ul className="list-disc space-y-1 pl-5 text-sm text-navy-blue/70">
                 {restoration.clearsRefundRequirement && (
                   <li>
@@ -333,6 +371,14 @@ function ReservationRestorationDialog({
                 {restoration.issuesNewAccess && (
                   <li>
                     {m.administrationReservationRestorationNewAccess(
+                      {},
+                      { locale }
+                    )}
+                  </li>
+                )}
+                {restoration.issuesNewInvoice && (
+                  <li>
+                    {m.administrationReservationRestorationNewInvoice(
                       {},
                       { locale }
                     )}

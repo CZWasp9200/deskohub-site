@@ -3856,6 +3856,8 @@ describe("AdministrationService reservation restoration", () => {
       restoration: {
         cancellationEmailRecorded: true,
         issuesNewAccess: true,
+        // The unit fake reads no invoice; Postgres covers a reissued one.
+        issuesNewInvoice: false,
         clearsRefundRequirement: true,
         refundedPayment: null,
       },

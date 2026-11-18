@@ -9,6 +9,7 @@ import type {
   AdministrationInvoiceRetryResultType,
   AdministrationReservationCancellationResultType,
   AdministrationReservationDetailType,
+  AdministrationReservationRestorationResultType,
 } from "@deskohub/workspace-admin-api";
 
 /**
@@ -187,6 +188,34 @@ export const formatReservationInvoiceOutput = (
           : `Invoice ${invoice.invoiceNumber} was already cancelled with credit note ${invoice.correctiveDocumentNumber}.`,
         formatInvoiceNotices(invoice.notices),
         ...retryHint(invoice.invoiceId, invoice.notices),
+      ];
+
+/** What restoring the reservation does to its invoice, for the confirmation. */
+export const planRestorationInvoiceConsequence = (
+  restoration: AdministrationReservationDetailType["restoration"]
+) =>
+  restoration?.issuesNewInvoice === true
+    ? [
+        "Its invoice was cancelled with it, so a new invoice is issued and sent to the customer; the cancelled invoice and its credit note stay.",
+      ]
+    : [];
+
+/** The new invoice a restore issued, for its output. */
+export const formatRestorationInvoiceOutput = (
+  invoice: AdministrationReservationRestorationResultType["invoice"]
+) =>
+  invoice === null
+    ? []
+    : [
+        {
+          issued: `New invoice ${invoice.invoiceNumber} was issued and sent.`,
+          failed:
+            invoice.invoiceNumber === null
+              ? "The new invoice could not be issued; the restore stands and Workspace retries it."
+              : `New invoice ${invoice.invoiceNumber} was issued but could not be sent; Workspace retries it.`,
+          not_issued:
+            "No new invoice was issued because the payment holds no invoice details.",
+        }[invoice.outcome],
       ];
 
 export const formatInvoiceArchiveOutput = (

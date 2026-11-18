@@ -59,16 +59,23 @@ describe.skipIf(!testDatabase)(
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         state: "live",
+        cancellationCause: null,
         archived: false,
         customerNotice: "not_owed",
       });
       expect(sent).toMatchObject({ state: "live", customerNotice: "owed" });
-      expect(cancelled).toMatchObject({ id: invoice.id, state: "cancelled" });
+      // An administrator cancelled the invoice on its own.
+      expect(cancelled).toMatchObject({
+        id: invoice.id,
+        state: "cancelled",
+        cancellationCause: "invoice_cancellation",
+      });
       expect(archived).toMatchObject({ id: invoice.id, archived: true });
       expect(reissued).toEqual({
         id: replacement.id,
         invoiceNumber: replacement.invoiceNumber,
         state: "live",
+        cancellationCause: null,
         archived: false,
         customerNotice: "not_owed",
       });

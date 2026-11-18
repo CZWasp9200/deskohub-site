@@ -245,7 +245,18 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             reservationId: params.reservationId,
             sendRestorationEmail: payload.sendRestorationEmail,
           })
-          .pipe(mapAdministrationApiFailure(mapReservationRestorationFailure))
+          .pipe(
+            Effect.map(({ invoice, ...result }) => ({
+              ...result,
+              invoice: invoice && {
+                ...invoice,
+                invoiceId:
+                  invoice.invoiceId &&
+                  AdministrationInvoiceId.make(invoice.invoiceId),
+              },
+            })),
+            mapAdministrationApiFailure(mapReservationRestorationFailure)
+          )
       )
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)

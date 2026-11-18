@@ -287,6 +287,7 @@ const restorableReservation = (() => {
     restoration: {
       cancellationEmailRecorded: true,
       issuesNewAccess: true,
+      issuesNewInvoice: false,
       clearsRefundRequirement: false,
       refundedPayment: {
         amount: { value: 25000, exponent: 2, currency: "CZK" },
@@ -379,6 +380,7 @@ const makeInstanceServices = ({
             outcome: "restored",
             email: "not_requested",
             access: "issued",
+            invoice: null,
           } as const;
         }),
     }),
@@ -835,6 +837,7 @@ describe("administration tools through the assistant API", () => {
             outcome: "restored",
             email: "not_requested",
             access: "issued",
+            invoice: null,
           },
         },
       },

@@ -1764,6 +1764,12 @@ export const AdministrationReservationRestoration = Schema.Struct({
   cancellationEmailRecorded: Schema.Boolean,
   /** The reservation hasn't ended, so restoring issues a new access code. */
   issuesNewAccess: Schema.Boolean,
+  /**
+   * The reservation's invoice was cancelled with it, so restoring issues and
+   * sends a new invoice; the cancelled one and its credit note stay. False
+   * from servers that predate invoice reissue.
+   */
+  issuesNewInvoice: fieldWithDefault(Schema.Boolean, false),
   /** Some payment awaits a refund Nexi hasn't recorded; restoring clears it. */
   clearsRefundRequirement: Schema.Boolean,
   /** What Nexi already refunded, in total; null when nothing was refunded. */
@@ -1885,6 +1891,20 @@ export const AdministrationReservationRestorationResult = Schema.Struct({
   email: Schema.Literals(["not_requested", "sent", "failed", "not_available"]),
   /** `failed` keeps the restore; retrying access recovers the grant. */
   access: Schema.Literals(["issued", "failed", "not_needed"]),
+  /**
+   * The new invoice issued for the one cancelled with the reservation; null
+   * when none was owed, and from servers that predate invoice reissue.
+   * `failed` keeps the restore, and Workspace retries the invoice; its number
+   * is set when it was issued but not sent. `not_issued`: the payment froze
+   * no invoice details, so Workspace issues none.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      outcome: Schema.Literals(["issued", "failed", "not_issued"]),
+      invoiceId: Schema.NullOr(AdministrationInvoiceId),
+      invoiceNumber: Schema.NullOr(Schema.String),
+    })
+  ),
 });
 export type AdministrationReservationRestorationResult =
   typeof AdministrationReservationRestorationResult.Type;

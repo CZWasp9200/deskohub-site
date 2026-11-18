@@ -518,6 +518,7 @@ describe("dhw mutation commands", () => {
       outcome: "restored",
       email: "sent",
       access: "issued",
+      invoice: null,
     } as const;
     const { layer, output } = makeCommandLayer({
       restoreReservation: (_accessToken, id, input) =>
@@ -559,6 +560,7 @@ describe("dhw mutation commands", () => {
             outcome: "restored",
             email: "not_requested",
             access: "not_needed",
+            invoice: null,
           } as const;
         }),
     });
@@ -583,6 +585,7 @@ describe("dhw mutation commands", () => {
             outcome: "restored",
             email: "not_requested",
             access: "not_needed",
+            invoice: null,
           } as const;
         }),
     });
@@ -632,11 +635,19 @@ describe("dhw mutation commands", () => {
       outcome: "restored",
       email: "not_requested",
       access: "not_needed",
+      invoice: null,
     } as const;
     const variations = {
       outcome: ["restored", "already_confirmed"],
       email: ["not_requested", "sent", "failed", "not_available"],
       access: ["issued", "failed", "not_needed"],
+      invoice: [
+        null,
+        { outcome: "issued", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "failed", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "failed", invoiceId: null, invoiceNumber: null },
+        { outcome: "not_issued", invoiceId: null, invoiceNumber: null },
+      ],
     } as const;
 
     for (const [field, values] of Object.entries(variations)) {
@@ -650,6 +661,48 @@ describe("dhw mutation commands", () => {
     expect(await reportLine({ ...base, access: "failed" })).toContain(
       reservationId
     );
+    expect(
+      await reportLine({
+        ...base,
+        invoice: { outcome: "issued", invoiceId: null, invoiceNumber: "WS-2" },
+      })
+    ).toContain("WS-2");
+  });
+
+  test("states the new invoice before restoring only when the reservation's invoice was cancelled with it", async () => {
+    const confirmation = async (issuesNewInvoice: boolean) => {
+      const { errors, layer } = makeCommandLayer({
+        getReservation: () =>
+          Effect.succeed({
+            restoration: {
+              cancellationEmailRecorded: false,
+              issuesNewAccess: false,
+              issuesNewInvoice,
+              clearsRefundRequirement: false,
+              refundedPayment: null,
+            },
+          } as never),
+        restoreReservation: () =>
+          Effect.succeed({
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+            invoice: null,
+          }),
+      });
+      await runCommand(
+        ["reservations", "restore", reservationId, "--yes"],
+        layer
+      ).pipe(Effect.runPromise);
+      return errors.join("\n").split("\n");
+    };
+
+    const plain = await confirmation(false);
+    const reissuing = await confirmation(true);
+
+    // The consequence is one more line of the confirmation.
+    expect(reissuing).toHaveLength(plain.length + 1);
+    expect(reissuing.slice(0, plain.length)).toEqual(plain);
   });
 
   test("shows who booked a reservation for someone else", async () => {
@@ -2298,10 +2351,14 @@ const makeCommandLayer = ({
     previewInvoice,
     revokeSession,
   });
+  const errors: string[] = [];
   const console = Layer.succeed(Console.Console, {
     ...globalThis.console,
     log: (...args: ReadonlyArray<unknown>) => {
       output.push(args.join(" "));
+    },
+    error: (...args: ReadonlyArray<unknown>) => {
+      errors.push(args.join(" "));
     },
   } satisfies Console.Console);
   const authentication = Layer.succeed(AuthenticationService, {
@@ -2325,6 +2382,7 @@ const makeCommandLayer = ({
   return {
     accessCodeCreations,
     accessMutations,
+    errors,
     mutations,
     layer: Layer.mergeAll(
       api,
