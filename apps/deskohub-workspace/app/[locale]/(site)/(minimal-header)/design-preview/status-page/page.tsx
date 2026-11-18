@@ -45,6 +45,11 @@ export default async function StatusPageDesignPreview({
       locale={locale}
       presentation="page"
       status={designPreviewStatus}
+      withdrawn={
+        state === "withdrawn"
+          ? { refundAmount: { value: 55_000, exponent: 2, currency: "CZK" } as never }
+          : undefined
+      }
       withdrawalHref={
         state === "ineligible"
           ? undefined

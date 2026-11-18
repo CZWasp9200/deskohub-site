@@ -28,6 +28,16 @@ export function WithdrawalConfirmPreview({
       open={open}
       pending={state === "pending"}
       quote={quote}
+      receipt={
+        state.startsWith("received")
+          ? {
+              withdrawalId: "withdrawal_01JY5A0B1C2D3E4F5G6H7J8K9M" as never,
+              submittedAt: "2026-11-18T13:42:00Z",
+              refundAmount: quote.refundAmount,
+              receiptEmail: quote.receiptEmail,
+            }
+          : undefined
+      }
       reference={reference}
     />
   );

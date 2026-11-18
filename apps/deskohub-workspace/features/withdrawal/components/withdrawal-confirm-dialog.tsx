@@ -1,8 +1,13 @@
 "use client";
 
+import { CheckCircle2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { type Locale, m } from "@/features/i18n";
-import type { WithdrawalQuoteData } from "@/features/withdrawal/withdrawal-read-model";
+import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
+import type {
+  WithdrawalQuoteData,
+  WithdrawalReceiptData,
+} from "@/features/withdrawal/withdrawal-read-model";
 import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
@@ -54,6 +59,7 @@ export function WithdrawalConfirmDialog({
   open,
   pending = false,
   quote,
+  receipt,
   reference,
 }: {
   /** Design preview only: show the field errors as after a submit. */
@@ -64,6 +70,8 @@ export function WithdrawalConfirmDialog({
   readonly open: boolean;
   readonly pending?: boolean;
   readonly quote: WithdrawalQuoteData;
+  /** Set once the withdrawal was received: the dialog shows its receipt. */
+  readonly receipt?: WithdrawalReceiptData;
   /** The reservation number as the account shows it. */
   readonly reference: string;
 }) {
@@ -113,125 +121,193 @@ export function WithdrawalConfirmDialog({
           close.focus();
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{m.withdrawalConfirmTitle({}, { locale })}</DialogTitle>
-          <DialogDescription id="withdrawal-confirm-description">
-            {m.withdrawalConfirmLead({}, { locale })}
-          </DialogDescription>
-        </DialogHeader>
+        {receipt ? (
+          <WithdrawalReceived
+            locale={locale}
+            onClose={() => onOpenChange(false)}
+            quote={quote}
+            receipt={receipt}
+            reference={reference}
+          />
+        ) : (
+          <>
+          <DialogHeader>
+            <DialogTitle>{m.withdrawalConfirmTitle({}, { locale })}</DialogTitle>
+            <DialogDescription id="withdrawal-confirm-description">
+              {m.withdrawalConfirmLead({}, { locale })}
+            </DialogDescription>
+          </DialogHeader>
 
-        <form className="mt-6 grid gap-6" noValidate onSubmit={submit}>
-          <div className="grid gap-3">
-          <dl className="m-0 grid gap-3">
-            <ContractRow label={m.withdrawalConfirmReferenceLabel({}, { locale })}>
-              <span className="font-mono text-sm">{reference}</span>
-            </ContractRow>
-            <ContractRow label={m.withdrawalConfirmContractLabel({}, { locale })}>
-              {quote.contractLabel}
-            </ContractRow>
-            {knownName !== null && (
-              <ContractRow
-                label={m.withdrawalConfirmNameShownLabel({}, { locale })}
-              >
-                {knownName}
+          <form className="mt-6 grid gap-6" noValidate onSubmit={submit}>
+            <div className="grid gap-3">
+            <dl className="m-0 grid gap-3">
+              <ContractRow label={m.withdrawalConfirmReferenceLabel({}, { locale })}>
+                <span className="font-mono text-sm">{reference}</span>
               </ContractRow>
-            )}
-          </dl>
-
-          {knownName === null && (
-            <div className="grid gap-2">
-              <Label htmlFor="withdrawal-name">
-                {m.withdrawalConfirmNameLabel({}, { locale })}
-              </Label>
-              <Input
-                aria-describedby={nameError ? "withdrawal-name-error" : undefined}
-                aria-invalid={nameError || undefined}
-                autoComplete="name"
-                className="aria-invalid:border-red-700"
-                disabled={pending}
-                id="withdrawal-name"
-                onChange={(event) => setName(event.target.value)}
-                value={name}
-              />
-              {nameError && (
-                <p
-                  className="text-sm font-medium text-red-700"
-                  id="withdrawal-name-error"
+              <ContractRow label={m.withdrawalConfirmContractLabel({}, { locale })}>
+                {quote.contractLabel}
+              </ContractRow>
+              {knownName !== null && (
+                <ContractRow
+                  label={m.withdrawalConfirmNameShownLabel({}, { locale })}
                 >
-                  {m.withdrawalConfirmNameRequired({}, { locale })}
-                </p>
+                  {knownName}
+                </ContractRow>
               )}
-            </div>
-          )}
+            </dl>
 
-          <dl className="m-0 grid gap-3">
-            <ContractRow label={m.withdrawalConfirmReceiptLabel({}, { locale })}>
-              {quote.receiptEmail}
-            </ContractRow>
-          </dl>
-          </div>
-
-          <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
-            <dl className="m-0 grid gap-2 text-sm tabular-nums">
-              <div className="flex items-baseline justify-between gap-4">
-                <dt>{m.withdrawalConfirmPaidLabel({}, { locale })}</dt>
-                <dd className="m-0 shrink-0 text-right">
-                  {formatMoney(quote.paidAmount, locale)}
-                </dd>
+            {knownName === null && (
+              <div className="grid gap-2">
+                <Label htmlFor="withdrawal-name">
+                  {m.withdrawalConfirmNameLabel({}, { locale })}
+                </Label>
+                <Input
+                  aria-describedby={nameError ? "withdrawal-name-error" : undefined}
+                  aria-invalid={nameError || undefined}
+                  autoComplete="name"
+                  className="aria-invalid:border-red-700"
+                  disabled={pending}
+                  id="withdrawal-name"
+                  onChange={(event) => setName(event.target.value)}
+                  value={name}
+                />
+                {nameError && (
+                  <p
+                    className="text-sm font-medium text-red-700"
+                    id="withdrawal-name-error"
+                  >
+                    {m.withdrawalConfirmNameRequired({}, { locale })}
+                  </p>
+                )}
               </div>
-              {basis.kind === "partial" && (
-                <div className="flex items-baseline justify-between gap-4 text-navy-blue/60">
-                  <dt>
-                    {(basis.unit === "hour"
-                      ? m.withdrawalConfirmStartedHours
-                      : m.withdrawalConfirmStartedDays)(
-                      {
-                        started: basis.total - basis.unstarted,
-                        total: basis.total,
-                      },
-                      { locale }
-                    )}
-                  </dt>
+            )}
+
+            <dl className="m-0 grid gap-3">
+              <ContractRow label={m.withdrawalConfirmReceiptLabel({}, { locale })}>
+                {quote.receiptEmail}
+              </ContractRow>
+            </dl>
+            </div>
+
+            <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
+              <dl className="m-0 grid gap-2 text-sm tabular-nums">
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt>{m.withdrawalConfirmPaidLabel({}, { locale })}</dt>
                   <dd className="m-0 shrink-0 text-right">
-                    −{formatMoney(deduction, locale)}
+                    {formatMoney(quote.paidAmount, locale)}
                   </dd>
                 </div>
-              )}
-              <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-navy-blue/10 pt-3 text-base font-semibold">
-                <dt>{m.withdrawalConfirmRefundLabel({}, { locale })}</dt>
-                <dd className="m-0 shrink-0 text-right">
-                  {formatMoney(quote.refundAmount, locale)}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-1 text-xs leading-5 text-navy-blue/60">
-              {m.withdrawalConfirmRefundNote({}, { locale })}
-            </p>
-          </div>
+                {basis.kind === "partial" && (
+                  <div className="flex items-baseline justify-between gap-4 text-navy-blue/60">
+                    <dt>
+                      {(basis.unit === "hour"
+                        ? m.withdrawalConfirmStartedHours
+                        : m.withdrawalConfirmStartedDays)(
+                        {
+                          started: basis.total - basis.unstarted,
+                          total: basis.total,
+                        },
+                        { locale }
+                      )}
+                    </dt>
+                    <dd className="m-0 shrink-0 text-right">
+                      −{formatMoney(deduction, locale)}
+                    </dd>
+                  </div>
+                )}
+                <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-navy-blue/10 pt-3 text-base font-semibold">
+                  <dt>{m.withdrawalConfirmRefundLabel({}, { locale })}</dt>
+                  <dd className="m-0 shrink-0 text-right">
+                    {formatMoney(quote.refundAmount, locale)}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-1 text-xs leading-5 text-navy-blue/60">
+                {m.withdrawalConfirmRefundNote({}, { locale })}
+              </p>
+            </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              disabled={pending}
-              onClick={() => onOpenChange(false)}
-              size="lg"
-              type="button"
-              variant="secondary"
-            >
-              {m.withdrawalConfirmBack({}, { locale })}
-            </Button>
-            <Button
-              id="withdrawal-confirm-submit"
-              pending={pending}
-              size="lg"
-              tone="danger"
-              type="submit"
-              wrap
-            >
-              {m.withdrawalConfirmSubmit({}, { locale })}
-            </Button>
-          </div>
-        </form>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Button
+                disabled={pending}
+                onClick={() => onOpenChange(false)}
+                size="lg"
+                type="button"
+                variant="secondary"
+              >
+                {m.withdrawalConfirmBack({}, { locale })}
+              </Button>
+              <Button
+                id="withdrawal-confirm-submit"
+                pending={pending}
+                size="lg"
+                tone="danger"
+                type="submit"
+                wrap
+              >
+                {m.withdrawalConfirmSubmit({}, { locale })}
+              </Button>
+            </div>
+          </form>
+          </>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The receipt of a submitted withdrawal (§1830a(5)): what, when, and the refund. */
+function WithdrawalReceived({
+  locale,
+  onClose,
+  quote,
+  receipt,
+  reference,
+}: {
+  readonly locale: Locale;
+  readonly onClose: () => void;
+  readonly quote: WithdrawalQuoteData;
+  readonly receipt: WithdrawalReceiptData;
+  readonly reference: string;
+}) {
+  return (
+    <div className="grid gap-6">
+      <DialogHeader className="items-start gap-5">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-aquamarine-green/14 text-aquamarine-ink ring-8 ring-aquamarine-green/8">
+          <CheckCircle2 aria-hidden="true" className="h-9 w-9" />
+        </div>
+        <DialogTitle>{m.withdrawalReceivedTitle({}, { locale })}</DialogTitle>
+        <DialogDescription className="sr-only" id="withdrawal-confirm-description">
+          {m.withdrawalReceivedEmailed({ email: receipt.receiptEmail }, { locale })}
+        </DialogDescription>
+      </DialogHeader>
+      <dl className="m-0 grid gap-3">
+        <ContractRow label={m.withdrawalConfirmReferenceLabel({}, { locale })}>
+          <span className="font-mono text-sm">{reference}</span>
+        </ContractRow>
+        <ContractRow label={m.withdrawalConfirmContractLabel({}, { locale })}>
+          {quote.contractLabel}
+        </ContractRow>
+        <ContractRow label={m.withdrawalReceivedSubmittedLabel({}, { locale })}>
+          {formatReservationDisplayDateTime(
+            Temporal.Instant.from(receipt.submittedAt),
+            locale
+          )}
+        </ContractRow>
+        <ContractRow label={m.withdrawalConfirmRefundLabel({}, { locale })}>
+          <span className="tabular-nums">
+            {formatMoney(receipt.refundAmount, locale)}
+          </span>
+        </ContractRow>
+      </dl>
+      <p className="text-sm leading-6 text-navy-blue/70">
+        {m.withdrawalReceivedEmailed({ email: receipt.receiptEmail }, { locale })}
+      </p>
+      <div className="flex justify-end">
+        <Button className="w-full sm:w-auto" onClick={onClose} size="lg" type="button">
+          {m.withdrawalReceivedClose({}, { locale })}
+        </Button>
+      </div>
+    </div>
   );
 }

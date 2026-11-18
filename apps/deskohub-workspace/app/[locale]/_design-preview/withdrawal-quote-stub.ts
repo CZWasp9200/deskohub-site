@@ -20,7 +20,7 @@ export const withdrawalQuoteStub = (
   state: string,
   locale: Locale
 ): WithdrawalQuoteData =>
-  state === "partial"
+  state === "partial" || state === "received-partial"
     ? {
         contractId: "workspace_01JY4K2T9B7C3D5E6F8G9H0J1K",
         contractLabel: `${getReservationProductName({ kind: "office" }, locale)} · ${formatReservationDisplayDateRange(

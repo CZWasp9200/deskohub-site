@@ -114,7 +114,8 @@ const designPreviewPast = {
 const designPreviewState = (
   eligible: boolean,
   onSite: unknown,
-  shared: boolean
+  shared: boolean,
+  withdrawn = false
 ) => ({
   kind: "linked",
   deletion: "offered",
@@ -128,11 +129,14 @@ const designPreviewState = (
   history: {
     kind: "available",
     groups: {
-      current: [designPreviewReservation, designPreviewMeetingRoom].map(
+      current: (withdrawn
+        ? [designPreviewMeetingRoom]
+        : [designPreviewReservation, designPreviewMeetingRoom]
+      ).map(
         (reservation, index) => ({
           ...reservation,
           withdrawal: { ...reservation.withdrawal, eligible },
-          ...(index === 0 && {
+          ...(index === 0 && !withdrawn && {
             onSite,
             ...(shared && {
               product: { kind: "cowork", tier: "open-space" },
@@ -140,7 +144,17 @@ const designPreviewState = (
           }),
         })
       ),
-      past: [designPreviewPast],
+      // After a withdrawal: the reservation is cancelled, so it lists as past.
+      past: withdrawn
+        ? [
+            {
+              ...designPreviewReservation,
+              status: "cancelled",
+              withdrawal: undefined,
+            },
+            designPreviewPast,
+          ]
+        : [designPreviewPast],
       unavailable: [],
     },
   },
@@ -196,7 +210,8 @@ export default async function WithdrawalDesignPreviewPage({
             designPreviewState(
               state !== "ineligible",
               onSite,
-              placement === "shared"
+              placement === "shared",
+              state === "withdrawn"
             ) as never
           }
         />
@@ -207,6 +222,11 @@ export default async function WithdrawalDesignPreviewPage({
             locale={locale}
             presentation="modal"
             status={designPreviewStatus}
+            withdrawn={
+              state === "withdrawn"
+                ? { refundAmount: { value: 55_000, exponent: 2, currency: "CZK" } as never }
+                : undefined
+            }
             withdrawalHref={
               state === "ineligible"
                 ? undefined
@@ -220,7 +240,7 @@ export default async function WithdrawalDesignPreviewPage({
           locale={locale}
           quote={withdrawalQuoteStub(withdraw, locale)}
           reference={
-            withdraw === "partial" ? "R-20261117-0043" : "R-20261117-0042"
+            withdraw.endsWith("partial") ? "R-20261117-0043" : "R-20261117-0042"
           }
           state={withdraw}
         />

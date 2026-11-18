@@ -1,4 +1,5 @@
 import { cva } from "class-variance-authority";
+import { Undo2 } from "lucide-react";
 import { Match } from "effect";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -25,6 +26,7 @@ import {
 } from "@/features/reservation/routes";
 import { getSelectionPath } from "@/features/reservation/selection-path";
 import { Button } from "@/shared/components/ui/button";
+import { formatMoney, type Money } from "@/shared/money/money";
 import { cn } from "@/shared/utils";
 import { CheckoutFlowLayout } from "./checkout-flow-layout";
 import {
@@ -41,6 +43,8 @@ type CheckoutStatusPageProps = {
   readonly status: CheckoutStatusViewModel;
   /** The confirm step's link while the customer can withdraw; no ⋮ without it. */
   readonly withdrawalHref?: string;
+  /** Set once the customer withdrew: the reservation reads as cancelled. */
+  readonly withdrawn?: { readonly refundAmount: Money };
 };
 
 const statusIconWrapperVariants = cva(
@@ -222,9 +226,23 @@ export function CheckoutStatusPage({
   locale,
   presentation = "page",
   status,
-  withdrawalHref,
+  withdrawalHref: offeredWithdrawalHref,
+  withdrawn,
 }: CheckoutStatusPageProps) {
-  const copy = getCheckoutStatusCopy(status, locale);
+  const statusCopy = getCheckoutStatusCopy(status, locale);
+  const copy: CheckoutStatusCopy = withdrawn
+    ? {
+        ...statusCopy,
+        title: m.checkoutStatusWithdrawnTitle({}, { locale }),
+        lead: m.checkoutStatusWithdrawnLead(
+          { amount: formatMoney(withdrawn.refundAmount, locale) },
+          { locale }
+        ),
+        tone: "unknown",
+        Icon: Undo2,
+      }
+    : statusCopy;
+  const withdrawalHref = withdrawn ? undefined : offeredWithdrawalHref;
   const showReservationDetails = status.status !== "not_found";
   const summaryPresentation = getSummaryPresentation(status, locale);
   const supportContactHref = getSupportContactHref(
@@ -291,11 +309,11 @@ export function CheckoutStatusPage({
         locale={locale}
         offersNewReservation={offersNewReservation}
         presentation={presentation}
-        reservationAccessHref={getReservationAccessHref(
-          status,
-          locale,
-          reviewSandbox
-        )}
+        reservationAccessHref={
+          withdrawn
+            ? undefined
+            : getReservationAccessHref(status, locale, reviewSandbox)
+        }
         reserveAgainLabel={getReserveAgainLabel(
           offersRetry,
           !!repeatReservationSearchParams,
