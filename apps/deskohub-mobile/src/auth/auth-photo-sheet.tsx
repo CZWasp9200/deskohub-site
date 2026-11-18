@@ -82,22 +82,26 @@ export function AuthPhotoSheet({
         )}
         <View
           style={
-            isWide && [
-              styles.sheet,
-              {
-                paddingBottom: insets.bottom + 40,
-                paddingHorizontal: gutter + space.xxl,
-              },
-              isExpanded && {
-                marginLeft: insets.left + panelGutter,
-                paddingHorizontal: panelPadding,
-                paddingTop: panelPadding,
-                width: columnWidth + 2 * panelPadding,
-              },
-            ]
+            isWide
+              ? [
+                  styles.sheet,
+                  {
+                    paddingBottom: insets.bottom + 40,
+                    paddingHorizontal: gutter + space.xxl,
+                  },
+                  isExpanded && {
+                    marginLeft: insets.left + panelGutter,
+                    paddingHorizontal: panelPadding,
+                    paddingTop: panelPadding,
+                    width: columnWidth + 2 * panelPadding,
+                  },
+                ]
+              : undefined
           }
         >
-          <View style={isWide && [styles.column, styles.sheetContent]}>
+          <View
+            style={isWide ? [styles.column, styles.sheetContent] : undefined}
+          >
             {isWide && (
               <View style={styles.heading}>
                 {alert && (
@@ -110,7 +114,7 @@ export function AuthPhotoSheet({
                   </View>
                 )}
                 <View style={styles.headingText}>
-                  <View style={alert && styles.alertTitle}>
+                  <View style={alert ? styles.alertTitle : undefined}>
                     <Text
                       role={alert ? "alert" : "heading"}
                       aria-level={alert ? undefined : 1}

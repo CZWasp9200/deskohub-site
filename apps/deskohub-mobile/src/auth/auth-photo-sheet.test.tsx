@@ -1,8 +1,13 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { useEffect } from "react";
 import * as ReactNative from "react-native";
 import { clientRoot } from "../testing/client-root";
-import { AuthPhotoSheet } from "./auth-photo-sheet";
+import { expoRouterStandIn } from "../testing/expo-router-stand-in";
+
+mock.module("expo-router", () => expoRouterStandIn());
+
+const expoRouter = await import("expo-router");
+const { AuthPhotoSheet } = await import("./auth-photo-sheet");
 
 const { container, render } = clientRoot();
 
@@ -14,6 +19,7 @@ test("keeps the sign-in action mounted as the window changes size", async () => 
     { width: 360, height: 780, fontScale: 2 },
   ];
   const dimensions = spyOn(ReactNative, "useWindowDimensions");
+  const routeFocus = spyOn(expoRouter, "useIsFocused").mockReturnValue(false);
   let mounts = 0;
   let unmounts = 0;
   const SignInAction = () => {
@@ -49,5 +55,6 @@ test("keeps the sign-in action mounted as the window changes size", async () => 
   } finally {
     await render(null);
     dimensions.mockRestore();
+    routeFocus.mockRestore();
   }
 });

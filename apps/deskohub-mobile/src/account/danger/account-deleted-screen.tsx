@@ -7,6 +7,7 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { BodyText, Button, LiveMessage, Screen } from "../../ui/controls";
 import { useViewport } from "../../ui/viewport";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { deletedAccountExit } from "./deleted-account-exit";
 
 // A new sign-in waits for the deleted account's sign-out to settle: its late
@@ -43,7 +44,11 @@ export function AccountDeletedScreen() {
   );
   if (isWide) {
     return (
-      <AuthPhotoSheet title={title} body={body}>
+      <AuthPhotoSheet
+        title={title}
+        body={body}
+        updateOffer={<QuietUpdateOffer backdrop="navy" />}
+      >
         {actions}
       </AuthPhotoSheet>
     );
