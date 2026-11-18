@@ -15,7 +15,7 @@ import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { SkeletonGroup } from "../../ui/skeleton";
-import type { InvoiceRow } from "./invoice-list-model";
+import type { InvoiceDownload, InvoiceRow } from "./invoice-list-model";
 import { InvoiceListRow } from "./invoice-list-row";
 import {
   invoiceDownloadAtom,
@@ -26,7 +26,8 @@ import {
 /**
  * Invoices (board 38): the account's issued invoices, newest first, one row
  * each with what it was for, when and the total; tapping a row downloads
- * its PDF and hands it to the share sheet (a download on the web).
+ * its PDF and hands it to the share sheet (a download on the web). A
+ * cancelled invoice's row also downloads its credit note.
  */
 export function InvoicesScreen() {
   const locale = useAppLocale();
@@ -70,7 +71,7 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
   const locale = useAppLocale();
   const download = useAtomSet(invoiceDownloadAtom);
   const state = invoiceDownloadState(useAtomValue(invoiceDownloadAtom));
-  const [attempted, setAttempted] = useState<InvoiceRow | undefined>();
+  const [attempted, setAttempted] = useState<InvoiceDownload | undefined>();
   const downloading = state.kind === "downloading";
   return (
     <>
@@ -89,11 +90,15 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
             key={row.id}
             row={row}
             locale={locale}
-            downloading={downloading && attempted?.id === row.id}
+            downloading={
+              downloading && attempted?.id === row.id
+                ? attempted._tag
+                : undefined
+            }
             held={downloading}
-            onDownload={() => {
-              setAttempted(row);
-              download({ id: row.id, invoiceNumber: row.invoiceNumber });
+            onDownload={(document) => {
+              setAttempted(document);
+              download(document);
             }}
           />
         ))}

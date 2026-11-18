@@ -93,7 +93,7 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.invoices).filter(
         (budgetClass) => budgetClass === "dotypos-read"
       )
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-mutation"
@@ -133,6 +133,7 @@ describe("customer request budget classes", () => {
       invoices: {
         listInvoices: "dotypos-read",
         getInvoicePdf: "dotypos-read",
+        getCorrectiveDocumentPdf: "dotypos-read",
       },
     });
   });

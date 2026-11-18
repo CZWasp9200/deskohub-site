@@ -4,6 +4,7 @@ import { formatPragueDate } from "../../booking/ui/prague-date-format";
 import { sampleInvoices } from "../../customer-api/testing/sample-fixtures";
 import { formatInstantRange, parseInstant } from "../../i18n/date-time-format";
 import {
+  downloadableCreditNoteNumber,
   formatInvoiceTotal,
   invoiceListOf,
   invoiceRowOf,
@@ -96,5 +97,39 @@ describe("invoice rows", () => {
     expect(
       formatInvoiceTotal({ amount: "280", currency: "CZK" }, locale)
     ).not.toContain(".");
+  });
+});
+
+describe("downloadableCreditNoteNumber", () => {
+  const cancellation = { correctiveDocumentNumber: "WS-OD-2026-000004" };
+
+  test("a cancelled row carries its cancellation and offers the credit note the Workspace serves", () => {
+    for (const invoice of [desk, manual]) {
+      const row = invoiceRowOf({
+        ...invoice,
+        cancellation: { ...cancellation, correctiveDocumentDownloadable: true },
+      });
+
+      expect(row.cancellation?.correctiveDocumentNumber).toBe(
+        cancellation.correctiveDocumentNumber
+      );
+      expect(downloadableCreditNoteNumber(row)).toBe(
+        cancellation.correctiveDocumentNumber
+      );
+    }
+  });
+
+  test("a Workspace that doesn't serve the credit note leaves the cancelled row without it", () => {
+    const row = invoiceRowOf({ ...desk, cancellation });
+
+    expect(row.cancellation).toEqual(cancellation);
+    expect(downloadableCreditNoteNumber(row)).toBeUndefined();
+  });
+
+  test("an invoice in force has no cancellation and no credit note", () => {
+    const row = invoiceRowOf(desk);
+
+    expect(row.cancellation).toBeUndefined();
+    expect(downloadableCreditNoteNumber(row)).toBeUndefined();
   });
 });

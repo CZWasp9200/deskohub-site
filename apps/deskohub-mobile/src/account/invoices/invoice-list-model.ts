@@ -1,6 +1,7 @@
 import { formatCurrencyAmount } from "@deskohub/i18n/currency";
 import type {
   CustomerInvoice,
+  CustomerInvoiceCancellation,
   CustomerInvoicedReservation,
   CustomerInvoiceId,
   CustomerInvoiceTotal,
@@ -57,21 +58,24 @@ const subjectDates = (
  * One row of the invoice list, in one of two shapes. A described invoice
  * leads with what it was for and the reservation's dates (board 38); a
  * plain one with its number and the day it was issued. Both end with the
- * total as issued, and a cancelled one stays listed, marked cancelled.
+ * total as issued, and a cancelled one stays listed, marked cancelled,
+ * with the credit note that cancelled it.
  */
 export type InvoiceRow = Data.TaggedEnum<{
   Described: {
     readonly id: CustomerInvoiceId;
     readonly invoiceNumber: string;
     readonly total: CustomerInvoiceTotal;
-    readonly cancelled: boolean;
+    /** Present once a credit note cancelled it. */
+    readonly cancellation: CustomerInvoiceCancellation | undefined;
     readonly subject: InvoiceSubject;
   };
   Plain: {
     readonly id: CustomerInvoiceId;
     readonly invoiceNumber: string;
     readonly total: CustomerInvoiceTotal;
-    readonly cancelled: boolean;
+    /** Present once a credit note cancelled it. */
+    readonly cancellation: CustomerInvoiceCancellation | undefined;
     /** The Prague calendar date it was issued on. */
     readonly issuedOn: string;
   };
@@ -86,18 +90,42 @@ export const invoiceRowOf = ({
   issuedOn,
   reservation,
   cancellation,
-}: CustomerInvoice): InvoiceRow => {
-  const cancelled = cancellation !== undefined;
-  return reservation === undefined
-    ? InvoiceRow.Plain({ id, invoiceNumber, total, cancelled, issuedOn })
+}: CustomerInvoice): InvoiceRow =>
+  reservation === undefined
+    ? InvoiceRow.Plain({ id, invoiceNumber, total, cancellation, issuedOn })
     : InvoiceRow.Described({
         id,
         invoiceNumber,
         total,
-        cancelled,
+        cancellation,
         subject: reservation,
       });
-};
+
+/**
+ * The credit note number a cancelled row offers to download, when the
+ * Workspace serves that credit note; a Workspace that doesn't leaves the
+ * row its invoice's download alone.
+ */
+export const downloadableCreditNoteNumber = (row: InvoiceRow) =>
+  row.cancellation?.correctiveDocumentDownloadable === true
+    ? row.cancellation.correctiveDocumentNumber
+    : undefined;
+
+/**
+ * The document a download fetches: an invoice, or the credit note that
+ * cancelled it. The document's own number names the file.
+ */
+export type InvoiceDownload = Data.TaggedEnum<{
+  Invoice: {
+    readonly id: CustomerInvoiceId;
+    readonly invoiceNumber: string;
+  };
+  CreditNote: {
+    readonly id: CustomerInvoiceId;
+    readonly correctiveDocumentNumber: string;
+  };
+}>;
+export const InvoiceDownload = Data.taggedEnum<InvoiceDownload>();
 
 /** What the invoice list shows once it has loaded. */
 export type InvoiceList =
@@ -146,8 +174,9 @@ export const invoiceRowText = (
   });
 
 /**
- * The file name a shared invoice carries: its number, as the Workspace
- * names the download, with anything a file name can't hold replaced.
+ * The file name a shared invoice or credit note carries: its own number, as
+ * the Workspace names the download, with anything a file name can't hold
+ * replaced.
  */
-export const invoicePdfName = (invoiceNumber: string) =>
-  `${invoiceNumber.replace(/[^\p{L}\p{N}._-]+/gu, "-")}.pdf`;
+export const invoicePdfName = (documentNumber: string) =>
+  `${documentNumber.replace(/[^\p{L}\p{N}._-]+/gu, "-")}.pdf`;
