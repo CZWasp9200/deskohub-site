@@ -392,6 +392,14 @@ function InvitedReservations() {
               <View style={styles.rowText}>
                 <Text variant="bodyStrong">{view.title}</Text>
                 <Text variant="bodySmall">{view.detail}</Text>
+                {reservation.status === "cancelled" && (
+                  <View style={styles.rowBadge}>
+                    <Badge
+                      label={m.reservations_status_cancelled({}, { locale })}
+                      tone="neutral"
+                    />
+                  </View>
+                )}
               </View>
               <Icon icon={ChevronRight} size={20} color={color.ink3} />
             </Pressable>

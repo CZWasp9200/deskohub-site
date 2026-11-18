@@ -9,7 +9,9 @@ import {
   settle,
 } from "../../customer-api/testing/customer-data-test-registry";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
+import { withSampleHistory } from "../../customer-api/testing/sample-history";
 import { AppLocaleProvider } from "../../i18n/locale-context";
+import { m } from "../../i18n/messages";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 import { findAll, hostTree, textOf } from "../../ui/testing/element-tree";
 import { invitedReservationsAtom } from "./invited-reservations";
@@ -48,19 +50,8 @@ test.each(["completion-required", "linked"] as const)(
     const sample = FakeWorkspace.forKind(kind).data;
     const invitation = sample.invited?.current[0];
     if (!invitation?.bookedBy.name) throw new Error("Expected a sample invite");
-    const workspace = new FakeWorkspace(
-      kind === "linked"
-        ? {
-            ...sample,
-            invited: {
-              current: [],
-              past: [
-                { ...invitation, accessStartsAt: null, accessEndsAt: null },
-              ],
-            },
-          }
-        : sample
-    );
+    const workspace = new FakeWorkspace(sample);
+    if (kind === "linked") withSampleHistory(workspace, "cancelled-invitation");
     workspace.fail("listReservations", "service-unavailable");
     const { registry } = makeFakeCustomerData(kind, workspace);
 
@@ -80,7 +71,17 @@ test.each(["completion-required", "linked"] as const)(
       } else {
         expect(workspace.calls).not.toContain("listReservations");
       }
-      expect(screenText(registry)).toContain(invitation.bookedBy.name);
+      const text = screenText(registry);
+      expect(text).toContain(invitation.bookedBy.name);
+      const cancelled = m.reservations_status_cancelled(
+        {},
+        { locale: "en-US" }
+      );
+      if (kind === "linked") {
+        expect(text).toContain(cancelled);
+      } else {
+        expect(text).not.toContain(cancelled);
+      }
     } finally {
       releaseAccount();
       releaseInvitations();

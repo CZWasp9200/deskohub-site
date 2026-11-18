@@ -87,9 +87,11 @@ import {
   openDirections,
 } from "./establishment";
 import { invitedReservationOfOrderAtom } from "./invited-reservations";
+import { orderStatusAtoms } from "./order-status-state";
 import { reservationOfOrderAtom } from "./order-ticket-view";
 import { reservationProductTitle } from "./reservation-labels";
 import type { ReservationListRow } from "./reservation-list-model";
+import { reservationsListAtom } from "./reservations-list-state";
 
 /** The PIN the loading state holds room for: the shortest the lock issues. */
 const placeholderGroups = accessPinGroups("0000000");
@@ -155,10 +157,9 @@ export function ReservationAccessScreen({
   const locale = useAppLocale();
   const read = shownAccess(useAtomValue(reservationAccessAtom(orderId)));
   const refresh = useAtomRefresh(reservationAccessAtom(orderId));
-  const booking = accessBookingOf(
-    useAtomValue(reservationOfOrderAtom(orderId)),
-    useAtomValue(invitedReservationOfOrderAtom(orderId))
-  );
+  const own = useAtomValue(reservationOfOrderAtom(orderId));
+  const invited = useAtomValue(invitedReservationOfOrderAtom(orderId));
+  const booking = accessBookingOf(own, invited);
   const state = accessScreenStateOf(read);
   const refreshing = !AsyncResult.isInitial(read) && read.waiting;
   // Always mounted, so the header follows the state both ways: a No PIN
@@ -173,7 +174,11 @@ export function ReservationAccessScreen({
       <>
         {header}
         <ScrollScreen refreshing={refreshing} onRefresh={refresh}>
-          <NoPin orderId={orderId} />
+          <NoPin
+            orderId={orderId}
+            inOwnHistory={Option.isSome(own)}
+            invited={Option.isSome(invited)}
+          />
         </ScrollScreen>
       </>
     );
@@ -680,10 +685,28 @@ function LoadingWindow() {
   );
 }
 
-/** No PIN for the order: why, Contact us, and the way back to the booking. */
-function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
+/** No PIN for the order: why, Contact us, and the way back. */
+function NoPin({
+  orderId,
+  inOwnHistory,
+  invited,
+}: {
+  readonly orderId: CustomerReservationOrderId;
+  readonly inOwnHistory: boolean;
+  readonly invited: boolean;
+}) {
   const locale = useAppLocale();
   const router = useRouter();
+  const history = useAtomValue(reservationsListAtom);
+  const status = useAtomValue(orderStatusAtoms.status(orderId));
+  const freshOwnHistory =
+    inOwnHistory &&
+    Option.exists(AsyncResult.value(history), (list) =>
+      Option.isNone(list.savedAt)
+    );
+  // The status screen's read can establish access before history catches up.
+  const returnToStatus =
+    !invited && (freshOwnHistory || AsyncResult.isSuccess(status));
   return (
     <Card padding="none">
       <EmptyState
@@ -700,12 +723,20 @@ function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
           />
           <Button
             variant="quiet"
-            label={m.reservations_access_back_to_booking({}, { locale })}
+            label={
+              returnToStatus
+                ? m.reservations_access_back_to_booking({}, { locale })
+                : m.account_section_reservations({}, { locale })
+            }
             onPress={() =>
-              router.dismissTo({
-                pathname: "/reservations/[orderId]",
-                params: { orderId },
-              })
+              router.dismissTo(
+                returnToStatus
+                  ? {
+                      pathname: "/reservations/[orderId]",
+                      params: { orderId },
+                    }
+                  : reservationsHref
+              )
             }
           />
         </View>
