@@ -14,7 +14,12 @@ import { SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
-import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
+import {
+  type ContentWidth,
+  contentColumnWidth,
+  useViewport,
+  wideGutter,
+} from "../../ui/viewport";
 import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { initialsOf } from "../account-root-model";
 import { ReturnToAccountRoot } from "../return-to-account-root";
@@ -29,6 +34,7 @@ import {
   useProfileForm,
 } from "./profile-form";
 import { ProfileFormFooter } from "./profile-form-footer";
+import { useProfileContentWidth } from "./profile-layout";
 
 type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
 
@@ -49,6 +55,7 @@ export function ProfileScreen({
 } = {}) {
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
+  const contentWidth = useProfileContentWidth(presentation === "checkout");
   const linked = Option.filter(
     AsyncResult.value(account),
     (current): current is LinkedAccount => current.kind === "linked"
@@ -60,11 +67,15 @@ export function ProfileScreen({
         result={account}
         onRefresh={refresh}
         hostsUpdateOffer={hostsUpdateOffer}
-        checkout={presentation === "checkout"}
+        contentWidth={contentWidth}
       />
     );
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      refreshing={account.waiting}
+      onRefresh={refresh}
+      contentWidth={contentWidth}
+    >
       {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
       <AsyncView result={account} onRetry={refresh}>
         {/* The Account tab explains why an account without a profile can't edit it. */}
@@ -79,13 +90,13 @@ function ProfileForm({
   result,
   onRefresh,
   hostsUpdateOffer,
-  checkout,
+  contentWidth,
 }: {
   readonly account: LinkedAccount;
   readonly result: Atom.Type<typeof accountAtom>;
   readonly onRefresh: () => void;
   readonly hostsUpdateOffer: boolean;
-  readonly checkout: boolean;
+  readonly contentWidth: ContentWidth;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -95,9 +106,8 @@ function ProfileForm({
   const { inputs } = useFocusFirstInvalid(form.state, identityFields);
   const saving = form.state._tag === "Submitting";
   const saved = form.state._tag === "Done";
-  const { availableWidth, fontScale, isExpanded, isWide } = useViewport();
-  const wideTracks = checkout && isExpanded && fontScale < 1.5;
-  const contentWidth = wideTracks ? "wide" : "form";
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const wideTracks = contentWidth === "wide";
   const formWidth = Math.min(
     contentColumnWidth[contentWidth],
     availableWidth - 2 * wideGutter
