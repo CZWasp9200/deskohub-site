@@ -14,7 +14,7 @@ import { Icon } from "../ui/icon";
 import { useLiveRegionAnnouncement } from "../ui/live-announcement";
 import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
-import { color, radius, space, typeScale } from "../ui/tokens";
+import { color, radius, shadow, space, typeScale } from "../ui/tokens";
 import { useViewport } from "../ui/viewport";
 import {
   SignInBrand,
@@ -221,8 +221,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.overlay,
     paddingTop: 44,
     width: "100%",
+    ...shadow.sheet,
   },
-  sheetContent: { gap: 28 },
+  sheetContent: { gap: 28, paddingHorizontal: space.xxl },
   heading: { gap: space.md },
   titleRow: { alignItems: "center", flexDirection: "row", gap: space.lg },
   title: { flex: 1 },

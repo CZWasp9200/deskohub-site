@@ -137,7 +137,7 @@ export function AuthCallbackScreen() {
   const actions = signedIn ? (
     <Button label={m.callback_go_back({}, { locale })} onPress={leave} />
   ) : (
-    <View style={styles.actions}>
+    <View style={isWide ? styles.wideActions : styles.compactActions}>
       <Button
         label={m.callback_start_again({}, { locale })}
         icon={RotateCcw}
@@ -197,5 +197,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: space.xl,
   },
-  actions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
+  compactActions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
+  wideActions: { gap: space.md },
 });
