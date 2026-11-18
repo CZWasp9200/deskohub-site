@@ -484,10 +484,6 @@ export function OfficeStayControls({
   );
 }
 
-/**
- * Why checkout sent the customer back, read inside the step's scroll view,
- * so a restart scrolls it back to the top where this notice says why.
- */
 function OfficeBookingHero({
   description,
   inline,
@@ -517,6 +513,10 @@ function OfficeBookingHero({
   );
 }
 
+/**
+ * Why checkout sent the customer back, read inside the step's scroll view,
+ * so a restart scrolls it back to the top where this notice says why.
+ */
 function OfficeRestartNotice({ onReread }: { readonly onReread: () => void }) {
   return <RestartNotice reason={useRestartReason(onReread)} />;
 }

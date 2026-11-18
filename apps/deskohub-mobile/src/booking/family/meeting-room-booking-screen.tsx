@@ -23,7 +23,7 @@ import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
-import { useViewport } from "../../ui/viewport";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import { bookingPreselectionKey } from "../booking-preselection";
 import { bookCheckoutHref } from "../booking-routes";
 import { checkoutRequestAtom } from "../checkout/checkout-flow";
@@ -300,7 +300,14 @@ function MeetingRoomSelection({
     lengthOf(duration)?.durationLabel ?? duration;
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
   const tracks = useChooseTracks(3);
-  const { isWide } = useViewport();
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const columnWidth = Math.min(
+    availableWidth - 2 * wideGutter,
+    contentColumnWidth.wide
+  );
+  const durationRow =
+    isWide && !tracks && (columnWidth - 2 * space.sm) / (3 * fontScale) >= 152;
+  const stackedStartColumns = isWide ? 5 : 4;
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const chosenDuration = Option.getOrUndefined(model.draft.duration);
   const chosenStart = Option.getOrUndefined(model.draft.startTime);
@@ -503,7 +510,8 @@ function MeetingRoomSelection({
                         was: offering.price,
                       }),
                     }))}
-                    cards={tracks}
+                    cards={tracks || durationRow}
+                    horizontal={durationRow}
                     selected={chosenDuration}
                     onSelect={(duration) =>
                       setDraft(selectMeetingRoomDuration(model.draft, duration))
@@ -597,7 +605,7 @@ function MeetingRoomSelection({
                           { locale }
                         )}
                         daytime={startChoices.daytime}
-                        twoColumns={tracks}
+                        maxColumns={tracks ? 2 : stackedStartColumns}
                         outside={startChoices.outside}
                         selected={chosenStart}
                         onSelect={(startTime) =>

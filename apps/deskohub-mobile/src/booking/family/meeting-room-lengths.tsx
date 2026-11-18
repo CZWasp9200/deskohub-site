@@ -37,6 +37,7 @@ export function MeetingRoomLengths({
   onSelect,
   locale,
   cards = false,
+  horizontal = false,
 }: {
   /** Names the group for assistive tech. */
   readonly label: string;
@@ -46,6 +47,7 @@ export function MeetingRoomLengths({
   readonly onSelect: (duration: CustomerMeetingRoomDuration) => void;
   readonly locale: AppLocale;
   readonly cards?: boolean;
+  readonly horizontal?: boolean;
 }) {
   const rowRefs = useRef<Array<ComponentRef<typeof Pressable> | null>>([]);
   const tabStop = tabStopIndex(
@@ -62,7 +64,10 @@ export function MeetingRoomLengths({
     <View
       role="radiogroup"
       aria-label={label}
-      style={cards ? styles.cards : styles.list}
+      style={[
+        cards ? styles.cards : styles.list,
+        horizontal && styles.horizontal,
+      ]}
     >
       {lengths.map((length, index) => {
         const checked = length.duration === selected;
@@ -90,6 +95,7 @@ export function MeetingRoomLengths({
             style={({ pressed }) => [
               styles.row,
               cards ? styles.card : index > 0 && styles.divided,
+              horizontal && styles.horizontalCard,
               checked && styles.checked,
               cards && checked && styles.checkedCard,
               pressed && !checked && styles.pressed,
@@ -132,6 +138,7 @@ export function MeetingRoomLengths({
 
 const styles = StyleSheet.create({
   cards: { flexGrow: 1, gap: space.sm },
+  horizontal: { flexDirection: "row" },
   list: {
     backgroundColor: color.surface,
     borderColor: color.line,
@@ -160,6 +167,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   checkedCard: { borderColor: color.action },
+  horizontalCard: { flex: 1, minWidth: 0 },
   cardRadio: { position: "absolute", right: space.lg, top: space.lg },
   cardContent: {
     alignItems: "stretch",

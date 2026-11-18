@@ -166,7 +166,7 @@ export function BookingBar({
   const { availableWidth, fontScale, isWide } = useViewport();
   const column = useContentColumn(contentWidth);
   const width = Math.min(
-    availableWidth - 2 * wideGutter,
+    Math.max(0, availableWidth - 2 * wideGutter),
     contentColumnWidth[contentWidth]
   );
   const inline = isWide && width / fontScale >= 540;
@@ -260,7 +260,7 @@ export function BookingBar({
         styles.bar,
         column,
         summary === undefined ? styles.actionOnly : styles.withSummary,
-        isWide && styles.wideBar,
+        isWide && [styles.wideBar, { width }],
         shownOpen && styles.open,
         { paddingBottom: space.md + bottom },
       ]}
@@ -514,6 +514,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    paddingHorizontal: space.lg,
     paddingTop: space.md,
   },
   open: {

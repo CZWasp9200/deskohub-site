@@ -118,6 +118,11 @@ describe("swipes", () => {
 describe("BookingBar", () => {
   test("discloses the price beside the action when the available width fits", () => {
     const collapsed = wideBar({});
+    expect(flatStyle(find(collapsed, "View")?.props.style).width).toBe(680);
+    expect(
+      flatStyle(find(wideBar({ contentWidth: "form" }), "View")?.props.style)
+        .width
+    ).toBe(640);
     const toggle = chevronOf(collapsed);
     expect(toggle?.props["aria-expanded"]).toBe(false);
     expect(flatStyle(toggle?.props.style).minHeight).toBe(touchTarget);
