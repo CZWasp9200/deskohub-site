@@ -95,12 +95,13 @@ describe.skipIf(!testDatabase)(
 
     const claimAsOperator = (id: WorkspaceReservationId) =>
       Effect.runPromise(
-        WorkspaceReservationRepository.use((repository) =>
-          repository.claimAdministrationCancellation({
+        Effect.gen(function* () {
+          const repository = yield* WorkspaceReservationRepository;
+          return yield* repository.claimAdministrationCancellation({
             id,
             staleCancellingBefore: Temporal.Now.instant(),
-          })
-        ).pipe(
+          });
+        }).pipe(
           Effect.provide(WorkspaceReservationRepository.Default),
           Effect.provide(testDatabase.layer)
         )
