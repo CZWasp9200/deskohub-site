@@ -3,6 +3,7 @@ import { DateTime, Option } from "effect";
 import Check from "lucide-react-native/icons/check";
 import Hourglass from "lucide-react-native/icons/hourglass";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
+import X from "lucide-react-native/icons/x";
 import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant, workspaceTimeZone } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
@@ -45,6 +46,11 @@ export const ticketBadge = (
     "not-booked": () => ({
       label: m.reservations_badge_not_booked({}, { locale }),
       tone: "neutral" as const,
+    }),
+    cancelled: () => ({
+      label: m.reservations_status_cancelled({}, { locale }),
+      tone: "neutral" as const,
+      icon: X,
     }),
   })[kind]();
 

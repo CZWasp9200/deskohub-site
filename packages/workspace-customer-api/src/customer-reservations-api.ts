@@ -375,6 +375,13 @@ export const CustomerOrderState = Schema.Struct({
    * and its product can still be booked.
    */
   bookedSelection: Schema.optional(CustomerBookedSelection),
+  /**
+   * The customer withdrew from the order (§1830a): when, and what it owes
+   * back. The reservation is cancelled; the refund follows within 14 days.
+   */
+  withdrawal: Schema.optional(
+    Schema.Struct({ submittedAt: isoInstant, refundAmount: Money })
+  ),
 }).annotate({ identifier: "CustomerOrderState" });
 export type CustomerOrderState = typeof CustomerOrderState.Type;
 

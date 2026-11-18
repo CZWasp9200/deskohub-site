@@ -27,6 +27,7 @@ export const sampleHistories = [
   "today",
   "upcoming",
   "upcoming-closed",
+  "withdrawn",
   "pending",
   "nothing-upcoming",
   "empty",
@@ -62,6 +63,8 @@ export const withSampleHistory = (
       ...later,
     ],
     // The same bookings once withdrawal is no longer possible.
+    // The desk withdrawn from: cancelled, so listed under past.
+    withdrawn: () => [sampleLaterMeetingRoom(now), ...later],
     "upcoming-closed": () =>
       [sampleDeskReservation(now), sampleLaterMeetingRoom(now), ...later].map(
         ({ withdrawal: _, ...row }) => row
@@ -92,10 +95,51 @@ export const withSampleHistory = (
           ]),
         }
       : {}),
+    ...(history === "withdrawn"
+      ? {
+          orders: new Map(
+            [...data.orders].map(([id, order]) =>
+              id === sampleDeskReservation(now).orderId
+                ? [
+                    id,
+                    {
+                      ...order,
+                      access: undefined,
+                      state: {
+                        ...order.state,
+                        withdrawal: {
+                          submittedAt: now.toISOString(),
+                          refundAmount: order.state.total ?? {
+                            value: 25880,
+                            exponent: 2,
+                            currency: "CZK",
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : [id, order]
+            )
+          ),
+        }
+      : {}),
     history:
       history === "empty"
         ? { current: [], past: [], unavailable: [] }
-        : { ...data.history, current },
+        : history === "withdrawn"
+          ? {
+              ...data.history,
+              current,
+              past: [
+                {
+                  ...sampleDeskReservation(now),
+                  status: "cancelled",
+                  withdrawal: undefined,
+                },
+                ...data.history.past,
+              ],
+            }
+          : { ...data.history, current },
   };
   if (history === "offline" || history === "offline-fresh") {
     workspace.fail("listReservations", "service-unavailable", 10_000);

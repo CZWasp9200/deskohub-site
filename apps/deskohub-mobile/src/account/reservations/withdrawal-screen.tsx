@@ -1,6 +1,7 @@
 import type {
   CustomerReservationOrderId,
   CustomerWithdrawalQuote,
+  CustomerWithdrawalReceipt,
   CustomerWithdrawalRefusedReason,
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
@@ -8,6 +9,11 @@ import { Cause, Effect, Option, Predicate } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
+import CircleCheck from "lucide-react-native/icons/circle-check";
+import { reservationsHref } from "../../booking/booking-routes";
+import { formatInstant, parseInstant } from "../../i18n/date-time-format";
+import { Icon } from "../../ui/icon";
+import { reservationHistoryAtom } from "./reservations-list-state";
 import { type ReactNode, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { CustomerApi } from "../../customer-api/customer-api.service";
@@ -130,6 +136,14 @@ function WithdrawalStatement({
   const router = useRouter();
   const [submission, withdraw] = useAtom(withdrawAtom);
   const pending = submission.waiting;
+  if (AsyncResult.isSuccess(submission))
+    return (
+      <WithdrawalReceived
+        quote={quote}
+        receipt={submission.value}
+        reference={reference}
+      />
+    );
   // The name comes from the account; an input stands in only when it has none.
   const [name, setName] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -324,4 +338,89 @@ const styles = StyleSheet.create({
     paddingTop: space.md,
   },
   note: { marginTop: space.xs },
+  receivedHead: { alignItems: "center", gap: space.lg, paddingTop: space.md },
+  receivedIcon: {
+    alignItems: "center",
+    backgroundColor: color.positiveTint,
+    borderRadius: 999,
+    height: 72,
+    justifyContent: "center",
+    width: 72,
+  },
+  receivedTitle: { textAlign: "center" },
 });
+
+/**
+ * The receipt of a submitted withdrawal (§1830a(5)): what, when, and the
+ * refund. It replaces the statement, so going back never returns to it.
+ */
+function WithdrawalReceived({
+  quote,
+  receipt,
+  reference,
+}: {
+  readonly quote: CustomerWithdrawalQuote;
+  readonly receipt: CustomerWithdrawalReceipt;
+  readonly reference: string;
+}) {
+  const locale = useAppLocale();
+  const router = useRouter();
+  const refreshHistory = useAtomRefresh(reservationHistoryAtom);
+  const close = () => {
+    refreshHistory();
+    router.dismissTo(reservationsHref);
+  };
+  const submitted = Option.match(parseInstant(receipt.submittedAt), {
+    onNone: () => receipt.submittedAt,
+    onSome: (instant) => formatInstant(instant, locale, "date-time"),
+  });
+  return (
+    <View style={styles.screen}>
+      <ScrollScreen>
+        <View style={styles.stack}>
+          <View style={styles.receivedHead}>
+            <View style={styles.receivedIcon}>
+              <Icon icon={CircleCheck} size={36} color={color.positiveInk} />
+            </View>
+            <Text variant="titleLarge" role="heading" style={styles.receivedTitle}>
+              {m.withdrawal_received_title({}, { locale })}
+            </Text>
+          </View>
+          <Card padding="none">
+            <DetailRow label={m.withdrawal_reference({}, { locale })}>
+              <Text numeric variant="bodyStrong">
+                {reference}
+              </Text>
+            </DetailRow>
+            <DetailRow divided label={m.withdrawal_contract({}, { locale })}>
+              <Text variant="bodyStrong">{quote.contractLabel}</Text>
+            </DetailRow>
+            <DetailRow divided label={m.withdrawal_submitted({}, { locale })}>
+              <Text numeric variant="bodyStrong">
+                {submitted}
+              </Text>
+            </DetailRow>
+            <DetailRow divided label={m.withdrawal_refund({}, { locale })}>
+              <Text numeric variant="bodyStrong">
+                {formatMoney(receipt.refundAmount, locale)}
+              </Text>
+            </DetailRow>
+          </Card>
+          <Text variant="bodySmall">
+            {m.withdrawal_received_emailed(
+              { email: receipt.receiptEmail },
+              { locale }
+            )}
+          </Text>
+        </View>
+      </ScrollScreen>
+      <ActionFooter>
+        <Button
+          variant="primary"
+          label={m.withdrawal_close({}, { locale })}
+          onPress={close}
+        />
+      </ActionFooter>
+    </View>
+  );
+}

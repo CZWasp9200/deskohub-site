@@ -33,6 +33,7 @@ import {
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { contactPageUrl } from "../../routing/site-page";
 import { Card } from "../../ui/card";
 import { Button, LiveMessage } from "../../ui/controls";
@@ -52,6 +53,7 @@ import {
 import {
   type BookingTicketModel,
   bookingTicketOf,
+  withdrawnTicket,
   orderCheckingOf,
 } from "./booking-ticket-model";
 import { ticketBadge, ticketSteps } from "./booking-ticket-text";
@@ -100,8 +102,11 @@ const invoiceFailureMessage = (
 function MoreActions({
   order,
   event,
+  withdrawn = false,
 }: {
   readonly order: CustomerOrderState;
+  /** Withdrawn from already: no second withdrawal. */
+  readonly withdrawn?: boolean;
   /** The booking as a calendar event; none while its times are unknown. */
   readonly event: BookingEvent | undefined;
 }) {
@@ -144,6 +149,7 @@ function MoreActions({
           trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
           onPress={openContactPage}
         />
+        {!withdrawn && (
         <WhenWithdrawable orderId={order.orderId}>
           <ListRow
             kind="action"
@@ -161,6 +167,7 @@ function MoreActions({
             }
           />
         </WhenWithdrawable>
+        )}
       </ListGroup>
       <LiveMessage
         role="status"
@@ -259,6 +266,15 @@ function TicketStub({
       );
     case "RetryPayment":
       return retryPaymentAction;
+    case "Withdrawn":
+      return (
+        <Text variant="bodySmall" tone="default">
+          {m.withdrawal_ticket_note(
+            { amount: formatMoney(stub.refundAmount, locale) },
+            { locale }
+          )}
+        </Text>
+      );
     case "Steps":
       return (
         <>
@@ -308,13 +324,16 @@ function OrderTicket({
     onCheckAgain,
     onPaymentPageLeft,
   });
-  const model = bookingTicketOf(
-    order.status,
-    orderCheckingOf(state.automatic),
-    recovery.offer
-  );
+  const model =
+    order.withdrawal === undefined
+      ? bookingTicketOf(
+          order.status,
+          orderCheckingOf(state.automatic),
+          recovery.offer
+        )
+      : withdrawnTicket(order.withdrawal.refundAmount);
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
-  const view = orderTicketView({
+  const ticketView = orderTicketView({
     order,
     model,
     reservation,
@@ -322,6 +341,11 @@ function OrderTicket({
     now: DateTime.nowUnsafe(),
     locale,
   });
+  // A withdrawn booking won't happen: no countdown, no PIN hint.
+  const view =
+    order.withdrawal === undefined
+      ? ticketView
+      : { ...ticketView, lead: undefined, accessHint: undefined };
   const badge = ticketBadge(model.badge, locale);
   // The status changes while the screen is open: announce the new one.
   useLiveRegionAnnouncement(
@@ -382,7 +406,12 @@ function OrderTicket({
         />
       </BookingTicket>
       {model.followUp === "more-actions" && (
-        <MoreActions order={order} event={view.event} />
+        <MoreActions
+          order={order}
+          // A withdrawn booking won't happen: nothing to add to a calendar.
+          event={order.withdrawal === undefined ? view.event : undefined}
+          withdrawn={order.withdrawal !== undefined}
+        />
       )}
       {model.followUp === "contact" && <ContactLink />}
     </View>

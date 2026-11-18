@@ -1,3 +1,4 @@
+import type { Money } from "@deskohub/workspace-customer-api";
 import type { CustomerOrderStatus } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { AutomaticRefresh } from "./status-refresh-rules";
@@ -10,7 +11,9 @@ export type TicketBadgeKind =
   | "pending"
   | "confirmed"
   | "attention"
-  | "not-booked";
+  | "not-booked"
+  /** A paid booking the customer withdrew from. */
+  | "cancelled";
 
 /** Why the header names a reason instead of the countdown. */
 export type TicketReason =
@@ -62,7 +65,9 @@ export type TicketStub =
   | { readonly _tag: "AccessPin" }
   | { readonly _tag: "BookAgain"; readonly refundNote: boolean }
   /** Pay the same order again, its details kept. */
-  | { readonly _tag: "RetryPayment" };
+  | { readonly _tag: "RetryPayment" }
+  /** Cancelled by the customer's withdrawal, its refund under way. */
+  | { readonly _tag: "Withdrawn"; readonly refundAmount: Money };
 
 /** What the booking view shows under the ticket. */
 export type TicketFollowUp =
@@ -150,6 +155,19 @@ const notBooked = (
     ? { _tag: "RetryPayment" }
     : { _tag: "BookAgain", refundNote: reason === "refund" },
   followUp: "contact",
+  dim: true,
+});
+
+/**
+ * A booking the customer withdrew from: cancelled, its invoice and Contact
+ * us kept, never its PIN or calendar.
+ */
+export const withdrawnTicket = (refundAmount: Money): BookingTicketModel => ({
+  badge: "cancelled",
+  reason: Option.none(),
+  price: "paid",
+  stub: { _tag: "Withdrawn", refundAmount },
+  followUp: "more-actions",
   dim: true,
 });
 
