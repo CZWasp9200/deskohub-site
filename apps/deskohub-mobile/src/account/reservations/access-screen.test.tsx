@@ -25,17 +25,13 @@ const { accessStackHeader } = await import("./access-screen");
 const { StackHeader } = await import("../../ui/navigation");
 
 describe("accessStackHeader", () => {
-  test("in both tones, Back from a PIN with nothing behind it opens the Reservations list", () => {
-    for (const tone of ["navy", "paper"] as const) {
-      const header = accessStackHeader[tone]({} as NativeStackHeaderProps);
+  test("Back from a PIN with nothing behind it opens the Reservations list at every width", () => {
+    for (const renderHeader of Object.values(accessStackHeader)) {
+      const header = renderHeader({} as NativeStackHeaderProps);
       expect(isValidElement(header) && header.type === StackHeader).toBe(true);
-      expect({
-        tone,
-        backFallback: (header.props as { backFallback?: string }).backFallback,
-      }).toEqual({
-        tone,
-        backFallback: reservationsHref,
-      });
+      expect(header.props.backFallback).toBe(reservationsHref);
     }
+    const expanded = accessStackHeader.paperWide({} as NativeStackHeaderProps);
+    expect(expanded.props.contentWidth).toBe("wide");
   });
 });

@@ -34,6 +34,15 @@ export const accessPinBox = {
   groupGap: 18,
 } as const;
 
+export const wideAccessPinBox = {
+  width: 64,
+  height: 84,
+  fontSize: 48,
+  radius: 14,
+  digitGap: 8,
+  groupGap: 20,
+} as const;
+
 /** One digit box's size and its digit's font size, in dp. */
 export interface AccessPinBoxSize {
   readonly width: number;
@@ -53,29 +62,31 @@ export interface AccessPinBoxSize {
 export const accessPinBoxSize = (
   groups: ReadonlyArray<string>,
   available: number,
-  fontScale: number
+  fontScale: number,
+  wide = false
 ): AccessPinBoxSize => {
+  const box = wide ? wideAccessPinBox : accessPinBox;
   const digits = groups.reduce((sum, group) => sum + group.length, 0);
   const longest = Math.max(1, ...groups.map((group) => group.length));
-  const wanted = accessPinBox.width * Math.max(fontScale, 1);
+  const wanted = box.width * Math.max(fontScale, 1);
   const rowFit =
     (available -
-      (digits - groups.length) * accessPinBox.digitGap -
-      (groups.length - 1) * accessPinBox.groupGap) /
+      (digits - groups.length) * box.digitGap -
+      (groups.length - 1) * box.groupGap) /
     Math.max(digits, 1);
-  const groupFit =
-    (available - (longest - 1) * accessPinBox.digitGap) / longest;
-  const oneLine = rowFit >= wanted * shrinkTolerance || fontScale <= 1;
+  const groupFit = (available - (longest - 1) * box.digitGap) / longest;
+  const oneLine =
+    rowFit >= wanted * shrinkTolerance || (!wide && fontScale <= 1);
   const width = Math.max(
     1,
     Math.floor(Math.min(wanted, oneLine ? rowFit : groupFit))
   );
-  const scale = width / accessPinBox.width;
+  const scale = width / box.width;
   return {
     width,
-    height: Math.round(accessPinBox.height * scale),
-    fontSize: Math.round(accessPinBox.fontSize * scale),
-    radius: Math.round(accessPinBox.radius * scale),
+    height: Math.round(box.height * scale),
+    fontSize: Math.round(box.fontSize * scale),
+    radius: Math.round(box.radius * scale),
   };
 };
 
