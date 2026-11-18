@@ -549,7 +549,7 @@ function CompactReservationItem({
             >
               {getStatusLabel(reservation.status, locale)}
             </StatusBadge>
-            <div className="flex min-w-0 items-center gap-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
               <div className="min-w-0 flex-1 *:w-full @2xl:flex-none @2xl:*:w-auto">
                 <ReservationDetailLink
                   locale={locale}

@@ -1,6 +1,7 @@
 "use client";
 
 import { EllipsisVertical } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { type Locale, m } from "@/features/i18n";
 import { GuardedLink } from "@/shared/components/guarded-link";
 import { Button } from "@/shared/components/ui/button";
@@ -28,7 +29,25 @@ export function ReservationOptionsMenu({
   readonly locale: Locale;
   readonly withdrawalHref: string | undefined;
 }) {
+  // Design preview only: `withdrawLink=1` shows the always-visible text link
+  // variant (§1830a(2) prominence) in place of the ⋮.
+  const searchParams = useSearchParams();
+  const linkVariant =
+    process.env.NODE_ENV === "development" &&
+    searchParams?.get("withdrawLink") === "1";
   if (!withdrawalHref) return null;
+
+  if (linkVariant) {
+    return (
+      <GuardedLink
+        className="w-full shrink-0 self-center py-1 text-left text-sm text-rose-700 sm:w-auto sm:text-right underline-offset-4 hover:text-rose-800 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
+        data-reservation-withdrawal-link=""
+        href={withdrawalHref}
+      >
+        {m.reservationWithdrawalAction({}, { locale })}
+      </GuardedLink>
+    );
+  }
 
   return (
     <DropdownMenu defaultOpen={defaultOpen}>

@@ -426,7 +426,7 @@ function CheckoutStatusReservationDetails({
   return (
     <>
       <div className="mt-10 rounded-[1.6rem] border border-navy-blue/10 bg-linear-to-br from-white to-aquamarine-green/8 p-5 sm:p-6">
-        <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1">
           <h2 className="min-w-0 text-xl text-navy-blue">
             {m.checkoutStatusSummaryTitle({}, { locale })}
           </h2>
