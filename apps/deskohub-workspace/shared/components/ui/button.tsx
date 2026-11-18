@@ -16,7 +16,9 @@ interface ButtonTones {
     | "burned-orange-ink"
     | "navy-blue"
     | "chilean-fire"
-    | "danger";
+    | "danger"
+    /** An affirmative choice beside a destructive one, such as "Don't withdraw". */
+    | "positive";
   secondary: "navy-blue" | "burned-orange" | "burned-orange-ink" | "inverse";
   ghost:
     | "navy-blue"
@@ -72,6 +74,7 @@ const buttonClasses = cva(
         muted: "",
         "navy-blue": "",
         outline: "",
+        positive: "",
         success: "",
         tinted: "",
         warning: "",
@@ -136,6 +139,12 @@ const buttonClasses = cva(
         tone: "danger",
         class:
           "bg-red-800 text-white [--button-tint:var(--color-red-800)] hover:bg-red-900",
+      },
+      {
+        variant: "primary",
+        tone: "positive",
+        class:
+          "bg-aquamarine-ink text-white [--button-tint:var(--color-aquamarine-ink)] hover:bg-aquamarine-ink/90",
       },
       {
         variant: "secondary",

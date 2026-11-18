@@ -104,7 +104,8 @@ export function WithdrawalConfirmDialog({
       open={open}
     >
       <DialogContent
-        aria-describedby="withdrawal-confirm-description"
+        // Only the receipt has a description; the statement is its rows.
+        aria-describedby={receipt ? "withdrawal-confirm-description" : undefined}
         className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto"
         locale={locale}
         // Open on the close button: focusing the prefilled name would select
@@ -133,9 +134,6 @@ export function WithdrawalConfirmDialog({
           <>
           <DialogHeader>
             <DialogTitle>{m.withdrawalConfirmTitle({}, { locale })}</DialogTitle>
-            <DialogDescription id="withdrawal-confirm-description">
-              {m.withdrawalConfirmLead({}, { locale })}
-            </DialogDescription>
           </DialogHeader>
 
           <form className="mt-6 grid gap-6" noValidate onSubmit={submit}>
@@ -232,10 +230,10 @@ export function WithdrawalConfirmDialog({
                 disabled={pending}
                 onClick={() => onOpenChange(false)}
                 size="lg"
+                tone="positive"
                 type="button"
-                variant="secondary"
               >
-                {m.withdrawalConfirmBack({}, { locale })}
+                {m.withdrawalConfirmDecline({}, { locale })}
               </Button>
               <Button
                 id="withdrawal-confirm-submit"
