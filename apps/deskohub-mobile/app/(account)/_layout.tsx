@@ -22,7 +22,7 @@ import { AvailableWidthContext, useViewport } from "../../src/ui/viewport";
  */
 export default function AccountLayout() {
   const session = useAuthSession();
-  const segments = useSegments();
+  const segments = useSegments<string[]>();
   const { availableWidth, isWide } = useViewport();
   const showRail = isWide && segments[1] !== "onboarding";
   const navyStatusBar = segments[1] === "(tabs)" && segments[2] === "book";
