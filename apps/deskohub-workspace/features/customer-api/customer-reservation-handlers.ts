@@ -115,6 +115,18 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
           )
         )
         .handle("getEstablishment", () => Effect.succeed(establishment))
+        // Office invitations: the Workspace backend stream implements these
+        // over the reservation invitee service.
+        .handle("listInvitedReservations", () =>
+          answerUnavailable("customerApi.listInvitedReservations", {
+            reason: "not-implemented",
+          })
+        )
+        .handle("resendInvitation", () =>
+          answerUnavailable("customerApi.resendInvitation", {
+            reason: "not-implemented",
+          })
+        )
         // A refresh can finalize a payment, so it ends even when the client
         // disconnects.
         .handle("getReservationStatus", ({ params: { orderId } }) =>

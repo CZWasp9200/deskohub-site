@@ -117,6 +117,30 @@ export class CustomerPaymentRetryRefused extends Schema.TaggedError<CustomerPaym
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
+/**
+ * The invitation can't be sent again now: `cooldown` while the last one is
+ * recent (try again at `retryAt`), `not-confirmed` while the order isn't
+ * paid and confirmed, or after it was cancelled.
+ */
+export const CustomerInvitationResendRefusedReason = Schema.Literals([
+  "cooldown",
+  "not-confirmed",
+]).annotate({ identifier: "CustomerInvitationResendRefusedReason" });
+export type CustomerInvitationResendRefusedReason =
+  typeof CustomerInvitationResendRefusedReason.Type;
+
+export class CustomerInvitationResendRefused extends Schema.TaggedError<CustomerInvitationResendRefused>()(
+  "CustomerInvitationResendRefused",
+  {
+    reason: CustomerInvitationResendRefusedReason,
+    retryAt: Schema.optional(
+      Schema.String.annotate({ description: "ISO 8601 instant." })
+    ),
+  }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
 // Reservations
 
 const isoInstant = Schema.String.annotate({
@@ -331,6 +355,40 @@ export type CustomerOrderFulfillmentStatus =
  * with the payment provider. The time and total are absent while the order
  * doesn't have them.
  */
+/** A person the booker invited to an order by email address. */
+export const CustomerReservationInviteeId = Schema.NonEmptyString.pipe(
+  Schema.brand("ReservationInviteeId")
+).annotate({
+  identifier: "CustomerReservationInviteeId",
+  description: "Opaque identifier of a person invited to an order.",
+});
+export type CustomerReservationInviteeId =
+  typeof CustomerReservationInviteeId.Type;
+
+/** An invited person as the order's booker sees them. */
+export const CustomerReservationInvitee = Schema.Struct({
+  id: CustomerReservationInviteeId,
+  email: Schema.String,
+  /** When their latest invitation was sent; null before it was sent. */
+  invitationSentAt: Schema.NullOr(isoInstant),
+  /**
+   * When `resendInvitation` accepts this person again. Absent while it
+   * accepts them now, or never will, such as for a cancelled order.
+   */
+  resendAvailableAt: Schema.optional(isoInstant),
+}).annotate({ identifier: "CustomerReservationInvitee" });
+export type CustomerReservationInvitee = typeof CustomerReservationInvitee.Type;
+
+/**
+ * Who is coming to a private office order: its customer (the contact) while
+ * `contactAttends`, and the invited people in the order they were added.
+ */
+export const CustomerReservationPeople = Schema.Struct({
+  contactAttends: Schema.Boolean,
+  invitees: Schema.Array(CustomerReservationInvitee),
+}).annotate({ identifier: "CustomerReservationPeople" });
+export type CustomerReservationPeople = typeof CustomerReservationPeople.Type;
+
 export const CustomerOrderState = Schema.Struct({
   orderId: CustomerReservationOrderId,
   kind: CustomerReservationKind,
@@ -360,6 +418,12 @@ export const CustomerOrderState = Schema.Struct({
    * and its product can still be booked.
    */
   bookedSelection: Schema.optional(CustomerBookedSelection),
+  /**
+   * Who is coming, for an office order whose people were listed when it was
+   * booked. Only the order's booker and customer see it; it is absent for
+   * other orders.
+   */
+  people: Schema.optional(CustomerReservationPeople),
 }).annotate({ identifier: "CustomerOrderState" });
 export type CustomerOrderState = typeof CustomerOrderState.Type;
 
@@ -480,12 +544,63 @@ export const CustomerPaymentPage = Schema.Struct({
 }).annotate({ identifier: "CustomerPaymentPage" });
 export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
 
+/** An invitation sent again, and when the next resend is accepted. */
+export const CustomerInvitationResent = Schema.Struct({
+  invitationSentAt: isoInstant,
+  resendAvailableAt: isoInstant,
+}).annotate({ identifier: "CustomerInvitationResent" });
+export type CustomerInvitationResent = typeof CustomerInvitationResent.Type;
+
+/**
+ * An order someone else booked that invited the signed-in account's
+ * verified email address. It carries what the invited person may see: the
+ * space, when the door code works, and who booked it; never the price, the
+ * invoice, or the other people.
+ */
+export const CustomerInvitedReservation = Schema.Struct({
+  orderId: CustomerReservationOrderId,
+  product: CustomerReservationProduct,
+  /** The catalog name of `product` in the request's locale. */
+  productName: Schema.optional(Schema.String),
+  status: CustomerReservationStatus,
+  /** Null when the provider's time can't be read. */
+  accessStartsAt: Schema.NullOr(isoInstant),
+  accessEndsAt: Schema.NullOr(isoInstant),
+  /** The booker's name; null when it couldn't be read. */
+  bookedBy: Schema.Struct({ name: Schema.NullOr(Schema.String) }),
+  /**
+   * The door code of a confirmed order whose access starts by today in
+   * Prague and hasn't ended, as in the account's own history.
+   */
+  todayAccess: Schema.optional(CustomerReservationAccess),
+}).annotate({ identifier: "CustomerInvitedReservation" });
+export type CustomerInvitedReservation = typeof CustomerInvitedReservation.Type;
+
+/**
+ * The orders the signed-in account is invited to: current until their
+ * access ends, past once ended or cancelled.
+ */
+export const CustomerInvitedReservations = Schema.Struct({
+  current: Schema.Array(CustomerInvitedReservation),
+  past: Schema.Array(CustomerInvitedReservation),
+}).annotate({ identifier: "CustomerInvitedReservations" });
+export type CustomerInvitedReservations =
+  typeof CustomerInvitedReservations.Type;
+
+const InviteeParams = {
+  ...OrderParams,
+  inviteeId: CustomerReservationInviteeId,
+} as const;
+
 /**
  * The signed-in customer's reservations: the history, where the space is,
  * the status, door code and invoice of an order the account booked or whose
  * customer it is, and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
- * do, and the door code and invoice only the order's customer sees.
+ * do, and the door code and invoice only the order's customer sees. People
+ * an office order invited by email see that order's door code too, and list
+ * such orders with `listInvitedReservations`; its booker resends their
+ * invitations.
  */
 export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   .add(
@@ -497,6 +612,14 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.get("listInvitedReservations", "/invitations", {
+      /** The language of `productName`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
+      success: CustomerInvitedReservations,
+      error: [CustomerServiceUnavailable.schema],
     })
   )
   .add(
@@ -555,6 +678,25 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerServiceUnavailable.schema,
       ],
     })
+  )
+  .add(
+    /**
+     * Sends an invited person's access email again, unchanged: the people
+     * of a paid order are fixed. Only the order's booker and customer may.
+     */
+    HttpApiEndpoint.post(
+      "resendInvitation",
+      "/:orderId/invitees/:inviteeId/invitation",
+      {
+        params: InviteeParams,
+        success: CustomerInvitationResent,
+        error: [
+          CustomerReservationNotFound.schema,
+          CustomerInvitationResendRefused.schema,
+          CustomerServiceUnavailable.schema,
+        ],
+      }
+    )
   )
   .add(
     HttpApiEndpoint.get("getReservationInvoice", "/:orderId/invoice", {

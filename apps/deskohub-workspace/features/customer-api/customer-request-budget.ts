@@ -92,6 +92,10 @@ export const customerRequestBudgetClasses = {
     listReservations: "account-read",
     getReservationStatus: "account-read",
     getReservationAccess: "account-read",
+    // The invited orders, read live like the history the app loads beside it.
+    listInvitedReservations: "account-read",
+    // Authorizes the booker against the live order, then sends an email.
+    resendInvitation: "dotypos-mutation",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
     // Authorizes like the invoice, then records the page's return target.
