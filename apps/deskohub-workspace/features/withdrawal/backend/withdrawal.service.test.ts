@@ -120,6 +120,33 @@ const makeHarness = (options: {
             return claimed;
           })
       ),
+    claimNow: ({ contract: ref, now }) =>
+      Effect.sync(() => {
+        const row = [...rows.values()].find(
+          (candidate) =>
+            candidate.contract.kind === ref.kind &&
+            candidate.contract.id === ref.id
+        );
+        if (!row) return Option.none();
+        if (row.settledAt || row.settlementClaimedAt) {
+          return Option.some({ withdrawal: row, claimed: false });
+        }
+        const due = (retry: ContractWithdrawal["stepRetries"]["receipt"]) => ({
+          ...retry,
+          retryAt: null,
+        });
+        const claimed: ContractWithdrawal = {
+          ...row,
+          settlementClaimedAt: now,
+          stepRetries: {
+            receipt: due(row.stepRetries.receipt),
+            operator_notice: due(row.stepRetries.operator_notice),
+            contract_cancellation: due(row.stepRetries.contract_cancellation),
+          },
+        };
+        rows.set(row.id, claimed);
+        return Option.some({ withdrawal: claimed, claimed: true });
+      }),
     markStepDone: (claim) =>
       Effect.sync(() => {
         const row = find(claim);
@@ -682,5 +709,130 @@ describe("WithdrawalService.quote", () => {
       _tag: "Failure",
       cause: { reasons: [{ error: { reason: "already_withdrawn" } }] },
     });
+  });
+});
+
+describe("WithdrawalService.settleNow", () => {
+  test("retries a failing step before its scheduled retry and settles the withdrawal", async () => {
+    const harness = makeHarness({
+      cancellationFailures: [cancellationFailure(false)],
+    });
+    await harness.run((service) => service.withdraw(input));
+    expect(onlyRow(harness).stepRetries.contract_cancellation).toMatchObject({
+      attempts: 1,
+      failureCode: "reservation_dotypos_failed",
+    });
+    expect(
+      minutesUntil(onlyRow(harness).stepRetries.contract_cancellation.retryAt)
+    ).toBe(5);
+
+    const outcome = await harness.run((service) => service.settleNow(contract));
+
+    expect(outcome).toEqual(
+      Option.some({ outcome: "settled", withdrawal: onlyRow(harness) })
+    );
+    expect(harness.log.at(-1)).toBe("cancel refund 66667");
+    expect(
+      harness.log.filter((entry) => entry.startsWith("receipt to"))
+    ).toHaveLength(1);
+    expect(getWithdrawalSettlementStatus(onlyRow(harness))).toEqual({
+      settlement: "settled",
+      failingSteps: [],
+    });
+  });
+
+  test("records another failure with its attempt when the step still fails", async () => {
+    const harness = makeHarness({
+      cancellationFailures: [
+        cancellationFailure(false),
+        cancellationFailure(false, "reservation_dotypos_unavailable"),
+      ],
+    });
+    await harness.run((service) => service.withdraw(input));
+
+    const outcome = await harness.run((service) => service.settleNow(contract));
+
+    const row = onlyRow(harness);
+    expect(outcome).toEqual(
+      Option.some({ outcome: "failed", withdrawal: row })
+    );
+    expect(row.settledAt).toBeNull();
+    expect(row.settlementClaimedAt).toBeNull();
+    expect(row.stepRetries.contract_cancellation).toMatchObject({
+      attempts: 2,
+      failureCode: "reservation_dotypos_unavailable",
+    });
+  });
+
+  test("settles only the contract's own withdrawal", async () => {
+    const harness = makeHarness({
+      cancellationFailures: [cancellationFailure(false)],
+    });
+    await harness.run((service) => service.withdraw(input));
+    const own = onlyRow(harness);
+    const otherId = "withdrawal-other" as WithdrawalId;
+    const other: ContractWithdrawal = {
+      ...own,
+      id: otherId,
+      contract: { kind: "reservation", id: "reservation-2" },
+      settlementClaimedAt: null,
+    };
+    harness.rows.set(otherId, other);
+    const cancellations = harness.log.filter((entry) =>
+      entry.startsWith("cancel")
+    ).length;
+
+    await harness.run((service) => service.settleNow(contract));
+
+    expect(harness.rows.get(own.id)?.settledAt).not.toBeNull();
+    expect(harness.rows.get(otherId)).toEqual(other);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("cancel"))
+    ).toHaveLength(cancellations + 1);
+  });
+
+  test("does nothing again for a settled withdrawal", async () => {
+    const harness = makeHarness({});
+    await harness.run((service) => service.withdraw(input));
+    const settled = onlyRow(harness);
+    const steps = harness.log.length;
+
+    const outcome = await harness.run((service) => service.settleNow(contract));
+
+    expect(outcome).toEqual(
+      Option.some({ outcome: "already_settled", withdrawal: settled })
+    );
+    expect(harness.log).toHaveLength(steps);
+    expect(onlyRow(harness)).toEqual(settled);
+  });
+
+  test("leaves a withdrawal another run is settling", async () => {
+    const harness = makeHarness({
+      cancellationFailures: [cancellationFailure(false)],
+    });
+    await harness.run((service) => service.withdraw(input));
+    const busy: ContractWithdrawal = {
+      ...onlyRow(harness),
+      settlementClaimedAt: Temporal.Now.instant(),
+    };
+    harness.rows.set(busy.id, busy);
+    const steps = harness.log.length;
+
+    const outcome = await harness.run((service) => service.settleNow(contract));
+
+    expect(outcome).toEqual(
+      Option.some({ outcome: "in_progress", withdrawal: busy })
+    );
+    expect(harness.log).toHaveLength(steps);
+    expect(onlyRow(harness)).toEqual(busy);
+  });
+
+  test("answers none for a contract without a withdrawal", async () => {
+    const harness = makeHarness({});
+
+    const outcome = await harness.run((service) => service.settleNow(contract));
+
+    expect(outcome).toEqual(Option.none());
+    expect(harness.log).toEqual([]);
   });
 });

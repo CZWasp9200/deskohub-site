@@ -22,6 +22,7 @@ import {
   type AdministrationReservationAccessGrantType,
   type AdministrationReservationAccessMutationType,
   type AdministrationReservationAuthorType,
+  AdministrationReservationListStatusFilter,
   type AdministrationReservationProductDetailsBackfillBatchType,
   AdministrationReservationQuery,
   type AdministrationReservationSummaryType,
@@ -203,15 +204,13 @@ const reservationsListCommand = Command.make(
       "reservation",
       "status",
     ]).pipe(Flag.optional, Flag.withDescription("Sort field")),
-    status: Flag.choice("status", [
-      "in_progress",
-      "complete",
-      "cancelled",
-      "needs_refund",
-    ]).pipe(
+    status: Flag.choice(
+      "status",
+      AdministrationReservationListStatusFilter.literals
+    ).pipe(
       Flag.optional,
       Flag.withDescription(
-        "Reservation status, or needs_refund for paid payments awaiting a refund"
+        "Reservation status. Use needs_attention for refunds owed or failing withdrawal settlements."
       )
     ),
     type: Flag.choice("type", ["cowork", "meeting-room", "office"]).pipe(
@@ -277,6 +276,18 @@ const reservationsGetCommand = Command.make(
         );
         if (reservation.setupStartsAt) {
           yield* Console.log(formatReservationEarlySetup(reservation));
+        }
+        if (detail.withdrawal) {
+          yield* Console.log(
+            `Customer withdrawal: ${detail.withdrawal.settlement}`
+          );
+          for (const step of detail.withdrawal.steps) {
+            yield* Console.log(
+              [step.step, step.status, step.failureCode, step.retryAt]
+                .filter((value) => value !== null)
+                .join("\t")
+            );
+          }
         }
         if (detail.author) {
           yield* Console.log(formatReservationAuthor(detail.author));
@@ -362,6 +373,45 @@ const reservationsCancelCommand = Command.make(
       })
     )
 ).pipe(Command.withDescription("Cancel a reservation in Dotypos"));
+
+const reservationsRetryWithdrawalCommand = Command.make(
+  "retry-withdrawal",
+  {
+    reservationId: Argument.string("reservation-id"),
+    yes: confirmationFlag,
+  },
+  ({ reservationId, yes }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        const id = yield* Schema.decodeUnknownEffect(
+          AdministrationWorkspaceReservationId
+        )(reservationId);
+        const confirmed = yield* confirmChange(
+          "administration.retryReservationWithdrawal",
+          yes,
+          json,
+          `Retry the customer withdrawal for ${id}? This can send withdrawal emails and cancel the reservation.`
+        );
+        if (!confirmed) {
+          yield* reportCancellation(json);
+          return;
+        }
+        const result = yield* api.retryReservationWithdrawal(accessToken, id);
+        yield* Console.log(
+          json
+            ? JSON.stringify(result)
+            : {
+                settled: "Withdrawal settled.",
+                failed:
+                  "Withdrawal could not be settled. Automatic retries continue.",
+                already_settled: "Withdrawal was already settled.",
+                in_progress:
+                  "Another attempt took over settlement. Check the reservation again in a few minutes.",
+              }[result.outcome]
+        );
+      })
+    )
+).pipe(Command.withDescription("Retry a customer withdrawal now"));
 
 const reservationsBackfillProductDetailsCommand = Command.make(
   "backfill-product-details",
@@ -504,6 +554,7 @@ const reservationsCommand = Command.make("reservations").pipe(
     reservationsGetCommand,
     reservationsFindCommand,
     reservationsCancelCommand,
+    reservationsRetryWithdrawalCommand,
     reservationsBackfillProductDetailsCommand,
     reservationsRetryAccessCommand,
     reservationsReconcileAccessCommand,

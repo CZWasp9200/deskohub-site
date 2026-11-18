@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -239,6 +239,95 @@ describe.skipIf(!testDatabase)(
           },
         },
       });
+    });
+
+    test("claims one contract's withdrawal now, making its waiting steps due", async () => {
+      const withdrawal = await newWithdrawal();
+      const other = await newWithdrawal();
+      const { withdrawal: recorded } = await run((repository) =>
+        repository.record(withdrawal)
+      );
+      const { withdrawal: otherRecorded } = await run((repository) =>
+        repository.record(other)
+      );
+      const claim = { id: recorded.id, claimedAt: withdrawal.submittedAt };
+      const retryAt = Temporal.Now.instant()
+        .add({ hours: 6 })
+        .round("millisecond");
+      await run((repository) =>
+        repository.recordStepFailure({
+          ...claim,
+          step: "contract_cancellation",
+          failureCode: "reservation_dotypos_unavailable",
+          retryAt,
+        })
+      );
+      await run((repository) =>
+        repository.deferSettlement({ ...claim, nextSettlementAt: retryAt })
+      );
+
+      const now = Temporal.Now.instant().round("millisecond");
+      const claimNow = async (
+        at: Temporal.Instant,
+        contract = withdrawal.contract
+      ) =>
+        run((repository) =>
+          repository.claimNow({
+            contract,
+            now: at,
+            staleClaimBefore: at.subtract({ minutes: 10 }),
+          })
+        );
+
+      const claimed = Option.getOrThrow(await claimNow(now));
+      expect(claimed).toMatchObject({
+        claimed: true,
+        withdrawal: {
+          id: recorded.id,
+          stepRetries: {
+            contract_cancellation: {
+              attempts: 1,
+              failureCode: "reservation_dotypos_unavailable",
+              retryAt: null,
+            },
+          },
+        },
+      });
+      expect(claimed.withdrawal.settlementClaimedAt?.equals(now)).toBe(true);
+
+      // A live claim holds; the other contract's withdrawal is untouched.
+      const again = Option.getOrThrow(await claimNow(now.add({ minutes: 1 })));
+      expect(again.claimed).toBe(false);
+      const untouched = await run((repository) =>
+        repository.findByContract(other.contract)
+      );
+      expect(Option.getOrThrow(untouched)).toEqual(otherRecorded);
+
+      // A stale claim is taken over.
+      const stale = Option.getOrThrow(await claimNow(now.add({ minutes: 11 })));
+      expect(stale.claimed).toBe(true);
+      const staleClaimedAt = stale.withdrawal.settlementClaimedAt;
+      if (!staleClaimedAt) throw new Error("Not claimed again.");
+      const staleClaim = { id: recorded.id, claimedAt: staleClaimedAt };
+      for (const step of withdrawalSettlementSteps) {
+        await run((repository) =>
+          repository.markStepDone({ ...staleClaim, step, doneAt: now })
+        );
+      }
+      await run((repository) =>
+        repository.markSettled({ ...staleClaim, settledAt: now })
+      );
+      const settled = Option.getOrThrow(
+        await claimNow(now.add({ minutes: 30 }))
+      );
+      expect(settled.claimed).toBe(false);
+      expect(settled.withdrawal.settledAt).not.toBeNull();
+
+      const missing = await claimNow(now, {
+        kind: "reservation",
+        id: `reservation-${crypto.randomUUID()}`,
+      });
+      expect(Option.isNone(missing)).toBe(true);
     });
 
     test("lists an account's withdrawals for its data export, oldest first", async () => {

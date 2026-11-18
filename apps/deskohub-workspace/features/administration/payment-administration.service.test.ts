@@ -29,6 +29,7 @@ const makeLocalOrder = (
   reservationId,
   state: "pending" as const,
   refundState: "not_required" as const,
+  refundTargetValue: null,
   refundedAmountValue: null,
   refundedAt: null,
   amountValue: 5000,

@@ -43,6 +43,7 @@ mock.module("next/navigation", () => ({
 
 const searchAdministrationCustomers = mock();
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   cancelAdministrationReservation: mock(),
   getAdministrationReservation: mock(),
   mutateReservationAccess: mock(),

@@ -94,11 +94,7 @@ const channelColumns = (
 ) =>
   Match.value(channel).pipe(
     Match.tagsExhaustive({
-      // Admin UI actions never pass through the administration API.
-      AdminUi: () =>
-        Effect.die(
-          new Error("The administration API never serves an Admin UI caller.")
-        ),
+      AdminUi: () => Effect.succeed({}),
       CliSession: ({ sessionId }) =>
         Effect.succeed({ cliSessionId: sessionId }),
       AssistantConnection: ({ connectionId }) =>

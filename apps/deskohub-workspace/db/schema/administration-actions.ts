@@ -19,7 +19,7 @@ import { cliSessions } from "./cli-authentication";
 import { quotedSqlList } from "./sql-list";
 
 /**
- * One administration API request that could change state: the operation,
+ * One administration request that could change state: the operation,
  * who called it, through which channel, and how it ended. It stores no
  * request input or output. A row stays when its channel is revoked.
  */
@@ -69,9 +69,10 @@ export const administrationActions = pgTable(
       "administration_actions_email_check",
       sql`btrim(${t.actorAccountEmail}) <> ''`
     ),
+    // Browser actions have neither a CLI session nor an assistant connection.
     check(
       "administration_actions_channel_check",
-      sql`num_nonnulls(${t.cliSessionId}, ${t.assistantConnectionId}) = 1`
+      sql`num_nonnulls(${t.cliSessionId}, ${t.assistantConnectionId}) <= 1`
     ),
   ]
 );

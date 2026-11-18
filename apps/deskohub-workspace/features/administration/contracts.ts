@@ -16,6 +16,16 @@ export const reservationCancellationStandardSchema = Schema.toStandardSchemaV1(
 export type ReservationCancellationInput =
   typeof reservationCancellationSchema.Type;
 
+const reservationWithdrawalSettlementSchema = Schema.Struct({
+  reservationId: AdministrationWorkspaceReservationId,
+});
+
+export const reservationWithdrawalSettlementStandardSchema =
+  Schema.toStandardSchemaV1(reservationWithdrawalSettlementSchema);
+
+export type ReservationWithdrawalSettlementInput =
+  typeof reservationWithdrawalSettlementSchema.Type;
+
 const reservationLookupSchema = Schema.Struct({
   identifier: Schema.Trim.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),
 });

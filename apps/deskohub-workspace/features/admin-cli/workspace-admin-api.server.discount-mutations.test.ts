@@ -89,9 +89,11 @@ const { CliAuthentication } = await import("./cli-authentication.service");
 const { AdminCliAdministrationApiHandlers } = await import(
   "./workspace-admin-api.server"
 );
-const { authorizedCliRequest, UnrecordedAdministrationActions } = await import(
-  "./cli-api.test-utils"
-);
+const {
+  authorizedCliRequest,
+  UnrecordedAdministrationActions,
+  UnusedWithdrawalService,
+} = await import("./cli-api.test-utils");
 
 /** The administration API's other services, which these tests never reach. */
 const UnusedAdministrationServices = Layer.mergeAll(
@@ -192,6 +194,7 @@ const mutateDiscounts = (
     ),
     Effect.result,
     Effect.provide(AdminCliAdministrationApiHandlers),
+    Effect.provide(UnusedWithdrawalService),
     Effect.provide(
       authorizedCliRequest(
         CliSessionId.make("01980000-0000-7000-8000-000000000000")

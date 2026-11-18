@@ -90,6 +90,8 @@ export type ReservationStatusInput = {
   /** Nexi reported a refund for every payment attempt that required one. */
   readonly refunded?: boolean;
   readonly reservationState: ReservationState;
+  /** The customer withdrew from the reservation online. */
+  readonly withdrawn?: boolean;
 };
 
 export type AdministrationLifecycleStage =
@@ -402,6 +404,7 @@ const statusRules: readonly ReservationStatusRule<AdministrationReservationStatu
     statusRule(isLatePaymentRecoveryReview, "attention", "recovery_review"),
     statusRule(isRefundedLatePayment, "cancelled", "refunded"),
     statusRule(isLatePayment, "attention", "refund_required"),
+    statusRule((input) => input.withdrawn === true, "cancelled", "withdrawn"),
     statusRule(
       isReservation("cancellation_failed"),
       "attention",

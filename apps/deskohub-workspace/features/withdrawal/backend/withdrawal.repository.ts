@@ -142,6 +142,24 @@ interface IWithdrawalRepository {
     EffectDrizzleQueryError | SqlError.SqlError
   >;
   /**
+   * Claims the contract's unsettled withdrawal for a settlement run at
+   * `now`, making each waiting step due at once, unless another run holds a
+   * claim stamped after `staleClaimBefore`. Answers the withdrawal as it then
+   * stands and whether this call claimed it; none when the contract has no
+   * withdrawal.
+   */
+  readonly claimNow: (input: {
+    readonly contract: WithdrawableContractRef;
+    readonly now: Temporal.Instant;
+    readonly staleClaimBefore: Temporal.Instant;
+  }) => Effect.Effect<
+    Option.Option<{
+      readonly withdrawal: ContractWithdrawal;
+      readonly claimed: boolean;
+    }>,
+    EffectDrizzleQueryError
+  >;
+  /**
    * Stamps a done step and clears its failure; a lost claim stamps nothing
    * and answers false.
    */
@@ -336,6 +354,44 @@ export class WithdrawalRepository extends Context.Service<
           );
           const claimed = yield* claim;
           return claimed.map(toContractWithdrawal);
+        }),
+        claimNow: Effect.fn("WithdrawalRepository.claimNow")(function* (input) {
+          const [claimed] = yield* db
+            .update(contractWithdrawals)
+            .set({
+              settlementClaimedAt: input.now,
+              nextSettlementAt: input.now,
+              [settlementStepColumns.receipt.retryAt]: null,
+              [settlementStepColumns.operator_notice.retryAt]: null,
+              [settlementStepColumns.contract_cancellation.retryAt]: null,
+              updatedAt: input.now,
+            })
+            .where(
+              and(
+                eq(contractWithdrawals.contractKind, input.contract.kind),
+                eq(contractWithdrawals.contractId, input.contract.id),
+                isNull(contractWithdrawals.settledAt),
+                or(
+                  isNull(contractWithdrawals.settlementClaimedAt),
+                  lte(
+                    contractWithdrawals.settlementClaimedAt,
+                    input.staleClaimBefore
+                  )
+                )
+              )
+            )
+            .returning();
+          if (claimed) {
+            return Option.some({
+              withdrawal: toContractWithdrawal(claimed),
+              claimed: true,
+            });
+          }
+          const current = yield* findByContract(input.contract);
+          return Option.map(current, (withdrawal) => ({
+            withdrawal,
+            claimed: false,
+          }));
         }),
         markStepDone: Effect.fn("WithdrawalRepository.markStepDone")(
           function* (input) {

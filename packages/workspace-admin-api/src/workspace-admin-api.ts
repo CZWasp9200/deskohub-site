@@ -1045,6 +1045,20 @@ export const AdministrationReservationStatusFilter = Schema.Literals([
 export type AdministrationReservationStatusFilter =
   typeof AdministrationReservationStatusFilter.Type;
 
+/**
+ * The reservation states an admin list can filter by: every shared state,
+ * plus `needs_attention`, the operator queue of reservations owing a refund
+ * or with a customer withdrawal whose settlement keeps failing. Campaign
+ * audiences keep the shared states, so stored audiences stay readable by
+ * released `dhw` binaries.
+ */
+export const AdministrationReservationListStatusFilter = Schema.Literals([
+  ...AdministrationReservationStatusFilter.literals,
+  "needs_attention",
+]);
+export type AdministrationReservationListStatusFilter =
+  typeof AdministrationReservationListStatusFilter.Type;
+
 export const AdministrationReservationQuery = Schema.Struct({
   customerId: Schema.optional(AdministrationDotyposCustomerId),
   date: Schema.optional(administrationCalendarDate),
@@ -1053,7 +1067,7 @@ export const AdministrationReservationQuery = Schema.Struct({
     Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))
   ),
   sort: Schema.optional(AdministrationReservationSort),
-  status: Schema.optional(AdministrationReservationStatusFilter),
+  status: Schema.optional(AdministrationReservationListStatusFilter),
   type: Schema.optional(AdministrationReservationFamily),
 });
 export type AdministrationReservationQuery =
@@ -1154,6 +1168,17 @@ export const AdministrationPaymentAttempt = Schema.Struct({
 export type AdministrationPaymentAttempt =
   typeof AdministrationPaymentAttempt.Type;
 
+const withdrawalSettlement = Schema.Literals([
+  "settled",
+  "in_progress",
+  "needs_attention",
+]);
+
+const reservationWithdrawalSummary = Schema.Struct({
+  refundAmount: AdministrationMoney,
+  settlement: withdrawalSettlement,
+});
+
 export const AdministrationReservationSummary = Schema.Struct({
   id: AdministrationWorkspaceReservationId,
   customerId: AdministrationDotyposCustomerId,
@@ -1175,6 +1200,7 @@ export const AdministrationReservationSummary = Schema.Struct({
     group: AdministrationReservationStatusGroup,
     label: Schema.String,
   }),
+  withdrawal: Schema.optionalKey(reservationWithdrawalSummary),
   statusNote: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
   latestPayment: Schema.NullOr(AdministrationPaymentAttempt),
@@ -1644,6 +1670,53 @@ export const AdministrationReservationAuthor = Schema.Union([
 export type AdministrationReservationAuthor =
   typeof AdministrationReservationAuthor.Type;
 
+const administrationWithdrawalStep = Schema.Struct({
+  step: Schema.Literals([
+    "receipt",
+    "operator_notice",
+    "contract_cancellation",
+  ]),
+  status: Schema.Literals(["done", "failed", "pending"]),
+  doneAt: Schema.NullOr(Schema.String),
+  attempts: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(0)
+  ),
+  failureCode: Schema.NullOr(Schema.String),
+  retryAt: Schema.NullOr(Schema.String),
+});
+
+export const AdministrationReservationWithdrawal = Schema.Struct({
+  ...reservationWithdrawalSummary.fields,
+  submittedAt: Schema.String,
+  paidAmount: AdministrationMoney,
+  refundBasis: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("full") }),
+    Schema.Struct({
+      kind: Schema.Literal("partial"),
+      unit: Schema.Literals(["day", "hour"]),
+      unstarted: Schema.Number,
+      total: Schema.Number,
+    }),
+  ]),
+  steps: Schema.Array(administrationWithdrawalStep),
+});
+export type AdministrationReservationWithdrawal =
+  typeof AdministrationReservationWithdrawal.Type;
+
+/** `in_progress` means this attempt could not acquire or keep the claim. */
+export const AdministrationWithdrawalRetryResult = Schema.Struct({
+  outcome: Schema.Literals([
+    "settled",
+    "failed",
+    "already_settled",
+    "in_progress",
+  ]),
+  withdrawal: AdministrationReservationWithdrawal,
+});
+export type AdministrationWithdrawalRetryResult =
+  typeof AdministrationWithdrawalRetryResult.Type;
+
 export const AdministrationReservationDetail = Schema.Struct({
   /**
    * Null when the reservation is authorless or its customer booked it, and
@@ -1668,6 +1741,9 @@ export const AdministrationReservationDetail = Schema.Struct({
     customerId: AdministrationDotyposCustomerId,
   }),
   canCancel: Schema.Boolean,
+  withdrawal: Schema.NullOr(AdministrationReservationWithdrawal).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+  ),
 });
 export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
@@ -2660,6 +2736,23 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         })
       )
       .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "retryReservationWithdrawal",
+      "/reservations/:reservationId/withdrawal/retry",
+      {
+        params: { reservationId: AdministrationWorkspaceReservationId },
+        success: AdministrationWithdrawalRetryResult,
+        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+      }
+    ).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: false,
+        preview: readPreview("administration.getReservation"),
+      })
+    )
   )
   .add(
     HttpApiEndpoint.post(

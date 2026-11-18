@@ -1,9 +1,9 @@
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos/types";
 import {
   AdministrationReservationFamily,
+  AdministrationReservationListStatusFilter,
   AdministrationReservationSort,
   AdministrationReservationSortDirection,
-  AdministrationReservationStatusFilter,
 } from "@deskohub/workspace-admin-api";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
@@ -33,7 +33,7 @@ const reservationListParams = defineAdministrationListQuery({
     from: optionalListParam(Schema.String),
     page: listPageParam,
     sort: listParamWithDefault(AdministrationReservationSort, "created"),
-    status: optionalListParam(AdministrationReservationStatusFilter),
+    status: optionalListParam(AdministrationReservationListStatusFilter),
     to: optionalListParam(Schema.String),
     type: optionalListParam(AdministrationReservationFamily),
   }),
@@ -51,7 +51,7 @@ const reservationListParams = defineAdministrationListQuery({
 
 const reservationFilterFormSchema = getFilterFormSchema(
   Schema.Struct({
-    status: optionalFilterField(AdministrationReservationStatusFilter),
+    status: optionalFilterField(AdministrationReservationListStatusFilter),
     type: optionalFilterField(AdministrationReservationFamily),
     from: optionalFilterField(calendarDateFilterField),
     to: optionalFilterField(calendarDateFilterField),

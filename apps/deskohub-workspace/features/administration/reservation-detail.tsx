@@ -4,7 +4,6 @@ import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { formatMoney } from "@/shared/money/money";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationDetail as ReservationDetailData } from "./administration.service";
-import { ReservationWithdrawalSection } from "./reservation-withdrawal-section";
 import { administrationHref } from "./administration-href";
 import {
   formatAdministrationPlainDate,
@@ -36,6 +35,7 @@ import { ReservationAccessAdministration } from "./reservation-access-administra
 import { ReservationCancellation } from "./reservation-cancellation";
 import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 import { getAdministrationReservationProductTitle } from "./reservation-product";
+import { ReservationWithdrawalSection } from "./reservation-withdrawal-section";
 
 /**
  * The reservation detail screen. It awaits only the route locale, which
@@ -43,11 +43,8 @@ import { getAdministrationReservationProductTitle } from "./reservation-product"
  */
 export async function AdministrationReservationDetail({
   params,
-  load = loadAdministrationReservation,
 }: {
   readonly params: Promise<{ readonly reservationId: string }>;
-  /** Design preview only: where the detail comes from. */
-  readonly load?: (id: string) => Promise<ReservationDetailData>;
 }) {
   const locale = await getRequestLocale();
   return (
@@ -59,23 +56,21 @@ export async function AdministrationReservationDetail({
           />
         }
       >
-        <ReservationDetailContent load={load} locale={locale} params={params} />
+        <ReservationDetailContent locale={locale} params={params} />
       </Suspense>
     </AdministrationPage>
   );
 }
 
 async function ReservationDetailContent({
-  load,
   locale,
   params,
 }: {
-  readonly load: (id: string) => Promise<ReservationDetailData>;
   readonly locale: Locale;
   readonly params: Promise<{ readonly reservationId: string }>;
 }) {
   const { reservationId } = await params;
-  const detail = await load(reservationId);
+  const detail = await loadAdministrationReservation(reservationId);
   const { reservation } = detail;
   return (
     <>
@@ -95,6 +90,7 @@ async function ReservationDetailContent({
           <ReservationWithdrawalSection
             customer={reservation.customer}
             locale={locale}
+            reservationId={reservation.id}
             withdrawal={detail.withdrawal}
           />
         </div>

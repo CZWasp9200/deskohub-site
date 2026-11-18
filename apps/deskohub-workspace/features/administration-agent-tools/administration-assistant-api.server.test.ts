@@ -32,7 +32,10 @@ import {
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { AdministrationActionLog } from "@/features/admin-cli/administration-action-log.service";
 import { AdministrationRequestLedger } from "@/features/admin-cli/administration-request-ledger.service";
-import { GrantedAdministrator } from "@/features/admin-cli/cli-api.test-utils";
+import {
+  GrantedAdministrator,
+  UnusedWithdrawalService,
+} from "@/features/admin-cli/cli-api.test-utils";
 import { CliAuthentication } from "@/features/admin-cli/cli-authentication.service";
 import { CliAuthenticationAdmission } from "@/features/admin-cli/cli-authentication-admission.service";
 import { CliClientCompatibilityLive } from "@/features/admin-cli/cli-client-version";
@@ -347,6 +350,7 @@ const makeInstanceServices = () => {
     Layer.succeed(DiscountAdministration, {} as never),
     GrantedAdministrator,
     UnusedAdministrationCustomerDirectory,
+    UnusedWithdrawalService,
     Layer.succeed(InvoiceAdministrationService, {} as never),
     Layer.succeed(StandaloneAccessCodeAdministration, {} as never),
     NodeHttpServer.layerHttpServices

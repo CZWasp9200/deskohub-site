@@ -79,6 +79,17 @@ type WithdrawalFailure =
   | WithdrawalUnavailableError
   | CustomerAccountAccessError;
 
+/**
+ * What a manual settlement did. `in_progress` means the attempt couldn't
+ * acquire or keep the claim. The competing run may have ended by the time
+ * this attempt reads the withdrawal again.
+ */
+type WithdrawalSettleNowOutcome =
+  | "settled"
+  | "failed"
+  | "already_settled"
+  | "in_progress";
+
 /** What one settlement pass did. */
 export type WithdrawalSettlementSummary = {
   readonly claimed: number;
@@ -104,6 +115,18 @@ interface IWithdrawalService {
   ) => Effect.Effect<
     WithdrawalReceipt,
     WithdrawalFailure | WithdrawalNameRequiredError
+  >;
+  /**
+   * Settles the contract's withdrawal now, as `settleDue` would with every
+   * waiting step due, for an administrator who fixed a failure's cause.
+   * Answers none when the contract has no withdrawal.
+   */
+  readonly settleNow: (contract: WithdrawableContractRef) => Effect.Effect<
+    Option.Option<{
+      readonly outcome: WithdrawalSettleNowOutcome;
+      readonly withdrawal: ContractWithdrawal;
+    }>,
+    WithdrawalUnavailableError
   >;
   /** Retries the unfinished steps of up to `limit` due withdrawals. */
   readonly settleDue: (input: {
@@ -541,6 +564,50 @@ export class WithdrawalService extends Context.Service<
             } satisfies WithdrawalReceipt;
           },
           (effect, input) => effect.pipe(annotateWithdrawalInput(input))
+        ),
+        settleNow: Effect.fn("WithdrawalService.settleNow")(
+          function* (contract) {
+            const now = Temporal.Now.instant();
+            const found = yield* repository
+              .claimNow({
+                contract,
+                now,
+                staleClaimBefore: now.subtract({
+                  milliseconds: Duration.toMillis(settlementClaimLifetime),
+                }),
+              })
+              .pipe(Effect.mapError(ledgerUnavailable));
+            if (Option.isNone(found)) return Option.none();
+            const { withdrawal, claimed } = found.value;
+            const unclaimedOutcome = withdrawal.settledAt
+              ? "already_settled"
+              : "skipped";
+            const outcome = claimed
+              ? yield* settle(withdrawal)
+              : unclaimedOutcome;
+            const current = yield* repository
+              .findByContract(contract)
+              .pipe(Effect.mapError(ledgerUnavailable));
+            const manualOutcome = {
+              already_settled: "already_settled",
+              settled: "settled",
+              failed: "failed",
+              // Waiting steps are due under the manual claim.
+              deferred: "failed",
+              skipped: "in_progress",
+            } as const;
+            return Option.map(current, (latest) => ({
+              outcome: manualOutcome[outcome],
+              withdrawal: latest,
+            }));
+          },
+          (effect, contract) =>
+            effect.pipe(
+              Effect.annotateLogs({
+                contractKind: contract.kind,
+                contractId: contract.id,
+              })
+            )
         ),
         settleDue: Effect.fn("WithdrawalService.settleDue")(function* (input) {
           const now = Temporal.Now.instant();

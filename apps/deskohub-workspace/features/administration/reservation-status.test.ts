@@ -221,6 +221,28 @@ describe("administration reservation status", () => {
     });
   });
 
+  test("names a reservation the customer withdrew from, before or after its cancellation", () => {
+    for (const reservationState of [
+      "confirmed",
+      "cancelling",
+      "cancellation_failed",
+      "cancelled",
+    ] as const) {
+      expect(
+        getAdministrationReservationStatus({
+          fulfillmentState: "fulfilled",
+          paymentState: "paid",
+          reservationState,
+          withdrawn: true,
+        })
+      ).toEqual({
+        group: "cancelled",
+        code: "withdrawn",
+        label: "Withdrawn by customer",
+      });
+    }
+  });
+
   test("labels a locally abandoned payment instead of a generic cancellation", () => {
     expect(
       getAdministrationReservationStatus({
