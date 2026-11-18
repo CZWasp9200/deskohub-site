@@ -16,7 +16,10 @@ import { OrderStatusScreen } from "../../src/account/reservations/order-status-s
 import { ReservationsListScreen } from "../../src/account/reservations/reservations-list-screen";
 import { statusVisitOf } from "../../src/account/reservations/status-refresh-rules";
 import { customerDataLayer } from "../../src/customer-api/customer-data-runtime";
-import { useAppLocale } from "../../src/i18n/locale-context";
+import {
+  AppLocaleProvider,
+  useAppLocale,
+} from "../../src/i18n/locale-context";
 import { m } from "../../src/i18n/messages";
 import { AppBar } from "../../src/ui/app-bar";
 import { FocusedStatusBar } from "../../src/ui/focused-status-bar";
@@ -51,6 +54,7 @@ export default function ReservationsSampleRoute() {
     order?: string;
     after?: string;
     access?: string;
+    locale?: string;
   }>();
   if (!__DEV__ || sampleData === undefined) return <Redirect href="/" />;
   // A fresh registry for each state, as a new account would get.
@@ -59,8 +63,25 @@ export default function ReservationsSampleRoute() {
       key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}`}
       history={params.history}
     >
-      <SampleScreen params={params} />
+      <SampleLocale locale={params.locale}>
+        <SampleScreen params={params} />
+      </SampleLocale>
     </SampleRegistry>
+  );
+}
+
+/** `?locale=cs-CZ|en-US` shows the samples in that locale. */
+function SampleLocale({
+  locale,
+  children,
+}: {
+  readonly locale: string | undefined;
+  readonly children: ReactNode;
+}) {
+  return locale === "cs-CZ" || locale === "en-US" ? (
+    <AppLocaleProvider locale={locale}>{children}</AppLocaleProvider>
+  ) : (
+    <>{children}</>
   );
 }
 

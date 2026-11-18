@@ -1,6 +1,10 @@
 import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
-import { sampleDeskReservation, sampleWholeDayDesk } from "./sample-fixtures";
+import {
+  sampleDeskReservation,
+  sampleLaterMeetingRoom,
+  sampleWholeDayDesk,
+} from "./sample-fixtures";
 
 /**
  * Which reservations the sample-data mode lists, for evidence of the
@@ -22,6 +26,7 @@ import { sampleDeskReservation, sampleWholeDayDesk } from "./sample-fixtures";
 export const sampleHistories = [
   "today",
   "upcoming",
+  "upcoming-closed",
   "pending",
   "nothing-upcoming",
   "empty",
@@ -51,7 +56,16 @@ export const withSampleHistory = (
       today === undefined
         ? []
         : [{ ...today, todayAccess: todayOrder?.access }, ...later],
-    upcoming: () => [sampleDeskReservation(now), ...later],
+    upcoming: () => [
+      sampleDeskReservation(now),
+      sampleLaterMeetingRoom(now),
+      ...later,
+    ],
+    // The same bookings once withdrawal is no longer possible.
+    "upcoming-closed": () =>
+      [sampleDeskReservation(now), sampleLaterMeetingRoom(now), ...later].map(
+        ({ withdrawal: _, ...row }) => row
+      ),
     pending: () => [sampleDeskReservation(now, "pending"), ...later],
     "nothing-upcoming": () => [],
     empty: () => [],

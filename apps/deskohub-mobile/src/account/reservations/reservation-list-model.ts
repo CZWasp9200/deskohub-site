@@ -1,3 +1,4 @@
+import type { CustomerReservationSummary } from "@deskohub/workspace-customer-api";
 import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
@@ -32,6 +33,8 @@ import type {
  */
 export type ReservationListRow = SavedReservation & {
   readonly todayAccess?: CustomerReservationAccess;
+  /** A fresh row's withdrawal entry point; saved rows never keep it. */
+  readonly withdrawal?: CustomerReservationSummary["withdrawal"];
 };
 
 /** The list's groups, as the site's account page shows them. */

@@ -590,6 +590,8 @@
   "reservations_book_again": "Book again",
   "reservations_contact": "Contact us",
   "reservations_show_pin": "Show access PIN",
+  "reservations_withdraw": "Withdraw from contract",
+  "reservations_withdraw_title": "Withdrawal from contract",
   "reservations_pin_works_from": "Works from {time}",
   "reservations_price_paid": "{price} · paid by card",
   "reservations_price_not_charged": "{price} · not charged",

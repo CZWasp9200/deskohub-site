@@ -14,6 +14,8 @@ import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Copy from "lucide-react-native/icons/copy";
 import Hourglass from "lucide-react-native/icons/hourglass";
 import KeyRound from "lucide-react-native/icons/key-round";
+import { AccessPinButton } from "./access-pin-button";
+import { WithdrawalLink } from "./withdrawal-link";
 import { type ReactNode, useEffect, useState } from "react";
 import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
@@ -435,20 +437,29 @@ function ReservationRow({
         onNone: () => <View style={styles.noTile} />,
       })}
       <View style={styles.rowText}>
-        <Text variant="bodyStrong" style={past ? styles.pastTitle : undefined}>
-          {view.title}
-        </Text>
-        {Option.match(badge, {
-          onSome: (badge) => (
-            <View style={styles.rowBadge}>
+        <View style={styles.rowTitleLine}>
+          <Text
+            variant="bodyStrong"
+            style={past ? styles.pastTitle : undefined}
+          >
+            {view.title}
+          </Text>
+          {Option.match(badge, {
+            onSome: (badge) => (
               <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
-            </View>
-          ),
-          onNone: () => <Text variant="bodySmall">{view.detail}</Text>,
-        })}
+            ),
+            onNone: () => null,
+          })}
+        </View>
+        {Option.isNone(badge) && (
+          <Text variant="bodySmall">{view.detail}</Text>
+        )}
       </View>
       {Option.isSome(target) && (
         <Icon icon={ChevronRight} size={20} color={color.ink3} />
+      )}
+      {!past && row.withdrawal?.eligible === true && Option.isSome(target) && (
+        <WithdrawalLink orderId={target.value} style={styles.rowWithdrawal} />
       )}
     </>
   );
@@ -500,6 +511,7 @@ function NextReservation({ row }: { readonly row: ReservationListRow }) {
       <NextAccessLine
         access={view.access}
         orderId={Option.getOrUndefined(target)}
+        withdrawable={row.withdrawal?.eligible === true}
       />
     </BookingTicket>
   );
@@ -534,9 +546,11 @@ const useStubTextWidth = () => {
 function NextAccessLine({
   access,
   orderId,
+  withdrawable,
 }: {
   readonly access: NextAccess;
   readonly orderId: CustomerReservationOrderId | undefined;
+  readonly withdrawable: boolean;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -565,18 +579,16 @@ function NextAccessLine({
             )}
           </View>
           {orderId !== undefined && (
-            <Button
-              variant="secondary"
-              size="small"
-              width="content"
-              label={m.reservations_show({}, { locale })}
-              onPress={() =>
-                router.push({
-                  pathname: "/reservations/[orderId]/access",
-                  params: { orderId },
-                })
-              }
-            />
+            <View style={styles.stubActions}>
+              {withdrawable && (
+                <WithdrawalLink
+                  orderId={orderId}
+                  style={styles.stubWithdrawal}
+                  underlined
+                />
+              )}
+              <AccessPinButton orderId={orderId} />
+            </View>
           )}
         </>
       );
@@ -662,6 +674,16 @@ function TodayPin({
 
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
+  rowTitleLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: space.sm,
+    rowGap: space.xs,
+  },
+  rowWithdrawal: { position: "absolute", right: 14, top: space.sm },
+  stubActions: { gap: space.sm, width: "100%" },
+  stubWithdrawal: { alignSelf: "center", textAlign: "center" },
   pressed: { opacity: 0.7 },
   group: {
     backgroundColor: color.surface,

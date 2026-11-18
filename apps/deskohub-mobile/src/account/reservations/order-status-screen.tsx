@@ -12,7 +12,6 @@ import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Download from "lucide-react-native/icons/download";
 import FileText from "lucide-react-native/icons/file-text";
-import KeyRound from "lucide-react-native/icons/key-round";
 import Mail from "lucide-react-native/icons/mail";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import Search from "lucide-react-native/icons/search";
@@ -66,6 +65,9 @@ import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
+import { AccessPinButton } from "./access-pin-button";
+import { WithdrawalLink } from "./withdrawal-link";
+import { WhenWithdrawable } from "./withdrawal-offer";
 
 /** Opens the site's contact form. */
 export const openContactPage = () => {
@@ -214,16 +216,14 @@ function TicketStub({
     case "AccessPin":
       return offersAccessLink(order) ? (
         <>
-          <Button
-            icon={KeyRound}
-            label={m.reservations_show_pin({}, { locale })}
-            onPress={() =>
-              router.push({
-                pathname: "/reservations/[orderId]/access",
-                params: { orderId: order.orderId },
-              })
-            }
-          />
+          <WhenWithdrawable orderId={order.orderId}>
+            <WithdrawalLink
+              orderId={order.orderId}
+              style={styles.withdrawal}
+              underlined
+            />
+          </WhenWithdrawable>
+          <AccessPinButton orderId={order.orderId} />
           {accessHint !== undefined && (
             <Text variant="hint" style={styles.centred}>
               {accessHint}
@@ -497,4 +497,5 @@ export function OrderStatusScreen({
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
   centred: { textAlign: "center" },
+  withdrawal: { alignSelf: "center", textAlign: "center" },
 });

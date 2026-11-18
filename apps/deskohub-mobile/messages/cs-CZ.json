@@ -590,6 +590,8 @@
   "reservations_book_again": "Rezervovat znovu",
   "reservations_contact": "Napiš nám",
   "reservations_show_pin": "Zobrazit přístupový PIN",
+  "reservations_withdraw": "Odstoupit od smlouvy",
+  "reservations_withdraw_title": "Odstoupení od smlouvy",
   "reservations_pin_works_from": "Funguje od {time}",
   "reservations_price_paid": "{price} · zaplaceno kartou",
   "reservations_price_not_charged": "{price} · nestrženo",
