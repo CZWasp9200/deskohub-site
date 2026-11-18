@@ -40,7 +40,7 @@ import { pragueToday } from "../selection/prague-date";
 import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingStepLayout } from "../ui/booking-step-layout";
-import { ChooseHeaderFact } from "../ui/choose-header";
+import { ChooseHeaderFact, useChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
 import { formatShortPragueDate } from "../ui/prague-date-format";
 import { describeOfficePriceLine } from "../ui/price-line-description";
@@ -236,6 +236,7 @@ function OfficeSelection({
   const { name } = offering;
   const tracks = useChooseTracks(2);
   const access = m.booking_space_always_open({}, { locale });
+  useChooseHeaderFact(KeyRound, tracks ? access : undefined);
   const { isWide } = useViewport();
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const blocked = enablement.blockers.flatMap((blocker) => {
@@ -319,14 +320,7 @@ function OfficeSelection({
         />
       }
     >
-      <Stack.Screen
-        options={{
-          title: name,
-          headerRight: tracks
-            ? () => <ChooseHeaderFact icon={KeyRound} text={access} />
-            : undefined,
-        }}
-      />
+      <Stack.Screen options={{ title: name }} />
       <BookingReadView read={catalog} onRetry={onRetryCatalog}>
         {() => (
           <>

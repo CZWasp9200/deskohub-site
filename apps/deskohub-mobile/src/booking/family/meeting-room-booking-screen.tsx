@@ -49,7 +49,7 @@ import { pragueToday } from "../selection/prague-date";
 import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingStepLayout } from "../ui/booking-step-layout";
-import { ChooseHeaderFact } from "../ui/choose-header";
+import { useChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
 import {
   formatPragueTime,
@@ -303,6 +303,7 @@ function MeetingRoomSelection({
     lengthOf(duration)?.durationLabel ?? duration;
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
   const tracks = useChooseTracks(3);
+  useChooseHeaderFact(Users, tracks ? capacity : undefined);
   const { availableWidth, fontScale, isWide } = useViewport();
   const columnWidth = Math.min(
     availableWidth - 2 * wideGutter,
@@ -416,15 +417,7 @@ function MeetingRoomSelection({
         />
       }
     >
-      <Stack.Screen
-        options={{
-          title: name,
-          headerRight:
-            tracks && capacity !== undefined
-              ? () => <ChooseHeaderFact icon={Users} text={capacity} />
-              : undefined,
-        }}
-      />
+      <Stack.Screen options={{ title: name }} />
       <BookingReadView read={catalog} onRetry={onRetryCatalog}>
         {() => (
           <>

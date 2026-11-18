@@ -13,7 +13,14 @@ const Screen = (_props: {
   readonly options: NativeStackNavigationOptions;
 }) => null;
 const Stack = Object.assign(() => null, { Screen });
-mock.module("expo-router", () => ({ ...expoRouterStandIn(), Stack }));
+const setOptions = mock(
+  (_options: Pick<NativeStackNavigationOptions, "headerRight">) => undefined
+);
+const navigation = { getState: () => ({ routes: [] }), setOptions };
+mock.module("expo-router", () => ({
+  ...expoRouterStandIn({ useNavigation: () => navigation }),
+  Stack,
+}));
 mock.module("expo-router/react-navigation", () => ({
   getHeaderTitle: (options: NativeStackNavigationOptions, fallback: string) =>
     typeof options.headerTitle === "string"
@@ -25,13 +32,16 @@ const { default: BookLayout } = await import(
   "../../../app/(account)/book/_layout"
 );
 const { AppLocaleProvider } = await import("../../i18n/locale-context");
+const { clientRoot } = await import("../../testing/client-root");
 const { AppBar } = await import("../../ui/app-bar");
 const { StackHeader } = await import("../../ui/navigation");
 const { elementTree, find, findAll, flatStyle } = await import(
   "../../ui/testing/element-tree"
 );
 const { AvailableWidthContext } = await import("../../ui/viewport");
-const { ChooseHeaderFact } = await import("./choose-header");
+const { ChooseHeaderFact, useChooseHeaderFact } = await import(
+  "./choose-header"
+);
 
 const withinLandscape = (child: ReactElement) => (
   <AppLocaleProvider locale="en-US">
@@ -86,4 +96,32 @@ test("Choose routes share the 1040 dp landscape column and put facts in the titl
   } finally {
     dimensions.mockRestore();
   }
+});
+
+const { render } = clientRoot();
+
+function RoomSelection({ capacity }: { readonly capacity: string }) {
+  useChooseHeaderFact(Users, capacity);
+  return null;
+}
+
+function RoomCatalog({
+  offering,
+}: {
+  readonly offering?: { readonly capacity: string };
+}) {
+  return offering === undefined ? null : (
+    <RoomSelection capacity={offering.capacity} />
+  );
+}
+
+test("a catalog refresh removes its header fact while the Choose route stays open", async () => {
+  setOptions.mockClear();
+  await render(<RoomCatalog offering={{ capacity: "Up to 10 seats" }} />);
+  expect(setOptions.mock.calls.at(-1)?.[0].headerRight).toEqual(
+    expect.any(Function)
+  );
+
+  await render(<RoomCatalog />);
+  expect(setOptions.mock.calls.at(-1)?.[0]).toEqual({ headerRight: undefined });
 });

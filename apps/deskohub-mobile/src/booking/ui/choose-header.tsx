@@ -1,4 +1,5 @@
-import type { NativeStackHeaderProps } from "expo-router";
+import { type NativeStackHeaderProps, useNavigation } from "expo-router";
+import { useLayoutEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "../../ui/icon";
 import { StackHeader } from "../../ui/navigation";
@@ -8,6 +9,18 @@ import { color, space } from "../../ui/tokens";
 export const renderChooseHeader = (props: NativeStackHeaderProps) => (
   <StackHeader {...props} contentWidth="wide" />
 );
+
+/** A selection may unmount after a catalog refresh while its route stays open. */
+export function useChooseHeaderFact(icon: IconComponent, text?: string) {
+  const navigation = useNavigation();
+  useLayoutEffect(() => {
+    if (text === undefined) return;
+    navigation.setOptions({
+      headerRight: () => <ChooseHeaderFact icon={icon} text={text} />,
+    });
+    return () => navigation.setOptions({ headerRight: undefined });
+  }, [navigation, icon, text]);
+}
 
 export function ChooseHeaderFact({
   icon,
