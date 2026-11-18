@@ -100,7 +100,7 @@ Reservations made without the choice keep their booked interval as they always h
 
 ## Office
 
-An office reservation spans an inclusive range of Prague calendar dates. The customer selects a start date, a positive number of days, and a positive number of seats supported by the office capacity.
+An office reservation spans an inclusive range of Prague calendar dates. The customer selects a start date, a positive number of days, and a positive number of seats supported by the office capacity. The office capacity is the seat count configured for the office's table in Dotypos. It is the only place the maximum is set: the booking form and its agent-readable page, the app, the customer booking API, agent tools, and the server's checks all use it, so changing the office's seats in Dotypos changes every surface without a release.
 
 The latest included date may not be more than one calendar month after the current Prague date. An unavailable date ends the longest range that can be selected from an earlier start.
 

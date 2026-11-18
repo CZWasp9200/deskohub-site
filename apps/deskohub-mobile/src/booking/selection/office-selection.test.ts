@@ -20,6 +20,12 @@ const today = "2026-11-07";
 /** The server's office window for `today`: one month. */
 const bookableDates = { earliest: today, latest: "2026-12-07" };
 
+/**
+ * The offering's seats come from the office's Dotypos table, its only source.
+ * A capacity other than the live office's makes a hard-coded maximum fail.
+ */
+const officeSeats = 4;
+
 const offering: OfficeOffering = {
   family: "office",
   name: "Office",
@@ -27,7 +33,7 @@ const offering: OfficeOffering = {
   usage: "",
   price: money,
   seatPrice: money,
-  maximumSeats: 6,
+  maximumSeats: officeSeats,
   maximumDurationHours: 672,
   advertisedPrice: { price: money, discount: money },
   bookableDates,
@@ -224,7 +230,7 @@ describe("officeEnablement", () => {
       unavailable: new Set(["2026-11-20"]),
     });
     expect(enablement.maximumDayCount).toBe(13);
-    expect(enablement.maximumSeats).toEqual(Option.some(6));
+    expect(enablement.maximumSeats).toEqual(Option.some(officeSeats));
     expect(enablement.blockers).toEqual([]);
   });
 
@@ -283,7 +289,14 @@ describe("officeEnablement", () => {
 
   test("blocks more seats than the office has", () => {
     expect(
-      blockerTags({ date: Option.some(today), dayCount: 1, seats: 7 })
+      blockerTags({ date: Option.some(today), dayCount: 1, seats: officeSeats })
+    ).toEqual([]);
+    expect(
+      blockerTags({
+        date: Option.some(today),
+        dayCount: 1,
+        seats: officeSeats + 1,
+      })
     ).toEqual(["SeatsUnavailable"]);
     expect(
       blockerTags({ date: Option.some(today), dayCount: 1, seats: 0 })
