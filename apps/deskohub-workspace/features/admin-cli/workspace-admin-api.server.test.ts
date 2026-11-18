@@ -57,7 +57,6 @@ import {
 } from "effect";
 import { HttpRouter } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
-import { WorkspaceDatabase } from "@/db/database.service";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,

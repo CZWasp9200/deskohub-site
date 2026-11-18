@@ -1,7 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import Download from "lucide-react-native/icons/download";
 import Receipt from "lucide-react-native/icons/receipt";
 import { useState } from "react";
 import { AsyncView } from "../../customer-api/async-view";

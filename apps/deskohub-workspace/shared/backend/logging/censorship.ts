@@ -392,7 +392,10 @@ export const censorDatabaseQueryError = (
 ): EffectDrizzleQueryError =>
   new EffectDrizzleQueryError({
     query: error.query,
-    params: [...censorDatabaseQueryParams(error.query, error.params)],
+    // Drizzle keeps them only when the client asks it to (`paramsInErrors`).
+    params: error.params && [
+      ...censorDatabaseQueryParams(error.query, error.params),
+    ],
     cause: error.cause,
   });
 

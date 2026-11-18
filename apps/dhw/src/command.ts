@@ -818,7 +818,8 @@ const invoicesListCommand = Command.make(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
-    includeArchived: Flag.boolean("include-archived").pipe(
+    includeArchived: Flag.Boolean("include-archived").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Also list archived invoices, which the Admin UI hides"
       )
@@ -1035,7 +1036,8 @@ const invoicesDownloadCommand = Command.make(
       Flag.optional,
       Flag.withDescription("PDF output path")
     ),
-    corrective: Flag.boolean("corrective").pipe(
+    corrective: Flag.Boolean("corrective").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Download the credit note of a cancelled invoice instead"
       )
@@ -1102,10 +1104,11 @@ const invoicesResendCommand = Command.make(
 const invoicesCancelCommand = Command.make(
   "cancel",
   {
-    invoiceId: Argument.string("invoice-id").pipe(
+    invoiceId: Argument.String("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
-    sendCancellationEmail: Flag.boolean("send-cancellation-email").pipe(
+    sendCancellationEmail: Flag.Boolean("send-cancellation-email").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Email the customer that the invoice's reservation was cancelled"
       )
@@ -1192,7 +1195,7 @@ const invoicesCancelCommand = Command.make(
 const invoicesArchiveCommand = Command.make(
   "archive",
   {
-    invoiceId: Argument.string("invoice-id").pipe(
+    invoiceId: Argument.String("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
     yes: confirmationFlag,
