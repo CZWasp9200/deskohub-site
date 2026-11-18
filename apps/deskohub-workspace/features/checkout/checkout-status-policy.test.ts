@@ -12,6 +12,7 @@ describe("new reservations", () => {
       "created",
       "payment_failed",
       "cancelled",
+      "reservation_cancelled",
       "expired",
       "late_payment_refund",
     ];

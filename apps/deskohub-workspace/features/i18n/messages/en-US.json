@@ -853,6 +853,8 @@
   "checkoutStatusPaymentFailedLead": "The payment didn't go through, so we haven't issued access for this order. Your reservation details are saved, so you can try the payment again.",
   "checkoutStatusCancelledTitle": "Payment was cancelled.",
   "checkoutStatusCancelledLead": "The payment was cancelled, so we haven't issued access for this order. Your reservation details are saved, so you can try the payment again.",
+  "checkoutStatusReservationCancelledTitle": "The reservation was cancelled.",
+  "checkoutStatusReservationCancelledLead": "Access for this reservation is no longer available.",
   "checkoutStatusExpiredTitle": "Payment link expired.",
   "checkoutStatusExpiredLead": "The payment wasn't completed in time, so we released the reserved slot. Your reservation details are saved, so you can try the payment again.",
   "checkoutStatusLatePaymentCheckingTitle": "We are checking your reservation.",
