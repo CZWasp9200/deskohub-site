@@ -1,8 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Option } from "effect";
+import { reset } from "expo-router/build/react-navigation/routers/CommonActions";
+import { StackRouter } from "expo-router/build/react-navigation/routers/StackRouter";
+import type { NavigationState } from "expo-router/react-navigation";
 import { act, createElement, useState } from "react";
 import { clientRoot } from "../../testing/client-root";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
+import { accountSectionReset } from "../account-root";
 import type { CompletionTextField } from "./profile-draft";
 import type { ProfileSubmitState } from "./profile-save";
 
@@ -220,7 +224,10 @@ const editorStack = () => {
     );
   }
 
-  const remove = async (keys: ReadonlyArray<string>) => {
+  const remove = async (
+    keys: ReadonlyArray<string>,
+    nextRoutes = navigator.routes.filter(({ key }) => !keys.includes(key))
+  ) => {
     let removals = 0;
     const run = async (): Promise<void> => {
       const blocking = keys.find(
@@ -236,9 +243,7 @@ const editorStack = () => {
         return;
       }
       removals += 1;
-      navigator.routes = navigator.routes.filter(
-        ({ key }) => !keys.includes(key)
-      );
+      navigator.routes = nextRoutes;
       for (const key of keys) navigator.prevention.delete(key);
       rerender();
     };
@@ -298,6 +303,71 @@ describe("profile editors in the account stack", () => {
     expect(stack.draft.edits).toBeUndefined();
     expect(leaving.removals()).toBe(1);
     expect(navigator.routes.map(({ name }) => name)).toEqual(["index"]);
+  });
+
+  test("a menu switch removes both editors in one guarded action and keeps the Account anchor", async () => {
+    const mounted = await openBoth();
+    const routeNames = ["index", "billing", "profile", "language"];
+    const options = { routeNames, routeParamList: {}, routeGetIdList: {} };
+    const stack: NavigationState = {
+      stale: false,
+      type: "stack",
+      key: "account-sections",
+      routeKeySeq: 3,
+      index: 2,
+      routeNames,
+      routes: navigator.routes,
+    };
+    const wrap = (
+      key: string,
+      name: string,
+      state: NavigationState
+    ): NavigationState => ({
+      ...stack,
+      key,
+      index: 0,
+      routeNames: [name],
+      routes: [{ key: name, name, state }],
+    });
+    const root = wrap(
+      "root",
+      "(account)",
+      wrap("signed-in", "(tabs)", wrap("tabs", "account", stack))
+    );
+    const selection = accountSectionReset(root, "language");
+    if (selection === undefined)
+      throw new Error("Account menu reset was missing");
+    const transition = StackRouter({
+      initialRouteName: "index",
+    }).getStateForAction(
+      { ...stack, type: "stack" },
+      { ...reset(selection.state), target: selection.target },
+      options
+    );
+    if (typeof transition !== "object")
+      throw new Error("The installed router refused the Account menu reset");
+    const remaining = transition.state.routes;
+    const removed = stack.routes
+      .filter(({ key }) => !remaining.some((route) => route.key === key))
+      .map(({ key }) => key)
+      .reverse();
+    expect(remaining.map(({ name }) => name)).toEqual(["index", "language"]);
+    expect(remaining[0]?.key).toBe("si");
+
+    const first = await mounted.remove(removed, remaining);
+    expect(mounted.guards.get("sb")?.asking).toBe(true);
+    await act(async () => mounted.guards.get("sb")?.keepEditing());
+    expect(first.removals()).toBe(0);
+    expect(mounted.draft.edits).toBe("Othertown");
+
+    const second = await mounted.remove(removed, remaining);
+    await act(async () => mounted.guards.get("sb")?.discard());
+    expect(second.removals()).toBe(1);
+    expect(mounted.draft.edits).toBeUndefined();
+    expect(navigator.routes.map(({ name }) => name)).toEqual([
+      "index",
+      "language",
+    ]);
   });
 
   test("back from Billing alone, once Profile is gone, asks", async () => {

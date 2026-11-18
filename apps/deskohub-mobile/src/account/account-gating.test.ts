@@ -36,7 +36,7 @@ describe("accountDetailSection", () => {
       accountDetailSection(["(account)", "(tabs)", "account"])
     ).toBeUndefined();
     expect(
-      accountDetailSection(["(account)", "(tabs)", "book", "profile"])
+      accountDetailSection(["(account)", "book", "profile"])
     ).toBeUndefined();
   });
 });

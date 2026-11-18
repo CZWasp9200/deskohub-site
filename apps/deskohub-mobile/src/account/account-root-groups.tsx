@@ -25,6 +25,7 @@ import {
   type AccountDetailSection,
   accountSectionHref,
 } from "./account-gating";
+import type { AccountSectionMenu } from "./account-root";
 import type {
   AccountGroup,
   AccountGroupHeading,
@@ -123,10 +124,10 @@ const opensScreen = (
  */
 export function AccountRootGroups({
   groups,
-  activeSection,
+  menu,
 }: {
   readonly groups: ReadonlyArray<AccountGroup>;
-  readonly activeSection?: AccountDetailSection;
+  readonly menu?: AccountSectionMenu;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -147,19 +148,15 @@ export function AccountRootGroups({
                   description: accountRowSubtitleText(subtitle, locale),
                 })}
                 destructive={section === "danger"}
-                {...(activeSection !== undefined && {
-                  active: section === activeSection,
+                {...(menu !== undefined && {
+                  active: section === menu.activeSection,
                   trailing: "none" as const,
                 })}
                 {...(opensScreen(section) && {
                   onPress: () => {
-                    if (activeSection === undefined) {
+                    if (menu === undefined) {
                       router.push(accountSectionHref[section]);
-                    } else if (section !== activeSection) {
-                      router.navigate(accountSectionHref[section], {
-                        dangerouslySingular: true,
-                      });
-                    }
+                    } else menu.openSection(section);
                   },
                 })}
               />

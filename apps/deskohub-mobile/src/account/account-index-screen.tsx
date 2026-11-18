@@ -21,13 +21,10 @@ import { SkeletonGroup, SkeletonRow } from "../ui/skeleton";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { useContentColumn, useViewport } from "../ui/viewport";
-import {
-  type AccountDetailSection,
-  type AccountNotice,
-  accountIndexModel,
-} from "./account-gating";
+import { type AccountNotice, accountIndexModel } from "./account-gating";
 import { AccountIdentityView } from "./account-identity-view";
 import { useAccountRelease } from "./account-release";
+import type { AccountSectionMenu } from "./account-root";
 import {
   AccountRootGroups,
   ProfileCompletionCard,
@@ -68,10 +65,10 @@ const appVersion = Constants.expoConfig?.version;
  * Once the masthead scrolls away an app bar keeps the title and sign-out.
  */
 export function AccountIndexScreen({
-  activeSection,
+  menu,
   onLinked,
 }: {
-  readonly activeSection?: AccountDetailSection;
+  readonly menu?: AccountSectionMenu;
   readonly onLinked?: () => void;
 }) {
   const locale = useAppLocale();
@@ -82,7 +79,7 @@ export function AccountIndexScreen({
   const { top } = useSafeAreaInsets();
   const { isWide, fontScale } = useViewport();
   const column = useContentColumn();
-  const inPane = activeSection !== undefined;
+  const inPane = menu !== undefined;
   const linked = current?.kind === "linked";
   useEffect(() => {
     if (linked) onLinked?.();
@@ -169,10 +166,7 @@ export function AccountIndexScreen({
             <>
               {model.completionCard && <ProfileCompletionCard />}
               <SignupReferralNotice account={loaded} />
-              <AccountRootGroups
-                groups={model.groups}
-                activeSection={activeSection}
-              />
+              <AccountRootGroups groups={model.groups} menu={menu} />
             </>
           );
         }}

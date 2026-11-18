@@ -1,10 +1,7 @@
 import { useIsFocused, useRouter, useSegments } from "expo-router";
-import { useCallback, useEffect, useRef } from "react";
-import {
-  accountDetailSection,
-  accountSectionHref,
-} from "../../../../src/account/account-gating";
+import { accountDetailSection } from "../../../../src/account/account-gating";
 import { AccountIndexScreen } from "../../../../src/account/account-index-screen";
+import { useDefaultAccountProfile } from "../../../../src/account/account-root";
 import { useScreenVisited } from "../../../../src/routing/use-screen-visited";
 import { useViewport } from "../../../../src/ui/viewport";
 
@@ -20,22 +17,13 @@ export default function AccountRoute() {
   const segments: readonly string[] = useSegments();
   const { isExpanded } = useViewport();
   const detail = accountDetailSection(segments);
-  const openedDetail = useRef(false);
   const inAccount = segments[1] === "(tabs)" && segments[2] === "account";
-  useEffect(() => {
-    if (!isExpanded || !inAccount) openedDetail.current = false;
-    else if (detail !== undefined) openedDetail.current = true;
-  }, [detail, inAccount, isExpanded]);
-
-  const openDefault = useCallback(() => {
-    // Select the real Profile route once, keeping the index below it for Back.
-    if (isExpanded && focused && !openedDetail.current) {
-      openedDetail.current = true;
-      router.navigate(accountSectionHref.profile, {
-        dangerouslySingular: true,
-      });
-    }
-  }, [focused, isExpanded, router]);
+  const openDefault = useDefaultAccountProfile(router, {
+    detail,
+    focused,
+    inAccount,
+    isExpanded,
+  });
 
   if (!visited || (isExpanded && detail !== undefined)) return null;
   return <AccountIndexScreen onLinked={openDefault} />;

@@ -1,7 +1,21 @@
-import { Stack, useSegments } from "expo-router";
-import { accountDetailSection } from "../../../../src/account/account-gating";
+import {
+  Stack,
+  useNavigationContainerRef,
+  useRouter,
+  useSegments,
+} from "expo-router";
+import { CommonActions } from "expo-router/react-navigation";
+import {
+  type AccountDetailSection,
+  accountDetailSection,
+  accountSectionHref,
+} from "../../../../src/account/account-gating";
 import { AccountIndexScreen } from "../../../../src/account/account-index-screen";
-import { accountStackAnchor } from "../../../../src/account/account-root";
+import {
+  accountSectionReset,
+  accountStackAnchor,
+  isProfileEditor,
+} from "../../../../src/account/account-root";
 import { SignOutButton } from "../../../../src/account/sign-out-button";
 import { useAppLocale } from "../../../../src/i18n/locale-context";
 import { m } from "../../../../src/i18n/messages";
@@ -20,10 +34,30 @@ export default function AccountSectionsLayout() {
   const { isExpanded } = useViewport();
   const activeSection = accountDetailSection(useSegments());
   const showsList = isExpanded && activeSection !== undefined;
+  const router = useRouter();
+  const navigation = useNavigationContainerRef();
+  const openSection = (section: AccountDetailSection) => {
+    if (activeSection === undefined || activeSection === section) return;
+    if (isProfileEditor(activeSection) && !isProfileEditor(section)) {
+      const reset = accountSectionReset(navigation.getRootState(), section);
+      if (reset !== undefined) {
+        navigation.dispatch({
+          ...CommonActions.reset(reset.state),
+          target: reset.target,
+        });
+      }
+      return;
+    }
+    router.navigate(accountSectionHref[section], { dangerouslySingular: true });
+  };
   return (
     <SplitPane
       enabled={showsList}
-      list={showsList && <AccountIndexScreen activeSection={activeSection} />}
+      list={
+        showsList && (
+          <AccountIndexScreen menu={{ activeSection, openSection }} />
+        )
+      }
     >
       <Stack
         screenOptions={{

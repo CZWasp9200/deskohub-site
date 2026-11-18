@@ -17,8 +17,12 @@ const { AccountIndexScreen } = await import("./account-index-screen");
 describe("Account overview status bar", () => {
   const overview = (activeSection?: "profile") => {
     const { registry } = makeFakeCustomerData("linked");
+    const menu =
+      activeSection === undefined
+        ? undefined
+        : { activeSection, openSection: () => undefined };
     return find(
-      elementTree(AccountIndexScreen, { activeSection }, (children) => (
+      elementTree(AccountIndexScreen, { menu }, (children) => (
         <RegistryContext value={registry}>
           <AppLocaleProvider locale="en-US">{children}</AppLocaleProvider>
         </RegistryContext>

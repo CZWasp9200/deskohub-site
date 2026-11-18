@@ -2,7 +2,13 @@ import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { listDividerInset, listRowLayout } from "./list-row-layout";
 import {
@@ -259,7 +265,9 @@ export function ListRow({
       role={role}
       aria-label={accessibleLabel}
       aria-disabled={disabled}
-      aria-selected={selected}
+      aria-selected={
+        selected ?? (active && Platform.OS !== "web" ? true : undefined)
+      }
       aria-current={active ? "page" : undefined}
       disabled={disabled}
       onPress={onPress}
