@@ -15,6 +15,7 @@ import FileText from "lucide-react-native/icons/file-text";
 import Mail from "lucide-react-native/icons/mail";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import Search from "lucide-react-native/icons/search";
+import Undo2 from "lucide-react-native/icons/undo-2";
 import { type ReactNode, useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { apiOrigin } from "../../auth/auth-client";
@@ -45,6 +46,7 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
+import { AccessPinButton } from "./access-pin-button";
 import {
   BookingSteps,
   BookingTicket,
@@ -52,9 +54,8 @@ import {
 } from "./booking-ticket";
 import {
   type BookingTicketModel,
-  bookingTicketOf,
-  withdrawnTicket,
   orderCheckingOf,
+  orderTicketModel,
 } from "./booking-ticket-model";
 import { ticketBadge, ticketSteps } from "./booking-ticket-text";
 import { type BookingEvent, calendarShareAtom } from "./calendar-event";
@@ -67,8 +68,6 @@ import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
-import Undo2 from "lucide-react-native/icons/undo-2";
-import { AccessPinButton } from "./access-pin-button";
 import { WhenWithdrawable } from "./withdrawal-offer";
 
 /** Opens the site's contact form. */
@@ -150,23 +149,23 @@ function MoreActions({
           onPress={openContactPage}
         />
         {!withdrawn && (
-        <WhenWithdrawable orderId={order.orderId}>
-          <ListRow
-            kind="action"
-            destructive
-            icon={Undo2}
-            label={m.reservations_withdraw({}, { locale })}
-            trailing={
-              <Icon icon={ChevronRight} size={20} color={color.ink3} />
-            }
-            onPress={() =>
-              router.push({
-                pathname: "/reservations/[orderId]/withdraw",
-                params: { orderId: order.orderId },
-              })
-            }
-          />
-        </WhenWithdrawable>
+          <WhenWithdrawable orderId={order.orderId}>
+            <ListRow
+              kind="action"
+              destructive
+              icon={Undo2}
+              label={m.reservations_withdraw({}, { locale })}
+              trailing={
+                <Icon icon={ChevronRight} size={20} color={color.ink3} />
+              }
+              onPress={() =>
+                router.push({
+                  pathname: "/reservations/[orderId]/withdraw",
+                  params: { orderId: order.orderId },
+                })
+              }
+            />
+          </WhenWithdrawable>
         )}
       </ListGroup>
       <LiveMessage
@@ -324,16 +323,13 @@ function OrderTicket({
     onCheckAgain,
     onPaymentPageLeft,
   });
-  const model =
-    order.withdrawal === undefined
-      ? bookingTicketOf(
-          order.status,
-          orderCheckingOf(state.automatic),
-          recovery.offer
-        )
-      : withdrawnTicket(order.withdrawal.refundAmount);
+  const model = orderTicketModel(
+    order,
+    orderCheckingOf(state.automatic),
+    recovery.offer
+  );
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
-  const ticketView = orderTicketView({
+  const view = orderTicketView({
     order,
     model,
     reservation,
@@ -341,11 +337,7 @@ function OrderTicket({
     now: DateTime.nowUnsafe(),
     locale,
   });
-  // A withdrawn booking won't happen: no countdown, no PIN hint.
-  const view =
-    order.withdrawal === undefined
-      ? ticketView
-      : { ...ticketView, lead: undefined, accessHint: undefined };
+  const withdrawn = model.stub._tag === "Withdrawn";
   const badge = ticketBadge(model.badge, locale);
   // The status changes while the screen is open: announce the new one.
   useLiveRegionAnnouncement(
@@ -375,7 +367,7 @@ function OrderTicket({
         badge={badge}
         date={view.date}
         dateTone={model.dim ? "dim" : "strong"}
-        badgePlacement={order.withdrawal === undefined ? "header" : "inline"}
+        badgePlacement={withdrawn ? "inline" : "header"}
         title={view.title}
         lines={view.lines}
         meta={view.meta}
@@ -407,12 +399,7 @@ function OrderTicket({
         />
       </BookingTicket>
       {model.followUp === "more-actions" && (
-        <MoreActions
-          order={order}
-          // A withdrawn booking won't happen: nothing to add to a calendar.
-          event={order.withdrawal === undefined ? view.event : undefined}
-          withdrawn={order.withdrawal !== undefined}
-        />
+        <MoreActions order={order} event={view.event} withdrawn={withdrawn} />
       )}
       {model.followUp === "contact" && <ContactLink />}
     </View>

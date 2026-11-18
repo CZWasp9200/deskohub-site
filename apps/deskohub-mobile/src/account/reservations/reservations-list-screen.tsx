@@ -14,15 +14,8 @@ import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Copy from "lucide-react-native/icons/copy";
 import Hourglass from "lucide-react-native/icons/hourglass";
 import KeyRound from "lucide-react-native/icons/key-round";
-import { AccessPinButton } from "./access-pin-button";
-import { WithdrawalLink } from "./withdrawal-link";
 import { type ReactNode, useEffect, useState } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
@@ -50,6 +43,7 @@ import {
   tabGate,
 } from "../account-gating";
 import { TabGateCard } from "../tab-gate-card";
+import { AccessPinButton } from "./access-pin-button";
 import { accessPinGroups } from "./access-pin-groups";
 import { useAccessPinView } from "./access-pin-view";
 import { copyAccessCodeAtom } from "./access-screen-state";
@@ -77,6 +71,8 @@ import {
   savedReservationsAtom,
   savedReservationsBeforeAccountAtom,
 } from "./reservations-list-state";
+import { rowOffersWithdrawal } from "./withdrawal-eligibility";
+import { WithdrawalLink } from "./withdrawal-link";
 
 /** How many past bookings show before "Show all". */
 export const pastPreviewCount = 2;
@@ -477,15 +473,13 @@ function ReservationRow({
         <Text variant="bodySmall" style={styles.rowDetail}>
           {view.detail}
         </Text>
-        {!past &&
-          row.withdrawal?.eligible === true &&
-          Option.isSome(target) && (
-            <WithdrawalLink
-              orderId={target.value}
-              style={styles.rowWithdrawal}
-              underlined
-            />
-          )}
+        {!past && rowOffersWithdrawal(row) && Option.isSome(target) && (
+          <WithdrawalLink
+            orderId={target.value}
+            style={styles.rowWithdrawal}
+            underlined
+          />
+        )}
       </View>
       {Option.isSome(target) && (
         <View
@@ -547,7 +541,7 @@ function NextReservation({ row }: { readonly row: ReservationListRow }) {
       <NextAccessLine
         access={view.access}
         orderId={Option.getOrUndefined(target)}
-        withdrawable={row.withdrawal?.eligible === true}
+        withdrawable={rowOffersWithdrawal(row)}
       />
     </BookingTicket>
   );
@@ -589,7 +583,6 @@ function NextAccessLine({
   readonly withdrawable: boolean;
 }) {
   const locale = useAppLocale();
-  const router = useRouter();
   const open = useOpenReservation();
   const stubTextWidth = useStubTextWidth();
   switch (access._tag) {
@@ -713,7 +706,7 @@ const styles = StyleSheet.create({
   rowBadge: { marginRight: -rowChevronColumn },
   rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
-  stubWithdrawal: { alignSelf: "center", textAlign: "center" },
+  stubWithdrawal: { alignSelf: "center" },
   pressed: { opacity: 0.7 },
   group: {
     backgroundColor: color.surface,

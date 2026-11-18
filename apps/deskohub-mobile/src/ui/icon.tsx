@@ -16,8 +16,11 @@ export type IconComponent = ComponentType<{
   readonly importantForAccessibility?: "no-hide-descendants";
 }>;
 
-/** The icon sizes the design uses, in dp. */
-export type IconSize = 14 | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 | 32;
+/**
+ * The icon sizes the design uses, in dp; 36 is the success mark of a
+ * received withdrawal.
+ */
+export type IconSize = 14 | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 | 32 | 36;
 
 /**
  * A Lucide icon at a design size, stroke 2, in `color` (navy by default).

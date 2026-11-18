@@ -1,6 +1,11 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { useRouter } from "expo-router";
-import { type StyleProp, StyleSheet, type TextStyle } from "react-native";
+import {
+  Pressable,
+  type StyleProp,
+  StyleSheet,
+  type ViewStyle,
+} from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { Text } from "../../ui/text";
@@ -17,30 +22,35 @@ export function WithdrawalLink({
 }: {
   readonly orderId: CustomerReservationOrderId;
   readonly underlined?: boolean;
-  readonly style?: StyleProp<TextStyle>;
+  /** Places the link; it is as wide as its label. */
+  readonly style?: StyleProp<ViewStyle>;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
   return (
-    <Text
+    <Pressable
       role="link"
-      variant="hint"
       onPress={() =>
         router.push({
           pathname: "/reservations/[orderId]/withdraw",
           params: { orderId },
         })
       }
-      suppressHighlighting
       hitSlop={space.sm}
-      style={[styles.link, underlined && styles.underlined, style]}
+      style={({ pressed }) => [style, pressed && styles.pressed]}
     >
-      {m.reservations_withdraw({}, { locale })}
-    </Text>
+      <Text
+        variant="hint"
+        style={[styles.link, underlined && styles.underlined]}
+      >
+        {m.reservations_withdraw({}, { locale })}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   link: { color: color.danger },
   underlined: { textDecorationLine: "underline" },
+  pressed: { opacity: 0.7 },
 });

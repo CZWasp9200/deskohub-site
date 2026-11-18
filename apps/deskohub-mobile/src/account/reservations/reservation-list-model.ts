@@ -1,7 +1,7 @@
-import type { CustomerReservationSummary } from "@deskohub/workspace-customer-api";
 import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
+  CustomerReservationSummary,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, DateTime, Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";

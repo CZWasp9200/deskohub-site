@@ -156,25 +156,31 @@ export const orderTicketView = ({
     Option.flatMap(Option.fromNullishOr(row.accessStartsAt), parseInstant)
   );
   const title = orderTitle(order, reservation, locale);
+  // A withdrawn booking won't happen: no countdown, PIN hint or calendar.
+  const withdrawn = model.stub._tag === "Withdrawn";
   return {
-    event: Option.getOrUndefined(
-      Option.map(times, ([start, end]) => ({
-        orderId: order.orderId,
-        title,
-        start,
-        end,
-        location: Option.getOrUndefined(
-          Option.map(establishment, (place) => place.formattedAddress)
+    event: withdrawn
+      ? undefined
+      : Option.getOrUndefined(
+          Option.map(times, ([start, end]) => ({
+            orderId: order.orderId,
+            title,
+            start,
+            end,
+            location: Option.getOrUndefined(
+              Option.map(establishment, (place) => place.formattedAddress)
+            ),
+          }))
         ),
-      }))
-    ),
-    lead: ticketLead(
-      model.reason,
-      Option.flatMap(times, ([start, end]) =>
-        bookingCountdown(now, start, end)
-      ),
-      locale
-    ),
+    lead: withdrawn
+      ? undefined
+      : ticketLead(
+          model.reason,
+          Option.flatMap(times, ([start, end]) =>
+            bookingCountdown(now, start, end)
+          ),
+          locale
+        ),
     date: Option.getOrUndefined(
       Option.map(times, ([start]) => dateTileParts(start, locale))
     ),
@@ -208,21 +214,23 @@ export const orderTicketView = ({
             },
           ]),
     ],
-    accessHint: Option.getOrUndefined(
-      Option.map(accessStartsAt, (from) =>
-        m.reservations_pin_works_from(
-          {
-            time: m.reservations_date_time(
+    accessHint: withdrawn
+      ? undefined
+      : Option.getOrUndefined(
+          Option.map(accessStartsAt, (from) =>
+            m.reservations_pin_works_from(
               {
-                date: shortDate(from, locale),
-                time: formatInstant(from, locale, "time"),
+                time: m.reservations_date_time(
+                  {
+                    date: shortDate(from, locale),
+                    time: formatInstant(from, locale, "time"),
+                  },
+                  { locale }
+                ),
               },
               { locale }
-            ),
-          },
-          { locale }
-        )
-      )
-    ),
+            )
+          )
+        ),
   };
 };

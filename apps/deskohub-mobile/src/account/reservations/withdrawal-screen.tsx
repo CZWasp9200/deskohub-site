@@ -5,94 +5,46 @@ import type {
   CustomerWithdrawalRefusedReason,
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Cause, Effect, Option, Predicate } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { Option } from "effect";
 import { useRouter } from "expo-router";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
 import CircleCheck from "lucide-react-native/icons/circle-check";
-import { reservationsHref } from "../../booking/booking-routes";
-import { formatInstant, parseInstant } from "../../i18n/date-time-format";
-import { emailWithBreak } from "../../ui/email-with-break";
-import { Icon } from "../../ui/icon";
-import { reservationHistoryAtom } from "./reservations-list-state";
 import { type ReactNode, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { CustomerApi } from "../../customer-api/customer-api.service";
-import { customerRead, customerWrite } from "../../customer-api/customer-request";
-import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
-import { AsyncView } from "../../customer-api/async-view";
-import type { AppLocale } from "../../i18n/app-locale";
+import { reservationsHref } from "../../booking/booking-routes";
+import {
+  type CustomerViewError,
+  isRetryableViewError,
+} from "../../customer-api/customer-view-error";
+import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
+import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney, formatMoneyReduction } from "../../i18n/money-format";
 import { ActionFooter } from "../../ui/action-footer";
-import { LoadingState } from "../../ui/async-states";
+import { ErrorState, LoadingState } from "../../ui/async-states";
 import { Card } from "../../ui/card";
 import { Button, TextField } from "../../ui/controls";
+import { emailWithBreak } from "../../ui/email-with-break";
 import { EmptyState } from "../../ui/empty-state";
+import { Icon } from "../../ui/icon";
+import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
-
-/** GET /reservations/:orderId/withdrawal, in the app's language. */
-// Keyed by "<orderId> <locale>", so each order and language reads once.
-const withdrawalQuoteAtom = Atom.family((key: string) => {
-  const [orderId, locale] = key.split(" ") as [
-    CustomerReservationOrderId,
-    AppLocale,
-  ];
-  return customerDataRuntime.atom(
-    Effect.service(CustomerApi).pipe(
-      Effect.flatMap((api) =>
-        api.reservations.getWithdrawalQuote({
-          params: { orderId },
-          query: { locale },
-        })
-      ),
-      customerRead({ accountRead: false })
-    )
-  );
-});
-
-/** POST /reservations/:orderId/withdrawal: the "Confirm withdrawal". */
-const withdrawAtom = customerDataRuntime.fn(
-  ({
-    orderId,
-    locale,
-  }: {
-    readonly orderId: CustomerReservationOrderId;
-    readonly locale: AppLocale;
-  }) =>
-    Effect.service(CustomerApi).pipe(
-      Effect.flatMap((api) =>
-        api.reservations.withdrawFromReservation({
-          params: { orderId },
-          payload: { locale },
-        })
-      ),
-      customerWrite
-    )
-);
-
-/** The reason the quote was refused, when it was. */
-const refusalOf = (
-  result: AsyncResult.AsyncResult<unknown, unknown>
-): CustomerWithdrawalRefusedReason | undefined => {
-  if (!AsyncResult.isFailure(result)) return undefined;
-  return Option.match(Cause.findErrorOption(result.cause), {
-    onNone: () => undefined,
-    onSome: (failure) =>
-      Predicate.isTagged(failure, "CustomerWithdrawalRefused") &&
-      Predicate.hasProperty(failure, "reason")
-        ? (failure.reason as CustomerWithdrawalRefusedReason)
-        : undefined,
-  });
-};
+import {
+  type WithdrawalNameField,
+  WithdrawalScreenState,
+  withdrawAtom,
+  withdrawalQuoteAtom,
+  withdrawalQuoteKey,
+  withdrawalScreenState,
+  withdrawalSubmission,
+} from "./withdrawal-screen-state";
 
 /**
- * The withdrawal statement (§1830a(3)–(4)): the contract, the name and the
- * receipt email the customer confirms, what they get back, and a separate
- * "Confirm withdrawal". No reason, address or signature.
+ * The online withdrawal's confirm step: the statement, then its receipt in
+ * place, or why the order can't be withdrawn from online.
  */
 export function WithdrawalScreen({
   orderId,
@@ -103,67 +55,98 @@ export function WithdrawalScreen({
   readonly reference: string;
 }) {
   const locale = useAppLocale();
-  const quoteAtom = withdrawalQuoteAtom(`${orderId} ${locale}`);
+  const quoteAtom = withdrawalQuoteAtom(withdrawalQuoteKey(orderId, locale));
   const quote = useAtomValue(quoteAtom);
-  const refresh = useAtomRefresh(quoteAtom);
-  const refusal = refusalOf(quote);
+  const refreshQuote = useAtomRefresh(quoteAtom);
+  const [submission, withdraw] = useAtom(withdrawAtom(orderId));
+  // The name comes from the account; an input stands in only when it has none.
+  const [typedName, setTypedName] = useState("");
+  const [nameAttempted, setNameAttempted] = useState(false);
+  const state = withdrawalScreenState({
+    quote,
+    submission,
+    typedName,
+    nameAttempted,
+  });
 
-  if (refusal !== undefined) return <WithdrawalRefused reason={refusal} />;
-  if (AsyncResult.isInitial(quote))
-    return <LoadingState label={m.withdrawal_loading({}, { locale })} />;
-  return (
-    <AsyncView result={quote} onRetry={refresh}>
-      {(value) => (
-        <WithdrawalStatement
-          orderId={orderId}
-          quote={value}
-          reference={reference}
-        />
-      )}
-    </AsyncView>
-  );
+  return WithdrawalScreenState.$match(state, {
+    Loading: () => (
+      <LoadingState label={m.withdrawal_loading({}, { locale })} />
+    ),
+    QuoteFailed: ({ error }) => (
+      <WithdrawalUnavailable
+        error={error}
+        retrying={quote.waiting}
+        onRetry={refreshQuote}
+      />
+    ),
+    Refused: ({ reason }) => <WithdrawalRefused reason={reason} />,
+    Received: ({ quote, receipt }) => (
+      <WithdrawalReceived
+        quote={quote}
+        receipt={receipt}
+        reference={reference}
+      />
+    ),
+    Statement: ({ quote, name, pending, failure }) => (
+      <WithdrawalStatement
+        quote={quote}
+        reference={reference}
+        name={name}
+        typedName={typedName}
+        onNameChange={setTypedName}
+        pending={pending}
+        failure={failure}
+        onConfirm={() => {
+          setNameAttempted(true);
+          Option.map(withdrawalSubmission(name, typedName, locale), withdraw);
+        }}
+      />
+    ),
+  });
 }
 
+/**
+ * The withdrawal statement (§1830a(3)–(4)): the contract, the name and the
+ * receipt email the customer confirms, what they get back, and a separate
+ * "Confirm withdrawal". No reason, address or signature.
+ */
 function WithdrawalStatement({
-  orderId,
   quote,
   reference,
+  name,
+  typedName,
+  onNameChange,
+  pending,
+  failure,
+  onConfirm,
 }: {
-  readonly orderId: CustomerReservationOrderId;
   readonly quote: CustomerWithdrawalQuote;
   readonly reference: string;
+  readonly name: WithdrawalNameField;
+  readonly typedName: string;
+  readonly onNameChange: (name: string) => void;
+  readonly pending: boolean;
+  readonly failure: Option.Option<CustomerViewError>;
+  readonly onConfirm: () => void;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
-  const [submission, withdraw] = useAtom(withdrawAtom);
-  const pending = submission.waiting;
-
-  // The name comes from the account; an input stands in only when it has none.
-  const [name, setName] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const nameMissing =
-    quote.customerName === null && submitted && name.trim() === "";
   const basis = quote.refundBasis;
-
-  if (AsyncResult.isSuccess(submission))
-    return (
-      <WithdrawalReceived
-        quote={quote}
-        receipt={submission.value}
-        reference={reference}
-      />
-    );
-
-  const confirm = () => {
-    setSubmitted(true);
-    if (quote.customerName === null && name.trim() === "") return;
-    withdraw({ orderId, locale });
-  };
-
   return (
     <View style={styles.screen}>
       <ScrollScreen>
         <View style={styles.stack}>
+          {/* Kept mounted so assistive tech announces a failed confirmation. */}
+          <Notice
+            tone="error"
+            message={Option.match(failure, {
+              onNone: () => undefined,
+              onSome: (error) =>
+                sharedViewErrorMessage(error, locale) ??
+                m.account_error_unexpected({}, { locale }),
+            })}
+          />
           <Card padding="none">
             <DetailRow label={m.withdrawal_reference({}, { locale })}>
               <Text numeric variant="bodyStrong">
@@ -173,21 +156,20 @@ function WithdrawalStatement({
             <DetailRow divided label={m.withdrawal_contract({}, { locale })}>
               <Text variant="bodyStrong">{quote.contractLabel}</Text>
             </DetailRow>
-            {quote.customerName !== null && (
+            {name.kind === "known" ? (
               <DetailRow divided label={m.withdrawal_name({}, { locale })}>
-                <Text variant="bodyStrong">{quote.customerName}</Text>
+                <Text variant="bodyStrong">{name.name}</Text>
               </DetailRow>
-            )}
-            {quote.customerName === null && (
+            ) : (
               <View style={[styles.detail, styles.divided]}>
                 <TextField
                   label={m.withdrawal_name_input({}, { locale })}
-                  value={name}
-                  onChangeText={setName}
+                  value={typedName}
+                  onChangeText={onNameChange}
                   autoComplete="name"
                   disabled={pending}
                   error={
-                    nameMissing
+                    name.missing
                       ? m.withdrawal_name_required({}, { locale })
                       : undefined
                   }
@@ -254,7 +236,7 @@ function WithdrawalStatement({
           label={m.withdrawal_confirm({}, { locale })}
           busy={pending}
           disabled={pending}
-          onPress={confirm}
+          onPress={onConfirm}
         />
         <Button
           variant="positive"
@@ -285,6 +267,46 @@ function DetailRow({
   );
 }
 
+/** The quote didn't load: the shared failure copy, with a retry when it can help. */
+function WithdrawalUnavailable({
+  error,
+  retrying,
+  onRetry,
+}: {
+  readonly error: CustomerViewError;
+  readonly retrying: boolean;
+  readonly onRetry: () => void;
+}) {
+  const locale = useAppLocale();
+  const message =
+    sharedViewErrorMessage(error, locale) ??
+    m.account_error_unexpected({}, { locale });
+  return (
+    <View style={styles.screen}>
+      <ScrollScreen>
+        {isRetryableViewError(error) ? (
+          <ErrorState
+            message={message}
+            retryLabel={m.account_retry({}, { locale })}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
+        ) : (
+          <Notice tone="error" message={message} />
+        )}
+      </ScrollScreen>
+    </View>
+  );
+}
+
+/** The refusals with their own sentence; the others share one. */
+const refusalMessages: Partial<
+  Record<CustomerWithdrawalRefusedReason, typeof m.withdrawal_refused_other>
+> = {
+  period_ended: m.withdrawal_refused_period_ended,
+  already_withdrawn: m.withdrawal_refused_already,
+};
+
 /** Why the customer can't withdraw now, with the way back. */
 function WithdrawalRefused({
   reason,
@@ -293,12 +315,10 @@ function WithdrawalRefused({
 }) {
   const locale = useAppLocale();
   const router = useRouter();
-  const body =
-    reason === "period_ended"
-      ? m.withdrawal_refused_period_ended({}, { locale })
-      : reason === "already_withdrawn"
-        ? m.withdrawal_refused_already({}, { locale })
-        : m.withdrawal_refused_other({}, { locale });
+  const body = (refusalMessages[reason] ?? m.withdrawal_refused_other)(
+    {},
+    { locale }
+  );
   return (
     <View style={styles.screen}>
       <ScrollScreen>
@@ -368,11 +388,8 @@ function WithdrawalReceived({
 }) {
   const locale = useAppLocale();
   const router = useRouter();
-  const refreshHistory = useAtomRefresh(reservationHistoryAtom);
-  const close = () => {
-    refreshHistory();
-    router.dismissTo(reservationsHref);
-  };
+  // The confirmation already read the list again; closing returns to it.
+  const close = () => router.dismissTo(reservationsHref);
   const submitted = Option.match(parseInstant(receipt.submittedAt), {
     onNone: () => receipt.submittedAt,
     onSome: (instant) => formatInstant(instant, locale, "date-time"),
@@ -385,7 +402,11 @@ function WithdrawalReceived({
             <View style={styles.receivedIcon}>
               <Icon icon={CircleCheck} size={36} color={color.positiveInk} />
             </View>
-            <Text variant="titleLarge" role="heading" style={styles.receivedTitle}>
+            <Text
+              variant="titleLarge"
+              role="heading"
+              style={styles.receivedTitle}
+            >
               {m.withdrawal_received_title({}, { locale })}
             </Text>
           </View>
