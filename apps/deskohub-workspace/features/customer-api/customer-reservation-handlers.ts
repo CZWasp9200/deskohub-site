@@ -22,7 +22,7 @@ import {
   CustomerWithdrawalRefused,
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Layer, Match } from "effect";
+import { Effect, Layer, Match, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   currentReservationHistoryAccount,
@@ -50,6 +50,10 @@ import {
   ReservationAccessService,
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
+import {
+  type ContractWithdrawal,
+  WithdrawalRepository,
+} from "@/features/withdrawal/backend/withdrawal.repository";
 import {
   WithdrawalNameRequiredError,
   WithdrawalRefusedError,
@@ -136,18 +140,34 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
         .handle("getEstablishment", () => Effect.succeed(establishment))
         // A refresh can finalize a payment, so it ends even when the client
         // disconnects.
+        // The withdrawal record is read beside the status, so it adds no
+        // wait; an order the account may not see drops it unanswered.
         .handle("getReservationStatus", ({ params: { orderId } }) =>
-          loadAuthorizedCheckoutStatus({
-            orderId,
-            locale: defaultLocale,
-            returnOutcome: "unknown",
-          }).pipe(
+          Effect.all(
+            [
+              loadAuthorizedCheckoutStatus({
+                orderId,
+                locale: defaultLocale,
+                returnOutcome: "unknown",
+              }),
+              Effect.flatMap(WithdrawalRepository, (withdrawals) =>
+                withdrawals.findByContract({ kind: "reservation", id: orderId })
+              ),
+            ],
+            { concurrency: "unbounded" }
+          ).pipe(
             providePerRequest(
-              Layer.mergeAll(reservations.checkoutStatus, authorization)
+              Layer.mergeAll(
+                reservations.checkoutStatus,
+                reservations.withdrawalRecords,
+                authorization
+              )
             ),
             runToCompletion,
             answerSessionApiFailure("customerApi.getReservationStatus"),
-            Effect.flatMap(answerOrderState)
+            Effect.flatMap(([state, withdrawal]) =>
+              answerOrderState(state, withdrawal)
+            )
           )
         )
         .handle("reopenPaymentPage", ({ params: { orderId }, payload }) =>
@@ -451,8 +471,14 @@ const establishment: CustomerEstablishment = {
   mapUrl: workspaceGoogleMapUrl,
 };
 
-/** An order the account may see, as the contract carries its status. */
-const answerOrderState = (state: CheckoutStatusViewModel) =>
+/**
+ * An order the account may see, as the contract carries its status, with
+ * the customer's withdrawal from it when there is one.
+ */
+const answerOrderState = (
+  state: CheckoutStatusViewModel,
+  withdrawal: Option.Option<ContractWithdrawal>
+) =>
   Match.value(state).pipe(
     Match.when({ status: "not_found" }, () =>
       Effect.fail(new CustomerReservationNotFound())
@@ -492,6 +518,19 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
           }),
           ...(bookedSelection && {
             bookedSelection: answerBookedSelection(bookedSelection),
+          }),
+          ...Option.match(withdrawal, {
+            onNone: () => ({}),
+            onSome: ({ submittedAt, refundAmount }) => ({
+              withdrawal: {
+                submittedAt: submittedAt.toString(),
+                refundAmount: {
+                  value: refundAmount.value,
+                  exponent: refundAmount.exponent,
+                  currency: refundAmount.currency,
+                },
+              },
+            }),
           }),
         })
     )

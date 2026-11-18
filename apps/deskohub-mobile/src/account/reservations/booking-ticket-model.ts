@@ -1,5 +1,7 @@
-import type { Money } from "@deskohub/workspace-customer-api";
-import type { CustomerOrderStatus } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerOrderStatus,
+  Money,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { AutomaticRefresh } from "./status-refresh-rules";
 
@@ -309,3 +311,19 @@ export const orderCheckingOf = (automatic: AutomaticRefresh): OrderChecking =>
     Stopped: ({ reason }): OrderChecking =>
       reason === "settled" ? "checking" : "stopped",
   });
+
+/**
+ * An order's ticket: the withdrawal once the customer withdrew from it,
+ * else its status.
+ */
+export const orderTicketModel = (
+  order: {
+    readonly status: CustomerOrderStatus;
+    readonly withdrawal?: { readonly refundAmount: Money } | undefined;
+  },
+  checking: OrderChecking,
+  recovery?: PaymentRecovery
+): BookingTicketModel =>
+  order.withdrawal === undefined
+    ? bookingTicketOf(order.status, checking, recovery)
+    : withdrawnTicket(order.withdrawal.refundAmount);

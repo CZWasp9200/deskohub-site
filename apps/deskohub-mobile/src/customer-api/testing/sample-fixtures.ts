@@ -317,7 +317,9 @@ export const sampleDeskReservation = (
     ...(status === "confirmed" && {
       withdrawal: {
         eligible: true,
-        periodEndsAt: new Date(now.getTime() + 14 * 24 * 3600 * 1000).toISOString(),
+        periodEndsAt: new Date(
+          now.getTime() + 14 * 24 * 3600 * 1000
+        ).toISOString(),
       },
     }),
   };
@@ -341,7 +343,9 @@ export const sampleLaterMeetingRoom = (
     status: "confirmed",
     withdrawal: {
       eligible: true,
-      periodEndsAt: new Date(now.getTime() + 14 * 24 * 3600 * 1000).toISOString(),
+      periodEndsAt: new Date(
+        now.getTime() + 14 * 24 * 3600 * 1000
+      ).toISOString(),
     },
   };
 };

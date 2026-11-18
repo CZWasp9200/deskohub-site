@@ -14,13 +14,11 @@ import {
 } from "../../src/account/reservations/access-screen-state";
 import { OrderStatusScreen } from "../../src/account/reservations/order-status-screen";
 import { ReservationsListScreen } from "../../src/account/reservations/reservations-list-screen";
-import { WithdrawalScreen } from "../../src/account/reservations/withdrawal-screen";
 import { statusVisitOf } from "../../src/account/reservations/status-refresh-rules";
+import { WithdrawalScreen } from "../../src/account/reservations/withdrawal-screen";
 import { customerDataLayer } from "../../src/customer-api/customer-data-runtime";
-import {
-  AppLocaleProvider,
-  useAppLocale,
-} from "../../src/i18n/locale-context";
+import type { FakeWorkspace } from "../../src/customer-api/testing/fake-workspace";
+import { useAppLocale } from "../../src/i18n/locale-context";
 import { m } from "../../src/i18n/messages";
 import { AppBar } from "../../src/ui/app-bar";
 import { FocusedStatusBar } from "../../src/ui/focused-status-bar";
@@ -55,49 +53,28 @@ export default function ReservationsSampleRoute() {
     order?: string;
     after?: string;
     access?: string;
-    locale?: string;
     withdraw?: string;
   }>();
   if (!__DEV__ || sampleData === undefined) return <Redirect href="/" />;
   // A fresh registry for each state, as a new account would get.
   return (
     <SampleRegistry
-      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}/${params.withdraw ?? ""}/${params.locale ?? ""}`}
+      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}/${params.withdraw ?? ""}`}
       history={params.history}
       withdraw={params.withdraw}
-      locale={params.locale}
     >
-      <SampleLocale locale={params.locale}>
-        <SampleScreen params={params} />
-      </SampleLocale>
+      <SampleScreen params={params} />
     </SampleRegistry>
-  );
-}
-
-/** `?locale=cs-CZ|en-US` shows the samples in that locale. */
-function SampleLocale({
-  locale,
-  children,
-}: {
-  readonly locale: string | undefined;
-  readonly children: ReactNode;
-}) {
-  return locale === "cs-CZ" || locale === "en-US" ? (
-    <AppLocaleProvider locale={locale}>{children}</AppLocaleProvider>
-  ) : (
-    <>{children}</>
   );
 }
 
 function SampleRegistry({
   history,
   withdraw,
-  locale,
   children,
 }: {
   readonly history: string | undefined;
   readonly withdraw?: string | undefined;
-  readonly locale?: string | undefined;
   readonly children: ReactNode;
 }) {
   const [initialValues] = useState(() =>
@@ -109,7 +86,7 @@ function SampleRegistry({
             sampleData.layer(
               "linked",
               sampleData.historyOf(history),
-              (workspace) => configureWithdrawal(workspace, withdraw, locale)
+              (workspace) => configureWithdrawal(workspace, withdraw)
             )
           ),
         ]
@@ -208,7 +185,8 @@ function SampleAccessView({ orderId }: { readonly orderId: string }) {
   );
 }
 
-const czk = (value: number) => ({ value: value * 100, exponent: 2, currency: "CZK" }) as const;
+const czk = (value: number) =>
+  ({ value: value * 100, exponent: 2, currency: "CZK" }) as const;
 
 /**
  * `?withdraw=` picks the withdrawal quote the fake Workspace answers: `full`
@@ -217,26 +195,19 @@ const czk = (value: number) => ({ value: value * 100, exponent: 2, currency: "CZ
  * answers), `refused` (the period ended), `loading` (the quote never answers).
  */
 const configureWithdrawal = (
-  workspace: { withdrawal: unknown; withdrawalQuoteDelay: unknown; withdrawalDelay: unknown },
-  withdraw: string | undefined,
-  locale: string | undefined
+  workspace: FakeWorkspace,
+  withdraw: string | undefined
 ) => {
-  const en = locale === "en-US";
   if (withdraw === undefined) return;
   const partial = withdraw === "partial";
   workspace.withdrawal =
     withdraw === "refused"
       ? "period_ended"
       : {
-          contractId: partial ? "sample-order-office" : "sample-desk-fulfilled",
-          // As the Workspace names the contract, in the requested language.
+          contractId: CustomerReservationOrderId.make(sampleWithdrawalOrder),
           contractLabel: partial
-            ? en
-              ? "Private office · Nov 16 – 19, 2026"
-              : "Soukromá kancelář · 16.–19. 11. 2026"
-            : en
-              ? "Profi · Dec 7, 2026"
-              : "Profi · 7. 12. 2026",
+            ? "Soukromá kancelář · 16.–19. 11. 2026"
+            : "Profi · 7. 12. 2026",
           customerName: withdraw === "fallback" ? null : "Jana Nováková",
           receiptEmail: "jana.novakova@deskohub.test",
           paidAmount: partial ? czk(4800) : czk(550),
@@ -246,15 +217,23 @@ const configureWithdrawal = (
             : { kind: "full" },
           periodEndsAt: "2026-12-01T23:00:00.000Z",
         };
-  if (withdraw === "loading") workspace.withdrawalQuoteDelay = new Promise(() => undefined);
-  if (withdraw === "pending") workspace.withdrawalDelay = new Promise(() => undefined);
+  if (withdraw === "loading")
+    workspace.withdrawalQuoteDelay = new Promise(() => undefined);
+  if (withdraw === "pending")
+    workspace.withdrawalDelay = new Promise(() => undefined);
 };
+
+/** The order the withdrawal samples withdraw from. */
+const sampleWithdrawalOrder = "sample-desk-fulfilled";
 
 /** The withdrawal confirm step under the app bar its stack would give it. */
 function SampleWithdrawalView() {
   const locale = useAppLocale();
   return (
-    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: color.paper }}>
+    <SafeAreaView
+      edges={["top"]}
+      style={{ flex: 1, backgroundColor: color.paper }}
+    >
       <FocusedStatusBar style="dark" />
       <AppBar
         title={m.reservations_withdraw_title({}, { locale })}
@@ -263,8 +242,7 @@ function SampleWithdrawalView() {
       />
       <View style={{ flex: 1 }}>
         <WithdrawalScreen
-          orderId={CustomerReservationOrderId.make("sample-desk-fulfilled")}
-          reference="R-20261117-0042"
+          orderId={CustomerReservationOrderId.make(sampleWithdrawalOrder)}
         />
       </View>
     </SafeAreaView>

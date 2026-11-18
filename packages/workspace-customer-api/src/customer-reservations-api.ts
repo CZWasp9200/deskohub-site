@@ -472,6 +472,8 @@ export const CustomerWithdrawalRefundBasis = Schema.Union([
     total: withdrawalUnitCount,
   }),
 ]).annotate({ identifier: "CustomerWithdrawalRefundBasis" });
+export type CustomerWithdrawalRefundBasis =
+  typeof CustomerWithdrawalRefundBasis.Type;
 
 /** What the customer confirms before withdrawing from an order. */
 export const CustomerWithdrawalQuote = Schema.Struct({
@@ -488,6 +490,7 @@ export const CustomerWithdrawalQuote = Schema.Struct({
   /** The end of the withdrawal period, exclusive. */
   periodEndsAt: isoInstant,
 }).annotate({ identifier: "CustomerWithdrawalQuote" });
+export type CustomerWithdrawalQuote = typeof CustomerWithdrawalQuote.Type;
 
 /** The confirmation of a submitted withdrawal; the receipt email follows. */
 export const CustomerWithdrawalReceipt = Schema.Struct({
@@ -496,6 +499,7 @@ export const CustomerWithdrawalReceipt = Schema.Struct({
   refundAmount: Money,
   receiptEmail: Schema.String,
 }).annotate({ identifier: "CustomerWithdrawalReceipt" });
+export type CustomerWithdrawalReceipt = typeof CustomerWithdrawalReceipt.Type;
 
 /**
  * Withdraws from the order: `locale` is the language of the statement and

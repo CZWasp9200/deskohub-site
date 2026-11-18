@@ -5,6 +5,7 @@ import {
   bookingTicketOf,
   type OrderChecking,
   orderCheckingOf,
+  orderTicketModel,
   type PaymentRecovery,
   type TicketStub,
 } from "./booking-ticket-model";
@@ -194,5 +195,32 @@ describe("orderCheckingOf", () => {
         "stopped"
       );
     }
+  });
+});
+
+describe("orderTicketModel", () => {
+  const refundAmount = { value: 55_000, exponent: 2, currency: "CZK" };
+
+  test("shows a withdrawn order as cancelled with its refund, whatever its status", () => {
+    for (const status of statuses)
+      for (const checking of checkings)
+        expect(
+          orderTicketModel({ status, withdrawal: { refundAmount } }, checking)
+        ).toEqual({
+          badge: "cancelled",
+          reason: Option.none(),
+          price: "paid",
+          stub: { _tag: "Withdrawn", refundAmount },
+          followUp: "more-actions",
+          dim: true,
+        });
+  });
+
+  test("shows any other order by its status", () => {
+    for (const status of statuses)
+      for (const checking of checkings)
+        expect(orderTicketModel({ status }, checking, noRecovery)).toEqual(
+          bookingTicketOf(status, checking, noRecovery)
+        );
   });
 });
