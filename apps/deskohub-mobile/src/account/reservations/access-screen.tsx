@@ -84,6 +84,7 @@ import type { ReservationListRow } from "./reservation-list-model";
 
 /** The PIN the loading state holds room for: the shortest the lock issues. */
 const placeholderGroups = accessPinGroups("0000000");
+const widePinCardPadding = space.xxl;
 
 /**
  * The PIN's header in each tone: navy over the PIN, the paper canvas's
@@ -302,7 +303,7 @@ function PinHero({
     </View>
   );
   return (
-    <View style={[styles.hero, isWide && styles.wideHero]}>
+    <View style={[styles.hero, isWide ? styles.wideHero : styles.compactHero]}>
       <View style={isWide && styles.heroHeading}>
         <Text variant="lead" style={[styles.name, isWide && styles.wideName]}>
           {name ?? " "}
@@ -347,7 +348,7 @@ function PinDigits({
   );
   // Bound the last measurement by the new pane width during live resize.
   const paneWidth = isExpanded ? (contentWidth - space.xxl) / 2 : contentWidth;
-  const digitWidth = paneWidth - (isWide ? 2 * space.xxl : 0);
+  const digitWidth = paneWidth - (isWide ? 2 * widePinCardPadding : 0);
   const available = Math.min(digitWidth, measuredWidth ?? digitWidth);
   const size = accessPinBoxSize(groups, available, fontScale, isWide);
   const { digitGap, groupGap } = isWide ? wideAccessPinBox : accessPinBox;
@@ -725,8 +726,8 @@ const styles = StyleSheet.create({
   // Extend the narrow PIN band to the screen edges under the navy header.
   compactHeroPane: { marginHorizontal: -space.gutter, marginTop: -space.sm },
   detailsPane: { gap: space.md },
-  hero: {
-    backgroundColor: color.navy,
+  hero: { backgroundColor: color.navy },
+  compactHero: {
     paddingBottom: 28,
     paddingHorizontal: space.gutter,
   },
@@ -734,7 +735,7 @@ const styles = StyleSheet.create({
     ...shadow.card,
     borderRadius: radius.card,
     flexGrow: 1,
-    padding: space.xxl,
+    padding: widePinCardPadding,
   },
   heroHeading: {
     alignItems: "center",
@@ -758,7 +759,7 @@ const styles = StyleSheet.create({
   },
   heroFooter: {
     alignItems: "center",
-    borderColor: "rgba(255, 255, 255, 0.18)",
+    borderColor: color.onNavyBorder,
     borderTopWidth: 1,
     flexDirection: "row",
     flexWrap: "wrap",
@@ -807,7 +808,7 @@ const styles = StyleSheet.create({
   box: {
     alignItems: "center",
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderColor: "rgba(255, 255, 255, 0.18)",
+    borderColor: color.onNavyBorder,
     borderWidth: 1,
     justifyContent: "center",
   },
