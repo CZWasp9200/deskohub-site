@@ -166,8 +166,6 @@ const withdrawalPeriodDays = 14;
 export class FakeBookingApi {
   /** Requests in arrival order, with what they sent. */
   readonly calls: FakeBookingCall[] = [];
-  /** The clock checkouts expire by; tests may replace it. */
-  now: () => Date;
   /** Dates nothing can be booked on. */
   unavailableDates: string[];
   /** Dates a Reserved Desk needs a monitor workstation on. */
@@ -201,9 +199,9 @@ export class FakeBookingApi {
 
   constructor(
     private readonly workspace: FakeWorkspace,
-    now: () => Date = () => new Date()
+    /** The clock for the booking calendar and checkout expiry. */
+    public now: () => Date = () => new Date()
   ) {
-    this.now = now;
     const today = this.today();
     this.unavailableDates = [addDays(today, 3), addDays(today, 10)];
     this.workstationRequiredDates = [addDays(today, 5)];

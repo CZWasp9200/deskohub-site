@@ -7,6 +7,7 @@ import { makeFakeDeviceConsent } from "../../consent/testing/fake-device-consent
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {
   makeCustomerDataRegistry,
+  makeFakeCustomerData,
   settle,
 } from "../../customer-api/testing/customer-data-test-registry";
 import {
@@ -14,10 +15,14 @@ import {
   makeFakeDevice,
 } from "../../customer-api/testing/fake-customer-data";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
-import type { SampleAccountKind } from "../../customer-api/testing/sample-fixtures";
+import {
+  type SampleAccountKind,
+  sampleWorkspaceData,
+} from "../../customer-api/testing/sample-fixtures";
 import { AppLocaleProvider } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
+import { elementTree } from "../../ui/testing/element-tree";
 import { analyticsPreferenceAtom } from "./analytics-preference";
 import { marketingPreferencesAtom } from "./marketing-preferences";
 
@@ -26,8 +31,13 @@ mock.module("expo-router", () => expoRouterStandIn());
 // and children may be; they render unpressed.
 // A copy: the module's own namespace turns into the mock once it is mocked.
 const reactNative = { ...(await import("react-native")) };
+let viewportWidth = 360;
 mock.module("react-native", () => ({
   ...reactNative,
+  useWindowDimensions: () => ({
+    ...reactNative.useWindowDimensions(),
+    width: viewportWidth,
+  }),
   Pressable: ({
     style,
     children,
@@ -58,10 +68,28 @@ mock.module("../../auth/auth-client", () => ({
 }));
 
 const { LegalScreen } = await import("./legal-screen");
+const { DataExportRow } = await import("./data-export-row");
 const { ToastProvider } = await import("../../ui/toast");
 
 const label = m.legal_analytics_switch_label({}, { locale: "en-US" });
 const unavailable = m.legal_analytics_unavailable({}, { locale: "en-US" });
+
+test("the Danger download offer follows the displayed account snapshot", () => {
+  const { registry } = makeFakeCustomerData("linked");
+  const row = elementTree(
+    DataExportRow,
+    {
+      account: sampleWorkspaceData("completion-required").account,
+      offer: { title: "Export", description: "Download before deletion" },
+    },
+    (node) => (
+      <AppLocaleProvider locale="en-US">
+        <RegistryContext value={registry}>{node}</RegistryContext>
+      </AppLocaleProvider>
+    )
+  );
+  expect(row).toBeNull();
+});
 
 /**
  * The Legal screen of a signed-in account in `kind` whose analytics
@@ -138,6 +166,20 @@ describe("the Legal screen's analytics preference", () => {
       expect(analyticsSwitches(markup)).toBe(1);
       expect(markup).not.toContain(unavailable);
     });
+  }
+});
+
+test("keeps one Privacy Policy link on wide screens and both compact links", async () => {
+  const privacyPolicy = m.legal_document_privacy({}, { locale: "en-US" });
+  const privacyLinks = (markup: string) =>
+    markup.split(`>${privacyPolicy}</Text>`).length - 1;
+
+  expect(privacyLinks(await legalScreen("linked"))).toBe(2);
+  viewportWidth = 768;
+  try {
+    expect(privacyLinks(await legalScreen("linked"))).toBe(1);
+  } finally {
+    viewportWidth = 360;
   }
 });
 

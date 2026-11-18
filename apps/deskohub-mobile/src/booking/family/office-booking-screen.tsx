@@ -8,6 +8,7 @@ import {
 import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
+import KeyRound from "lucide-react-native/icons/key-round";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { StyleSheet, View } from "react-native";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
@@ -17,7 +18,9 @@ import { m } from "../../i18n/messages";
 import { LiveMessage } from "../../ui/controls";
 import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
-import { color, space } from "../../ui/tokens";
+import { Text } from "../../ui/text";
+import { color, radius, shadow, space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
 import { bookingPreselectionKey } from "../booking-preselection";
 import { bookCheckoutHref } from "../booking-routes";
 import { checkoutRequestAtom } from "../checkout/checkout-flow";
@@ -38,9 +41,11 @@ import { pragueToday } from "../selection/prague-date";
 import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingStepLayout } from "../ui/booking-step-layout";
+import { ChooseHeaderFact, useChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
 import { formatShortPragueDate } from "../ui/prague-date-format";
 import { describeOfficePriceLine } from "../ui/price-line-description";
+import { SpaceIllustration } from "../ui/space-illustration";
 import { Stepper } from "../ui/stepper";
 import { bookingClockAtom } from "./booking-clock";
 import { unneededReadAtom } from "./booking-family-atoms";
@@ -64,6 +69,7 @@ import {
 } from "./booking-family-view";
 import { BookingGate } from "./booking-gate";
 import { BookingReadFailure, BookingReadView } from "./booking-read-view";
+import { chooseStyles, useChooseTracks } from "./choose-layout";
 import {
   type KeptOfficeDraft,
   type OfficeSteppers,
@@ -235,6 +241,10 @@ function OfficeSelection({
     officeContactOf
   );
   const { name } = offering;
+  const tracks = useChooseTracks(2);
+  const access = m.booking_space_always_open({}, { locale });
+  useChooseHeaderFact(KeyRound, tracks ? access : undefined);
+  const { isWide } = useViewport();
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const blocked = enablement.blockers.flatMap((blocker) => {
     const message = blockerMessage(blocker, locale);
@@ -346,71 +356,86 @@ function OfficeSelection({
               onRetry={retrySupportingReads}
             />
 
-            <BookingSectionHeading
-              title={m.booking_office_first_day_heading({}, { locale })}
-              first
-            />
-            <MonthCalendar
-              label={m.booking_office_first_day_heading({}, { locale })}
-              locale={locale}
-              dates={enablement.dates}
-              selected={chosenDate}
-              onSelect={(date) => setDraft(selectOfficeDate(model.draft, date))}
-              today={today}
-              range={range}
-              legend={chosenDate === undefined}
-              previousMonthLabel={m.booking_calendar_previous_month(
-                {},
-                { locale }
-              )}
-              nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
-              unavailableLabel={m.booking_calendar_unavailable_day(
-                {},
-                { locale }
-              )}
-            />
-            <View style={styles.after}>
-              <Notice
-                tone="info"
-                message={
-                  enablement.notices
-                    .map((notice) => availabilityNoticeMessage(notice, locale))
-                    .join(" ") || undefined
-                }
+            {isWide && !tracks && (
+              <OfficeBookingHero
+                access={access}
+                description={offering.description}
               />
-            </View>
-
-            {steppers !== undefined && (
-              <>
+            )}
+            <View style={tracks && chooseStyles.row}>
+              <View style={tracks && chooseStyles.officeCalendar}>
                 <BookingSectionHeading
-                  title={m.booking_office_days_label({}, { locale })}
+                  title={m.booking_office_first_day_heading({}, { locale })}
+                  first={!isWide || tracks}
                 />
-                <OfficeDaysControl
-                  days={steppers.days}
-                  draft={model.draft}
-                  onChange={setDraft}
+                <MonthCalendar
+                  stretch={tracks}
+                  label={m.booking_office_first_day_heading({}, { locale })}
                   locale={locale}
-                />
-                <BookingSectionHeading
-                  title={m.booking_office_people_heading({}, { locale })}
-                  aside={Option.getOrUndefined(
-                    Option.map(steppers.people.maximum, (maximum) =>
-                      m.booking_office_people_of(
-                        { count: steppers.people.count, maximum },
-                        { locale }
-                      )
-                    )
+                  dates={enablement.dates}
+                  selected={chosenDate}
+                  onSelect={(date) =>
+                    setDraft(selectOfficeDate(model.draft, date))
+                  }
+                  today={today}
+                  range={range}
+                  legend={chosenDate === undefined}
+                  previousMonthLabel={m.booking_calendar_previous_month(
+                    {},
+                    { locale }
+                  )}
+                  nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
+                  unavailableLabel={m.booking_calendar_unavailable_day(
+                    {},
+                    { locale }
                   )}
                 />
-                <OfficePeopleList
-                  people={model.draft.people}
-                  contact={contact}
-                  maximumSeats={steppers.people.maximum}
-                  onChange={(people) => setDraft({ ...model.draft, people })}
-                  locale={locale}
-                />
-              </>
-            )}
+                <View style={styles.after}>
+                  <Notice
+                    tone="info"
+                    message={
+                      enablement.notices
+                        .map((notice) =>
+                          availabilityNoticeMessage(notice, locale)
+                        )
+                        .join(" ") || undefined
+                    }
+                  />
+                </View>
+              </View>
+              {steppers !== undefined && (
+                <View style={tracks && chooseStyles.track}>
+                  <BookingSectionHeading
+                    first={tracks}
+                    title={m.booking_office_days_label({}, { locale })}
+                  />
+                  <OfficeDaysControl
+                    days={steppers.days}
+                    draft={model.draft}
+                    onChange={setDraft}
+                    locale={locale}
+                  />
+                  <BookingSectionHeading
+                    title={m.booking_office_people_heading({}, { locale })}
+                    aside={Option.getOrUndefined(
+                      Option.map(steppers.people.maximum, (maximum) =>
+                        m.booking_office_people_of(
+                          { count: steppers.people.count, maximum },
+                          { locale }
+                        )
+                      )
+                    )}
+                  />
+                  <OfficePeopleList
+                    people={model.draft.people}
+                    contact={contact}
+                    maximumSeats={steppers.people.maximum}
+                    onChange={(people) => setDraft({ ...model.draft, people })}
+                    locale={locale}
+                  />
+                </View>
+              )}
+            </View>
 
             <LiveMessage
               role="status"
@@ -459,6 +484,24 @@ export function OfficeDaysControl({
   );
 }
 
+function OfficeBookingHero({
+  access,
+  description,
+}: {
+  readonly access: string;
+  readonly description: string;
+}) {
+  return (
+    <View style={styles.hero}>
+      <SpaceIllustration family="office" height={132} span="full" />
+      <View style={styles.heroText}>
+        <Text variant="bodySmall">{description}</Text>
+        <ChooseHeaderFact icon={KeyRound} text={access} />
+      </View>
+    </View>
+  );
+}
+
 /**
  * Why checkout sent the customer back, read inside the step's scroll view,
  * so a restart scrolls it back to the top where this notice says why.
@@ -470,4 +513,13 @@ function OfficeRestartNotice({ onReread }: { readonly onReread: () => void }) {
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   after: { marginTop: space.md },
+  hero: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    overflow: "hidden",
+    ...shadow.group,
+  },
+  heroText: { gap: space.sm, padding: space.lg },
 });

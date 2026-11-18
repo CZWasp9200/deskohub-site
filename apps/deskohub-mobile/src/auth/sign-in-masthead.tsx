@@ -9,12 +9,12 @@ import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { QuietUpdateOffer } from "../updates/update-offer-card";
-
-// The landing page's hero photo with its left 40% (the kitchen) cut off,
-// 1080 x 1012, about 93 KB.
-const heroPhoto = require("../../assets/images/sign-in-hero.jpg");
-const heroAspect = 1080 / 1012;
-const colorLogo = require("../../assets/images/logo-color-on-navy.png");
+import {
+  SignInBrand,
+  signInHeroPhoto,
+  signInPhotoCoverSize,
+  signInTitleStyle,
+} from "./sign-in-art";
 
 /**
  * The photo's fade into the navy over its top and bottom 30%, as the board's
@@ -42,15 +42,6 @@ function NavyFade() {
 }
 
 /**
- * The photo fills its band's height and at least its width, right-aligned,
- * as CSS `object-fit: cover` with `object-position: right` would place it.
- */
-const heroPhotoSize = ({ width, height }: { width: number; height: number }) =>
-  height * heroAspect >= width
-    ? { width: height * heroAspect, height }
-    : { width, height: width / heroAspect };
-
-/**
  * The navy top of the sign-in screen: the brand, the landing page's photo
  * fading into the navy with the logo die blended over it, and the title.
  */
@@ -68,27 +59,19 @@ export function SignInMasthead() {
       width: nativeEvent.layout.width,
       height: nativeEvent.layout.height,
     });
-  const photo = band && heroPhotoSize(band);
+  const photo = band && signInPhotoCoverSize(band);
 
   return (
     <View style={[styles.masthead, { paddingTop: insets.top }]}>
       <FocusedStatusBar style="light" />
       <QuietUpdateOffer backdrop="navy" style={styles.updateOffer} />
       <View style={styles.brand}>
-        <Image source={colorLogo} style={styles.logo} />
-        <View>
-          <Text variant="display" tone="inverse" style={styles.wordmark}>
-            Deskohub
-          </Text>
-          <Text variant="hint" style={styles.workspace}>
-            WORKSPACE
-          </Text>
-        </View>
+        <SignInBrand />
       </View>
       <View style={styles.heroBand} onLayout={onBandLayout} aria-hidden>
         {photo && band && (
           <Image
-            source={heroPhoto}
+            source={signInHeroPhoto}
             resizeMode="cover"
             style={[
               styles.photo,
@@ -116,7 +99,7 @@ export function SignInMasthead() {
           tone="inverse"
           role="heading"
           locale={locale}
-          style={styles.title}
+          style={signInTitleStyle}
         >
           {m.signin_create_title({}, { locale })}
         </Text>
@@ -136,20 +119,8 @@ const styles = StyleSheet.create({
   },
   updateOffer: { marginHorizontal: space.lg, marginTop: space.md },
   brand: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
     paddingHorizontal: space.xxl,
     paddingTop: space.xl,
-  },
-  logo: { height: 45, width: 40 },
-  wordmark: { fontSize: 20, letterSpacing: -0.2, lineHeight: 20 },
-  workspace: {
-    color: color.onNavyMuted,
-    fontSize: 12,
-    letterSpacing: 2.4,
-    lineHeight: 12,
-    marginTop: 4,
   },
   heroBand: {
     flex: 1,
@@ -172,6 +143,5 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingHorizontal: space.xxl,
   },
-  title: { fontSize: 34, letterSpacing: -0.6, lineHeight: 40 },
   subtitle: { color: color.onNavyMuted, marginTop: space.md },
 });

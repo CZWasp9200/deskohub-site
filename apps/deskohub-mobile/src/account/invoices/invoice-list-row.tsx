@@ -9,6 +9,7 @@ import { Icon } from "../../ui/icon";
 import { ListRow } from "../../ui/list";
 import { listRowAccessibleLabel } from "../../ui/list-row-presentation";
 import { LoadingIndicator } from "../../ui/loading-indicator";
+import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
 import {
   downloadableCreditNoteNumber,
@@ -28,6 +29,7 @@ export function InvoiceListRow({
   locale,
   downloading,
   held,
+  amountColumn = false,
   onDownload,
 }: {
   readonly row: InvoiceRow;
@@ -36,6 +38,7 @@ export function InvoiceListRow({
   readonly downloading: InvoiceDownload["_tag"] | undefined;
   /** Some download runs, so no row starts another. */
   readonly held: boolean;
+  readonly amountColumn?: boolean;
   readonly onDownload: (download: InvoiceDownload) => void;
 }) {
   const text = invoiceRowText(row, locale);
@@ -45,7 +48,28 @@ export function InvoiceListRow({
       : m.invoices_status_cancelled({}, { locale });
   const badge =
     status === undefined ? undefined : <Badge tone="neutral" label={status} />;
-  const description = `${text.when}\n${text.amount}`;
+  const amountAndNumber =
+    row._tag === "Described"
+      ? m.invoices_row_amount_number(
+          { amount: text.amount, number: row.invoiceNumber },
+          { locale }
+        )
+      : text.amount;
+  const description = amountColumn
+    ? text.when
+    : `${text.when}\n${amountAndNumber}`;
+  const amounts = amountColumn && (
+    <View style={styles.amounts}>
+      <Text variant="bodyStrong" style={styles.amountText}>
+        {text.amount}
+      </Text>
+      {row._tag === "Described" && (
+        <Text variant="bodySmall" tone="muted" style={styles.amountText}>
+          {m.invoices_row_number({ number: row.invoiceNumber }, { locale })}
+        </Text>
+      )}
+    </View>
+  );
   const invoice = InvoiceDownload.Invoice({
     id: row.id,
     invoiceNumber: row.invoiceNumber,
@@ -67,6 +91,11 @@ export function InvoiceListRow({
         label={text.title}
         badge={badge}
         description={description}
+        trailing={
+          amountColumn ? (
+            <View style={styles.withoutDownload}>{amounts}</View>
+          ) : undefined
+        }
         below={
           <View style={styles.downloads}>
             <ButtonRow>
@@ -118,6 +147,21 @@ export function InvoiceListRow({
     );
   }
 
+  const downloadIcon =
+    downloading === "Invoice" ? (
+      <LoadingIndicator
+        size="inline"
+        tone="navy"
+        label={invoiceDownloadingLabel}
+      />
+    ) : (
+      <Icon
+        icon={Download}
+        size={20}
+        color={amountColumn ? color.action : color.ink2}
+      />
+    );
+
   return (
     <ListRow
       kind="action"
@@ -134,19 +178,18 @@ export function InvoiceListRow({
                 { number: row.invoiceNumber },
                 { locale }
               ),
-        description: [text.title, status, text.when, text.amount]
+        description: [text.title, status, text.when, amountAndNumber]
           .filter((part) => part !== undefined)
           .join(", "),
       })}
       trailing={
-        downloading === "Invoice" ? (
-          <LoadingIndicator
-            size="inline"
-            tone="navy"
-            label={invoiceDownloadingLabel}
-          />
+        amountColumn ? (
+          <View style={styles.trailing}>
+            {amounts}
+            <View style={styles.downloadIcon}>{downloadIcon}</View>
+          </View>
         ) : (
-          <Icon icon={Download} size={20} color={color.ink2} />
+          downloadIcon
         )
       }
       disabled={held}
@@ -155,6 +198,13 @@ export function InvoiceListRow({
   );
 }
 
+const downloadIconWidth = 20;
+
 const styles = StyleSheet.create({
   downloads: { marginTop: space.md },
+  trailing: { alignItems: "center", flexDirection: "row", gap: space.md },
+  amounts: { flexShrink: 1, minWidth: 0 },
+  amountText: { textAlign: "right" },
+  downloadIcon: { alignItems: "center", width: downloadIconWidth },
+  withoutDownload: { paddingEnd: downloadIconWidth + space.md },
 });

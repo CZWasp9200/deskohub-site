@@ -15,6 +15,7 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
+import { useViewport, wideGutter } from "../../ui/viewport";
 import {
   invalidOf,
   UnsavedChangesGuard,
@@ -78,6 +79,9 @@ function BillingForm({
   const router = useRouter();
   const toast = useToast();
   const headerHeight = useHeaderHeight();
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const paired =
+    isWide && availableWidth - 2 * wideGutter >= 480 && fontScale < 1.3;
   const form = useProfileForm(account);
   const view = billingFormView(account.profile, form.draft);
   const { inputs } = useFocusFirstInvalid(form.state, view.fields);
@@ -95,6 +99,7 @@ function BillingForm({
     inputs,
     editable: !saving,
     locale,
+    layout: paired ? "account" : "compact",
   };
   return (
     <KeyboardAvoidingView
@@ -151,6 +156,7 @@ function BillingForm({
         unsaved={form.unsaved}
         shownFields={view.fields}
         onSave={form.save}
+        layout={isWide ? "inline" : "stacked"}
         elsewhere={{
           message: m.profile_invalid_on_profile({}, { locale }),
           label: m.account_section_profile({}, { locale }),

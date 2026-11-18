@@ -23,17 +23,6 @@ import { reservationsListAtom } from "./reservations-list-state";
 import { AutomaticRefresh } from "./status-refresh-rules";
 
 mock.module("expo-router", () => expoRouterStandIn());
-// Bun can't load expo-router's bundled React Navigation; its title rule is
-// the string `headerTitle`, then `title`, then the route's name.
-mock.module("expo-router/react-navigation", () => ({
-  getHeaderTitle: (
-    options: { readonly title?: string; readonly headerTitle?: unknown },
-    fallback: string
-  ) =>
-    typeof options.headerTitle === "string"
-      ? options.headerTitle
-      : (options.title ?? fallback),
-}));
 // Contact us only needs the origin, not the native auth client.
 mock.module("../../auth/auth-client", () => ({
   apiOrigin: "https://workspace.test",
@@ -46,18 +35,14 @@ const { StackHeader } = await import("../../ui/navigation");
 const navigation = await import("expo-router");
 
 describe("accessStackHeader", () => {
-  test("in both tones, Back from a PIN with nothing behind it opens the Reservations list", () => {
-    for (const tone of ["navy", "paper"] as const) {
-      const header = accessStackHeader[tone]({} as NativeStackHeaderProps);
+  test("Back from a PIN with nothing behind it opens the Reservations list at every width", () => {
+    for (const renderHeader of Object.values(accessStackHeader)) {
+      const header = renderHeader({} as NativeStackHeaderProps);
       expect(isValidElement(header) && header.type === StackHeader).toBe(true);
-      expect({
-        tone,
-        backFallback: (header.props as { backFallback?: string }).backFallback,
-      }).toEqual({
-        tone,
-        backFallback: reservationsHref,
-      });
+      expect(header.props.backFallback).toBe(reservationsHref);
     }
+    const expanded = accessStackHeader.paperWide({} as NativeStackHeaderProps);
+    expect(expanded.props.contentWidth).toBe("wide");
   });
 });
 

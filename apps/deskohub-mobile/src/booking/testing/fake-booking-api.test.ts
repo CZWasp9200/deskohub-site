@@ -25,11 +25,12 @@ import {
 } from "./sample-booking-catalog";
 
 const harness = (
-  kind: Parameters<typeof FakeWorkspace.forKind>[0] = "linked",
-  now?: () => Date
+  kind: Parameters<typeof FakeWorkspace.forKind>[0] = "linked"
 ) => {
+  const start = Date.parse("2026-11-09T09:00:00Z");
+  let now = start;
   const workspace = FakeWorkspace.forKind(kind);
-  const booking = fakeBooking(workspace, now);
+  const booking = fakeBooking(workspace, () => new Date(now));
   const layer = fakeCustomerApiLayer(workspace);
   const run = <A, E>(
     use: (api: CustomerApi["Service"]["booking"]) => Effect.Effect<A, E>
@@ -41,19 +42,10 @@ const harness = (
         ).pipe(Effect.provide(layer))
       )
     );
-  return { workspace, booking, run };
-};
-
-const timedHarness = () => {
-  const start = Date.parse("2026-11-09T09:00:00Z");
-  let now = start;
-  return {
-    ...harness("linked", () => new Date(now)),
-    start,
-    advance: (millis: number) => {
-      now += millis;
-    },
+  const advance = (millis: number) => {
+    now += millis;
   };
+  return { workspace, booking, run, start, advance };
 };
 
 const coworkSelection = (
@@ -252,7 +244,7 @@ describe("fake booking reservations", () => {
 
 describe("fake booking checkout", () => {
   test("holds a quoted selection for ten minutes", async () => {
-    const { run, booking, start } = timedHarness();
+    const { run, booking, start } = harness();
     const result = await run((api) => held(api, coworkSelection(booking)));
     if (result._tag !== "Success") throw new Error("expected a checkout");
     const checkout = result.success;
@@ -438,7 +430,8 @@ describe("fake booking pay state", () => {
   });
 
   test("answers an identical create retry with the order it made", async () => {
-    const { run, booking, start, advance } = timedHarness();
+    const { run, booking, start, advance } = harness();
+    const retryDelay = 60_000;
     booking.fail("createCheckout", "transport-failure");
     const result = await run((api) =>
       Effect.gen(function* () {
@@ -448,7 +441,7 @@ describe("fake booking pay state", () => {
         const lost = yield* Effect.result(
           api.createCheckout({ payload, headers: {} })
         );
-        advance(60_000);
+        advance(retryDelay);
         const retried = yield* api.createCheckout({ payload, headers: {} });
         const next = yield* api.createCheckout({
           payload: { ...payload, checkoutAttemptId: "another-attempt" },
@@ -465,7 +458,9 @@ describe("fake booking pay state", () => {
       holdExpiresAt: new Date(start + fakeHoldDuration).toISOString(),
     });
     expect(next).toMatchObject({
-      holdExpiresAt: new Date(start + 60_000 + fakeHoldDuration).toISOString(),
+      holdExpiresAt: new Date(
+        start + retryDelay + fakeHoldDuration
+      ).toISOString(),
     });
     expect(next.orderId).not.toBe(retried.orderId);
   });
@@ -690,7 +685,7 @@ describe("fake booking scripting", () => {
   });
 
   test("ends a hold after ten minutes", async () => {
-    const { run, booking, advance } = timedHarness();
+    const { run, booking, advance } = harness();
     const result = await run((api) =>
       Effect.gen(function* () {
         const checkout = yield* held(api, coworkSelection(booking));
@@ -764,7 +759,7 @@ describe("fake booking hold and code removal", () => {
     });
 
   test("the hold's end stays across a code, a rejection and a removal; each token gets its own expiry", async () => {
-    const { run, booking, start, advance } = timedHarness();
+    const { run, booking, start, advance } = harness();
     const result = await run((api) =>
       Effect.gen(function* () {
         const created = yield* readyCheckout(api, booking);
@@ -884,7 +879,7 @@ describe("fake booking hold and code removal", () => {
   });
 
   test("a removal after the hold ended is refused as expired", async () => {
-    const { run, booking, advance } = timedHarness();
+    const { run, booking, advance } = harness();
     const result = await run((api) =>
       Effect.gen(function* () {
         const created = yield* readyCheckout(api, booking);

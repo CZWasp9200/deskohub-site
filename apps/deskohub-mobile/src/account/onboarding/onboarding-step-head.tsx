@@ -6,25 +6,49 @@ import { color, space } from "../../ui/tokens";
 import { type OnboardingStep, onboardingSteps } from "./onboarding-model";
 
 /**
- * The top of an onboarding step (boards 06 and 07): a short bar per step,
- * orange up to this one, the step counter, the step's title and, when the
- * board has one, its intro line.
+ * The step title and optional intro. Compact screens show progress here.
  */
 export function OnboardingStepHead({
   step,
   title,
   intro,
   locale,
+  wide,
 }: {
   readonly step: OnboardingStep;
   readonly title: string;
   readonly intro?: string;
   readonly locale: AppLocale;
+  readonly wide: boolean;
+}) {
+  return (
+    <View style={[styles.head, wide && styles.wideHead]}>
+      {!wide && <OnboardingStepProgress step={step} locale={locale} />}
+      <Text role="heading" variant={wide ? "display" : "titleLarge"}>
+        {title}
+      </Text>
+      {intro !== undefined && (
+        <Text variant={wide ? "body" : "lead"} tone="muted">
+          {intro}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+export function OnboardingStepProgress({
+  step,
+  locale,
+  wide = false,
+}: {
+  readonly step: OnboardingStep;
+  readonly locale: AppLocale;
+  readonly wide?: boolean;
 }) {
   const current = onboardingSteps.indexOf(step);
   return (
     <View style={styles.head}>
-      <View aria-hidden style={styles.bars}>
+      <View aria-hidden style={[styles.bars, wide && styles.footerBars]}>
         {onboardingSteps.map((each, index) => (
           <View
             key={each}
@@ -32,7 +56,7 @@ export function OnboardingStepHead({
           />
         ))}
       </View>
-      <Text variant="caption" tone="muted">
+      <Text variant={wide ? "hintStrong" : "caption"} tone="muted">
         {m.onboarding_step(
           {
             current: String(current + 1),
@@ -41,21 +65,15 @@ export function OnboardingStepHead({
           { locale }
         )}
       </Text>
-      <Text role="heading" variant="titleLarge">
-        {title}
-      </Text>
-      {intro !== undefined && (
-        <Text variant="lead" tone="muted">
-          {intro}
-        </Text>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   head: { gap: space.sm },
+  wideHead: { paddingTop: space.sm, paddingBottom: space.md },
   bars: { flexDirection: "row", gap: 6, width: 120 },
+  footerBars: { gap: space.xs, width: 84, maxWidth: "100%" },
   bar: {
     backgroundColor: color.disabled,
     borderRadius: 2,

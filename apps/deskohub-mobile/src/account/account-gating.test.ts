@@ -12,6 +12,7 @@ import {
 import {
   type AccountNotice,
   type AccountSection,
+  accountDetailSection,
   accountIndexModel,
   offersAccessCode,
   opensReservationStatus,
@@ -22,6 +23,23 @@ import {
 
 const accountOf = (kind: SampleAccountKind): CustomerAccountState =>
   sampleWorkspaceData(kind).account;
+
+describe("accountDetailSection", () => {
+  test("recognizes the nested detail from direct Account section links", () => {
+    const stack = ["(account)", "(tabs)", "account"];
+    expect(accountDetailSection([...stack, "billing"])).toBe("billing");
+    expect(accountDetailSection([...stack, "danger"])).toBe("danger");
+  });
+
+  test("keeps the Account root and checkout Profile outside list-detail", () => {
+    expect(
+      accountDetailSection(["(account)", "(tabs)", "account"])
+    ).toBeUndefined();
+    expect(
+      accountDetailSection(["(account)", "book", "profile"])
+    ).toBeUndefined();
+  });
+});
 
 describe("accountIndexModel", () => {
   // biome-ignore format: the case table stays one row per line on purpose.
