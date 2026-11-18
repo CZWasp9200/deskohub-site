@@ -250,17 +250,17 @@ function WithdrawalStatement({
       </ScrollScreen>
       <ActionFooter>
         <Button
-          variant="positive"
-          label={m.withdrawal_decline({}, { locale })}
-          disabled={pending}
-          onPress={() => router.back()}
-        />
-        <Button
           variant="danger"
           label={m.withdrawal_confirm({}, { locale })}
           busy={pending}
           disabled={pending}
           onPress={confirm}
+        />
+        <Button
+          variant="positive"
+          label={m.withdrawal_decline({}, { locale })}
+          disabled={pending}
+          onPress={() => router.back()}
         />
       </ActionFooter>
     </View>

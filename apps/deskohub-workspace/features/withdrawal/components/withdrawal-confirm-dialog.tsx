@@ -227,15 +227,6 @@ export function WithdrawalConfirmDialog({
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Button
-                disabled={pending}
-                onClick={() => onOpenChange(false)}
-                size="lg"
-                tone="positive"
-                type="button"
-              >
-                {m.withdrawalConfirmDecline({}, { locale })}
-              </Button>
-              <Button
                 id="withdrawal-confirm-submit"
                 pending={pending}
                 size="lg"
@@ -245,7 +236,16 @@ export function WithdrawalConfirmDialog({
               >
                 {m.withdrawalConfirmSubmit({}, { locale })}
               </Button>
-            </div>
+              <Button
+                disabled={pending}
+                onClick={() => onOpenChange(false)}
+                size="lg"
+                tone="positive"
+                type="button"
+              >
+                {m.withdrawalConfirmDecline({}, { locale })}
+              </Button>
+          </div>
           </form>
           </>
         )}
