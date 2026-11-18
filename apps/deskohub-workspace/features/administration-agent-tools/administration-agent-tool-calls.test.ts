@@ -128,6 +128,18 @@ const TestApi = HttpApi.make("testApi").add(
         ),
       }).annotate(AdministrationOperationBehavior, readOperation)
     )
+    .add(
+      HttpApiEndpoint.post("issueDocument", "/documents/:documentId/issue", {
+        params: { documentId: Schema.String },
+        success: Schema.Struct({ issued: Schema.Boolean }),
+      }).annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: readPreview("administration.getDocument"),
+        })
+      )
+    )
 );
 
 /** The requests the test API served, by operation, in order. */
@@ -194,6 +206,9 @@ const handleTestRequest = HttpRouter.toWebHandler(
             record("getDocument").pipe(
               Effect.as(new TextEncoder().encode("%PDF-1.7 synthetic"))
             )
+          )
+          .handle("issueDocument", () =>
+            record("issueDocument").pipe(Effect.as({ issued: true }))
           )
       )
     ),
@@ -593,6 +608,42 @@ describe("administration agent tool calls", () => {
         expiresAt: "2026-11-18T10:15:00Z",
       },
     ]);
+  });
+
+  test("link a binary preview of a destructive operation without confirm, and change nothing", async () => {
+    documentLinks = true;
+    linkedDocuments = [];
+    const result = await callTool("admin_issue_document", {
+      documentId: "d-1",
+    });
+    documentLinks = false;
+    const reply = result._tag === "Success" ? result.success : undefined;
+
+    expect(linkedDocuments).toEqual([
+      {
+        reference: "administration.getDocument",
+        administratorAccountId: caller.grant.accountId,
+      },
+    ]);
+    expect(reply instanceof AgentToolReply && reply.result).toMatchObject({
+      outcome: "confirmation-required",
+      current: {
+        "administration.getDocument": {
+          downloadUrl: "https://workspace.example/admin/documents/d-1",
+          expiresAt: "2026-11-18T10:15:00Z",
+        },
+      },
+    });
+    expect(
+      reply instanceof AgentToolReply &&
+        reply.attachments.map(({ download }) => download)
+    ).toEqual([
+      {
+        url: "https://workspace.example/admin/documents/d-1",
+        expiresAt: "2026-11-18T10:15:00Z",
+      },
+    ]);
+    expect(served.map(({ operation }) => operation)).toEqual(["getDocument"]);
   });
 
   test("refuse a call without a verified caller", async () => {
