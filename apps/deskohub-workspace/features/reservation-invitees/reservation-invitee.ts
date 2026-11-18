@@ -12,11 +12,12 @@ export type ReservationInviteeId = typeof reservationInviteeIdSchema.Type;
 
 /**
  * Names the key that encrypted an invitee's address and derived its lookup
- * key, so rows written before a key rotation stay readable.
+ * key, so rows written before a key rotation stay readable: the kid of the
+ * `CHECKOUT_PAY_STATE_KEYS` entry both keys derive from.
  */
-export const reservationInviteeKeyIdSchema = Schema.String.check(
-  Schema.isPattern(/^[A-Za-z0-9_-]{1,32}$/)
-).pipe(Schema.brand("ReservationInviteeKeyId"));
+export const reservationInviteeKeyIdSchema = Schema.NonEmptyString.pipe(
+  Schema.brand("ReservationInviteeKeyId")
+);
 export type ReservationInviteeKeyId = typeof reservationInviteeKeyIdSchema.Type;
 
 /** How long an invitee's address outlives the reservation's access. */

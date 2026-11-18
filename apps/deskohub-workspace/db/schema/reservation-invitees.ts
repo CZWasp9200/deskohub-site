@@ -80,7 +80,7 @@ export const reservationInvitees = pgTable(
     ),
     check(
       "reservation_invitees_key_id_check",
-      sql`${t.keyId} ~ '^[A-Za-z0-9_-]{1,32}$'`
+      sql`${t.keyId} <> ''`
     ),
     check(
       "reservation_invitees_address_check",

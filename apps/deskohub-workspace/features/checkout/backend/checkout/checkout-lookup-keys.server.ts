@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, createHmac, hkdfSync } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Effect, Match, Redacted } from "effect";
 import {
   type CheckoutAttemptId,
@@ -13,6 +13,7 @@ import { getMeetingRoomReservationDetails } from "@/features/reservation/meeting
 import { getOfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import {
+  deriveSealedStateSubkey,
   type SealedStateKey,
   SealedStateKeys,
 } from "@/shared/backend/sealed-state-keys.service";
@@ -116,7 +117,6 @@ type LookupKeyFormat = "ring-keyed" | "key-id-prefixed";
 const storedLookupKeyFormat: LookupKeyFormat = "key-id-prefixed";
 
 const lookupKeyDerivationInfo = "deskohub-workspace/checkout-lookup-key";
-const lookupKeyByteLength = 32;
 
 const deriveCheckoutLookupKeys = <Payload, Key extends string>(
   payload: Payload,
@@ -151,15 +151,7 @@ const deriveCheckoutLookupKeys = <Payload, Key extends string>(
 
 // Separates lookup-key HMACs from the same key's Pay-state encryption use.
 const deriveLookupSecret = (key: SealedStateKey) =>
-  Buffer.from(
-    hkdfSync(
-      "sha256",
-      key.key,
-      Buffer.alloc(0),
-      lookupKeyDerivationInfo,
-      lookupKeyByteLength
-    )
-  );
+  deriveSealedStateSubkey(key, lookupKeyDerivationInfo);
 
 const signLookupKey = <Payload>(secret: Buffer | string, payload: Payload) =>
   createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");

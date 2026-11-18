@@ -44,6 +44,7 @@ import {
 } from "@/features/checkout/checkout-quote.test-utils";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { censorDatabaseQueryParams } from "@/shared/backend/logging/censorship";
+import { isUndecryptableSealedColumn } from "@/shared/backend/sealed-column";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
@@ -56,10 +57,7 @@ import {
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
 import { sealedInvoiceDocuments } from "./invoice-reads";
-import {
-  type AccountingRecordReference,
-  isUndecryptableRecord,
-} from "./sealed-accounting-json";
+import type { AccountingRecordReference } from "./sealed-accounting-json";
 
 // The suite owns its database, so raw rows it plants never reach other suites.
 const testDatabase = await createWorkspacePostgresSuiteDatabase(
@@ -661,7 +659,7 @@ describe.skipIf(!testDatabase)("sealed accounting JSON in PostgreSQL", () => {
           Effect.flip,
           Effect.map((error) => ({
             sqlState: findSqlState(error),
-            undecryptable: isUndecryptableRecord(error),
+            undecryptable: isUndecryptableSealedColumn(error),
           }))
         )
       );

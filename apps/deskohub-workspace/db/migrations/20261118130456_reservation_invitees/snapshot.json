@@ -19332,7 +19332,7 @@
       "table": "reservation_invitees"
     },
     {
-      "value": "\"key_id\" ~ '^[A-Za-z0-9_-]{1,32}$'",
+      "value": "\"key_id\" <> ''",
       "name": "reservation_invitees_key_id_check",
       "entityType": "checks",
       "schema": "public",

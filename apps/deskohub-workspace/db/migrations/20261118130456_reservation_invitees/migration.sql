@@ -13,7 +13,7 @@ CREATE TABLE "reservation_invitees" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "reservation_invitees_position_check" CHECK ("position" >= 0),
 	CONSTRAINT "reservation_invitees_invitation_send_count_check" CHECK ("invitation_send_count" >= 0),
-	CONSTRAINT "reservation_invitees_key_id_check" CHECK ("key_id" ~ '^[A-Za-z0-9_-]{1,32}$'),
+	CONSTRAINT "reservation_invitees_key_id_check" CHECK ("key_id" <> ''),
 	CONSTRAINT "reservation_invitees_address_check" CHECK ((
         "key_id" IS NOT NULL
         AND "encrypted_email" IS NOT NULL
