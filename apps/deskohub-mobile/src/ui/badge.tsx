@@ -35,8 +35,8 @@ export function Badge({
   readonly icon?: IconComponent;
   /**
    * The width past which the label wraps onto more lines, between words only:
-   * the badge never gets narrower than its longest word. The icon stays on
-   * the first line.
+   * the badge never gets narrower than its longest word. The icon stays
+   * centred against the whole label.
    */
   readonly wrapAt?: number;
 }) {
@@ -52,13 +52,10 @@ export function Badge({
     <View
       style={[
         styles.badge,
-        wrap && styles.badgeWrap,
         wrap && { maxWidth: Math.max(wrapAt, longestWord + chrome) },
         { backgroundColor: background },
       ]}
     >
-      {/* Its 16pt icon matches the label's line height, so a wrapped
-          badge, aligned to the top, keeps the icon on the first line. */}
       {icon && <Icon icon={icon} size={16} color={ink} />}
       <Text
         variant="badge"
@@ -101,6 +98,5 @@ const styles = StyleSheet.create({
     paddingVertical: space.xs,
   },
   label: { flexShrink: 1 },
-  badgeWrap: { alignItems: "flex-start" },
   measure: { opacity: 0, position: "absolute" },
 });
