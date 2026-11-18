@@ -135,9 +135,6 @@ export function WithdrawalConfirmDialog({
                 {knownName}
               </ContractRow>
             )}
-            <ContractRow label={m.withdrawalConfirmReceiptLabel({}, { locale })}>
-              {quote.receiptEmail}
-            </ContractRow>
           </dl>
 
           {knownName === null && (
@@ -165,6 +162,12 @@ export function WithdrawalConfirmDialog({
               )}
             </div>
           )}
+
+          <dl className="m-0 grid gap-3">
+            <ContractRow label={m.withdrawalConfirmReceiptLabel({}, { locale })}>
+              {quote.receiptEmail}
+            </ContractRow>
+          </dl>
 
           <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
             <dl className="m-0 grid gap-2 text-sm tabular-nums">
