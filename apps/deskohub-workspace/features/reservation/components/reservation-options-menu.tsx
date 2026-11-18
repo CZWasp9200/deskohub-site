@@ -40,7 +40,7 @@ export function ReservationOptionsMenu({
   if (linkVariant) {
     return (
       <GuardedLink
-        className="w-full shrink-0 self-center py-1 text-left text-sm text-rose-700 sm:w-auto sm:text-right underline-offset-4 hover:text-rose-800 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
+        className="w-full shrink-0 self-center py-1 text-left text-[0.6875rem] leading-4 text-rose-700 sm:w-auto sm:text-right underline-offset-4 hover:text-rose-800 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
         data-reservation-withdrawal-link=""
         href={withdrawalHref}
       >
