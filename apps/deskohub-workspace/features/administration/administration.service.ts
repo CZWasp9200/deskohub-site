@@ -646,7 +646,7 @@ const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
-  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly workspaceReservationId: WorkspaceReservationId | null;
   readonly providerOrderId: NexiOrderId | null;
   readonly provider: "internal" | "nexi";
   readonly state: PaymentAttemptState;
@@ -1711,7 +1711,7 @@ export class AdministrationService extends Context.Service<
           const latePaymentReservationIds = new Set(
             latePaymentRows.map(({ reservationId }) => reservationId)
           );
-          const refundReservationIds = new Set<string>(
+          const refundReservationIds = new Set(
             attemptRows.flatMap((attempt) =>
               attempt.refundState === "required"
                 ? [attempt.workspaceReservationId]
@@ -1726,7 +1726,7 @@ export class AdministrationService extends Context.Service<
             recoveryRows.map((recovery) => [recovery.reservationId, recovery])
           );
           const latestPaymentByReservation = new Map<
-            string,
+            WorkspaceReservationId | null,
             AdministrationPaymentAttempt
           >();
           for (const attempt of attemptRows) {

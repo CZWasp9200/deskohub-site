@@ -1,3 +1,4 @@
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -65,7 +66,7 @@ describe.skipIf(!testDatabase)(
       const result = await runTransitions((transitions) =>
         transitions.markTerminal({
           id: attempt.id,
-          workspaceReservationId: reservation.id,
+          orderId: reservationOrderId(reservation.id),
           state: "failed",
           failureCode: "synthetic_terminal_failure",
         })
@@ -92,7 +93,7 @@ describe.skipIf(!testDatabase)(
         runTransitions((transitions) =>
           transitions.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state,
             failureCode: "synthetic_terminal_cancellation",
           })

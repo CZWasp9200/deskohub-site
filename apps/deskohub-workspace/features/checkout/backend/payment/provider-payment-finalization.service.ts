@@ -29,6 +29,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import {
   getProviderOrderAbandonment,
@@ -232,7 +233,7 @@ function makeProviderPaymentFinalizationServiceLayer(
         const terminal = yield* paymentLifecycle
           .markTerminal({
             id: input.attempt.id,
-            workspaceReservationId: input.reservation.id,
+            orderId: reservationOrderId(input.reservation.id),
             state: "failed",
             failureCode: "nexi_hpp_create_unconfirmed",
             providerStatus: "hpp_create_unconfirmed",
@@ -425,7 +426,7 @@ function makeProviderPaymentFinalizationServiceLayer(
         const paidSuccess = yield* paymentLifecycle
           .markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             webhookEventId: input.webhookEventId,
             providerOperationId,
             providerStatus,
@@ -476,7 +477,7 @@ function makeProviderPaymentFinalizationServiceLayer(
         const terminalSuccess = yield* paymentLifecycle
           .markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state: terminalState,
             failureCode: "nexi_payment_failed",
             webhookEventId: input.webhookEventId,

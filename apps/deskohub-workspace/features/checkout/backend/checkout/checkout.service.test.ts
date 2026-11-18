@@ -1830,7 +1830,7 @@ describe("CheckoutService", () => {
       paid: true,
     });
     expect(harness.completeInternalPayment).toHaveBeenCalledWith({
-      workspaceReservationId: "reservation-zero-total",
+      orderId: "reservation-zero-total",
       amount: money(0),
       commitment: fullyDiscountedCommitment,
       locale: "en-US",
@@ -3006,7 +3006,7 @@ describe("CheckoutService", () => {
     expect(harness.markTerminalForReservation).toHaveBeenCalledTimes(1);
     expect(harness.markTerminalForReservation).toHaveBeenCalledWith({
       id: "attempt-reservation-hpp-create-fails",
-      workspaceReservationId: "reservation-hpp-create-fails",
+      orderId: "reservation-hpp-create-fails",
       state: "failed",
       failureCode: "nexi_hpp_create_failed",
       providerStatus: "hpp_create_failed",

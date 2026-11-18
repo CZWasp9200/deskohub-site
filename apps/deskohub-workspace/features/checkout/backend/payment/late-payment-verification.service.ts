@@ -10,11 +10,15 @@ import { Context, type Duration, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { LatePaymentRecovery } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import type { OrderId } from "@/features/order";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  reservationOrderId,
+  type WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import {
@@ -23,6 +27,7 @@ import {
 } from "../repositories/payment-attempt.repository";
 import { LatePaymentRecoveryQueueService } from "./late-payment-recovery-queue.service";
 import { getNexiCurrencyOverride } from "./nexi-currency";
+import { reservationLatePaymentRecovery } from "./order-payment-settlement";
 import {
   isVerifiableNexiPaymentAttempt,
   type VerifiableNexiPaymentAttempt,
@@ -130,7 +135,7 @@ export class LatePaymentVerificationService extends Context.Service<
 
       const startRecoveryFromVerification = Effect.fnUntraced(function* (
         paymentAttemptId: PaymentAttemptId,
-        workspaceReservationId: WorkspaceReservationId,
+        orderId: OrderId,
         verification: PaymentVerificationResult | undefined
       ) {
         if (!verification) return "provider_verification_failed" as const;
@@ -150,14 +155,17 @@ export class LatePaymentVerificationService extends Context.Service<
         );
         const { providerOperationId, providerStatus } =
           getNexiPaymentMetadata(verification);
-        yield* recoveries.start({
-          paymentAttemptId,
-          workspaceReservationId,
-          providerOperationId,
-          providerStatus,
-          verifiedPaidAt: Temporal.Now.instant(),
-        });
-        yield* recoveryQueue.enqueue({ paymentAttemptId });
+        yield* reservationLatePaymentRecovery(
+          recoveries,
+          recoveryQueue,
+          orderId,
+          {
+            paymentAttemptId,
+            providerOperationId,
+            providerStatus,
+            verifiedPaidAt: Temporal.Now.instant(),
+          }
+        );
         return "recovery_started" as const;
       });
 
@@ -196,7 +204,7 @@ export class LatePaymentVerificationService extends Context.Service<
           );
           return yield* startRecoveryFromVerification(
             paymentAttemptId,
-            reservation.id,
+            reservationOrderId(reservation.id),
             verification
           );
         },

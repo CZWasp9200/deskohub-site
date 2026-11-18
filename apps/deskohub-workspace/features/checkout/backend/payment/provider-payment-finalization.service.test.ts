@@ -392,7 +392,7 @@ describe("ProviderPaymentFinalizationService", () => {
         expect(markPaidForReservation).toHaveBeenCalledWith(
           expect.objectContaining({
             id: "attempt-id",
-            workspaceReservationId: "reservation-id",
+            orderId: "reservation-id",
             webhookEventId: "event-id",
           })
         );
@@ -404,7 +404,7 @@ describe("ProviderPaymentFinalizationService", () => {
         expect(markTerminalForReservation).toHaveBeenCalledWith(
           expect.objectContaining({
             id: "attempt-id",
-            workspaceReservationId: "reservation-id",
+            orderId: "reservation-id",
             state: "failed",
             failureCode: "nexi_payment_failed",
             webhookEventId: "event-id",
@@ -782,7 +782,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
     });
     expect(markTerminal).toHaveBeenCalledWith({
       id: "attempt-id",
-      workspaceReservationId: "reservation-id",
+      orderId: "reservation-id",
       state: "failed",
       failureCode: "nexi_hpp_create_unconfirmed",
       providerStatus: "hpp_create_unconfirmed",

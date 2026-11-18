@@ -1,4 +1,5 @@
 import { testEmailAddress } from "@deskohub/test-email";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -398,7 +399,7 @@ const startPayment = async (
       Effect.runPromise(
         lifecycle.markPaid({
           id: attempt.id,
-          workspaceReservationId: reservation.id,
+          orderId: reservationOrderId(reservation.id),
           paidAt: Temporal.Now.instant(),
         })
       ),
