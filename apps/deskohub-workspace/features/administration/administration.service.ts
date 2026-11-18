@@ -78,7 +78,12 @@ import { canCancelReservation } from "@/features/reservation/reservation-cancell
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { getReservationAccessName } from "@/features/reservation-access";
-import { toContractWithdrawal } from "@/features/withdrawal/backend/withdrawal.repository";
+import {
+  toContractWithdrawal,
+  type WithdrawalSettlementStep,
+  withdrawalSettlementSteps,
+  withdrawalStepDoneAt,
+} from "@/features/withdrawal/backend/withdrawal.repository";
 import {
   getWithdrawalSettlementStatus,
   type WithdrawalSettlementStatus,
@@ -249,6 +254,11 @@ type AdministrationBookingSort = "booking" | "status";
 
 export type AdministrationReservationSummary = {
   readonly id: WorkspaceReservationId;
+  /** The customer's withdrawal, once submitted: what it owes, how it settles. */
+  readonly withdrawal?: {
+    readonly refundAmount: Money;
+    readonly settlement: WithdrawalSettlementStatus["settlement"];
+  };
   readonly dotyposReservationId: DotyposReservationId | null;
   readonly customerId: DotyposCustomerId;
   readonly customer: AdministrationCustomer | null;
@@ -826,9 +836,21 @@ type LiveReservationDetails = {
  */
 export type AdministrationReservationWithdrawal = {
   readonly submittedAt: string;
+  readonly paidAmount: Money;
   readonly refundAmount: Money;
   readonly refundBasis: WithdrawalRefundBasis;
+  /** Every settlement step in run order, with its progress and retries. */
+  readonly steps: readonly AdministrationWithdrawalStep[];
 } & WithdrawalSettlementStatus;
+
+/** One settlement step: done when, or how its retries stand. */
+export type AdministrationWithdrawalStep = {
+  readonly step: WithdrawalSettlementStep;
+  readonly doneAt: string | null;
+  readonly attempts: number;
+  readonly failureCode: string | null;
+  readonly retryAt: string | null;
+};
 
 const toReservationWithdrawal = (
   row: ContractWithdrawalRow | undefined
@@ -837,8 +859,20 @@ const toReservationWithdrawal = (
   const withdrawal = toContractWithdrawal(row);
   return {
     submittedAt: toIsoString(withdrawal.submittedAt),
+    paidAmount: withdrawal.paidAmount,
     refundAmount: withdrawal.refundAmount,
     refundBasis: withdrawal.refundBasis,
+    steps: withdrawalSettlementSteps.map((step) => {
+      const doneAt = withdrawalStepDoneAt(withdrawal, step);
+      const { attempts, failureCode, retryAt } = withdrawal.stepRetries[step];
+      return {
+        step,
+        doneAt: doneAt && toIsoString(doneAt),
+        attempts,
+        failureCode: doneAt ? null : failureCode,
+        retryAt: !doneAt && retryAt ? toIsoString(retryAt) : null,
+      };
+    }),
     ...getWithdrawalSettlementStatus(withdrawal),
   };
 };

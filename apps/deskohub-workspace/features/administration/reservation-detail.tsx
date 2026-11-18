@@ -4,6 +4,7 @@ import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { formatMoney } from "@/shared/money/money";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationDetail as ReservationDetailData } from "./administration.service";
+import { ReservationWithdrawalSection } from "./reservation-withdrawal-section";
 import { administrationHref } from "./administration-href";
 import {
   formatAdministrationPlainDate,
@@ -87,6 +88,16 @@ async function ReservationDetailContent({
           locale={locale}
           notice={detail.operatorNotice}
         />
+      )}
+
+      {detail.withdrawal && (
+        <div className="mb-6">
+          <ReservationWithdrawalSection
+            customer={reservation.customer}
+            locale={locale}
+            withdrawal={detail.withdrawal}
+          />
+        </div>
       )}
 
       <section aria-labelledby="lifecycle-heading">

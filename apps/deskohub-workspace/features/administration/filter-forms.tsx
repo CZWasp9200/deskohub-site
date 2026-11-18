@@ -397,6 +397,12 @@ export function ReservationsAdministrationFilterForm({
           <option value="needs_refund">
             {m.administrationFilterReservationStatusNeedsRefund({}, { locale })}
           </option>
+          <option value="needs_attention">
+            {m.administrationFilterReservationStatusNeedsAttention(
+              {},
+              { locale }
+            )}
+          </option>
         </AdministrationFilterSelect>
       </AdministrationFilterField>
       <AdministrationFilterField

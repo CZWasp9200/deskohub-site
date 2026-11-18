@@ -13,6 +13,7 @@ type DisplayedPayment = Pick<
   | "amount"
   | "failureCode"
   | "refundState"
+  | "refundTarget"
   | "refundedAmount"
   | "refundedAt"
   | "state"
@@ -112,6 +113,13 @@ export function PaymentRefundRequiredLabel({
       className={cn("block font-semibold text-burned-orange-ink", className)}
     >
       {m.administrationPaymentNeedsRefund({}, { locale })}
+      {/* What is owed, when it is less than or apart from the whole payment. */}
+      {payment.refundTarget && (
+        <span className="font-normal">
+          {" · "}
+          {formatMoney(payment.refundTarget, locale)}
+        </span>
+      )}
     </span>
   );
 }
