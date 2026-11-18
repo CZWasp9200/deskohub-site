@@ -411,7 +411,13 @@ function WithdrawalReceived({
           </Card>
           <Text variant="bodySmall">
             {m.withdrawal_received_emailed(
-              { email: emailWithBreak(receipt.receiptEmail) },
+              // Breaks only before the @, never at a dot inside the address.
+              {
+                email: emailWithBreak(receipt.receiptEmail).replaceAll(
+                  ".",
+                  ".\u2060"
+                ),
+              },
               { locale }
             )}
           </Text>
