@@ -1,11 +1,15 @@
 import { Effect } from "effect";
 import { router } from "expo-router";
 import { useState } from "react";
+import { ScrollView, StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { AuthPhotoSheet } from "../../auth/auth-photo-sheet";
 import { standaloneTaskRuntime } from "../../auth/use-auth-task";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { BodyText, Button, LiveMessage, Screen } from "../../ui/controls";
+import { BodyText, Button, LiveMessage } from "../../ui/controls";
+import { Text } from "../../ui/text";
+import { color, space } from "../../ui/tokens";
 import { useViewport } from "../../ui/viewport";
 import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { deletedAccountExit } from "./deleted-account-exit";
@@ -54,9 +58,27 @@ export function AccountDeletedScreen() {
     );
   }
   return (
-    <Screen title={title}>
-      <BodyText>{body}</BodyText>
-      {actions}
-    </Screen>
+    <SafeAreaView style={styles.page}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text role="heading" variant="titleLarge">
+          {title}
+        </Text>
+        <BodyText>{body}</BodyText>
+        {actions}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  page: { backgroundColor: color.paper, flex: 1 },
+  content: {
+    alignSelf: "center",
+    flexGrow: 1,
+    gap: space.md,
+    justifyContent: "center",
+    maxWidth: 480,
+    padding: space.gutter,
+    width: "100%",
+  },
+});

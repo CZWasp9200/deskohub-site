@@ -4,7 +4,20 @@ import { color } from "../ui/tokens";
 
 // The landing page's hero photo with the kitchen cropped out, 1080 × 1012.
 export const signInHeroPhoto = require("../../assets/images/sign-in-hero.jpg");
+const heroAspect = 1080 / 1012;
 const colorLogo = require("../../assets/images/logo-color-on-navy.png");
+
+export function signInPhotoCoverSize({
+  width,
+  height,
+}: {
+  readonly width: number;
+  readonly height: number;
+}) {
+  return height * heroAspect >= width
+    ? { width: height * heroAspect, height }
+    : { width, height: width / heroAspect };
+}
 
 export const signInTitleStyle = {
   fontSize: 34,

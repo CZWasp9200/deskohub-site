@@ -9,9 +9,12 @@ import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { QuietUpdateOffer } from "../updates/update-offer-card";
-import { SignInBrand, signInHeroPhoto, signInTitleStyle } from "./sign-in-art";
-
-const heroAspect = 1080 / 1012;
+import {
+  SignInBrand,
+  signInHeroPhoto,
+  signInPhotoCoverSize,
+  signInTitleStyle,
+} from "./sign-in-art";
 
 /**
  * The photo's fade into the navy over its top and bottom 30%, as the board's
@@ -39,15 +42,6 @@ function NavyFade() {
 }
 
 /**
- * The photo fills its band's height and at least its width, right-aligned,
- * as CSS `object-fit: cover` with `object-position: right` would place it.
- */
-const heroPhotoSize = ({ width, height }: { width: number; height: number }) =>
-  height * heroAspect >= width
-    ? { width: height * heroAspect, height }
-    : { width, height: width / heroAspect };
-
-/**
  * The navy top of the sign-in screen: the brand, the landing page's photo
  * fading into the navy with the logo die blended over it, and the title.
  */
@@ -65,7 +59,7 @@ export function SignInMasthead() {
       width: nativeEvent.layout.width,
       height: nativeEvent.layout.height,
     });
-  const photo = band && heroPhotoSize(band);
+  const photo = band && signInPhotoCoverSize(band);
 
   return (
     <View style={[styles.masthead, { paddingTop: insets.top }]}>

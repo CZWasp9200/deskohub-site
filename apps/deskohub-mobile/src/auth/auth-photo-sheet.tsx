@@ -1,6 +1,12 @@
 import CircleAlert from "lucide-react-native/icons/circle-alert";
-import type { ReactNode } from "react";
-import { Image, ScrollView, StyleSheet, View } from "react-native";
+import { type ReactNode, useState } from "react";
+import {
+  Image,
+  type LayoutRectangle,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { FocusedStatusBar } from "../ui/focused-status-bar";
@@ -10,13 +16,64 @@ import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, radius, space, typeScale } from "../ui/tokens";
 import { useViewport } from "../ui/viewport";
-import { SignInBrand, signInHeroPhoto, signInTitleStyle } from "./sign-in-art";
+import {
+  SignInBrand,
+  signInHeroPhoto,
+  signInPhotoCoverSize,
+  signInTitleStyle,
+} from "./sign-in-art";
 
 const columnWidth = 520;
 const panelPadding = 48;
 const panelGutter = 64;
 const alertTileSize = 56;
 const bodyMeasure = 26 * typeScale.body.fontSize;
+
+function AuthPhotoBackdrop({ expanded }: { readonly expanded: boolean }) {
+  const [frame, setFrame] =
+    useState<Pick<LayoutRectangle, "width" | "height">>();
+  const photo = frame && signInPhotoCoverSize(frame);
+
+  return (
+    <View
+      aria-hidden
+      pointerEvents="none"
+      style={styles.backdrop}
+      onLayout={({ nativeEvent: { layout } }) => setFrame(layout)}
+    >
+      <Image
+        source={signInHeroPhoto}
+        resizeMode="cover"
+        style={[
+          styles.photo,
+          frame &&
+            photo && {
+              ...photo,
+              left: (frame.width - photo.width) * (expanded ? 0.5 : 0.3),
+              top: (frame.height - photo.height) * (expanded ? 0.45 : 0.5),
+            },
+        ]}
+      />
+      <Svg
+        width="100%"
+        height="100%"
+        preserveAspectRatio="none"
+        style={StyleSheet.absoluteFill}
+      >
+        <Defs>
+          <LinearGradient id="auth-photo-shade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color.navy} stopOpacity={0.45} />
+            <Stop offset="0.28" stopColor={color.navy} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#auth-photo-shade)" />
+      </Svg>
+      <View style={[styles.mark, expanded && styles.expandedMark]}>
+        <LogoMark width={expanded ? 520 : 460} color={color.white} />
+      </View>
+    </View>
+  );
+}
 
 export function AuthPhotoSheet({
   title,
@@ -43,35 +100,11 @@ export function AuthPhotoSheet({
   // Remounting the passkey option would interrupt an in-progress ceremony.
   return (
     <View style={[styles.page, isWide && styles.photoPage]}>
-      {isWide && (
-        <View aria-hidden pointerEvents="none" style={styles.backdrop}>
-          <Image
-            source={signInHeroPhoto}
-            resizeMode="cover"
-            style={styles.photo}
-          />
-          <Svg
-            width="100%"
-            height="100%"
-            preserveAspectRatio="none"
-            style={StyleSheet.absoluteFill}
-          >
-            <Defs>
-              <LinearGradient id="auth-photo-shade" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={color.navy} stopOpacity={0.45} />
-                <Stop offset="0.28" stopColor={color.navy} stopOpacity={0} />
-              </LinearGradient>
-            </Defs>
-            <Rect width="100%" height="100%" fill="url(#auth-photo-shade)" />
-          </Svg>
-          <View style={[styles.mark, isExpanded && styles.expandedMark]}>
-            <LogoMark width={isExpanded ? 520 : 460} color={color.white} />
-          </View>
-        </View>
-      )}
+      {isWide && <AuthPhotoBackdrop expanded={isExpanded} />}
       <ScrollView
-        style={styles.scroll}
+        style={[styles.scroll, isWide && { marginTop: insets.top }]}
         contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior="never"
         bounces={false}
       >
         {isWide ? (
@@ -79,7 +112,7 @@ export function AuthPhotoSheet({
             style={[
               styles.hero,
               {
-                paddingTop: insets.top + (isExpanded ? 40 : 28),
+                paddingTop: isExpanded ? 40 : 28,
                 paddingHorizontal: gutter + space.xxl,
               },
               isExpanded && {
@@ -120,38 +153,39 @@ export function AuthPhotoSheet({
           >
             {isWide && (
               <View style={styles.heading}>
-                {alert && (
-                  <View style={styles.alertTile}>
-                    <Icon
-                      icon={CircleAlert}
-                      size={28}
-                      color={color.dangerInk}
-                    />
-                  </View>
-                )}
-                <View style={styles.headingText}>
-                  <View style={alert ? styles.alertTitle : undefined}>
-                    <Text
-                      role={alert ? "alert" : "heading"}
-                      aria-level={alert ? undefined : 1}
-                      aria-live={alert ? "assertive" : undefined}
-                      accessibilityLiveRegion={alert ? "assertive" : undefined}
-                      accessibilityLabel={announcement}
-                      variant="display"
-                      tone={alert ? "danger" : undefined}
-                      style={signInTitleStyle}
-                    >
-                      {title}
-                    </Text>
-                  </View>
+                <View style={styles.titleRow}>
+                  {alert && (
+                    <View style={styles.alertTile}>
+                      <Icon
+                        icon={CircleAlert}
+                        size={28}
+                        color={color.dangerInk}
+                      />
+                    </View>
+                  )}
                   <Text
-                    variant="body"
-                    tone="muted"
-                    style={{ maxWidth: bodyMeasure * fontScale }}
+                    role={alert ? "alert" : "heading"}
+                    aria-level={alert ? undefined : 1}
+                    aria-live={alert ? "assertive" : undefined}
+                    accessibilityLiveRegion={alert ? "assertive" : undefined}
+                    accessibilityLabel={announcement}
+                    variant="display"
+                    tone={alert ? "danger" : undefined}
+                    style={[signInTitleStyle, styles.title]}
                   >
-                    {body}
+                    {title}
                   </Text>
                 </View>
+                <Text
+                  variant="body"
+                  tone="muted"
+                  style={[
+                    { maxWidth: bodyMeasure * fontScale },
+                    alert && styles.alertBody,
+                  ]}
+                >
+                  {body}
+                </Text>
               </View>
             )}
             {children}
@@ -166,7 +200,7 @@ const styles = StyleSheet.create({
   page: { backgroundColor: color.paper, flex: 1 },
   photoPage: { backgroundColor: color.navy },
   backdrop: { ...StyleSheet.absoluteFill, overflow: "hidden" },
-  photo: { width: "100%", height: "100%", opacity: 0.6 },
+  photo: { width: "100%", height: "100%", opacity: 0.6, position: "absolute" },
   mark: {
     mixBlendMode: "overlay",
     opacity: 0.5,
@@ -189,9 +223,10 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   sheetContent: { gap: 28 },
-  heading: { flexDirection: "row", gap: space.lg },
-  headingText: { flex: 1, gap: space.md },
-  alertTitle: { minHeight: alertTileSize, justifyContent: "center" },
+  heading: { gap: space.md },
+  titleRow: { alignItems: "center", flexDirection: "row", gap: space.lg },
+  title: { flex: 1 },
+  alertBody: { marginLeft: alertTileSize + space.lg },
   alertTile: {
     alignItems: "center",
     backgroundColor: color.dangerTint,
