@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import { m } from "@/features/administration/i18n";
 import {
   getInvoiceCustomerErrorMessage,
   getInvoiceCustomerName,
@@ -13,12 +15,19 @@ test("labels the invoice provenance in the route locale", () => {
 test("explains a rejected customer in the route locale", () => {
   expect(
     getInvoiceCustomerErrorMessage("customer-email-ambiguous", "cs-CZ")
-  ).toBe(
-    "Tento e-mail používá více zákazníků v Dotyposu. Vyberte správného stávajícího zákazníka."
+  ).toBe(m.accountingInvoiceCustomerEmailAmbiguous({}, { locale: "cs-CZ" }));
+  expect(
+    getInvoiceCustomerErrorMessage("customer-email-ambiguous", "cs-CZ")
+  ).not.toBe(
+    getInvoiceCustomerErrorMessage("customer-email-ambiguous", "en-US")
   );
-  expect(getInvoiceCustomerErrorMessage("customer-deleted", "en-US")).toBe(
-    "The selected customer has been deleted."
-  );
+});
+
+test("explains a deleted or expired customer as inactive", () => {
+  for (const locale of supportedLocales)
+    expect(getInvoiceCustomerErrorMessage("customer-deleted", locale)).toBe(
+      m.accountingInvoiceCustomerInactive({}, { locale })
+    );
 });
 
 test("names an unnamed customer in the route locale", () => {

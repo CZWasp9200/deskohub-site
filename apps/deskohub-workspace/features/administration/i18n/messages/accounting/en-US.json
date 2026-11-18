@@ -170,7 +170,7 @@
   "accountingInvoiceIdReused": "This invoice ID was already used with different details.",
   "accountingInvoiceCustomerIdMissing": "Dotypos returned a customer without an ID.",
   "accountingInvoiceCustomerIdInvalid": "The selected customer ID is invalid.",
-  "accountingInvoiceCustomerDeleted": "The selected customer has been deleted.",
+  "accountingInvoiceCustomerInactive": "The customer is no longer active in Dotypos (deleted or expired) and can't be invoiced.",
   "accountingInvoiceCustomerEmailAmbiguous": "Multiple Dotypos customers use this email. Select the correct existing customer.",
   "accountingInvoiceBillingDetailsInvalid": "Complete valid billing details are required.",
   "accountingInvoiceCustomerSearchUnavailable": "Customer search is temporarily unavailable."

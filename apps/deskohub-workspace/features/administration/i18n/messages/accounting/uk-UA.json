@@ -176,7 +176,7 @@
   "accountingInvoiceIdReused": "Цей ID рахунку-фактури вже використано з іншими даними.",
   "accountingInvoiceCustomerIdMissing": "Система Dotypos повернула клієнта без ID.",
   "accountingInvoiceCustomerIdInvalid": "ID обраного клієнта недійсний.",
-  "accountingInvoiceCustomerDeleted": "Обраного клієнта видалено.",
+  "accountingInvoiceCustomerInactive": "Клієнт більше не активний у Dotypos (його видалено або термін дії минув), тому виставити йому рахунок-фактуру не можна.",
   "accountingInvoiceCustomerEmailAmbiguous": "Цю електронну адресу використовують кілька клієнтів у Dotypos. Оберіть правильного наявного клієнта.",
   "accountingInvoiceBillingDetailsInvalid": "Заповніть повні й правильні дані для рахунку-фактури.",
   "accountingInvoiceCustomerSearchUnavailable": "Пошук клієнтів тимчасово недоступний."
