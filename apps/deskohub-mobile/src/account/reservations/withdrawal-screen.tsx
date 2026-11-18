@@ -409,14 +409,12 @@ function WithdrawalReceived({
               </Text>
             </DetailRow>
           </Card>
-          <Text variant="bodySmall">
+          {/* Simple breaking keeps the address whole; Android's default
+              strategy breaks it at a dot. */}
+          <Text variant="bodySmall" textBreakStrategy="simple">
             {m.withdrawal_received_emailed(
-              // Breaks only before the @, never at a dot inside the address.
               {
-                email: emailWithBreak(receipt.receiptEmail).replaceAll(
-                  ".",
-                  "\u2060.\u2060"
-                ),
+                email: emailWithBreak(receipt.receiptEmail),
               },
               { locale }
             )}
