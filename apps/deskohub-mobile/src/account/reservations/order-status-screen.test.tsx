@@ -1,6 +1,7 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import { RegistryProvider } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
+import { Option } from "effect";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AsyncView } from "../../customer-api/async-view";
@@ -12,9 +13,18 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
 import { AppLocaleProvider } from "../../i18n/locale-context";
+import { m } from "../../i18n/messages";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
-import { elementTree, find } from "../../ui/testing/element-tree";
-import type { StatusVisit } from "./status-refresh-rules";
+import {
+  elementTree,
+  find,
+  findAll,
+  hostTree,
+  textOf,
+} from "../../ui/testing/element-tree";
+import { orderStatusAtoms } from "./order-status-state";
+import type { StatusRefreshState } from "./status-refresh";
+import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 
 // The stand-in's focus effect never runs the screen's callback, so the
 // screen stays unfocused and its first status read hasn't started.
@@ -43,15 +53,19 @@ const firstPaint = (visit: StatusVisit) => {
       error(...args);
   });
   try {
-    return renderStatusScreen(visit);
+    return renderToStaticMarkup(
+      withCustomerData(
+        <OrderStatusScreen orderId={sampleOrderIds.pending} visit={visit} />
+      )
+    );
   } finally {
     warnings.mockRestore();
   }
 };
 
 /** `screen` under the locale and the fake customer data it reads. */
-const withCustomerData = (screen: ReactElement) => (
-  <AppLocaleProvider locale="en-US">
+const withCustomerData = (screen: ReactElement, state?: StatusRefreshState) => (
+  <AppLocaleProvider locale="cs-CZ">
     <RegistryProvider
       initialValues={[
         Atom.initialValue(
@@ -61,19 +75,20 @@ const withCustomerData = (screen: ReactElement) => (
             device: makeFakeDevice(),
           })
         ),
+        ...(state
+          ? [
+              Atom.initialValue(
+                orderStatusAtoms.status(state.order.orderId),
+                AsyncResult.success(state)
+              ),
+            ]
+          : []),
       ]}
     >
       {screen}
     </RegistryProvider>
   </AppLocaleProvider>
 );
-
-const renderStatusScreen = (visit: StatusVisit) =>
-  renderToStaticMarkup(
-    withCustomerData(
-      <OrderStatusScreen orderId={sampleOrderIds.pending} visit={visit} />
-    )
-  );
 
 /** What the screen shows while its first read is under way. */
 const loadingContent = (visit: StatusVisit) => {
@@ -115,3 +130,52 @@ describe("the booking view before its first read answers", () => {
     });
   }
 });
+
+test.each(["pending", "paid"] as const)(
+  "the opened Czech reservation shows cancellation with payment %s",
+  (paymentStatus) => {
+    const locale = "cs-CZ";
+    const state: StatusRefreshState = {
+      order: {
+        orderId: sampleOrderIds.pending,
+        kind: "cowork",
+        status: "cancelled",
+        reservationCancelled: true,
+        paymentStatus,
+        fulfillmentStatus: "not_started",
+        startsAt: "2099-06-20T08:00:00Z",
+        endsAt: "2099-06-20T16:00:00Z",
+        bookedSelection: {
+          selection: {
+            family: "cowork",
+            date: "2099-06-20",
+            tier: "open-space",
+          },
+        },
+      },
+      reading: false,
+      automatic: AutomaticRefresh.Stopped({ reason: "settled" }),
+      attempt: 0,
+      failure: Option.none(),
+    };
+    const tree = hostTree(
+      <OrderStatusScreen orderId={state.order.orderId} visit="normal" />,
+      (screen) => withCustomerData(screen, state)
+    );
+    const labels = findAll(tree, "Text").map(textOf);
+
+    expect(labels).toContain(m.reservations_status_cancelled({}, { locale }));
+    expect(labels).toContain(m.reservations_book_again({}, { locale }));
+    expect(labels).not.toContain(
+      m.reservations_step_awaiting_payment({}, { locale })
+    );
+    expect(labels).not.toContain(m.booking_checkout_retry_pay({}, { locale }));
+    expect(labels).not.toContain(m.reservations_show_pin({}, { locale }));
+    expect(labels).not.toContain(
+      m.reservations_add_to_calendar({}, { locale })
+    );
+    expect(labels.includes(m.reservations_invoice_row({}, { locale }))).toBe(
+      paymentStatus === "paid"
+    );
+  }
+);

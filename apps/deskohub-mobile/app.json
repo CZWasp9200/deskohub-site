@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deskohub",
     "slug": "deskohub-mobile",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "scheme": "deskohub",
     "orientation": "default",
     "backgroundColor": "#F8F5EF",

@@ -867,6 +867,8 @@
   "checkoutStatusPaymentFailedLead": "Оплата не пройшла, тому доступ за цим замовленням ми не надаємо. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
   "checkoutStatusCancelledTitle": "Оплату скасовано.",
   "checkoutStatusCancelledLead": "Оплату скасовано, тому доступ за цим замовленням ми не надаємо. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
+  "checkoutStatusReservationCancelledTitle": "Бронювання скасовано.",
+  "checkoutStatusReservationCancelledLead": "Доступ за цим бронюванням більше недоступний.",
   "checkoutStatusExpiredTitle": "Термін дії посилання для оплати минув.",
   "checkoutStatusExpiredLead": "Оплату не завершено вчасно, тому ми звільнили заброньований час. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
   "checkoutStatusLatePaymentCheckingTitle": "Перевіряємо ваше бронювання.",

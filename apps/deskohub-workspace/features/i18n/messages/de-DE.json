@@ -853,6 +853,8 @@
   "checkoutStatusPaymentFailedLead": "Die Zahlung ist nicht durchgegangen, deshalb geben wir für diese Bestellung keinen Zugang frei. Deine Reservierungsdaten bleiben gespeichert, du kannst die Zahlung also erneut versuchen.",
   "checkoutStatusCancelledTitle": "Die Zahlung wurde abgebrochen.",
   "checkoutStatusCancelledLead": "Die Zahlung wurde abgebrochen, deshalb geben wir für diese Bestellung keinen Zugang frei. Deine Reservierungsdaten bleiben gespeichert, du kannst die Zahlung also erneut versuchen.",
+  "checkoutStatusReservationCancelledTitle": "Die Reservierung wurde storniert.",
+  "checkoutStatusReservationCancelledLead": "Der Zugang für diese Reservierung ist nicht mehr verfügbar.",
   "checkoutStatusExpiredTitle": "Der Zahlungslink ist abgelaufen.",
   "checkoutStatusExpiredLead": "Die Zahlung wurde nicht rechtzeitig abgeschlossen, deshalb haben wir den reservierten Termin wieder freigegeben. Deine Reservierungsdaten bleiben gespeichert, du kannst die Zahlung also erneut versuchen.",
   "checkoutStatusLatePaymentCheckingTitle": "Wir prüfen deine Reservierung.",

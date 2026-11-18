@@ -165,13 +165,14 @@ export const orderTicketView = ({
   readonly locale: AppLocale;
 }): OrderTicketView => {
   const times = bookedTimesOf(order, reservation);
+  const scheduledTimes = model.badge === "cancelled" ? Option.none() : times;
   const accessStartsAt = Option.flatMap(reservation, (row) =>
     instantOf(row.accessStartsAt)
   );
   const title = orderTitle(order, reservation, locale);
   return {
     event: Option.getOrUndefined(
-      Option.map(times, ([start, end]) => ({
+      Option.map(scheduledTimes, ([start, end]) => ({
         orderId: order.orderId,
         title,
         start,
@@ -183,7 +184,7 @@ export const orderTicketView = ({
     ),
     lead: ticketLead(
       model.reason,
-      Option.flatMap(times, ([start, end]) =>
+      Option.flatMap(scheduledTimes, ([start, end]) =>
         bookingCountdown(now, start, end)
       ),
       locale

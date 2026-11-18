@@ -1,4 +1,7 @@
-import type { CustomerOrderStatus } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerOrderPaymentStatus,
+  CustomerOrderStatus,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { AutomaticRefresh } from "./status-refresh-rules";
 
@@ -10,6 +13,7 @@ export type TicketBadgeKind =
   | "pending"
   | "confirmed"
   | "attention"
+  | "cancelled"
   | "not-booked";
 
 /** Why the header names a reason instead of the countdown. */
@@ -198,6 +202,17 @@ const awaitingPayment: ReadonlyArray<TicketStep> = [
   step("confirm", "todo"),
   step("pin", "todo"),
 ];
+
+export const cancelledBookingTicket = (
+  payment: CustomerOrderPaymentStatus
+): BookingTicketModel => ({
+  badge: "cancelled",
+  reason: Option.none(),
+  price: "none",
+  stub: { _tag: "BookAgain", refundNote: false },
+  followUp: payment === "paid" ? "more-actions" : "contact",
+  dim: true,
+});
 
 /**
  * The booking ticket of an order in `status`, while the screen is checking
