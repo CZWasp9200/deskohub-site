@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import { act, Children, isValidElement, type ReactNode } from "react";
+import { clientRoot } from "../../testing/client-root";
 import {
   elementTree,
   findAll,
@@ -32,19 +34,23 @@ const cards: ReadonlyArray<CoworkTierCard> = [
   },
 ];
 
-const render = (
-  onSelect = mock(() => undefined),
+const renderCards = (
+  onSelect: (tier: CoworkTierCard["tier"]) => void = () => undefined,
   shown: ReadonlyArray<CoworkTierCard> = cards
+) =>
+  elementTree(CoworkTierCards, {
+    label: "Desk type",
+    cards: shown,
+    selected: "open-space",
+    onSelect,
+    locale: "en-US",
+  });
+
+const render = (
+  onSelect?: (tier: CoworkTierCard["tier"]) => void,
+  shown?: ReadonlyArray<CoworkTierCard>
 ) => {
-  const tree = hostTree(
-    elementTree(CoworkTierCards, {
-      label: "Desk type",
-      cards: shown,
-      selected: "open-space",
-      onSelect,
-      locale: "en-US",
-    })
-  );
+  const tree = hostTree(renderCards(onSelect, shown));
   return {
     tree,
     radios: findAll(tree, "Pressable").map((radio) => radio.props),
@@ -88,24 +94,45 @@ describe("CoworkTierCards", () => {
     }
   });
 
-  test("the Open Space art ends inside the card instead of being trimmed", () => {
+  test("the Open Space and Reserved Desk artwork ends inside each card", () => {
     const { artFrames } = render();
 
-    expect(artFrames[0]?.right).toBe(0);
+    expect(artFrames.map((frame) => frame.right)).toEqual([0, 0]);
   });
 
-  test("the workstation art waits for the name and radio to be measured", () => {
-    const { images } = render(undefined, [
-      cards[0] as CoworkTierCard,
-      {
-        ...(cards[1] as CoworkTierCard),
-        artwork: tierArtwork("reserved-desk", true),
-      },
-    ]);
+  const root = clientRoot();
 
-    expect(images.map((image) => image.source)).toEqual([
-      tierArtwork("open-space", false).source,
-    ]);
+  test("the workstation artwork stays inside the card below the measured header", async () => {
+    const card = {
+      ...(cards[1] as CoworkTierCard),
+      artwork: tierArtwork("reserved-desk", true),
+    };
+    const radio = findAll(renderCards(undefined, [card]), "Pressable")[0];
+    const top = Children.toArray(radio?.props.children)[0];
+    if (!isValidElement<HostProps>(top) || typeof top.type !== "function") {
+      throw new Error("No card header");
+    }
+    const CardTop = top.type as (props: HostProps) => ReactNode;
+    let tree: ReactNode = null;
+    const Probe = () => {
+      tree = CardTop(top.props);
+      return null;
+    };
+    await root.render(<Probe />);
+    expect(findAll(hostTree(tree), "Image")).toHaveLength(0);
+    const onLayout = findAll(tree, "View")[0]?.props.onLayout;
+    if (typeof onLayout !== "function")
+      throw new Error("No header layout handler");
+
+    const layout = { y: 12, height: 48 };
+    await act(async () => onLayout({ nativeEvent: { layout } }));
+
+    const frame = findAll(hostTree(tree), "View").find(
+      (view) => view.props.pointerEvents === "none"
+    );
+    const style = flatStyle(frame?.props.style);
+    expect(style.right).toBe(0);
+    expect(style.top).toBeGreaterThan(layout.y + layout.height);
   });
 
   test("the Reserved Desk shows its workstation once one is added", () => {

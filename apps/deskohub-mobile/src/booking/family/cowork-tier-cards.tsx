@@ -17,26 +17,22 @@ import { RadioMark } from "../../ui/radio-card";
 import { Text } from "../../ui/text";
 import { color, radius, space } from "../../ui/tokens";
 
-/** The website's desk artwork, cropped to the part a card shows. */
+/** Artwork for the cowork tiers. */
 const artwork = {
-  // The room reaches the image's right edge: kept inside the card.
   openSpace: {
     source: require("../../../assets/images/booking/open-space.webp"),
     aspectRatio: 630 / 482,
-    right: 0,
     clearsTitle: false,
   },
   reservedDesk: {
     source: require("../../../assets/images/booking/reserved-desk.webp"),
     aspectRatio: 630 / 477,
-    right: -28,
     clearsTitle: false,
   },
   // The monitors stand tall: kept below the name and the radio.
   reservedDeskWorkstation: {
     source: require("../../../assets/images/booking/reserved-desk-workstation.webp"),
     aspectRatio: 630 / 459,
-    right: -28,
     clearsTitle: true,
   },
 } satisfies Record<
@@ -44,8 +40,6 @@ const artwork = {
   {
     readonly source: ImageSourcePropType;
     readonly aspectRatio: number;
-    /** Where the art's frame ends, past the card's right edge when negative. */
-    readonly right: number;
     /** Whether the art starts below the card's name and radio. */
     readonly clearsTitle: boolean;
   }
@@ -200,7 +194,7 @@ function TierCardArtwork({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"
-      style={[styles.artFrame, { right: art.right, top }]}
+      style={[styles.artFrame, { top }]}
     >
       <Image
         aria-hidden
@@ -266,14 +260,14 @@ const styles = StyleSheet.create({
   checked: { ...outlined(color.action, 2), backgroundColor: color.actionTint },
   disabled: { backgroundColor: color.disabledField },
   pressed: { backgroundColor: color.pressed },
-  // The art takes the card's right 64% (past the edge where its artwork
-  // says so), fits the card's height and sits centred in it.
+  // The art fits inside the card's right 64% and is centred vertically.
   artFrame: {
     alignItems: "flex-end",
     bottom: 0,
     justifyContent: "center",
     left: "36%",
     position: "absolute",
+    right: 0,
   },
   art: { height: "100%", maxWidth: "100%", width: undefined },
   artDisabled: { opacity: 0.5 },
