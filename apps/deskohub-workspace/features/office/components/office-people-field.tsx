@@ -182,7 +182,7 @@ export function OfficePeopleField({
         <div className="border-t border-navy-blue/10 p-4 sm:px-6">
           {hasRoom || replacesAttendee ? (
             <>
-              <div className="flex gap-3">
+              <div className="flex items-center gap-3">
                 <label className="sr-only" htmlFor={inputId}>
                   {m.officePeopleEmailLabel({}, { locale })}
                 </label>
@@ -211,7 +211,7 @@ export function OfficePeopleField({
                   data-office-invitee-add=""
                   onClick={add}
                   shape="pill"
-                  size="lg"
+                  size={replacesAttendee ? "md" : "lg"}
                   type="button"
                   variant="secondary"
                 >
