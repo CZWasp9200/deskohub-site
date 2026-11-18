@@ -48,12 +48,11 @@ import {
  */
 export function WithdrawalScreen({
   orderId,
-  reference,
 }: {
   readonly orderId: CustomerReservationOrderId;
-  /** The reservation number as the list shows it. */
-  readonly reference: string;
 }) {
+  // The order's id is the Workspace's reservation number, as the site shows it.
+  const reference: string = orderId;
   const locale = useAppLocale();
   const quoteAtom = withdrawalQuoteAtom(withdrawalQuoteKey(orderId, locale));
   const quote = useAtomValue(quoteAtom);

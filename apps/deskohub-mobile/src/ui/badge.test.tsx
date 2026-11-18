@@ -52,3 +52,24 @@ test("each tone has its own tint, and the icon takes the text colour", () => {
   }
   expect(find(badge("info").tree, Icon)).toBeUndefined();
 });
+
+test("a stacked badge sets one word per line and still reads its label whole", () => {
+  const tree = elementTree(Badge, {
+    label: "Withdrawal  received",
+    tone: "neutral",
+    stacked: true,
+  }) as ReactElement<HostProps>;
+  const text = find<HostProps>(tree, Text);
+  expect(text?.props["aria-label"]).toBe("Withdrawal  received");
+  expect(text?.props.children).toBe("Withdrawal\nreceived");
+});
+
+test("a badge on one line has no separate accessible label", () => {
+  const tree = elementTree(Badge, {
+    label: "Confirmed",
+    tone: "positive",
+  }) as ReactElement<HostProps>;
+  const text = find<HostProps>(tree, Text);
+  expect(text?.props["aria-label"]).toBeUndefined();
+  expect(text?.props.children).toBe("Confirmed");
+});

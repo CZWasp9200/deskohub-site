@@ -103,7 +103,9 @@ describe("ticketWithdrawalSource", () => {
   });
 
   test("asks the quote when the list failed to load", () => {
-    const history = AsyncResult.failure(Cause.fail("unavailable"));
+    const history = AsyncResult.failure<ReturnType<typeof groups>, unknown>(
+      Cause.fail("unavailable")
+    );
 
     expect(ticketWithdrawalSource(history, orderId("a"))).toEqual({
       kind: "quote",

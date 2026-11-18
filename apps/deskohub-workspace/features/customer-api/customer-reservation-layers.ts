@@ -10,6 +10,7 @@ import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { ReservationWithdrawalAvailability } from "@/features/reservation/backend/reservation-withdrawals";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import type { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import { WithdrawalReleaseGateForRun } from "@/features/withdrawal/backend/withdrawal-release-gate-run";
@@ -106,6 +107,11 @@ export type CustomerReservationServiceLayers = {
     Layer.Error<typeof WithdrawalService.ForProvidedAuthentication>,
     CustomerAuthentication
   >;
+  /** Recorded withdrawals, which an order's status carries. */
+  readonly withdrawalRecords: Layer.Layer<
+    WithdrawalRepository,
+    Layer.Error<typeof WithdrawalRepository.Live>
+  >;
   /** Issued invoices, shown to whom `authorization` lets see them. */
   readonly invoice: (
     authorization: Layer.Layer<
@@ -149,6 +155,7 @@ export class CustomerReservationLayers extends Context.Service<
       ),
     access: ReservationAccessService.withAuthorization,
     invoice: ReservationInvoicePdfService.withAuthorization,
+    withdrawalRecords: WithdrawalRepository.Live,
     withdrawals: Layer.mergeAll(
       WithdrawalService.ForProvidedAuthentication,
       WithdrawalReleaseGateForRun

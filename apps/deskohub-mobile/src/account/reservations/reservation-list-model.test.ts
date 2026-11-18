@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
-import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
-import { shortDate } from "./booking-ticket-text";
+import { bookingDateRange } from "./booking-ticket-text";
 import {
   nextReservationView,
   type ReservationListRow,
@@ -109,7 +108,7 @@ describe("reservationRowView", () => {
     ).toBe(true);
   });
 
-  test("a booking held into the next day ends on that day's date and time", () => {
+  test("a booking over several days reads as its date range, one day as its time", () => {
     // An overnight stay: noon to noon in Prague (UTC+1).
     const overnight = reservationRowView(
       row("o", {
@@ -120,7 +119,7 @@ describe("reservationRowView", () => {
       "later",
       "en-US"
     );
-    // Whole days keep only their last date.
+    // Whole days end at the next midnight, which isn't a day of the booking.
     const days = reservationRowView(
       row("d", {
         product: { kind: "office" },
@@ -131,33 +130,31 @@ describe("reservationRowView", () => {
       "later",
       "en-US"
     );
+    const oneDay = reservationRowView(row("a"), "later", "en-US");
 
-    const start = DateTime.makeUnsafe("2026-11-17T11:00:00Z");
-    const end = DateTime.makeUnsafe("2026-11-18T11:00:00Z");
-    expect(overnight.detail).toBe(
-      m.reservations_time_range(
-        {
-          start: formatInstant(start, "en-US", "time"),
-          end: m.reservations_date_time(
-            {
-              date: shortDate(end, "en-US"),
-              time: formatInstant(end, "en-US", "time"),
-            },
-            { locale: "en-US" }
-          ),
-        },
-        { locale: "en-US" }
+    const date = (iso: string) => DateTime.makeUnsafe(iso);
+    expect<string | undefined>(overnight.detail).toBe(
+      bookingDateRange(
+        date("2026-11-17T11:00:00Z"),
+        date("2026-11-18T11:00:00Z"),
+        "en-US"
       )
     );
-    expect(overnight.detail).not.toBe(days.detail);
-    expect(days.detail).toBe(
-      m.reservations_time_until(
-        {
-          time: shortDate(DateTime.makeUnsafe("2026-11-18T12:00:00Z"), "en-US"),
-        },
-        { locale: "en-US" }
+    expect<string | undefined>(days.detail).toBe(
+      bookingDateRange(
+        date("2026-11-16T23:00:00Z"),
+        date("2026-11-18T23:00:00Z"),
+        "en-US"
       )
     );
+    expect(
+      bookingDateRange(
+        date("2026-11-08T09:00:00Z"),
+        date("2026-11-08T17:00:00Z"),
+        "en-US"
+      )
+    ).toBeUndefined();
+    expect(oneDay.detail).not.toBe(overnight.detail);
   });
 
   test("an unreadable time has no tile and reads as unavailable", () => {

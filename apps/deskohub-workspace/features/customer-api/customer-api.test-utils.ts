@@ -3,7 +3,7 @@ import {
   customerApiClientHeader,
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
@@ -64,6 +64,7 @@ import { ReservationAccessService } from "@/features/reservation/backend/reserva
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import {
@@ -257,6 +258,10 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
     Layer.mock(WithdrawalService, {}),
     WithdrawalReleaseGate.fromDecision(false)
   ),
+  // No order has been withdrawn from.
+  withdrawalRecords: Layer.mock(WithdrawalRepository, {
+    findByContract: () => Effect.succeed(Option.none()),
+  }),
 };
 
 /** The Dotypos profile of `linkedAccountServices`' account. */

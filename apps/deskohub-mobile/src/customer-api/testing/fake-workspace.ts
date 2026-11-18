@@ -26,9 +26,6 @@ import {
   CustomerPaymentPageClosed,
   type CustomerPaymentPageClosedReason,
   CustomerPaymentRetryRefused,
-  type CustomerWithdrawalQuote,
-  CustomerWithdrawalRefused,
-  type CustomerWithdrawalRefusedReason,
   type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
   type CustomerProfileSave,
@@ -41,6 +38,11 @@ import {
   CustomerServiceUnavailable,
   CustomerSessionAuthentication,
   CustomerSessionRequired,
+  CustomerWithdrawalNameRequired,
+  type CustomerWithdrawalQuote,
+  type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefused,
+  type CustomerWithdrawalRefusedReason,
   customerApiClientHeader,
   type ProfileCompletionReferralOutcome,
   profileCompletionSaveOf,
@@ -238,6 +240,52 @@ export class FakeWorkspace {
         ...order,
         state: { ...order.state, status },
       }),
+    };
+  }
+
+  /**
+   * Records a withdrawal from the order as the Workspace does: its status
+   * carries the withdrawal, its PIN is gone, and the list shows it cancelled
+   * under past, no longer withdrawable.
+   */
+  recordWithdrawal(
+    orderId: CustomerReservationOrderId,
+    receipt: CustomerWithdrawalReceipt
+  ) {
+    const order = this.data.orders.get(orderId);
+    const { history } = this.data;
+    const entry = [...history.current, ...history.past].find(
+      (row) => row.orderId === orderId
+    );
+    const others = (rows: typeof history.current) =>
+      rows.filter((row) => row.orderId !== orderId);
+    this.data = {
+      ...this.data,
+      orders:
+        order === undefined
+          ? this.data.orders
+          : new Map(this.data.orders).set(orderId, {
+              ...order,
+              access: undefined,
+              state: {
+                ...order.state,
+                withdrawal: {
+                  submittedAt: receipt.submittedAt,
+                  refundAmount: receipt.refundAmount,
+                },
+              },
+            }),
+      history:
+        entry === undefined
+          ? history
+          : {
+              ...history,
+              current: others(history.current),
+              past: [
+                { ...entry, status: "cancelled", withdrawal: undefined },
+                ...others(history.past),
+              ],
+            },
     };
   }
 
@@ -724,7 +772,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
         .handle("getWithdrawalQuote", () =>
           Effect.andThen(
-            Effect.promise(() => workspace.withdrawalQuoteDelay ?? Promise.resolve()),
+            Effect.promise(
+              () => workspace.withdrawalQuoteDelay ?? Promise.resolve()
+            ),
             Effect.suspend(() => {
               const answer = workspace.withdrawal;
               return typeof answer === "string"
@@ -733,20 +783,37 @@ const serverLayer = (workspace: FakeWorkspace) => {
             })
           )
         )
-        .handle("withdrawFromReservation", () =>
+        .handle("withdrawFromReservation", ({ params, payload }) =>
           Effect.andThen(
-            Effect.promise(() => workspace.withdrawalDelay ?? Promise.resolve()),
-            Effect.suspend(() => {
-              const answer = workspace.withdrawal;
-              return typeof answer === "string"
-                ? Effect.fail(new CustomerWithdrawalRefused({ reason: answer }))
-                : Effect.succeed({
-                    withdrawalId: "sample-withdrawal-1",
-                    submittedAt: new Date().toISOString(),
-                    refundAmount: answer.refundAmount,
-                    receiptEmail: answer.receiptEmail,
-                  });
-            })
+            Effect.promise(
+              () => workspace.withdrawalDelay ?? Promise.resolve()
+            ),
+            Effect.suspend(
+              (): Effect.Effect<
+                CustomerWithdrawalReceipt,
+                CustomerWithdrawalRefused | CustomerWithdrawalNameRequired
+              > => {
+                const answer = workspace.withdrawal;
+                if (typeof answer === "string")
+                  return Effect.fail(
+                    new CustomerWithdrawalRefused({ reason: answer })
+                  );
+                // The statement needs a name: the profile's, else the typed one.
+                if (
+                  answer.customerName === null &&
+                  (payload.customerName ?? "").trim() === ""
+                )
+                  return Effect.fail(new CustomerWithdrawalNameRequired());
+                const receipt: CustomerWithdrawalReceipt = {
+                  withdrawalId: "sample-withdrawal-1",
+                  submittedAt: new Date().toISOString(),
+                  refundAmount: answer.refundAmount,
+                  receiptEmail: answer.receiptEmail,
+                };
+                workspace.recordWithdrawal(params.orderId, receipt);
+                return Effect.succeed(receipt);
+              }
+            )
           )
         )
         .handle("retryPayment", ({ params }) =>

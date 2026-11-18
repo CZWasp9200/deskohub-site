@@ -77,6 +77,24 @@ export const withSampleHistory = (
     loading: () => data.history.current,
     "whole-day": () => [wholeDay.reservation, ...data.history.current],
   }[history]();
+  // The lists the history variant shows: none, the desk withdrawn from
+  // (cancelled, so listed under past), or the variant's current ones.
+  const sampleHistoryLists = (): typeof data.history => {
+    if (history === "empty") return { current: [], past: [], unavailable: [] };
+    if (history !== "withdrawn") return { ...data.history, current };
+    return {
+      ...data.history,
+      current,
+      past: [
+        {
+          ...sampleDeskReservation(now),
+          status: "cancelled",
+          withdrawal: undefined,
+        },
+        ...data.history.past,
+      ],
+    };
+  };
   workspace.data = {
     ...data,
     // An account of its own, which never loads a list, so has none saved.
@@ -123,23 +141,7 @@ export const withSampleHistory = (
           ),
         }
       : {}),
-    history:
-      history === "empty"
-        ? { current: [], past: [], unavailable: [] }
-        : history === "withdrawn"
-          ? {
-              ...data.history,
-              current,
-              past: [
-                {
-                  ...sampleDeskReservation(now),
-                  status: "cancelled",
-                  withdrawal: undefined,
-                },
-                ...data.history.past,
-              ],
-            }
-          : { ...data.history, current },
+    history: sampleHistoryLists(),
   };
   if (history === "offline" || history === "offline-fresh") {
     workspace.fail("listReservations", "service-unavailable", 10_000);
