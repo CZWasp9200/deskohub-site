@@ -372,13 +372,15 @@ describe("prepare_reservation site tool", () => {
     workspaceUseAction.mockImplementation(((
       action: typeof preparePayState,
       options: {
-        readonly onSuccess?: (result: PrepareActionResult) => void;
+        readonly onSuccess?: (
+          result: PrepareActionResult & { readonly input: PreparePayStateInput }
+        ) => void;
       }
     ) => ({
       executeAsync: async (input: PreparePayStateInput) => {
         const result = await executeAsync(input);
         if (action === preparePayState && result.data) {
-          act(() => options.onSuccess?.(result));
+          act(() => options.onSuccess?.({ ...result, input }));
         }
         return result;
       },
@@ -632,6 +634,7 @@ describe("prepare_reservation site tool", () => {
       ) {
         expect(result).toMatchObject({ error: { code: "checkout_failed" } });
         expect(result).not.toHaveProperty("pay_url");
+        expect(workspaceRouterPush).not.toHaveBeenCalled();
         return;
       }
       expect(result).toMatchObject({
@@ -644,6 +647,7 @@ describe("prepare_reservation site tool", () => {
           total: toAgentToolMoney(preparedTotal),
         },
       });
+      expect(workspaceRouterPush).toHaveBeenCalledWith(redirectUrl);
       if (reviewHold) {
         expect(result).not.toHaveProperty(["summary", "regular_price"]);
         expect(result).not.toHaveProperty(["summary", "discount"]);

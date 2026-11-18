@@ -23,14 +23,18 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
+type PreparePayStateData =
+  | {
+      readonly status: "pricing_changed" | "ready";
+      readonly redirectUrl?: string;
+      readonly expiresAt?: string;
+    }
+  | { readonly status: "error"; readonly message: string };
+
 type PreparePayStateOptions = {
   readonly onSuccess: (result: {
-    readonly data?:
-      | {
-          readonly status: "pricing_changed" | "ready";
-          readonly redirectUrl?: string;
-        }
-      | { readonly status: "error"; readonly message: string };
+    readonly data: PreparePayStateData;
+    readonly input: Pick<PreparePayStateInput, "reservation">;
   }) => void;
   readonly onError: (result: {
     readonly error: { readonly serverError?: string };
@@ -78,6 +82,13 @@ const reservationFor = (startHour: number) =>
     phone: "+420777777777",
   });
 
+const completePreparation = (data: PreparePayStateData) =>
+  preparePayStateOptions?.onSuccess({
+    data,
+    input: { reservation: reservationFor(7) },
+  });
+
+const expiresAt = "2099-07-30T07:10:00.000Z";
 const genericError = m.reservationErrorMessage({}, { locale: "en-US" });
 
 const renderCheckout = () =>
@@ -141,11 +152,10 @@ describe("useReservationCheckout", () => {
     renderCheckout();
 
     act(() => {
-      preparePayStateOptions?.onSuccess({
-        data: {
-          status: "pricing_changed",
-          redirectUrl: "/en-US/checkout/pay?payState=fresh",
-        },
+      completePreparation({
+        status: "pricing_changed",
+        redirectUrl: "/en-US/checkout/pay?payState=fresh",
+        expiresAt,
       });
     });
 
@@ -160,9 +170,7 @@ describe("useReservationCheckout", () => {
     );
 
     act(() => {
-      preparePayStateOptions?.onSuccess({
-        data: { status: "error", message },
-      });
+      completePreparation({ status: "error", message });
     });
 
     expect(result.current.submissionError).toBe(message);
@@ -173,7 +181,7 @@ describe("useReservationCheckout", () => {
     const { result } = renderCheckout();
 
     act(() => {
-      preparePayStateOptions?.onSuccess({ data: { status: "ready" } });
+      completePreparation({ status: "ready" });
     });
 
     expect(result.current.submissionError).toBe(genericError);
@@ -185,8 +193,10 @@ describe("useReservationCheckout", () => {
     renderCheckout();
     const succeed = () =>
       act(() => {
-        preparePayStateOptions?.onSuccess({
-          data: { status: "ready", redirectUrl: "/en-US/checkout/pay" },
+        completePreparation({
+          status: "ready",
+          redirectUrl: "/en-US/checkout/pay",
+          expiresAt,
         });
       });
 
@@ -202,8 +212,10 @@ describe("useReservationCheckout", () => {
     renderCheckout();
 
     act(() => {
-      preparePayStateOptions?.onSuccess({
-        data: { status: "ready", redirectUrl: "/en-US/checkout/pay" },
+      completePreparation({
+        status: "ready",
+        redirectUrl: "/en-US/checkout/pay",
+        expiresAt,
       });
     });
 
