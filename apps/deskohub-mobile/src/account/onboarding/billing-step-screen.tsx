@@ -11,6 +11,7 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { color } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { billingSectionsOf } from "../billing/billing-form-model";
 import {
   BillingAddressSection,
@@ -92,6 +93,7 @@ function BillingStepForm({
       style={styles.screen}
     >
       <ScrollScreen>
+        <QuietUpdateOffer backdrop="paper" />
         <OnboardingStepHead
           step="billing"
           title={m.profile_billing_details_section({}, { locale })}

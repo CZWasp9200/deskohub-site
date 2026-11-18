@@ -14,6 +14,7 @@ import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { LoadingIndicator } from "../ui/loading-indicator";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
+import { useUpdateOfferHost } from "../updates/update-offer";
 import { type AuthCallback, parseAuthCallbackParams } from "./auth-callback";
 import { nativeAuthRuntime } from "./native-auth-runtime";
 import { completeAuthCallback } from "./native-sign-in";
@@ -52,6 +53,8 @@ const startAgain = () =>
  * step.
  */
 export function AuthCallbackScreen() {
+  // Signing in is brief and part of the sign-in flow: no update offer here.
+  useUpdateOfferHost();
   const locale = useAppLocale();
   const insets = useSafeAreaInsets();
   const {

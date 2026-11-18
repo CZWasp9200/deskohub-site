@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { UpdateOfferSection } from "../../updates/update-offer-gallery-section";
 import { ButtonsSection } from "./buttons-section";
 import { FeedbackSection } from "./feedback-section";
 import { FieldsSection } from "./fields-section";
@@ -30,6 +31,7 @@ export const gallerySections = [
     title: "Toast, empty states, skeletons, loading",
     Section: FeedbackSection,
   },
+  { key: "update-offer", title: "Update offer", Section: UpdateOfferSection },
   {
     key: "navigation",
     title: "App bar and masthead",
