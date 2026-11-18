@@ -3,6 +3,8 @@
 // eligible reservation. Development builds only; removed before review.
 import "@/shared/polyfills/temporal";
 import { notFound } from "next/navigation";
+import { WithdrawalConfirmPreview } from "@/app/[locale]/_design-preview/withdrawal-confirm-preview";
+import { withdrawalQuoteStub } from "@/app/[locale]/_design-preview/withdrawal-quote-stub";
 import { connection } from "next/server";
 import { AccountLayoutShell } from "@/features/account/components/account-layout-shell";
 import { AccountPage } from "@/features/account/components/account-page";
@@ -176,7 +178,7 @@ export default async function WithdrawalDesignPreviewPage({
 }) {
   if (process.env.NODE_ENV !== "development") notFound();
   await connection();
-  const { placement, state, view } = await searchParams;
+  const { placement, state, view, withdraw } = await searchParams;
   const onSite = await loadOnSite(placement);
 
   return runWithRequestLocale((locale) => (
@@ -212,6 +214,16 @@ export default async function WithdrawalDesignPreviewPage({
             }
           />
         </ReservationDetailsModal>
+      )}
+      {withdraw && (
+        <WithdrawalConfirmPreview
+          locale={locale}
+          quote={withdrawalQuoteStub(withdraw, locale)}
+          reference={
+            withdraw === "partial" ? "R-20261117-0043" : "R-20261117-0042"
+          }
+          state={withdraw}
+        />
       )}
     </>
   ));

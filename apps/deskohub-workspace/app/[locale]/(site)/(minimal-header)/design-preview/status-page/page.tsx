@@ -3,6 +3,8 @@
 // a synthetic confirmed reservation. Development builds only.
 import "@/shared/polyfills/temporal";
 import { notFound } from "next/navigation";
+import { WithdrawalConfirmPreview } from "@/app/[locale]/_design-preview/withdrawal-confirm-preview";
+import { withdrawalQuoteStub } from "@/app/[locale]/_design-preview/withdrawal-quote-stub";
 import { connection } from "next/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
 import { CheckoutStatusPage } from "@/features/checkout/components/checkout-status-page";
@@ -35,9 +37,10 @@ export default async function StatusPageDesignPreview({
 }) {
   if (process.env.NODE_ENV !== "development") notFound();
   await connection();
-  const { state } = await searchParams;
+  const { state, withdraw } = await searchParams;
 
   return runWithRequestLocale((locale) => (
+    <>
     <CheckoutStatusPage
       locale={locale}
       presentation="page"
@@ -48,5 +51,16 @@ export default async function StatusPageDesignPreview({
           : `/${locale}/reservation/status/${orderId}?withdraw=1`
       }
     />
+      {withdraw && (
+        <WithdrawalConfirmPreview
+          locale={locale}
+          quote={withdrawalQuoteStub(withdraw, locale)}
+          reference={
+            withdraw === "partial" ? "R-20261117-0043" : "R-20261117-0042"
+          }
+          state={withdraw}
+        />
+      )}
+    </>
   ));
 }
