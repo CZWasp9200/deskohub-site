@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CustomerMarketingPreferencesRejected } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Option } from "effect";
-import {
-  AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { CustomerWriteUnconfirmed } from "../../customer-api/customer-request";
 import {
   CustomerViewError,

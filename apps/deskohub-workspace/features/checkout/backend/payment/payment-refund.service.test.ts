@@ -10,8 +10,8 @@ import {
   type NexiService as NexiServiceTag,
 } from "@deskohub/nexi";
 import { Clock, Context, Duration, Effect, Fiber, Layer } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type { NexiPaymentAttempt } from "../repositories/payment-attempt.repository";
@@ -514,9 +514,7 @@ describe("PaymentRefundService", () => {
       readonly statements?: Duration.Input;
     }) => {
       const { NexiService } = await import("@deskohub/nexi");
-      const { makeWithTransaction } = await import(
-        "effect/unstable/sql/SqlClient"
-      );
+      const { makeWithTransaction } = await import("effect/sql/SqlClient");
       const { PaymentRefundRepository } = await import(
         "../repositories/payment-refund.repository"
       );
@@ -527,9 +525,9 @@ describe("PaymentRefundService", () => {
           "@test/RefundClaimTransaction"
         ),
         spanAttributes: [],
-        acquireConnection: Effect.sleep(phases.acquire).pipe(
-          Effect.as([undefined, {}] as const)
-        ),
+        // As PgClient does: only the wait for a connection is interruptible.
+        acquireConnection: (restore) =>
+          restore(Effect.sleep(phases.acquire)).pipe(Effect.as({})),
         begin: () => Effect.sleep(phases.begin),
         commit: () => Effect.sleep(phases.commit),
         rollback: () => Effect.sleep(phases.rollback),

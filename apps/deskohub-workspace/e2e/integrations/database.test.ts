@@ -1,8 +1,8 @@
 import { expect, mock, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutRow } from "../types";
@@ -523,4 +523,3 @@ const makeCheckoutRow = () =>
     reservation_id: "reservation-1",
     security_token: "test-security-token",
   }) as CheckoutRow;
-

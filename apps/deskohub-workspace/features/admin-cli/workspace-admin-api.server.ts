@@ -19,8 +19,8 @@ import {
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { DateTime, Effect, Layer, Match, Redacted, Schema } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   StandaloneAccessCodeAdministration,
   type StandaloneAccessCodeCreationError,

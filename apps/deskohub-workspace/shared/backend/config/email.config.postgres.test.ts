@@ -5,7 +5,7 @@ import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Data, Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient } from "@/db/database-client";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -87,7 +87,10 @@ describe.skipIf(!testDatabase)(
      */
     const databasePerBuild = Layer.effect(
       WorkspaceDatabase,
-      Effect.map(makeDatabaseClient(testDatabase.pool), WorkspaceDatabase.make)
+      Effect.map(
+        makeDatabaseClient(testDatabase.databasePool),
+        WorkspaceDatabase.make
+      )
     );
 
     /**

@@ -84,7 +84,7 @@ const DotyposFailureBase = Schema.Struct({
 });
 
 /** Dotypos could not serve the request. Nothing was applied, and the package's retries are spent. */
-export class DotyposUnavailable extends Schema.TaggedErrorClass<DotyposUnavailable>()(
+export class DotyposUnavailable extends Schema.TaggedError<DotyposUnavailable>()(
   "DotyposUnavailable",
   {
     ...DotyposFailureBase.fields,
@@ -99,7 +99,7 @@ export class DotyposUnavailable extends Schema.TaggedErrorClass<DotyposUnavailab
 ) {}
 
 /** Dotypos refused, or answered unusably in a way a retry would repeat. Nothing was applied. */
-export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()(
+export class DotyposRejected extends Schema.TaggedError<DotyposRejected>()(
   "DotyposRejected",
   {
     ...DotyposFailureBase.fields,
@@ -114,7 +114,7 @@ export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()(
 ) {}
 
 /** A write may have been applied. Settle it (reread or reconcile) before acting. Reads never raise it. */
-export class DotyposUncertain extends Schema.TaggedErrorClass<DotyposUncertain>()(
+export class DotyposUncertain extends Schema.TaggedError<DotyposUncertain>()(
   "DotyposUncertain",
   {
     ...DotyposFailureBase.fields,
@@ -129,13 +129,13 @@ export class DotyposUncertain extends Schema.TaggedErrorClass<DotyposUncertain>(
 ) {}
 
 /** A conditional (If-Match) write lost to a concurrent change, and no earlier attempt of the call was uncertain. Nothing was applied. */
-export class DotyposVersionConflict extends Schema.TaggedErrorClass<DotyposVersionConflict>()(
+export class DotyposVersionConflict extends Schema.TaggedError<DotyposVersionConflict>()(
   "DotyposVersionConflict",
   DotyposFailureBase.fields
 ) {}
 
 /** confirmReservation found the reservation cancelled, so confirmation cannot revive it. Nothing was applied. */
-export class DotyposReservationCancelledError extends Schema.TaggedErrorClass<DotyposReservationCancelledError>()(
+export class DotyposReservationCancelledError extends Schema.TaggedError<DotyposReservationCancelledError>()(
   "DotyposReservationCancelledError",
   { reservationId: DotyposReservationIdSchema, message: Schema.String }
 ) {}
@@ -157,7 +157,7 @@ export type DotyposReservationBookingField =
  * `booking-changed` names the facts that differ from the caller's booking;
  * `not-cancelled` is a matching reservation that is NEW. Nothing was applied.
  */
-export class DotyposReservationNotRestorable extends Schema.TaggedErrorClass<DotyposReservationNotRestorable>()(
+export class DotyposReservationNotRestorable extends Schema.TaggedError<DotyposReservationNotRestorable>()(
   "DotyposReservationNotRestorable",
   {
     reservationId: DotyposReservationIdSchema,

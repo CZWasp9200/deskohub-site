@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Tabs } from "expo-router";
 import { getFocusedRouteNameFromRoute } from "expo-router/react-navigation";
 import CalendarCheck from "lucide-react-native/icons/calendar-check";

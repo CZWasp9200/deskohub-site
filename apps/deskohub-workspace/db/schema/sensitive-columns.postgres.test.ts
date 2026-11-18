@@ -35,6 +35,7 @@ import {
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
@@ -556,7 +557,7 @@ const testIssuanceSensitiveColumn = async (index: number) => {
     key === "parameters"
       ? { parameters: value.parameters }
       : { code: value.code, expiresAt: value.expiresAt };
-  const connection = await testDatabase!.pool.connect();
+  const connection = await holdDatabaseConnection(testDatabase!);
   try {
     await connection.query("begin");
     const storedCount = (value: string | Temporal.Instant) =>
@@ -676,7 +677,7 @@ const testIssuanceSensitiveColumn = async (index: number) => {
     });
   } finally {
     await connection.query("rollback").catch(() => {});
-    connection.release();
+    await connection.release();
   }
 };
 
@@ -714,7 +715,7 @@ describe.skipIf(!testDatabase)("sensitive columns on Postgres", () => {
       const { schema = "public", name } = getTableConfig(table);
       const storedCountQuery = `select count(*)::int as count from "${schema}"."${name}" where "${column.name}" = $1`;
 
-      const connection = await testDatabase!.pool.connect();
+      const connection = await holdDatabaseConnection(testDatabase!);
       try {
         await connection.query("begin");
         const storedCount = (value: string) =>
@@ -814,7 +815,7 @@ describe.skipIf(!testDatabase)("sensitive columns on Postgres", () => {
         });
       } finally {
         await connection.query("rollback").catch(() => {});
-        connection.release();
+        await connection.release();
       }
     }
   );

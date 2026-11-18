@@ -4,7 +4,7 @@ import type {
   ProfileCompletionReferralOutcome,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Option } from "effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {
   makeFakeCustomerData,

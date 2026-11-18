@@ -3,7 +3,7 @@ import type {
   CustomerLocale,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Match } from "effect";
-import { type AsyncResult, Atom } from "effect/unstable/reactivity";
+import { type AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";

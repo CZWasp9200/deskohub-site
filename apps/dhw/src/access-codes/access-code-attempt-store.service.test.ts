@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   AdministrationStandaloneAccessCodeAttemptId,
   AdministrationStandaloneAccessCodeCreateInput,
   type AdministrationStandaloneAccessCodeCreateInputType,
   CliSessionId,
 } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Layer, Path, Schema } from "effect";
-import { KeyValueStore } from "effect/unstable/persistence";
+import { Effect, FileSystem, Layer, Path, Schema } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
+import { KeyValueStore } from "effect/persistence";
+import { PlatformLive } from "../platform";
 import {
   type AccessCodeAttemptIdentity,
   accessCodeAttemptReservationKey,
@@ -49,15 +54,17 @@ const makeStore = (
   directory = `/tmp/dhw-store-mem-${crypto.randomUUID()}`
 ) =>
   Effect.gen(function* () {
-    const crypto = yield* Crypto.Crypto;
+    const secureRandom = yield* SecureRandom.SecureRandom;
+    const digest = yield* Digest.Digest;
     const fileSystem = yield* FileSystem.FileSystem;
     return yield* makeAccessCodeAttemptStore({
       storeLayer: Layer.succeed(KeyValueStore.KeyValueStore, keyValueStore),
-      crypto,
+      secureRandom,
+      digest,
       fileSystem,
       directory,
     });
-  }).pipe(Effect.provide(BunServices.layer));
+  }).pipe(Effect.provide(PlatformLive));
 
 const withoutRemove = (keyValueStore: KeyValueStore.KeyValueStore) =>
   ({
@@ -90,7 +97,8 @@ const makeFileStore = (
   lockOptions?: { readonly waitMilliseconds: number }
 ) =>
   Effect.gen(function* () {
-    const crypto = yield* Crypto.Crypto;
+    const secureRandom = yield* SecureRandom.SecureRandom;
+    const digest = yield* Digest.Digest;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const storeLayer = KeyValueStore.layerFileSystem(directory).pipe(
@@ -99,12 +107,13 @@ const makeFileStore = (
     );
     return yield* makeAccessCodeAttemptStore({
       storeLayer,
-      crypto,
+      secureRandom,
+      digest,
       fileSystem,
       directory,
       ...(lockOptions && { lockOptions }),
     });
-  }).pipe(Effect.provide(BunServices.layer));
+  }).pipe(Effect.provide(PlatformLive));
 
 describe("AccessCodeAttemptStore", () => {
   test("keeps reservations independent per session and request identity", async () => {
@@ -153,19 +162,19 @@ describe("AccessCodeAttemptStore", () => {
 
   test("fails closed on a malformed matching record without affecting other identities", async () => {
     const result = await Effect.gen(function* () {
-      const crypto = yield* Crypto.Crypto;
+      const digest = yield* Digest.Digest;
       const keyValueStore = yield* makeMemoryKv;
       const store = yield* makeStore(keyValueStore);
       yield* store.reserve(identityA);
       const key = yield* accessCodeAttemptReservationKey({
-        crypto,
+        digest,
         identity: identityA,
       });
       yield* keyValueStore.set(key, "{not valid json");
       const malformedError = yield* Effect.flip(store.reserve(identityA));
       const unaffected = yield* store.reserve(identityB);
       return { malformedError, unaffected };
-    }).pipe(Effect.provide(BunServices.layer), Effect.runPromise);
+    }).pipe(Effect.provide(PlatformLive), Effect.runPromise);
 
     expect(
       result.malformedError instanceof Schema.SchemaError ||
@@ -181,6 +190,43 @@ describe("AccessCodeAttemptStore", () => {
     }).pipe(Effect.runPromise);
 
     expect(result).toBeInstanceOf(KeyValueStore.KeyValueStoreError);
+  });
+
+  test("stores each reservation in a file named after the SHA-256 of its identity", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "dhw-store-layout-"));
+    try {
+      const attemptId = await Effect.gen(function* () {
+        const store = yield* makeFileStore(directory);
+        return yield* store.reserve(identityA);
+      }).pipe(Effect.runPromise);
+
+      const identityDigest = createHash("sha256")
+        .update(
+          [
+            identityA.sessionId,
+            identityA.request.name,
+            identityA.request.startsAt,
+            identityA.request.endsAt,
+          ].join("\u0000")
+        )
+        .digest("hex");
+      const fileName = `access-code-attempt-${identityDigest}`;
+      expect(readdirSync(directory)).toEqual([fileName]);
+      expect(
+        JSON.parse(readFileSync(join(directory, fileName), "utf8"))
+      ).toEqual({
+        sessionId: identityA.sessionId,
+        request: {
+          name: identityA.request.name,
+          startsAt: identityA.request.startsAt,
+          endsAt: identityA.request.endsAt,
+        },
+        attemptId,
+        concluded: false,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("reserves one attempt id across concurrent store instances", async () => {
@@ -207,7 +253,7 @@ describe("AccessCodeAttemptStore", () => {
         Effect.flatMap((fileSystem) =>
           fileSystem.remove(directory, { recursive: true })
         ),
-        Effect.provide(BunServices.layer),
+        Effect.provide(PlatformLive),
         Effect.runPromise
       ).catch(() => {});
     }
@@ -216,12 +262,12 @@ describe("AccessCodeAttemptStore", () => {
   test("never steals an aged lock and fails closed with manual recovery", async () => {
     const directory = `/tmp/dhw-store-race-${crypto.randomUUID()}`;
     const result = await Effect.gen(function* () {
-      const crypto = yield* Crypto.Crypto;
+      const digest = yield* Digest.Digest;
       const fileSystem = yield* FileSystem.FileSystem;
       const holder = yield* makeFileStore(directory);
       const firstAttemptId = yield* holder.reserve(identityA);
       const reservationKey = yield* accessCodeAttemptReservationKey({
-        crypto,
+        digest,
         identity: identityA,
       });
       const lockPath = `${directory}/${reservationKey}.lock`;
@@ -246,13 +292,13 @@ describe("AccessCodeAttemptStore", () => {
       const recoveredAttemptId = yield* contender.reserve(identityA);
       return { firstAttemptId, recoveredAttemptId };
     })
-      .pipe(Effect.provide(BunServices.layer), Effect.runPromise)
+      .pipe(Effect.provide(PlatformLive), Effect.runPromise)
       .finally(() => {
         void FileSystem.FileSystem.pipe(
           Effect.flatMap((fileSystem) =>
             fileSystem.remove(directory, { recursive: true })
           ),
-          Effect.provide(BunServices.layer),
+          Effect.provide(PlatformLive),
           Effect.runPromise
         ).catch(() => {});
       });
@@ -263,12 +309,12 @@ describe("AccessCodeAttemptStore", () => {
   test("releases only its own lock and leaves a foreign lock untouched", async () => {
     const directory = `/tmp/dhw-store-race-${crypto.randomUUID()}`;
     await Effect.gen(function* () {
-      const crypto = yield* Crypto.Crypto;
+      const digest = yield* Digest.Digest;
       const fileSystem = yield* FileSystem.FileSystem;
       const store = yield* makeFileStore(directory);
       const attemptId = yield* store.reserve(identityA);
       const reservationKey = yield* accessCodeAttemptReservationKey({
-        crypto,
+        digest,
         identity: identityA,
       });
       const lockPath = `${directory}/${reservationKey}.lock`;
@@ -287,13 +333,13 @@ describe("AccessCodeAttemptStore", () => {
       );
       expect(attemptId).toBeDefined();
     })
-      .pipe(Effect.provide(BunServices.layer), Effect.runPromise)
+      .pipe(Effect.provide(PlatformLive), Effect.runPromise)
       .finally(() => {
         void FileSystem.FileSystem.pipe(
           Effect.flatMap((fileSystem) =>
             fileSystem.remove(directory, { recursive: true })
           ),
-          Effect.provide(BunServices.layer),
+          Effect.provide(PlatformLive),
           Effect.runPromise
         ).catch(() => {});
       });

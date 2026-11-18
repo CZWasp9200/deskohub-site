@@ -11,7 +11,7 @@ import type {
 import { and, eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type DiscountCodeClaimState,

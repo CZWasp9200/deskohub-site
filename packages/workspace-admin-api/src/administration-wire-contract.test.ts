@@ -6,7 +6,7 @@ import {
   HttpApiGroup,
   HttpApiSchema,
   OpenApi,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   dhwVersionHeader,
   MinimumDhwVersion,
@@ -125,7 +125,10 @@ const reachableComponents = (
  * declaration order (the last declared runs first), and the annotations
  * `dhw`, the MCP tools and the middleware read.
  */
-const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
+const wireContractOf = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const spec = OpenApi.fromApi(api);
@@ -136,7 +139,7 @@ const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
       groups[group.identifier] = {};
     },
     onEndpoint: ({ group, endpoint, mergedAnnotations, middleware }) => {
-      const reference = `${group.identifier}.${endpoint.name}`;
+      const reference = `${group.identifier}.${endpoint.identifier}`;
       const openApiPath = endpoint.path.replace(/:(\w+)\??/g, "{$1}");
       const operation =
         spec.paths[openApiPath]?.[
@@ -146,7 +149,7 @@ const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
         throw new Error(`${reference} is missing from the OpenAPI document.`);
       }
       operations.push(operation);
-      groups[group.identifier]![endpoint.name] = {
+      groups[group.identifier]![endpoint.identifier] = {
         method: endpoint.method,
         path: endpoint.path,
         parseOptions: {
@@ -411,15 +414,14 @@ const sentinelKeysOf = (schema: Json) => {
 
 /**
  * A union's alternatives, sorted only where decoding cannot depend on their
- * order. Effect narrows a union to its candidates by the input's runtime type,
- * or by the first sentinel (a required literal property or tuple element) the
- * input holds, trying sentinel keys in member order, and then decodes with
- * the first candidate that accepts the input. So the order is dropped only
+ * order. Effect narrows a union to its candidates by the input's runtime type
+ * and the sentinels (required literal properties or tuple elements) it holds,
+ * then tries the candidates in declaration order and decodes with the first
+ * that accepts the input. So the order is dropped only
  * when each pair of alternatives excludes each other and all of them share at
  * most one sentinel key, as `_tag`-discriminated errors and nullable values
  * do. A repeated alternative is dropped because it can never be the first to
- * accept an input. Nested unions stay nested: Effect does not narrow into
- * them.
+ * accept an input.
  */
 const unionAlternatives = (alternatives: ReadonlyArray<Json>) => {
   const distinct = [
@@ -558,7 +560,7 @@ const wireFormOf = (contract: RecordedContract) => {
   };
 };
 
-class SampleConflict extends Schema.TaggedErrorClass<SampleConflict>()(
+class SampleConflict extends Schema.TaggedError<SampleConflict>()(
   "SampleConflict",
   { message: Schema.String }
 ) {
@@ -567,7 +569,7 @@ class SampleConflict extends Schema.TaggedErrorClass<SampleConflict>()(
 
 const inProgressFields = { message: Schema.String, requestId: Schema.String };
 
-class SampleInProgress extends Schema.TaggedErrorClass<SampleInProgress>()(
+class SampleInProgress extends Schema.TaggedError<SampleInProgress>()(
   "SampleInProgress",
   inProgressFields
 ) {
@@ -575,20 +577,20 @@ class SampleInProgress extends Schema.TaggedErrorClass<SampleInProgress>()(
 }
 
 /** `SampleInProgress` on the wire, under another schema name. */
-class RenamedInProgress extends Schema.TaggedErrorClass<RenamedInProgress>(
+class RenamedInProgress extends Schema.TaggedError<RenamedInProgress>(
   "RenamedInProgress"
 )("SampleInProgress", inProgressFields) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
 /** `SampleInProgress` with a numeric request ID. */
-class NumberedInProgress extends Schema.TaggedErrorClass<NumberedInProgress>(
+class NumberedInProgress extends Schema.TaggedError<NumberedInProgress>(
   "NumberedInProgress"
 )("SampleInProgress", { message: Schema.String, requestId: Schema.Number }) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-class SampleMissing extends Schema.TaggedErrorClass<SampleMissing>()(
+class SampleMissing extends Schema.TaggedError<SampleMissing>()(
   "SampleMissing",
   { message: Schema.String }
 ) {
@@ -601,9 +603,10 @@ const pinnedNote = Schema.Struct({
   pinned: Schema.optionalKey(Schema.Boolean),
 });
 
-// Each excludes the other by `_tag`, but Effect narrows a union on the first
-// sentinel key the input holds, so `{ a: "a", b: "b", _tag: "B" }` decodes
-// only when `bTagged` comes first.
+// Each excludes the other by `_tag`, which Effect narrows a union on, so
+// `{ a: "a", b: "b", _tag: "B" }` decodes as `bTagged` in either order. The
+// contract still keeps their order, because each also holds a sentinel the
+// other lacks.
 const aTagged = Schema.Struct({
   a: Schema.Literal("a"),
   _tag: Schema.Literal("A"),
@@ -707,13 +710,31 @@ describe("administration wire contract", () => {
     expect(
       wireFormOf(sampleContract({ errors, payload: [pinnedNote, note] }))
     ).not.toEqual(declared);
+    const tagB = { a: "a", b: "b", _tag: "B" };
+    expect([
+      Schema.decodeUnknownSync(Schema.Union([aTagged, bTagged]))(tagB),
+      Schema.decodeUnknownSync(Schema.Union([bTagged, aTagged]))(tagB),
+    ]).toEqual([
+      { b: "b", _tag: "B" },
+      { b: "b", _tag: "B" },
+    ]);
     expect(
       wireFormOf(sampleContract({ errors, payload: [aTagged, bTagged] }))
     ).not.toEqual(
       wireFormOf(sampleContract({ errors, payload: [bTagged, aTagged] }))
     );
-    // `{ _tag: "A", a: "a", note: "n" }` decodes as `note` first when `aTagged`
-    // sits in a nested union, whose sentinels Effect does not narrow on.
+    // `{ _tag: "A", a: "a", note: "n" }` decodes as `note` either way: Effect
+    // tries a union's candidates in declaration order, nested or not, so a
+    // nested union changes nothing on the wire.
+    const noteAndA = { _tag: "A", a: "a", note: "n" };
+    expect(
+      Schema.decodeUnknownSync(Schema.Union([note, Schema.Union([aTagged])]))(
+        noteAndA
+      )
+    ).toEqual({ note: "n" });
+    expect(
+      Schema.decodeUnknownSync(Schema.Union([note, aTagged]))(noteAndA)
+    ).toEqual({ note: "n" });
     expect(
       wireFormOf(
         sampleContract({
@@ -721,7 +742,7 @@ describe("administration wire contract", () => {
           success: Schema.Union([note, Schema.Union([aTagged])]),
         })
       )
-    ).not.toEqual(
+    ).toEqual(
       wireFormOf(
         sampleContract({ errors, success: Schema.Union([note, aTagged]) })
       )

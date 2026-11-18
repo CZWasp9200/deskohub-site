@@ -5,7 +5,7 @@ description: Effect V4 code, Context.Service, Layer, Effect.fn, Effect.Do workfl
 
 # Deskohub Effect V4
 
-The repository pins `effect` 4.0.0-beta.85 with a local patch. V4 APIs differ from V3; check `node_modules/effect` before you use an API you remember from V3.
+The repository pins `effect` 4.1.4 with no local patch; only `@effect/openapi-generator` carries one. V4 APIs differ from V3, and 4.1 renamed many 4.0 beta APIs; check `node_modules/effect` before you use an API you remember.
 
 Read the references that match the change. For a broad service or feature refactor, read all of them before you edit.
 

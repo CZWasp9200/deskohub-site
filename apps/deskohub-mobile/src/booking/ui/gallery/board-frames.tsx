@@ -1,6 +1,6 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";
 import Moon from "lucide-react-native/icons/moon";

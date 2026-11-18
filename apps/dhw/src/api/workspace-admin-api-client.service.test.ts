@@ -48,7 +48,7 @@ import {
   dhwVersionHeader,
 } from "@deskohub/workspace-admin-api";
 import { Clock, Duration, Effect, Layer, Redacted, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { DHW_VERSION } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
 import {
@@ -257,6 +257,11 @@ describe("WorkspaceAdminApiClient", () => {
           currentTimeNanosUnsafe: () =>
             BigInt(elapsedRetryMilliseconds) * 1_000_000n,
           currentTimeNanos: Effect.sync(
+            () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
+          ),
+          monotonicTimeNanosUnsafe: () =>
+            BigInt(elapsedRetryMilliseconds) * 1_000_000n,
+          monotonicTimeNanos: Effect.sync(
             () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
           ),
           sleep: (duration) =>
@@ -1298,6 +1303,11 @@ describe("WorkspaceAdminApiClient", () => {
           currentTimeNanos: Effect.sync(
             () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
           ),
+          monotonicTimeNanosUnsafe: () =>
+            BigInt(elapsedRetryMilliseconds) * 1_000_000n,
+          monotonicTimeNanos: Effect.sync(
+            () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
+          ),
           sleep: (duration) =>
             Effect.sync(() => {
               elapsedRetryMilliseconds += Duration.toMillis(duration);
@@ -2091,6 +2101,8 @@ describe("WorkspaceAdminApiClient error sanitizing", () => {
     currentTimeMillis: Effect.succeed(0),
     currentTimeNanosUnsafe: () => 0n,
     currentTimeNanos: Effect.succeed(0n),
+    monotonicTimeNanosUnsafe: () => 0n,
+    monotonicTimeNanos: Effect.succeed(0n),
     sleep: () => Effect.void,
   };
 

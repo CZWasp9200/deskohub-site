@@ -9,7 +9,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { type Array as Arr, Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useRouter } from "expo-router";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";

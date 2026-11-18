@@ -107,7 +107,9 @@ const unreadSession = Layer.succeed(CustomerAuthentication, {
  * lock unless a test makes it unreachable.
  */
 const makeRepositoryLayer = (
-  sectionLock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+  sectionLock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  )
 ) => {
   const repositories = Layer.mergeAll(
     CustomerAccountLinkRepository.Default,
@@ -120,7 +122,7 @@ const makeRepositoryLayer = (
           WorkspaceDatabase,
           WorkspaceDatabase.make(testDatabase!.db)
         ),
-        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
       )
     )
   );
@@ -343,7 +345,7 @@ describe.skipIf(!testDatabase)(
         expect(marker.rows).toEqual([{ deletion_requested_at: null }]);
         expect(await readDeletedAt(account)).toBeNull();
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
       }
     });
 
@@ -475,7 +477,7 @@ describe.skipIf(!invoiceDatabase)(
       );
       const storage = Layer.mergeAll(
         invoiceDatabase!.layer,
-        WorkspaceDatabaseAdvisoryLock.makeLayer(invoiceDatabase!.pool),
+        WorkspaceDatabaseAdvisoryLock.makeLayer(invoiceDatabase!.databasePool),
         accountingKeys
       );
       const repositories = Layer.mergeAll(

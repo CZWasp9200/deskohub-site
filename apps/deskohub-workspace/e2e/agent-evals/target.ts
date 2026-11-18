@@ -60,9 +60,10 @@ export const assessAgentEvalDeployment = (
   return { kind: "preview" };
 };
 
-const transientRetries = Schedule.spaced("5 seconds").pipe(
-  Schedule.both(Schedule.recurs(2))
-);
+const transientRetries = Schedule.max([
+  Schedule.spaced("5 seconds"),
+  Schedule.recurs(2),
+]);
 
 /**
  * Reads the deployment behind the immutable base URL from the Vercel API and

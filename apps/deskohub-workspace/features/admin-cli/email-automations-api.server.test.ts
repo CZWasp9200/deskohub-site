@@ -23,7 +23,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Schema } from "effect";
-import { HttpApiMiddleware, HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
 import { automationDryRunFixture } from "@/features/email-campaigns/admin/automation/activation/automation-dry-run.test-utils";
 import {

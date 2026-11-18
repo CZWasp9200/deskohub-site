@@ -6,7 +6,8 @@ import type {
 import { AlgoPinSchema } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
 import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
-import { Context, Crypto, Data, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer, Schema } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import { reservationAccessGrants, workspaceReservations } from "@/db/schema";
@@ -259,7 +260,7 @@ export class ReservationAccessRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const crypto = yield* Crypto.Crypto;
+      const secureRandom = yield* SecureRandom.SecureRandom;
 
       const findByReservationId = Effect.fn(
         "ReservationAccessRepository.findByReservationId"
@@ -326,30 +327,16 @@ export class ReservationAccessRepository extends Context.Service<
         return yield* requireWithinReadLimit(rows, input.limit);
       });
 
-      const generateGrantId = (
-        operation: "create_pending" | "ensure",
-        reservationId: WorkspaceReservationId
-      ) =>
-        crypto.randomUUIDv7.pipe(
-          Effect.map(reservationAccessGrantIdSchema.make),
-          Effect.mapError(
-            () =>
-              new ReservationAccessStorageError({
-                operation,
-                reservationId,
-                message: "Reservation access grant ID could not be generated.",
-              })
-          )
-        );
+      const generateGrantId = () =>
+        secureRandom
+          .uuidV7()
+          .pipe(Effect.map(reservationAccessGrantIdSchema.make));
 
       const createPending = Effect.fn(
         "ReservationAccessRepository.createPending"
       )(function* (input: ReservationAccessTarget) {
         const { db } = yield* WorkspaceTransaction;
-        const id = yield* generateGrantId(
-          "create_pending",
-          input.reservationId
-        );
+        const id = yield* generateGrantId();
         const [grant] = yield* db
           .insert(reservationAccessGrants)
           .values(newPendingGrant(id, input))
@@ -447,7 +434,7 @@ export class ReservationAccessRepository extends Context.Service<
         reopenExpired,
         ensure: Effect.fn("ReservationAccessRepository.ensure")(
           function* (input) {
-            const id = yield* generateGrantId("ensure", input.reservationId);
+            const id = yield* generateGrantId();
             yield* db
               .insert(reservationAccessGrants)
               .values(newPendingGrant(id, input))

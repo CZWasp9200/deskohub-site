@@ -1,6 +1,6 @@
 import type { DotyposDiscountGroupId } from "@deskohub/dotypos";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountCodeId } from "@/features/discounts/persistence-contracts";
 import { discountCodeQueryParam } from "@/features/discounts/promotion-code";

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, type LogLevel, References } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import * as workspaceEnv from "@/env";
 import { captureWorkspaceLogs } from "@/shared/testing/workspace-telemetry.test-utils";
 

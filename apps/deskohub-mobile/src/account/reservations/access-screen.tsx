@@ -5,7 +5,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { DateTime, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import {
   type NativeStackHeaderProps,
   Stack,

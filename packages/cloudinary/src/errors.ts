@@ -2,14 +2,14 @@ import * as Data from "effect/Data";
 import * as Schema from "effect/Schema";
 import { CloudinaryPublicIdSchema } from "./schema";
 
-export class CloudinaryConfigError extends Schema.TaggedErrorClass<CloudinaryConfigError>()(
+export class CloudinaryConfigError extends Schema.TaggedError<CloudinaryConfigError>()(
   "CloudinaryConfigError",
   {
     message: Schema.String,
   }
 ) {}
 
-export class CloudinarySearchError extends Schema.TaggedErrorClass<CloudinarySearchError>()(
+export class CloudinarySearchError extends Schema.TaggedError<CloudinarySearchError>()(
   "CloudinarySearchError",
   {
     message: Schema.String,
@@ -18,7 +18,7 @@ export class CloudinarySearchError extends Schema.TaggedErrorClass<CloudinarySea
   }
 ) {}
 
-export class CloudinaryUploadError extends Schema.TaggedErrorClass<CloudinaryUploadError>()(
+export class CloudinaryUploadError extends Schema.TaggedError<CloudinaryUploadError>()(
   "CloudinaryUploadError",
   {
     message: Schema.String,
@@ -27,7 +27,7 @@ export class CloudinaryUploadError extends Schema.TaggedErrorClass<CloudinaryUpl
   }
 ) {}
 
-export class CloudinaryDestroyError extends Schema.TaggedErrorClass<CloudinaryDestroyError>()(
+export class CloudinaryDestroyError extends Schema.TaggedError<CloudinaryDestroyError>()(
   "CloudinaryDestroyError",
   {
     message: Schema.String,
@@ -37,7 +37,7 @@ export class CloudinaryDestroyError extends Schema.TaggedErrorClass<CloudinaryDe
   }
 ) {}
 
-export class CloudinaryPrefixDeleteError extends Schema.TaggedErrorClass<CloudinaryPrefixDeleteError>()(
+export class CloudinaryPrefixDeleteError extends Schema.TaggedError<CloudinaryPrefixDeleteError>()(
   "CloudinaryPrefixDeleteError",
   {
     message: Schema.String,
@@ -46,7 +46,7 @@ export class CloudinaryPrefixDeleteError extends Schema.TaggedErrorClass<Cloudin
   }
 ) {}
 
-export class CloudinaryRenameError extends Schema.TaggedErrorClass<CloudinaryRenameError>()(
+export class CloudinaryRenameError extends Schema.TaggedError<CloudinaryRenameError>()(
   "CloudinaryRenameError",
   {
     message: Schema.String,

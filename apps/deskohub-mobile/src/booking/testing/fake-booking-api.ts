@@ -42,7 +42,7 @@ import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   type FakeRequestOutcome,
   type FakeWorkspace,
@@ -81,8 +81,8 @@ import {
  */
 
 type BookingEndpoint = HttpApiGroup.Endpoints<typeof CustomerBookingApi>;
-export type BookingEndpointName = HttpApiEndpoint.Name<BookingEndpoint>;
-type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithName<
+export type BookingEndpointName = HttpApiEndpoint.Identifier<BookingEndpoint>;
+type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithIdentifier<
   BookingEndpoint,
   N
 >;

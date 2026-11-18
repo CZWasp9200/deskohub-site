@@ -1,5 +1,5 @@
 import { Effect, Predicate } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import sharp, { type OverlayOptions } from "sharp";
 import { ImageRenderingError, OsmTileRequestError } from "./errors";
 import { renderTextImage } from "./text-image";
@@ -42,6 +42,8 @@ export interface StaticMapImageOptions {
   readonly focus?: StaticMapFocus;
   /** Defaults to JPEG. */
   readonly format?: StaticMapImageFormat;
+  /** How many tiles are fetched at once. Defaults to all of them. */
+  readonly tileConcurrency?: number;
 }
 
 interface StaticMapFocus {
@@ -101,20 +103,26 @@ interface StaticMapInput {
   readonly height: number;
   readonly marker: boolean;
   readonly quality: number;
+  readonly tileConcurrency: number | "unbounded";
   readonly tileUrl: string;
   readonly tiles: readonly TilePlacement[];
   readonly userAgent: string;
   readonly width: number;
 }
 
-const fetchTileComposites = ({ tiles, tileUrl, userAgent }: StaticMapInput) =>
+const fetchTileComposites = ({
+  tileConcurrency,
+  tiles,
+  tileUrl,
+  userAgent,
+}: StaticMapInput) =>
   Effect.all(
     tiles.map(({ left, tile, top }) =>
       fetchTile({ tile, tileUrl, userAgent }).pipe(
         Effect.map((input) => ({ input, left, top }))
       )
     ),
-    { concurrency: "inherit" }
+    { concurrency: tileConcurrency }
   );
 
 const renderTiledMap = ({
@@ -310,6 +318,7 @@ const createStaticMapInput = (
     height: options.height,
     marker: look.marker,
     quality: look.quality,
+    tileConcurrency: options.tileConcurrency ?? "unbounded",
     tileUrl: options.tileUrl ?? defaultTileUrl,
     tiles: placeViewportTiles(viewport, options.zoom, tileSize),
     userAgent: options.userAgent ?? defaultUserAgent,

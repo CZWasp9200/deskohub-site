@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/http";
 import { IgloohomeRuntimeConfig } from "../config";
 import { IgloohomeRequestError } from "../errors";
 import type { IssuedHourlyAlgoPin, IssueHourlyAlgoPinInput } from "../types";
@@ -26,7 +26,7 @@ const makeIgloohomeService = Effect.gen(function* () {
         httpClient,
       });
       const response = yield* client
-        .createHourlyAlgoPin(encodeURIComponent(input.deviceId), {
+        .createHourlyAlgoPin(input.deviceId, {
           payload: {
             variance: input.variance,
             startDate: input.startsAt,

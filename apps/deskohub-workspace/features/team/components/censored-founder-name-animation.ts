@@ -1,6 +1,6 @@
 import { Effect, Random, Schedule, Stream } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 
 const censoredFounderNameLabel = "********";
 const scrambleCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*";
@@ -39,7 +39,7 @@ const animatedCharacterUpdates = Array.from(
 const animatedCensoredFounderNameResultAtom = Atom.make(
   animatedCharacterUpdates.pipe(
     Stream.scan(
-      censoredFounderNameLabel,
+      () => censoredFounderNameLabel,
       (label, [index, character]) =>
         `${label.slice(0, index)}${character}${label.slice(index + 1)}`
     )

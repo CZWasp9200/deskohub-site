@@ -1,12 +1,8 @@
 import * as OpenApiGenerator from "@effect/openapi-generator/OpenApiGenerator";
 import * as OpenApiPatch from "@effect/openapi-generator/OpenApiPatch";
 import { Config, Data, Effect } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientResponse,
-} from "effect/unstable/http";
-import type { OpenAPISpec } from "effect/unstable/httpapi/OpenApi";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
+import type { OpenAPISpec } from "effect/http-api/OpenApi";
 
 const generatedClientPath = Bun.fileURLToPath(
   new URL("../src/generated/effect.gen.ts", import.meta.url)
@@ -100,7 +96,7 @@ const downloadSchema = (schemaUrl: URL) =>
   );
 
 const generatePostHogClient = Effect.gen(function* () {
-  const schemaUrl = yield* Config.url("POSTHOG_OPENAPI_SCHEMA_URL").pipe(
+  const schemaUrl = yield* Config.URL("POSTHOG_OPENAPI_SCHEMA_URL").pipe(
     Config.withDefault(
       new URL("https://eu.posthog.com/api/schema/?format=json")
     )
@@ -128,6 +124,9 @@ const generatePostHogClient = Effect.gen(function* () {
   const generatedClient = yield* generator.generate(
     compatibleSchema as unknown as OpenAPISpec,
     {
+      // Keeps objects that omit `additionalProperties` as `Schema.Struct`s
+      // with `.fields` instead of open records of JSON values.
+      closeObjects: true,
       format: "httpclient",
       name: "PostHogClient",
     }

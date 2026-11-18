@@ -2,7 +2,7 @@ import "../../shared/polyfills/temporal";
 
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import isEmail from "validator/lib/isEmail.js";
 import { makeWorkspaceE2EDateAllocation } from "../allocation";
 import type { WorkspaceE2EConfig } from "../config";

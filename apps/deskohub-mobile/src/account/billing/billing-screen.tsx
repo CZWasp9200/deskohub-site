@@ -1,7 +1,7 @@
 import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult, type Atom } from "effect/unstable/reactivity";
+import { AsyncResult, type Atom } from "effect/reactivity";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect } from "react";

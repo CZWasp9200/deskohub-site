@@ -4,7 +4,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   IgloohomeRuntimeConfig,
   type IgloohomeRuntimeConfigObj,

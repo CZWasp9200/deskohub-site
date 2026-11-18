@@ -3,7 +3,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { DotyposWireFailure, toDotyposWireFailure } from "./api";
 
 const request = HttpClientRequest.get("https://api.dotykacka.test/v2/x");

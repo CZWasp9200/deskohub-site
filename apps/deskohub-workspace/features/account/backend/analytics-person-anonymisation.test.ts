@@ -4,11 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { PostHogProjectId } from "@deskohub/analytics-posthog/identifiers";
 import type { AnyValue } from "@opentelemetry/api-logs";
 import { Duration, Effect, Layer, Option, Redacted } from "effect";
-import {
-  HttpClient,
-  HttpClientError,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import type { AnalyticsConsentDecision } from "@/features/legal/analytics-consent-decision";
 import { mockWorkspaceActionRequest } from "@/shared/testing/workspace-action-request.test-utils";
 import { captureWorkspaceLogs } from "@/shared/testing/workspace-telemetry.test-utils";

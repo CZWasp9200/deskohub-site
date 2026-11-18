@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { AccountReadBudget, accountReadAllowance } from "./account-read-budget";
 import { CustomerApi, CustomerAuthApi } from "./customer-api.service";
 import { accountAtom, customerDataRuntime } from "./customer-data-runtime";

@@ -8,7 +8,7 @@ import {
   Option,
   Schema,
 } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { ExternalAPIError, NetworkError } from "../errors";
 import type {
   CreateHostedPaymentPageRequest,

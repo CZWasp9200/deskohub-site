@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer, Predicate } from "effect";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 import sharp from "sharp";
 import { generateStaticMapImage } from "./static-map";
 import { generateSvgPngBuffer } from "./svg-png";
@@ -44,7 +44,8 @@ const makeFetch = (
   Object.assign(handler, { preconnect: globalThis.fetch.preconnect });
 
 describe("generateStaticMapImage", () => {
-  test("starts independent tile requests with ambient concurrency", async () => {
+  /** A fetch whose tile responses wait until the test releases them. */
+  const heldTileFetch = () => {
     const requests: Request[] = [];
     const releases: Array<() => void> = [];
     const fetch = makeFetch(
@@ -63,21 +64,44 @@ describe("generateStaticMapImage", () => {
           );
         })
     );
-    const image = runWithFetch(
-      generateStaticMapImage({
-        ...staticMapOptions,
-        height: 2,
-        zoom: 1,
-        width: 2,
-      }).pipe(Effect.withConcurrency(4)),
-      fetch
-    );
+    const releaseAll = () => {
+      for (const release of releases.splice(0)) release();
+    };
+    return { fetch, requests, releaseAll };
+  };
+
+  const fourTileMap = { ...staticMapOptions, height: 2, zoom: 1, width: 2 };
+
+  test("starts every tile request at once by default", async () => {
+    const { fetch, requests, releaseAll } = heldTileFetch();
+    const image = runWithFetch(generateStaticMapImage(fourTileMap), fetch);
 
     await waitFor(() => requests.length > 0);
     try {
       expect(requests).toHaveLength(4);
     } finally {
-      for (const release of releases) release();
+      releaseAll();
+    }
+
+    await expect(image).resolves.toBeInstanceOf(Buffer);
+  });
+
+  test("keeps at most tileConcurrency tile requests in flight", async () => {
+    const { fetch, requests, releaseAll } = heldTileFetch();
+    const image = runWithFetch(
+      generateStaticMapImage({ ...fourTileMap, tileConcurrency: 2 }),
+      fetch
+    );
+
+    await waitFor(() => requests.length >= 2);
+    await waitFor(() => requests.length > 2);
+    try {
+      expect(requests).toHaveLength(2);
+      releaseAll();
+      await waitFor(() => requests.length === 4);
+      expect(requests).toHaveLength(4);
+    } finally {
+      releaseAll();
     }
 
     await expect(image).resolves.toBeInstanceOf(Buffer);

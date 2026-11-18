@@ -7,7 +7,7 @@ import {
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { providePerRequest } from "./provide-per-request";
 import { toWorkspaceWebHandler } from "./workspace-effect";
 
@@ -108,11 +108,16 @@ describe("providePerRequest", () => {
     expect(new Set(answers.map(({ nested }) => nested)).size).toBe(overlapping);
   });
 
-  test("is needed: a plain provide shares one instance between overlapping API requests", async () => {
+  // Effect 4.1's Layer.build forks the enclosing memo map; beta.85 shared it,
+  // so overlapping requests shared one instance.
+  test("a plain provide also builds per overlapping API request", async () => {
     const answers = await serveInstances()("/plain");
 
-    expect(new Set(answers.map(({ request }) => request)).size).toBe(1);
-    expect(new Set(answers.map(({ nested }) => nested)).size).toBe(1);
+    expect(new Set(answers.map(({ handler }) => handler)).size).toBe(1);
+    expect(new Set(answers.map(({ request }) => request)).size).toBe(
+      overlapping
+    );
+    expect(new Set(answers.map(({ nested }) => nested)).size).toBe(overlapping);
   });
 
   test("reuses a Layer the enclosing memo map already built", async () => {

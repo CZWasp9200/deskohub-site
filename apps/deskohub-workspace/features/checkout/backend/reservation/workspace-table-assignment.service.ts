@@ -7,6 +7,7 @@ import {
   type DotyposTableId,
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Option } from "effect";
+import { workspaceStatementConcurrency } from "@/db/database.service";
 import { workspaceProductMonitorOptionTableTags } from "@/features/checkout/product-catalog";
 import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
@@ -222,26 +223,30 @@ export class WorkspaceTableAssignmentService extends Context.Service<
       const loadInventory = Effect.fn(
         "WorkspaceTableAssignmentService.loadInventory"
       )((reservationInterval: DotyposReservationInterval) =>
-        Effect.all(
-          {
-            tables: dotypos.getTables(),
-            reservations:
-              dotypos.listActiveReservationsOverlapping(reservationInterval),
-            expiredDotyposReservationIds: workspaceReservations
-              .selectExpiredHoldDotyposReservationIds({
-                now: Temporal.Now.instant(),
-              })
-              .pipe(
-                Effect.tapError((cause) =>
-                  Effect.logWarning(
-                    "Workspace table assignment expired hold filter failed",
-                    { cause }
+        Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+          Effect.all(
+            {
+              tables: dotypos.getTables(),
+              reservations:
+                dotypos.listActiveReservationsOverlapping(reservationInterval),
+              expiredDotyposReservationIds: workspaceReservations
+                .selectExpiredHoldDotyposReservationIds({
+                  now: Temporal.Now.instant(),
+                })
+                .pipe(
+                  Effect.tapError((cause) =>
+                    Effect.logWarning(
+                      "Workspace table assignment expired hold filter failed",
+                      { cause }
+                    )
+                  ),
+                  Effect.orElseSucceed(
+                    (): readonly DotyposReservationId[] => []
                   )
                 ),
-                Effect.orElseSucceed((): readonly DotyposReservationId[] => [])
-              ),
-          },
-          { concurrency: "inherit" }
+            },
+            { concurrency }
+          )
         )
       );
 

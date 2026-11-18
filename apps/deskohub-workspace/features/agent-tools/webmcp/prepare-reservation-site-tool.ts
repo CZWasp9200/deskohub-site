@@ -55,10 +55,13 @@ const formReadinessTimeout = Duration.seconds(45);
 
 // The quote's link opens the reservation page on the validated selection;
 // its other fields are the summary the result repeats.
-const quoteSchema = Schema.Struct({
-  family: workspaceReservationKindSchema,
-  reservation_url: Schema.String,
-});
+const quoteSchema = Schema.StructWithRest(
+  Schema.Struct({
+    family: workspaceReservationKindSchema,
+    reservation_url: Schema.String,
+  }),
+  [Schema.Record(Schema.String, Schema.Json)]
+);
 
 type Quote = typeof quoteSchema.Type;
 
@@ -168,9 +171,7 @@ class PreparationStopped extends Data.TaggedError("PreparationStopped")<{
   readonly result: unknown;
 }> {}
 
-const decodeQuote = Schema.decodeUnknownEffect(quoteSchema, {
-  onExcessProperty: "preserve",
-});
+const decodeQuote = Schema.decodeUnknownEffect(quoteSchema);
 
 type PreparationRequest = {
   /** The form on the page the agent called the tool from. */

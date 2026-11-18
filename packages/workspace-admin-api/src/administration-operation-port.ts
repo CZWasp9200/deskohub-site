@@ -141,7 +141,7 @@ const operationErrorFields = {
 };
 
 /** The input can't be accepted as given. */
-export class OperationInputInvalid extends Schema.TaggedErrorClass<OperationInputInvalid>()(
+export class OperationInputInvalid extends Schema.TaggedError<OperationInputInvalid>()(
   "OperationInputInvalid",
   {
     ...operationErrorFields,
@@ -150,18 +150,18 @@ export class OperationInputInvalid extends Schema.TaggedErrorClass<OperationInpu
 ) {}
 
 /** The current state refuses the operation. */
-export class OperationConflict extends Schema.TaggedErrorClass<OperationConflict>()(
+export class OperationConflict extends Schema.TaggedError<OperationConflict>()(
   "OperationConflict",
   operationErrorFields
 ) {}
 
-export class OperationNotFound extends Schema.TaggedErrorClass<OperationNotFound>()(
+export class OperationNotFound extends Schema.TaggedError<OperationNotFound>()(
   "OperationNotFound",
   operationErrorFields
 ) {}
 
 /** A dependency is unavailable; retrying later can succeed. */
-export class OperationUnavailable extends Schema.TaggedErrorClass<OperationUnavailable>()(
+export class OperationUnavailable extends Schema.TaggedError<OperationUnavailable>()(
   "OperationUnavailable",
   operationErrorFields
 ) {}
@@ -170,13 +170,13 @@ export class OperationUnavailable extends Schema.TaggedErrorClass<OperationUnava
  * The caller isn't an administrator any more: the port re-reads the grant
  * on every operation, after the adapter authenticated the caller.
  */
-export class OperationUnauthorized extends Schema.TaggedErrorClass<OperationUnauthorized>()(
+export class OperationUnauthorized extends Schema.TaggedError<OperationUnauthorized>()(
   "OperationUnauthorized",
   operationErrorFields
 ) {}
 
 /** A request with the same ID is still being applied. */
-export class OperationInProgress extends Schema.TaggedErrorClass<OperationInProgress>()(
+export class OperationInProgress extends Schema.TaggedError<OperationInProgress>()(
   "OperationInProgress",
   { ...operationErrorFields, requestId: CliMutationRequestId }
 ) {}

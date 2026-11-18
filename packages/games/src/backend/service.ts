@@ -1,9 +1,5 @@
 import { Context, Effect, Layer, Schedule } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { decodeHTML } from "entities";
 import { GamesRequestError } from "../errors";
 import { type Game, make } from "../generated/effect.gen";

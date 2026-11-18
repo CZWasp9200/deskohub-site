@@ -5,6 +5,7 @@ import {
   AdministrationDotyposCustomerId,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -30,7 +31,10 @@ import {
 } from "./invoice-administration.service";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
-const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+const input = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+)({
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23",
   customer: {
     kind: "new",

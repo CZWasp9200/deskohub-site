@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer, Option, Redacted } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import type { MobileUpdatePublication } from "../mobile-update-publication";
 import { MobileUpdatePublishConfig } from "./mobile-update-publish-config";

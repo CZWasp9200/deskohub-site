@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import type { MessageMetadata } from "@vercel/queue";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Data, Effect, Result } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import {
   decideQueueRedelivery,
   deliverQueueMessage,

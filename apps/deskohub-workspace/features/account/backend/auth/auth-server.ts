@@ -35,7 +35,7 @@ import {
 import { after } from "next/server";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { workspaceDatabasePool } from "@/db/database-provider.server";
+import { authDatabasePool } from "@/db/database-provider.server";
 import type { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
@@ -1398,7 +1398,7 @@ const makeWorkspaceMagicLinkDelivery = () =>
   );
 
 export const makeWorkspaceAuthDatabase = () =>
-  drizzleAdapter(makeAuthDatabase(workspaceDatabasePool), {
+  drizzleAdapter(makeAuthDatabase(authDatabasePool), {
     provider: "pg",
     schema: drizzleAuthTables,
     schemaName: "auth",

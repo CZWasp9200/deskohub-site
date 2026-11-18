@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerOffering } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
-import type { AtomRegistry } from "effect/unstable/reactivity";
+import type { AtomRegistry } from "effect/reactivity";
 import { makeFakeCustomerData } from "../../customer-api/testing/customer-data-test-registry";
 import { bookingPreselectionKey } from "../booking-preselection";
 import {

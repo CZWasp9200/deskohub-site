@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import * as nextHeaders from "next/headers";
 import { savedConsentCookieValue } from "@/shared/testing/consent-cookie.test-utils";
 import {

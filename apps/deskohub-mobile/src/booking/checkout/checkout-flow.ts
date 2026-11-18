@@ -20,7 +20,7 @@ import {
   Ref,
   Stream,
 } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useMemo, useRef } from "react";
 import { reservationHistoryAtom } from "../../account/reservations/reservations-list-state";
 import {

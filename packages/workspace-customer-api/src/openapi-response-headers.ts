@@ -1,4 +1,4 @@
-import { OpenApi } from "effect/unstable/httpapi";
+import { OpenApi } from "effect/http-api";
 
 /** A string header a handler always sets on a response. */
 export interface ResponseHeaderDescription {

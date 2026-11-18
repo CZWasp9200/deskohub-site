@@ -15,14 +15,14 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Effect, Layer, Option, Schema } from "effect";
-import { FetchHttpClient, HttpRouter } from "effect/unstable/http";
+import { FetchHttpClient, HttpRouter } from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { AdministratorAgentAuthorization } from "@/features/administrators/backend/administrator-agent-authorization.service";
 import { AgentToolReply } from "@/features/agent-tools/agent-tool";
 import type { CustomerAgentCaller } from "@/features/agent-tools/customer-agent-caller";

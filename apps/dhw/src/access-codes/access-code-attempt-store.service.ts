@@ -8,7 +8,6 @@ import {
 } from "@deskohub/workspace-admin-api";
 import {
   Context,
-  Crypto,
   Effect,
   FileSystem,
   Layer,
@@ -17,7 +16,8 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
-import { KeyValueStore } from "effect/unstable/persistence";
+import { Digest, SecureRandom } from "effect/crypto";
+import { KeyValueStore } from "effect/persistence";
 import { DhwConfig } from "../config/dhw-config.service";
 
 const AccessCodeAttemptReservation = Schema.Struct({
@@ -66,7 +66,8 @@ export class AccessCodeAttemptStore extends Context.Service<
     this,
     Effect.gen(function* () {
       const config = yield* DhwConfig;
-      const crypto = yield* Crypto.Crypto;
+      const secureRandom = yield* SecureRandom.SecureRandom;
+      const digest = yield* Digest.Digest;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const storeLayer = KeyValueStore.layerFileSystem(
@@ -78,7 +79,8 @@ export class AccessCodeAttemptStore extends Context.Service<
 
       return yield* makeAccessCodeAttemptStore({
         storeLayer,
-        crypto,
+        secureRandom,
+        digest,
         fileSystem,
         directory: config.stateDirectory,
       });
@@ -99,10 +101,10 @@ const defaultLockOptions: AccessCodeAttemptLockOptions = {
 };
 
 export const accessCodeAttemptReservationKey = ({
-  crypto,
+  digest,
   identity,
 }: {
-  readonly crypto: Crypto.Crypto;
+  readonly digest: Digest.Digest["Service"];
   readonly identity: AccessCodeAttemptIdentity;
 }) => {
   const material = [
@@ -112,16 +114,15 @@ export const accessCodeAttemptReservationKey = ({
     identity.request.endsAt,
   ].join("\u0000");
   return Effect.map(
-    crypto.digest("SHA-256", new TextEncoder().encode(material)),
-    (digest) =>
-      keyPrefix +
-      Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
+    digest.digestHex(Digest.sha256, new TextEncoder().encode(material)),
+    (hex) => keyPrefix + hex
   );
 };
 
 export const makeAccessCodeAttemptStore = ({
   storeLayer,
-  crypto,
+  secureRandom,
+  digest,
   fileSystem,
   directory,
   lockOptions: partialLockOptions,
@@ -130,7 +131,8 @@ export const makeAccessCodeAttemptStore = ({
     KeyValueStore.KeyValueStore,
     PlatformError.PlatformError
   >;
-  readonly crypto: Crypto.Crypto;
+  readonly secureRandom: SecureRandom.SecureRandom["Service"];
+  readonly digest: Digest.Digest["Service"];
   readonly fileSystem: FileSystem.FileSystem;
   readonly directory: string;
   readonly lockOptions?: Partial<AccessCodeAttemptLockOptions>;
@@ -141,12 +143,11 @@ export const makeAccessCodeAttemptStore = ({
   };
   const serviceLayer = Layer.mergeAll(
     storeLayer,
-    Layer.succeed(Crypto.Crypto, crypto),
     Layer.succeed(FileSystem.FileSystem, fileSystem)
   );
 
   const reservationKey = (identity: AccessCodeAttemptIdentity) =>
-    accessCodeAttemptReservationKey({ crypto, identity });
+    accessCodeAttemptReservationKey({ digest, identity });
 
   const schemaStoreFor = (keyValueStore: KeyValueStore.KeyValueStore) =>
     KeyValueStore.toSchemaStore(keyValueStore, AccessCodeAttemptReservation);
@@ -174,7 +175,7 @@ export const makeAccessCodeAttemptStore = ({
     });
 
   const acquireLock = Effect.fn("acquireLock")(function* (lockPath: string) {
-    const token = `${process.pid} ${yield* crypto.randomUUIDv4}`;
+    const token = `${process.pid} ${yield* secureRandom.uuidV4()}`;
     const deadline = Date.now() + lockOptions.waitMilliseconds;
     while (true) {
       if (Date.now() >= deadline) {
@@ -240,7 +241,7 @@ export const makeAccessCodeAttemptStore = ({
           const attemptId = reuse
             ? existing.value.attemptId
             : AdministrationStandaloneAccessCodeAttemptId.make(
-                yield* crypto.randomUUIDv7
+                yield* secureRandom.uuidV7()
               );
           yield* writeAt(key, {
             sessionId: identity.sessionId,

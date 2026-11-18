@@ -53,6 +53,8 @@ const stopClockAt =
           currentTimeMillis: Effect.succeed(at.getTime()),
           currentTimeNanosUnsafe: () => BigInt(at.getTime()) * 1_000_000n,
           currentTimeNanos: Effect.succeed(BigInt(at.getTime()) * 1_000_000n),
+          monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+          monotonicTimeNanos: clock.monotonicTimeNanos,
           sleep: (duration) => clock.sleep(duration),
         })
       )

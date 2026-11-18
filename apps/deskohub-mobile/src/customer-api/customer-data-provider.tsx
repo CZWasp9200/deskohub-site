@@ -1,6 +1,6 @@
 import { RegistryProvider } from "@effect/atom-react";
 import type { Layer } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { type ReactNode, useState } from "react";
 import type { AccountSession } from "./account-scoped-storage";
 import { liveCustomerDataLayer } from "./customer-data-live";

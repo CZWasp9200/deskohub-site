@@ -12,10 +12,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BunServices } from "@effect/platform-bun";
-import { Crypto, Effect, FileSystem, Path } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { Effect, FileSystem, Path } from "effect";
+import { Digest } from "effect/crypto";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import type { BuildTarget } from "../build-info";
+import { PlatformLive } from "../platform";
 import { installExecutable } from "./executable-installer.service";
 import type { AvailableUpdate } from "./update-state-store.service";
 
@@ -91,12 +92,12 @@ const install = ({
     return yield* installExecutable({
       update,
       executable: { path, target: runningTarget },
-      crypto: yield* Crypto.Crypto,
+      digest: yield* Digest.Digest,
       fileSystem: yield* FileSystem.FileSystem,
       httpClient,
       path: yield* Path.Path,
     });
-  }).pipe(Effect.scoped, Effect.provide(BunServices.layer));
+  }).pipe(Effect.scoped, Effect.provide(PlatformLive));
   return { requestedUrls, run };
 };
 
@@ -119,6 +120,28 @@ describe("installExecutable", () => {
     expect(readFileSync(executablePath, "utf8")).toBe(candidate);
     expect(statSync(executablePath).mode & 0o777).toBe(0o755);
     expect(leftoverCandidates()).toEqual([]);
+  });
+
+  test("runs the candidate by its path with exactly `version --json`", async () => {
+    const shellSyntaxDirectory = join(directory, "dhw $HOME * | ~ 'q\"");
+    mkdirSync(shellSyntaxDirectory);
+    const path = join(shellSyntaxDirectory, "dhw");
+    writeFileSync(path, currentExecutable);
+    chmodSync(path, 0o755);
+    const argvPath = join(directory, "candidate-argv");
+    const candidate = `#!/bin/sh\nprintf '%s\\n' "$0" "$@" > '${argvPath}'\nprintf '%s\\n' '${JSON.stringify({ version: "1.1.0", target: "linux-x64-baseline" })}'\n`;
+    const { run } = install({ candidate, path });
+
+    await Effect.runPromise(run);
+
+    const [program, ...args] = readFileSync(argvPath, "utf8")
+      .trimEnd()
+      .split("\n");
+    expect(program?.startsWith(`${shellSyntaxDirectory}/.dhw-update-`)).toBe(
+      true
+    );
+    expect(args).toEqual(["version", "--json"]);
+    expect(readFileSync(path, "utf8")).toBe(candidate);
   });
 
   test("refuses to replace anything but a regular file", async () => {

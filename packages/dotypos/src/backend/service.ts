@@ -12,7 +12,7 @@ import {
   Schema,
   Struct,
 } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { DotyposRuntimeConfig } from "../config";
 import {
   type DotyposConditionalWriteFailure,
@@ -2907,10 +2907,7 @@ const makeDotyposService: Effect.Effect<
     getProducts,
     getCategories,
   };
-}).pipe(
-  Effect.annotateLogs("service", "DotyposService"),
-  Effect.withConcurrency(5)
-);
+}).pipe(Effect.annotateLogs("service", "DotyposService"));
 
 export class DotyposService extends Context.Service<
   DotyposService,

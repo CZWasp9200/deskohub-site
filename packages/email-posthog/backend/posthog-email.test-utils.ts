@@ -12,8 +12,8 @@ import {
   Redacted,
   References,
 } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 
 /** What the fake PostHog answers to one request. */
 export type FakeAnswer =

@@ -17,11 +17,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { customerAgentCatalog } from "@/features/agent-tools/customer-agent-catalog";
 import {
   administrationOperationTools,
@@ -50,7 +46,7 @@ HttpApi.reflect(WorkspaceAdminApi, {
       .flatMap(({ schemas }) => schemas)
       .flatMap(changeKeyPaths)
       .flatMap((path) => (path.length === 1 ? path : []));
-    payloadChangeKeys.set(`${group.identifier}.${endpoint.name}`, keys);
+    payloadChangeKeys.set(`${group.identifier}.${endpoint.identifier}`, keys);
   },
 });
 
@@ -203,9 +199,9 @@ describe("administration agent tool for restoring a reservation", () => {
 
 describe("administration agent tool derivation", () => {
   const Secret = Schema.String.annotate({ credential: true });
-  const apiWith = (group: HttpApiGroup.Any) =>
+  const apiWith = (group: HttpApiGroup.Constraint) =>
     HttpApi.make("testApi").add(group);
-  const authenticated = <Group extends HttpApiGroup.Any>(group: Group) =>
+  const authenticated = <Group extends HttpApiGroup.Constraint>(group: Group) =>
     group.middleware(AdministrationAuthentication);
 
   test("refuses an operation that returns a credential", () => {

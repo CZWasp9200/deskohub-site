@@ -250,7 +250,7 @@ export const reloadDeviceUntilMirrored = (device: E2EBrowserSession) =>
       schedule: Schedule.recurs(2).pipe(
         Schedule.setInputType<SessionReadRateLimited | WorkspaceE2EError>(),
         Schedule.passthrough,
-        Schedule.modifyDelay((failure) =>
+        Schedule.modifyDelay(({ output: failure }) =>
           Effect.succeed(
             failure._tag === "SessionReadRateLimited"
               ? failure.retryAfter

@@ -5,10 +5,10 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
   OpenApi,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { responseHeaders } from "./openapi-response-headers";
 
-const apiWith = (endpoint: HttpApiEndpoint.Any) =>
+const apiWith = (endpoint: HttpApiEndpoint.Constraint) =>
   HttpApi.make("test").add(HttpApiGroup.make("files").add(endpoint));
 
 describe("responseHeaders", () => {

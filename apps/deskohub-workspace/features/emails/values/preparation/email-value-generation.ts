@@ -138,9 +138,10 @@ export const retryTemporary =
     Effect.flatMap(EmailPreparationRetry, ({ retries, baseDelay }) =>
       effect.pipe(
         Effect.retry({
-          schedule: Schedule.exponential(baseDelay).pipe(
-            Schedule.both(Schedule.recurs(retries))
-          ),
+          schedule: Schedule.max([
+            Schedule.exponential(baseDelay),
+            Schedule.recurs(retries),
+          ]),
           while: isTemporary,
         })
       )

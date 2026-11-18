@@ -1,11 +1,11 @@
 import "@/shared/testing/workspace-test-env";
 
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { EmailSentEvent } from "@deskohub/email";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { Effect, Layer, Logger } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { databaseClient, databasePostgresLayer } from "@/db/database-client";
 import { makePostHogDeliveryTrackingObserver } from "./posthog-delivery-tracking-observer";
 
 type LogRecord = {
@@ -22,13 +22,16 @@ const logger = Logger.make((options) => {
 });
 
 // Nothing listens on port 1, so every query fails to connect.
-const unreachablePool = makeDatabasePool({
-  connectionString: "postgresql://workspace@127.0.0.1:1/workspace",
-  connectionTimeoutMillis: 1_000,
-});
 const unreachableDatabase = Layer.effect(
   WorkspaceDatabase,
-  Effect.map(makeDatabaseClient(unreachablePool), WorkspaceDatabase.make)
+  Effect.map(databaseClient, WorkspaceDatabase.make)
+).pipe(
+  Layer.provide(
+    databasePostgresLayer({
+      connectionString: "postgresql://workspace@127.0.0.1:1/workspace",
+      maxConnections: 10,
+    })
+  )
 );
 
 const notifySent = (event: Partial<EmailSentEvent>) =>
@@ -56,7 +59,6 @@ describe("PostHog delivery tracking observer", () => {
   beforeEach(() => {
     logRecords.length = 0;
   });
-  afterAll(() => unreachablePool.end());
 
   test("logs a delivery it could not record instead of failing the send", async () => {
     const deliveryId = EmailDeliveryIdSchema.make("posthog-unrecorded");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Layer, Logger, Option, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import {
   DotyposRuntimeConfigSchema,
   makeDotyposRuntimeConfigLayer,

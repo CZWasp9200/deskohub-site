@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Data } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { isDatabaseUnavailable } from "./database-unavailable";
 
 class QueueTestDomainError extends Data.TaggedError("QueueTestDomainError")<{

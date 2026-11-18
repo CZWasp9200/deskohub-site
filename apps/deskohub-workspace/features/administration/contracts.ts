@@ -17,17 +17,19 @@ export const reservationCancellationStandardSchema = Schema.toStandardSchemaV1(
 export type ReservationCancellationInput =
   typeof reservationCancellationSchema.Type;
 
-// Spreading the contract's fields drops its strict parse options, so the
-// struct restates them.
 const reservationRestorationSchema = Schema.Struct({
   reservationId: AdministrationWorkspaceReservationId,
   ...AdministrationReservationRestorationInput.fields,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 
 export const reservationRestorationStandardSchema = Schema.toStandardSchemaV1(
-  reservationRestorationSchema
+  reservationRestorationSchema,
+  {
+    parseOptions: {
+      errors: "all",
+      onExcessProperty: "error",
+    },
+  }
 );
 
 export type ReservationRestorationInput =

@@ -136,6 +136,45 @@ describe("DotyposService.getMenuItems", () => {
     expect(result.products[0]?.id).toBe(duplicate.id);
   });
 
+  test("loads every category's products concurrently", async () => {
+    const categories = [
+      category({ id: "first" }),
+      category({ id: "second" }),
+      category({ id: "third" }),
+    ];
+    let inFlight = 0;
+    let mostInFlight = 0;
+    const getProducts = mock(() =>
+      Effect.sync(() => {
+        inFlight += 1;
+        mostInFlight = Math.max(mostInFlight, inFlight);
+      }).pipe(
+        Effect.andThen(Effect.sleep("10 millis")),
+        Effect.ensuring(
+          Effect.sync(() => {
+            inFlight -= 1;
+          })
+        ),
+        Effect.as([])
+      )
+    );
+
+    await runWithShared(
+      (DotyposService) =>
+        Effect.gen(function* () {
+          const dotypos = yield* DotyposService;
+          return yield* dotypos.getMenuItems;
+        }),
+      {
+        getCategories: mock(() => Effect.succeed(categories)),
+        getProducts,
+      }
+    );
+
+    expect(getProducts).toHaveBeenCalledTimes(categories.length);
+    expect(mostInFlight).toBe(categories.length);
+  });
+
   test("recovers failed category products load", async () => {
     setBoardgameTestEnv();
     const { DotyposRejected } = await import("@deskohub/dotypos");

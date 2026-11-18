@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { HttpApi, type HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { Context, Option } from "effect";
+import { HttpApi, type HttpApiGroup, OpenApi } from "effect/http-api";
+import { customerInputParseOptions } from "./customer-profile";
 import {
   CustomerRequestOriginCheck,
   CustomerSessionAuthentication,
@@ -25,7 +27,7 @@ const fixture = new URL(
   import.meta.url
 );
 
-const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Any>(
+const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const endpoints: Array<{
@@ -33,15 +35,20 @@ const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Any>(
     readonly group: string;
     readonly path: string;
     readonly middleware: ReadonlyArray<string>;
+    readonly payloadParseOptions: Option.Option<unknown>;
   }> = [];
   HttpApi.reflect(api, {
     onGroup: () => {},
-    onEndpoint: ({ group, endpoint, middleware }) => {
+    onEndpoint: ({ group, endpoint, middleware, mergedAnnotations }) => {
       endpoints.push({
-        reference: `${group.identifier}.${endpoint.name}`,
+        reference: `${group.identifier}.${endpoint.identifier}`,
         group: group.identifier,
         path: endpoint.path,
         middleware: [...middleware].map((service) => service.key),
+        payloadParseOptions: Context.getOption(
+          mergedAnnotations,
+          HttpApi.PayloadParseOptions
+        ),
       });
     },
   });
@@ -73,6 +80,38 @@ describe("WorkspaceCustomerApi", () => {
           ),
       }).toEqual({ reference: endpoint.reference, underGroupPrefix: true });
     }
+  });
+
+  // The account and checkout mutations refuse fields they don't know and
+  // report every issue, on the server and in the typed client.
+  test("decodes exactly the customer input payloads strictly", () => {
+    const strict = endpoints.filter(({ payloadParseOptions }) =>
+      Option.isSome(payloadParseOptions)
+    );
+
+    expect(
+      strict.map(({ reference, payloadParseOptions }) => ({
+        reference,
+        options: Option.getOrUndefined(payloadParseOptions),
+      }))
+    ).toEqual(
+      [
+        "account.updateProfile",
+        "account.updateLocale",
+        "account.completeProfile",
+        "account.saveMarketingPreferences",
+        "account.syncAnalyticsConsent",
+        "account.saveAnalyticsPreference",
+        "account.requestDeletion",
+        "reservations.reopenPaymentPage",
+        "reservations.retryPayment",
+        "booking.createCheckout",
+        "booking.applyCheckoutDiscountCode",
+        "booking.clearCheckoutDiscountCode",
+        "booking.acceptCheckoutPriceChange",
+        "booking.submitCheckout",
+      ].map((reference) => ({ reference, options: customerInputParseOptions }))
+    );
   });
 
   // HttpApiBuilder wraps the handler in each middleware in insertion order,

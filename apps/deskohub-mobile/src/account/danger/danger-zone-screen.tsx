@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Match } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { router } from "expo-router";
 import Check from "lucide-react-native/icons/check";
 import KeyRound from "lucide-react-native/icons/key-round";

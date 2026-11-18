@@ -7,7 +7,7 @@ import {
   type AdministrationCampaignTemplatePreviewInputType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect, FileSystem, Option } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   InvalidMutationInputError,
   runAuthenticatedCommand,
@@ -40,43 +40,44 @@ const templatesListCommand = Command.make("list", {}, () =>
 const templatesPreviewCommand = Command.make(
   "preview",
   {
-    templateKey: Argument.choice(
+    templateKey: Argument.Literals(
       "template-key",
       AdministrationCampaignTemplateKey.literals
     ),
     locale: campaignLocaleFlag("locale").pipe(
       Flag.withDescription(`Locale to render: ${campaignLocaleShortNames}`)
     ),
-    campaign: Flag.string("campaign").pipe(
+    campaign: Flag.String("campaign").pipe(
       Flag.withSchema(AdministrationCampaignId),
       Flag.optional,
       Flag.withDescription("Render a saved campaign's texts")
     ),
-    purpose: Flag.choice(
+    purpose: Flag.Literals(
       "purpose",
       AdministrationCampaignPurpose.literals
     ).pipe(Flag.optional, Flag.withDescription("Purpose of unsaved texts")),
-    subject: Flag.string("subject").pipe(
+    subject: Flag.String("subject").pipe(
       Flag.optional,
       Flag.withDescription("Subject of unsaved texts")
     ),
-    preheader: Flag.string("preheader").pipe(
+    preheader: Flag.String("preheader").pipe(
       Flag.optional,
       Flag.withDescription("Preheader of unsaved texts")
     ),
-    body: Flag.string("body").pipe(
+    body: Flag.String("body").pipe(
       Flag.optional,
       Flag.withDescription("Markdown body file of unsaved texts")
     ),
-    operationalReason: Flag.string("operational-reason").pipe(
+    operationalReason: Flag.String("operational-reason").pipe(
       Flag.optional,
       Flag.withDescription("Footer reason line of unsaved operational texts")
     ),
-    output: Flag.string("output").pipe(
+    output: Flag.String("output").pipe(
       Flag.optional,
       Flag.withDescription("Write the rendered email to this file")
     ),
-    text: Flag.boolean("text").pipe(
+    text: Flag.Boolean("text").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Render the plain-text version instead of HTML")
     ),
   },

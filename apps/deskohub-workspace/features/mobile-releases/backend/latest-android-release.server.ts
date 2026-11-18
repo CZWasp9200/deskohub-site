@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Effect, type Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { readSharedSnapshot } from "@/shared/backend/shared-snapshot";
 import type { AndroidRelease } from "../android-release";
 import {

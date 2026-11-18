@@ -477,7 +477,7 @@ function* censorDrizzleQueryError(
 ): CensorSteps {
   const result: MutableLogAnnotations = {
     _tag: value._tag,
-    parameterCount: value.params.length,
+    parameterCount: value.params?.length ?? 0,
   };
   seen.set(value, result);
 
@@ -745,8 +745,16 @@ export const censorLoggerOptions = (
   };
 };
 
+// Effect 4.1's logfmt upper-cases the level (`level=ERROR`); log drains,
+// alerts and log queries match the level name the lines have always carried
+// (`level=Error`). The level is the first `level=` token, after the timestamp.
 const CensoringFormatter = Logger.make((options) =>
-  Logger.formatLogFmt.log(censorLoggerOptions(options))
+  Logger.formatLogFmt
+    .log(censorLoggerOptions(options))
+    .replace(
+      `level=${options.logLevel.toUpperCase()}`,
+      `level=${options.logLevel}`
+    )
 );
 
 const CensoringLogger = Logger.withLeveledConsole(CensoringFormatter);

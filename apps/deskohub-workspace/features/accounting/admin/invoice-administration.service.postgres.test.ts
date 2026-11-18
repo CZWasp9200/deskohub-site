@@ -10,6 +10,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationInvoiceCreateInput,
   type AdministrationInvoiceCreateInputType,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
 import { Cause, Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -37,7 +38,10 @@ import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-request
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+const input = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+)({
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23",
   customer: {
     kind: "new",
@@ -196,7 +200,8 @@ describe.skipIf(!testDatabase)(
         )
       );
       const secondInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24",
@@ -291,7 +296,8 @@ describe.skipIf(!testDatabase)(
         document,
       });
       const existingCustomerInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         customer: {
@@ -509,7 +515,8 @@ describe.skipIf(!testDatabase)(
         async ({ phone, written }) => {
           const { calls, layer } = claimLayer("claimed", null);
           const withPhone = Schema.decodeUnknownSync(
-            AdministrationInvoiceCreateInput
+            AdministrationInvoiceCreateInput,
+            administrationInputParseOptions
           )({
             ...existingCustomerInput,
             customer: {

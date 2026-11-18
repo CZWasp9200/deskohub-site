@@ -14,7 +14,7 @@ import { CampaignSigningKeyInvalid } from "../errors";
 export const loadCampaignSigningKeys = (
   purpose: "confirmation-code" | "unsubscribe-token"
 ) =>
-  Config.string("BETTER_AUTH_SECRETS").pipe(
+  Config.String("BETTER_AUTH_SECRETS").pipe(
     Effect.map(parseBetterAuthSecrets),
     Effect.flatMap((secrets) =>
       Match.value(secrets).pipe(

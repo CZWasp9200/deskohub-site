@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 
 /**
  * The fields of the Workspace's `GET /api/mobile/releases/latest` reply the

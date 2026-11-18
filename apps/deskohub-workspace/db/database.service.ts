@@ -1,7 +1,8 @@
 import { Context, Effect, Latch, Layer, Option, Stream } from "effect";
-import type { SqlClient, SqlConnection } from "effect/unstable/sql";
+import type { SqlClient, SqlConnection } from "effect/sql";
 import type { DatabaseClient, RootDatabaseClient } from "./database-client";
 import type { DatabaseQueryError } from "./sql-constraint";
+import { boundStatement, statementTimeoutOf } from "./statement-timeout";
 import { openLockLedger } from "./workspace-lock-ledger";
 
 /**
@@ -16,8 +17,8 @@ interface IWorkspaceDatabase {
   readonly db: WorkspaceDatabaseClient;
   /**
    * Runs `effect` in one transaction on `db`; inside another transaction on
-   * the same client it is a savepoint. Provides `WorkspaceTransaction` and runs
-   * `effect` with concurrency 1. A failed COMMIT is a defect, not a failure.
+   * the same client it is a savepoint. Provides `WorkspaceTransaction`. A
+   * failed COMMIT is a defect, not a failure.
    */
   readonly transaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>
@@ -39,6 +40,17 @@ export class WorkspaceTransaction extends Context.Service<
 >()("WorkspaceTransaction") {}
 
 /**
+ * Concurrency for statements a helper fans out: one at a time inside a
+ * Workspace transaction, whose single connection runs one statement at a
+ * time, and unbounded outside. Use it only in modules that never open or
+ * name a transaction themselves (`workspace-transaction-concurrency`).
+ */
+export const workspaceStatementConcurrency: Effect.Effect<1 | "unbounded"> =
+  Effect.map(Effect.serviceOption(WorkspaceTransaction), (open) =>
+    Option.isSome(open) ? 1 : "unbounded"
+  );
+
+/**
  * Runs a transaction body on a view of the transaction's connection that
  * notices a statement starting while another is still running, or still
  * running when the body ends, and then dies, so the transaction rolls back.
@@ -47,15 +59,21 @@ export class WorkspaceTransaction extends Context.Service<
  * ROLLBACK. It refuses streamed queries before they reach the connection.
  * Transactional code runs one statement at a time; this catches concurrency
  * the lint rule cannot see, such as a helper in another module that sets its
- * own `concurrency`.
+ * own `concurrency`. Each statement on the view, savepoints included, is
+ * bounded by the client's statement timeout.
  */
 const oneStatementAtATime = <A, E, R>(
-  client: SqlClient.SqlClient,
+  client: SqlClient.Base,
   body: Effect.Effect<A, E, R>
 ) =>
   Effect.flatMap(Effect.serviceOption(client.transactionService), (open) => {
     if (Option.isNone(open)) return body;
-    const [connection, depth] = open.value;
+    // Effect SQL keys a level's end and its `afterCommit` callbacks by this
+    // tuple, so the view replaces the connection inside it rather than
+    // providing a tuple of its own.
+    const level = open.value as [SqlConnection.Connection, number];
+    const [connection] = level;
+    const bounded = boundStatement(statementTimeoutOf(client));
     let running = 0;
     let overlapped = false;
     let ended = false;
@@ -81,29 +99,55 @@ const oneStatementAtATime = <A, E, R>(
     const exclusive = <B, F>(statement: Effect.Effect<B, F>) =>
       Effect.acquireUseRelease(
         enter,
-        () => statement,
+        () => bounded(statement),
         () => leave
       );
-    const guarded: SqlConnection.Connection = {
-      execute: (sql, params, transformRows) =>
-        exclusive(connection.execute(sql, params, transformRows)),
-      executeRaw: (sql, params) =>
-        exclusive(connection.executeRaw(sql, params)),
-      executeValues: (sql, params) =>
-        exclusive(connection.executeValues(sql, params)),
-      executeUnprepared: (sql, params, transformRows) =>
-        exclusive(connection.executeUnprepared(sql, params, transformRows)),
+    // Inherits the driver connection's own fields, which Effect SQL's
+    // transaction cleanup reads.
+    const guarded: SqlConnection.Connection = Object.create(connection, {
+      execute: {
+        value: ((sql, params, transformRows) =>
+          exclusive(
+            connection.execute(sql, params, transformRows)
+          )) satisfies SqlConnection.Connection["execute"],
+      },
+      executeRaw: {
+        value: ((sql, params) =>
+          exclusive(
+            connection.executeRaw(sql, params)
+          )) satisfies SqlConnection.Connection["executeRaw"],
+      },
+      executeValues: {
+        value: ((sql, params) =>
+          exclusive(
+            connection.executeValues(sql, params)
+          )) satisfies SqlConnection.Connection["executeValues"],
+      },
+      executeValuesUnprepared: {
+        value: ((sql, params) =>
+          exclusive(
+            connection.executeValuesUnprepared(sql, params)
+          )) satisfies SqlConnection.Connection["executeValuesUnprepared"],
+      },
+      executeUnprepared: {
+        value: ((sql, params, transformRows) =>
+          exclusive(
+            connection.executeUnprepared(sql, params, transformRows)
+          )) satisfies SqlConnection.Connection["executeUnprepared"],
+      },
       // A stream's reader decides when its statement ends, and may keep it
       // open past the body, so the view could not wait for it.
-      executeStream: () =>
-        Stream.die(
-          new Error(
-            "A Workspace transaction refuses streamed queries; read the rows with a query instead"
-          )
-        ),
-    };
+      executeStream: {
+        value: (() =>
+          Stream.die(
+            new Error(
+              "A Workspace transaction refuses streamed queries; read the rows with a query instead"
+            )
+          )) satisfies SqlConnection.Connection["executeStream"],
+      },
+    });
+    level[0] = guarded;
     return body.pipe(
-      Effect.provideService(client.transactionService, [guarded, depth]),
       // A finalizer, so the view also closes when the fiber is interrupted;
       // interruption skips the `Effect.exit` below. It runs before Effect SQL
       // ends the transaction, so a statement still running finishes inside it.
@@ -144,24 +188,44 @@ export class WorkspaceDatabase extends Context.Service<
                 "A Workspace transaction was opened on a different database client inside another"
               )
             )
-          : db.transaction(() => {
-              const body = effect.pipe(
-                Effect.provideService(
-                  WorkspaceTransaction,
-                  WorkspaceTransaction.of({ db })
-                ),
-                Effect.withConcurrency(1),
-                // Bounded lock waits nest on this client's own transaction.
-                openLockLedger({
-                  nested: Option.isSome(open),
-                  db,
-                  savepoint: transaction,
+          : Effect.suspend(() => {
+              // Effect SQL fails the transaction when COMMIT fails and its
+              // rollback succeeds; past a successful body that is a defect.
+              let bodySucceeded = false;
+              return db
+                .transaction(() => {
+                  const body = effect.pipe(
+                    Effect.provideService(
+                      WorkspaceTransaction,
+                      WorkspaceTransaction.of({ db })
+                    ),
+                    // Bounded lock waits nest on this client's own transaction.
+                    openLockLedger({
+                      nested: Option.isSome(open),
+                      db,
+                      savepoint: transaction,
+                    })
+                  );
+                  // A nested call already runs on the guarded connection.
+                  return (
+                    Option.isSome(open)
+                      ? body
+                      : oneStatementAtATime(db.$client, body)
+                  ).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        bodySucceeded = true;
+                      })
+                    )
+                  );
                 })
-              );
-              // A nested call already runs on the guarded connection.
-              return Option.isSome(open)
-                ? body
-                : oneStatementAtATime(db.$client, body);
+                .pipe(
+                  Effect.catch((error) =>
+                    bodySucceeded && Option.isNone(open)
+                      ? Effect.die(error)
+                      : Effect.fail(error)
+                  )
+                );
             })
       );
     return WorkspaceDatabase.of({ db, transaction });

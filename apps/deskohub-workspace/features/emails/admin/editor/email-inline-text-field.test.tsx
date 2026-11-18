@@ -1,6 +1,9 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { EmailDraft } from "@deskohub/workspace-admin-api";
+import {
+  administrationInputParseOptions,
+  EmailDraft,
+} from "@deskohub/workspace-admin-api";
 import type { Editor } from "@tiptap/core";
 import type { ReactNode } from "react";
 import { FormProvider, type UseFormReturn, useForm } from "react-hook-form";
@@ -50,7 +53,7 @@ function Host({
   readonly onForm: (form: DraftForm) => void;
 }) {
   const form = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, administrationInputParseOptions),
     defaultValues,
   });
   onForm(form);

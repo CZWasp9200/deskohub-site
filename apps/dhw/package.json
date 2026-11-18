@@ -12,8 +12,8 @@
   "dependencies": {
     "@deskohub/i18n": "workspace:*",
     "@deskohub/workspace-admin-api": "workspace:*",
-    "@effect/platform-bun": "4.0.0-beta.85",
-    "effect": "4.0.0-beta.85",
+    "@effect/platform-bun": "4.1.4",
+    "effect": "4.1.4",
     "semver": "^7.7.4"
   },
   "devDependencies": {

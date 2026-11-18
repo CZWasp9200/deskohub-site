@@ -556,7 +556,7 @@ const exportService = (
 ) => {
   const storage = Layer.mergeAll(
     postgres!.layer,
-    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres!.pool),
+    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres!.databasePool),
     AccountingSnapshotKeyService.Default,
     NodeCrypto.layer
   );

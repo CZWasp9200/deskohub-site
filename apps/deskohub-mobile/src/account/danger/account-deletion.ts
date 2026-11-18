@@ -4,7 +4,7 @@ import {
   RequestCustomerAccountDeletion,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Exit, Match, Option, Predicate, Schema } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import type { ReauthenticationOutcome } from "../../auth/reauthentication";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {

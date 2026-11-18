@@ -4,15 +4,9 @@ import { createHmac } from "node:crypto";
 import { NodeCrypto } from "@effect/platform-node";
 import { and, eq, isNull } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Crypto,
-  Effect,
-  Layer,
-  Match,
-  type PlatformError,
-} from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import { Context, Effect, Layer, Match, type PlatformError } from "effect";
+import { SecureRandom } from "effect/crypto";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignRow,
@@ -175,7 +169,7 @@ export class CampaignConfirmationCodeService extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const crypto = yield* Crypto.Crypto;
+      const secureRandom = yield* SecureRandom.SecureRandom;
       const codeHashKey = yield* loadCodeHashKey;
 
       const hashCode = (campaignId: CampaignId, code: string) =>
@@ -183,7 +177,7 @@ export class CampaignConfirmationCodeService extends Context.Service<
           .update(`${campaignId}:${code}`)
           .digest("hex");
 
-      const makeCode = crypto
+      const makeCode = secureRandom
         .randomBytes(codeLength)
         .pipe(
           Effect.map((bytes) =>

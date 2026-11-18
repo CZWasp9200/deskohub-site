@@ -1,8 +1,9 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import { scheduleTask } from "@effect/atom-react";
 import { Effect, Layer } from "effect";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
 import {
   type CustomerDataServices,
   customerDataLayer,
@@ -87,7 +88,9 @@ export const makeFakeCheckout = async (kind: SampleAccountKind = "linked") => {
     never,
     CustomerDataServices
   > = Layer.mergeAll(browser.layer, referral.layer, sequentialBookingIds());
+  // React's scheduler, as the app's `RegistryProvider` schedules.
   const registry = AtomRegistry.make({
+    scheduleTask,
     initialValues: [
       Atom.initialValue(
         customerDataLayer,
