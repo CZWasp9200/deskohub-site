@@ -446,6 +446,17 @@ export class CustomerWithdrawalRefused extends Schema.TaggedErrorClass<CustomerW
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
+/**
+ * The statement needs the customer's name: the profile has none and the
+ * request didn't carry one.
+ */
+export class CustomerWithdrawalNameRequired extends Schema.TaggedErrorClass<CustomerWithdrawalNameRequired>()(
+  "CustomerWithdrawalNameRequired",
+  {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("UnprocessableEntity"));
+}
+
 const withdrawalUnitCount = Schema.Int.check(Schema.isGreaterThan(0));
 
 /**
@@ -492,6 +503,12 @@ export const CustomerWithdrawalReceipt = Schema.Struct({
  */
 export const WithdrawFromCustomerReservation = Schema.Struct({
   locale: CustomerLocale,
+  /**
+   * The name the customer typed for the statement when the profile has
+   * none. The server trims it, treats a blank one as absent, and ignores it
+   * when the profile name is known.
+   */
+  customerName: Schema.optionalKey(Schema.String),
 }).annotate({
   identifier: "WithdrawFromCustomerReservation",
   parseOptions: customerInputParseOptions,
@@ -629,6 +646,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
       error: [
         CustomerReservationNotFound.schema,
         CustomerWithdrawalRefused.schema,
+        CustomerWithdrawalNameRequired.schema,
         CustomerFeatureUnavailable.schema,
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
