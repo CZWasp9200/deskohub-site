@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FocusedStatusBar } from "./focused-status-bar";
 import { Text } from "./text";
 import { color, space } from "./tokens";
+import { type ContentWidth, useContentColumn, useViewport } from "./viewport";
 
 /**
  * The navy band at the top of a tab root, under the status bar (whose
@@ -21,6 +22,7 @@ export function Masthead({
   children,
   compact = false,
   actions,
+  contentWidth,
 }: {
   readonly title: string;
   readonly subtitle?: string;
@@ -28,35 +30,44 @@ export function Masthead({
   readonly compact?: boolean;
   /** Buttons at the end of a compact masthead's title line. */
   readonly actions?: ReactNode;
+  readonly contentWidth?: ContentWidth;
 }) {
   const insets = useSafeAreaInsets();
-  if (compact)
-    return (
-      <View style={[styles.band, { paddingTop: insets.top + space.md }]}>
-        <FocusedStatusBar style="light" />
-        <View style={styles.compactTitleLine}>
-          <Text variant="headline" role="heading" style={styles.compactTitle}>
+  const { isWide } = useViewport();
+  const column = useContentColumn(contentWidth);
+
+  return (
+    <View
+      style={[
+        styles.band,
+        !isWide && styles.compactBand,
+        { paddingTop: insets.top + space.md },
+      ]}
+    >
+      <FocusedStatusBar style="light" />
+      <View style={isWide ? column : undefined}>
+        {compact ? (
+          <View style={styles.compactTitleLine}>
+            <Text variant="headline" role="heading" style={styles.compactTitle}>
+              {title}
+            </Text>
+            {actions !== undefined && (
+              <View style={styles.actions}>{actions}</View>
+            )}
+          </View>
+        ) : null}
+        {children}
+        {!compact && (
+          <Text variant="display" tone="inverse" role="heading">
             {title}
           </Text>
-          {actions !== undefined && (
-            <View style={styles.actions}>{actions}</View>
-          )}
-        </View>
-        {children}
+        )}
+        {!compact && subtitle !== undefined && (
+          <Text variant="lead" style={styles.subtitle}>
+            {subtitle}
+          </Text>
+        )}
       </View>
-    );
-  return (
-    <View style={[styles.band, { paddingTop: insets.top + space.md }]}>
-      <FocusedStatusBar style="light" />
-      {children}
-      <Text variant="display" tone="inverse" role="heading">
-        {title}
-      </Text>
-      {subtitle !== undefined && (
-        <Text variant="lead" style={styles.subtitle}>
-          {subtitle}
-        </Text>
-      )}
     </View>
   );
 }
@@ -65,8 +76,8 @@ const styles = StyleSheet.create({
   band: {
     backgroundColor: color.navy,
     paddingBottom: space.md,
-    paddingHorizontal: space.xl,
   },
+  compactBand: { paddingHorizontal: space.xl },
   subtitle: { color: color.onNavyMuted, marginTop: 6 },
   compactTitleLine: {
     alignItems: "center",
