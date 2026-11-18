@@ -2,7 +2,10 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { and, asc, desc, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { Effect, Option, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import {
   accountingDocumentSnapshots,
   correctiveDocuments,
@@ -248,9 +251,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
     const rows = yield* db.select({ id: invoices.id }).from(invoices);
     // ponytail: decrypting the small invoice ledger in-process keeps one
     // repository path; add SQL pagination when the ledger is measurably large.
-    const loaded = yield* Effect.all(
-      rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+    const loaded = yield* Effect.flatMap(
+      workspaceStatementConcurrency,
+      (concurrency) =>
+        Effect.all(
+          rows.map(({ id }) => findById(id)),
+          { concurrency }
+        )
     );
     return loaded.filter((invoice) => invoice !== null);
   });
@@ -280,9 +287,12 @@ export const makeInvoiceReads = Effect.gen(function* () {
   const listWithUnreadable = Effect.fn("InvoiceRepository.listWithUnreadable")(
     function* () {
       const rows = yield* db.select({ id: invoices.id }).from(invoices);
-      const loaded = yield* Effect.all(
-        rows.map(({ id }) =>
-          findById(id).pipe(
+      const loaded = yield* Effect.flatMap(
+        workspaceStatementConcurrency,
+        (concurrency) =>
+          Effect.all(
+            rows.map(({ id }) =>
+              findById(id).pipe(
             Effect.map((invoice) => invoice && { readable: invoice }),
             // Whatever keeps the document from opening (a foreign key, a
             // missing key, a document that disagrees with its row), the
@@ -295,7 +305,8 @@ export const makeInvoiceReads = Effect.gen(function* () {
             )
           )
         ),
-        { concurrency: "inherit" }
+        { concurrency }
+      )
       );
       return {
         readable: loaded.flatMap((entry) =>
@@ -315,9 +326,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
       .select({ id: invoices.id })
       .from(invoices)
       .where(isNull(invoices.workspaceReservationId));
-    const loaded = yield* Effect.all(
-      rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+    const loaded = yield* Effect.flatMap(
+      workspaceStatementConcurrency,
+      (concurrency) =>
+        Effect.all(
+          rows.map(({ id }) => findById(id)),
+          { concurrency }
+        )
     );
     return loaded.flatMap((invoice) =>
       invoice && isManualInvoiceDocument(invoice.document)
@@ -361,11 +376,15 @@ export const makeInvoiceReads = Effect.gen(function* () {
           )
         )
         .orderBy(desc(invoices.issuedAt), desc(invoices.invoiceNumber));
-      const loaded = yield* Effect.all(
-        rows.map(({ id }) =>
-          loadCustomerInvoice(dotyposCustomerId, invoiceIdSchema.make(id))
-        ),
-        { concurrency: "inherit" }
+      const loaded = yield* Effect.flatMap(
+        workspaceStatementConcurrency,
+        (concurrency) =>
+          Effect.all(
+            rows.map(({ id }) =>
+              loadCustomerInvoice(dotyposCustomerId, invoiceIdSchema.make(id))
+            ),
+            { concurrency }
+          )
       );
       return loaded.filter((invoice) => invoice !== null);
     }

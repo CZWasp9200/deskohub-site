@@ -2,13 +2,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   CliOnly,
@@ -81,7 +82,8 @@ describe("standalone access-code contract", () => {
     endsAt: "2026-09-10T12:00",
   };
   const decodeCreateInput = Schema.decodeUnknownSync(
-    AdministrationStandaloneAccessCodeCreateInput
+    AdministrationStandaloneAccessCodeCreateInput,
+    administrationInputParseOptions
   );
   const decodeSiteLocal = Schema.decodeUnknownSync(
     AdministrationWorkspaceSiteLocalWholeHourDateTime
@@ -146,7 +148,8 @@ describe("standalone access-code contract", () => {
 
   test("discloses the PIN only through the created outcome", () => {
     const decodeOutcome = Schema.decodeUnknownSync(
-      AdministrationStandaloneAccessCodeCreationOutcome
+      AdministrationStandaloneAccessCodeCreationOutcome,
+      administrationInputParseOptions
     );
     const metadata = {
       attemptId,
@@ -267,7 +270,8 @@ describe("standalone access-code duration contract", () => {
 describe("standalone access-code CLI endpoint contract", () => {
   const attemptId = "01980000-0000-7000-8000-000000000042";
   const decodeRequest = Schema.decodeUnknownSync(
-    AdministrationStandaloneAccessCodeCreateRequest
+    AdministrationStandaloneAccessCodeCreateRequest,
+    administrationInputParseOptions
   );
 
   test("rejects excess properties and invalid windows before any handler runs", () => {
@@ -327,7 +331,10 @@ describe("administration contract", () => {
       variableSymbol: "1234567890",
       lines: [{ description: "Space rental", price: "-12.34" }],
     };
-    const decode = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput);
+    const decode = Schema.decodeUnknownSync(
+      AdministrationInvoiceCreateInput,
+      administrationInputParseOptions
+    );
 
     expect(decode(input)).toMatchObject(input);
     expect(
@@ -612,7 +619,10 @@ describe("administration contract", () => {
 
   test("validates discount mutations at the shared HTTP boundary", () => {
     const discountId = "01980000-0000-7000-8000-000000000001";
-    const decode = Schema.decodeUnknownSync(AdministrationDiscountMutation);
+    const decode = Schema.decodeUnknownSync(
+      AdministrationDiscountMutation,
+      administrationInputParseOptions
+    );
 
     expect(
       decode({
@@ -715,7 +725,10 @@ describe("administration contract", () => {
   });
   test("accepts cowork tier targets but not mixed or repeated cowork targets", () => {
     const decodeProducts = (products: unknown) =>
-      Schema.decodeUnknownSync(AdministrationDiscountMutation)({
+      Schema.decodeUnknownSync(
+        AdministrationDiscountMutation,
+        administrationInputParseOptions
+      )({
         kind: "create-discount",
         discount: {
           labels: { "cs-CZ": "Léto", "en-US": "Summer" },
@@ -760,7 +773,8 @@ describe("administration contract", () => {
     );
 
     const decodeInput = Schema.decodeUnknownSync(
-      AdministrationReservationProductDetailsBackfillInput
+      AdministrationReservationProductDetailsBackfillInput,
+      administrationInputParseOptions
     );
     expect(decodeInput({ dryRun: true, after: null })).toEqual({
       dryRun: true,
@@ -1246,7 +1260,7 @@ describe("administration operation groups", () => {
   test("refuses a minimum nothing checks, a check after a first one, and a CLI-only endpoint", () => {
     const declare =
       (
-        group: HttpApiGroup.Any,
+        group: HttpApiGroup.Constraint,
         options?: { readonly checkDhwVersionBeforeAuthentication: true }
       ) =>
       () =>
@@ -1313,7 +1327,7 @@ describe("discount code service dates contract", () => {
   const codeId = "01980000-0000-7000-8000-000000000001";
   const decodeMutation = Schema.decodeUnknownSync(
     AdministrationDiscountMutation,
-    { errors: "all", onExcessProperty: "error" }
+    administrationInputParseOptions
   );
   const codeConfiguration = {
     code: "SUMMER10",

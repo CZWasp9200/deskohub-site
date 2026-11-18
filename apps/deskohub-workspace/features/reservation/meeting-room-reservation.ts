@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
+import { Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { workspaceMeetingRoomCatalog } from "@/features/checkout/product-catalog";
 import { m } from "@/features/i18n";
 import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
@@ -314,7 +314,7 @@ const toMeetingRoomReservationSchemaIssue = (
 ) =>
   new SchemaIssue.Pointer(
     path,
-    new SchemaIssue.InvalidValue(Option.some(input), { message })
+    new SchemaIssue.InvalidValue({ message }, input)
   );
 
 const validateMeetingRoomReservationOrder = Effect.fn(
@@ -383,7 +383,7 @@ export const meetingRoomReservationOrderSchema = (
     meetingRoomReservationOrderInputSchema(defaultPhoneRegion);
   return inputSchema.pipe(
     Schema.decodeTo(normalizedMeetingRoomReservationOrderSchema, {
-      decode: SchemaGetter.transformOrFail(decodeMeetingRoomReservationOrder),
+      decode: SchemaGetter.transformEffect(decodeMeetingRoomReservationOrder),
       encode: SchemaGetter.transform(Schema.decodeUnknownSync(inputSchema)),
     })
   );

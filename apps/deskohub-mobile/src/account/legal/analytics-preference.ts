@@ -3,11 +3,7 @@ import type {
   SaveCustomerAnalyticsPreference,
 } from "@deskohub/workspace-customer-api";
 import { type Cause, Effect, Match } from "effect";
-import type {
-  AsyncResult,
-  Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import type { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { CurrentAccountConsentCheck } from "../../consent/account-consent-check";
 import { takeAccountDecision } from "../../consent/account-consent-sync";
 import { DeviceAnalyticsConsent } from "../../consent/use-analytics-consent";

@@ -3,7 +3,10 @@ import type {
   DotyposReservationInterval,
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Option, Result } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import {
   excludeDotyposReservationsById,
   type InvalidDotyposTableSeats,
@@ -223,19 +226,21 @@ const implementation = Effect.gen(function* () {
       yield* Effect.logInfo("Workspace availability inventory load started");
 
       const [tables, reservations, limitations, expiredDotyposReservationIds] =
-        yield* Effect.all(
-          [
-            inventory.tables,
-            inventory.listActiveReservationsOverlapping(
-              getDateRangeReservationInterval(input.dates)
-            ),
-            inventory.listLimitations({
-              from: input.dates[0]!.toString(),
-              to: input.dates.at(-1)!.toString(),
-            }),
-            loadExpiredHoldDotyposReservationIds(),
-          ],
-          { concurrency: "inherit" }
+        yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+          Effect.all(
+            [
+              inventory.tables,
+              inventory.listActiveReservationsOverlapping(
+                getDateRangeReservationInterval(input.dates)
+              ),
+              inventory.listLimitations({
+                from: input.dates[0]!.toString(),
+                to: input.dates.at(-1)!.toString(),
+              }),
+              loadExpiredHoldDotyposReservationIds(),
+            ],
+            { concurrency }
+          )
         );
       const replacementReservationId =
         input.occupancyExclusion?.dotyposReservationId;

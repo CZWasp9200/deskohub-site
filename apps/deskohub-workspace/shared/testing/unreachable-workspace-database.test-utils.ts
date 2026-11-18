@@ -1,15 +1,14 @@
 import { Effect, Layer } from "effect";
-import type { Pool } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import { type DatabasePool, makeDatabaseClient } from "@/db/database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 
 export interface UnreachableWorkspaceDatabase {
   readonly database: Layer.Layer<WorkspaceDatabase>;
   readonly advisoryLock: Layer.Layer<WorkspaceDatabaseAdvisoryLock>;
-  /** End it when the test is done. */
-  readonly pool: Pool;
+  /** Close it when the test is done. */
+  readonly pool: DatabasePool;
 }
 
 /**
@@ -18,9 +17,9 @@ export interface UnreachableWorkspaceDatabase {
  */
 export const connectUnreachableWorkspaceDatabase =
   async (): Promise<UnreachableWorkspaceDatabase> => {
-    const pool = makeDatabasePool({
+    const pool = await openDatabasePool({
       connectionString: "postgres://workspace:workspace@127.0.0.1:1/workspace",
-      ...databasePoolTimeouts,
+      maxConnections: 10,
     });
     const db = await Effect.runPromise(makeDatabaseClient(pool));
     return {

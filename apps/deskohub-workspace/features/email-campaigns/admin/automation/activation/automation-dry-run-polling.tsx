@@ -2,8 +2,8 @@
 
 import { useAtomMount, useAtomSubscribe } from "@effect/atom-react";
 import { Schedule, Stream } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 import { useRouter } from "next/navigation";
 
 /** Ticks while mounted; each tick asks for the dry run's progress again. */

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { type TracerProvider, trace } from "@opentelemetry/api";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { Effect } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 
 // Each build of the observability Layer the runtime and web handlers share
 // takes one tracer from the global tracer provider, which `registerOTel`

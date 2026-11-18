@@ -1,11 +1,4 @@
-import {
-  Data,
-  Effect,
-  Option,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-} from "effect";
+import { Data, Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import type {
   ReservationInterval,
   ReservationIntervalInput,
@@ -57,7 +50,7 @@ export const reservationIntervalSchema = reservationIntervalInputSchema.pipe(
       endsAt: instantStringSchema,
     }),
     {
-      decode: SchemaGetter.transformOrFail((input) =>
+      decode: SchemaGetter.transformEffect((input) =>
         normalizeReservationIntervalFields(
           input,
           workspaceSiteConstants.location.timeZone
@@ -122,8 +115,6 @@ const toSchemaIssue = (
 ) => {
   return new SchemaIssue.Pointer(
     [cause.path],
-    new SchemaIssue.InvalidValue(Option.some(input), {
-      message: cause.message,
-    })
+    new SchemaIssue.InvalidValue({ message: cause.message }, input)
   );
 };

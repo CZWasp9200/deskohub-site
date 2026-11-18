@@ -11,7 +11,7 @@ import {
   type AudienceFilterType,
 } from "@deskohub/workspace-admin-api";
 import { Effect, FileSystem, Option } from "effect";
-import { Flag } from "effect/unstable/cli";
+import { Flag } from "effect/cli";
 import { InvalidMutationInputError } from "../command-runtime";
 import { decodeJsonInput, readJsonInputFile } from "../json-input";
 
@@ -49,11 +49,11 @@ export const campaignBodyFileName = (
 ) => `${campaignLocaleLanguage(locale)}.md`;
 
 export const campaignLocaleFlag = (name: string) =>
-  Flag.choiceWithValue(name, campaignLocaleChoices);
+  Flag.ChoiceWithValue(name, campaignLocaleChoices);
 
 /** A repeatable `--<name> <locale>=<value>` flag. */
 export const localizedFlag = (name: string, description: string, min = 0) =>
-  Flag.string(name).pipe(
+  Flag.String(name).pipe(
     Flag.atLeast(min),
     Flag.withDescription(
       `${description}, as <locale>=<value> where the locale is ${campaignLocaleShortNames}; repeat per locale`

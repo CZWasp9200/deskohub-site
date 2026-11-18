@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Layer } from "effect";
-import {
-  AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import type { StoredConsent } from "../../consent/analytics-consent";
 import { makeFakeDeviceConsent } from "../../consent/testing/fake-device-consent";
 import { CustomerWriteUnconfirmed } from "../../customer-api/customer-request";

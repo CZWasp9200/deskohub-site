@@ -4,7 +4,7 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   useIsFocused,
   useNavigation,

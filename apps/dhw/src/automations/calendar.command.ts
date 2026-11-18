@@ -3,7 +3,7 @@ import {
   type CalendarPreviewType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import {
   campaignLocaleFlag,
   campaignLocaleShortNames,
@@ -22,12 +22,13 @@ const formatCalendarPreview = (preview: CalendarPreviewType) =>
 const calendarDescribeCommand = Command.make(
   "describe",
   {
-    expression: Flag.string("expression").pipe(
+    expression: Flag.String("expression").pipe(
       Flag.withDescription(
         'Calendar expression JSON, such as {"weekdays":["monday"],"hours":[9]}'
       )
     ),
-    wait: Flag.boolean("wait").pipe(
+    wait: Flag.Boolean("wait").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Describe it as a wait step's condition instead of a schedule trigger"
       )

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerInvoiceId } from "@deskohub/workspace-customer-api";
 import { Cause, Effect } from "effect";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import { DeviceCapabilityFailed } from "../../customer-api/device-capabilities";
 import { DownloadShareFailure } from "../../customer-api/share-downloaded-file";

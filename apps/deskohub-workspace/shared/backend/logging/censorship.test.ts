@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { DotyposUnavailable } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
@@ -16,7 +16,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Data, Effect, Logger, References } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { createTracingLive } from "../observability/telemetry-sinks";
 
 const syntheticEmail = testEmailAddress("synthetic");
@@ -33,6 +33,7 @@ import {
   createCensoredOtelLogger,
   createCensoredOtelSpanExporter,
   isSensitiveLogKey,
+  WorkspaceLoggerLive,
 } from "./censorship";
 
 class CustomValue {
@@ -1603,5 +1604,34 @@ describe("censorLogValue stack traces", () => {
     expect(
       stackOf("private", "Error: private\n    at anonymous (native)")
     ).toBe(CENSORED_LOG_VALUE);
+  });
+});
+
+describe("WorkspaceLoggerLive", () => {
+  test("names the level as the log lines always have", async () => {
+    const lines: string[] = [];
+    // The leveled console logger writes each formatted line as one string.
+    const capture = (line: string) => {
+      lines.push(line);
+    };
+    const error = spyOn(console, "error").mockImplementation(capture);
+    const warn = spyOn(console, "warn").mockImplementation(capture);
+    try {
+      await Effect.runPromise(
+        Effect.logError("failed").pipe(
+          Effect.andThen(Effect.logWarning("slow")),
+          Effect.provide(WorkspaceLoggerLive)
+        )
+      );
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+
+    expect(lines).toEqual([
+      expect.stringContaining(" level=Error "),
+      expect.stringContaining(" level=Warn "),
+    ]);
+    expect(lines.join("\n")).not.toMatch(/level=(ERROR|WARN)\b/);
   });
 });

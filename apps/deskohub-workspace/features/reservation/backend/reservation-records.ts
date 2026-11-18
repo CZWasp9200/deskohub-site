@@ -5,6 +5,7 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { Array as Arr, Context, Effect, Layer } from "effect";
+import { workspaceStatementConcurrency } from "@/db/database.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { SharedSnapshotLoadFailure } from "@/shared/backend/shared-snapshot";
 import {
@@ -44,9 +45,11 @@ export const readReservationSnapshotGroups = <E>(
     batch: readonly DotyposReservationId[]
   ) => Effect.Effect<readonly ReservationRecord[], E>
 ) =>
-  Effect.forEach(Arr.chunksOf([...new Set(ids)].toSorted(), 50), readBatch, {
-    concurrency: "inherit",
-  }).pipe(Effect.map((batches) => batches.flat()));
+  Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+    Effect.forEach(Arr.chunksOf([...new Set(ids)].toSorted(), 50), readBatch, {
+      concurrency,
+    })
+  ).pipe(Effect.map((batches) => batches.flat()));
 
 /** Reads every reservation record live from Dotypos. */
 const makeProviderReservationRecords = Effect.gen(function* () {

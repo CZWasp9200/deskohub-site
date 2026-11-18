@@ -3,7 +3,7 @@ import {
   type AdministrationCampaignAudienceType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect, Option } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   confirmationFlag,
   confirmChange,
@@ -14,18 +14,18 @@ import {
 } from "../command-runtime";
 import { readAudienceFilter, requireText } from "./campaign-input";
 
-const audienceIdArgument = Argument.string("audience-id").pipe(
+const audienceIdArgument = Argument.String("audience-id").pipe(
   Argument.withSchema(AdministrationCampaignAudienceId)
 );
 
 const filterFlags = {
-  filterFile: Flag.string("filter-file").pipe(
+  filterFile: Flag.String("filter-file").pipe(
     Flag.optional,
     Flag.withDescription(
       'JSON file with the audience filter tree: AND/OR groups of attribute conditions, e.g. {"_tag":"Group","operator":"and","filters":[{"attribute":"campaignEmailCount","_tag":"Condition","params":{"purpose":"marketing","period":{"_tag":"Last","count":10,"unit":"day"}},"operator":"eq","value":0}]}. To count emails of one campaign, set "purpose":"any" and "campaign":{"_tag":"Specific","campaignId":"<id>"}; {"_tag":"Past"} is any time so far. Count completed coworking intervals with "attribute":"reservationCount", "params":{"dateBasis":"visitEnd","period":{"_tag":"Past"},"product":{"family":"cowork","properties":[]}}, "operator":"eq" and "value":1 or 2. This counts ended, uncancelled bookings, not attendance.'
     )
   ),
-  filter: Flag.string("filter").pipe(
+  filter: Flag.String("filter").pipe(
     Flag.optional,
     Flag.withDescription("Audience filter tree as inline JSON")
   ),
@@ -45,7 +45,8 @@ const formatAudienceRow = (audience: AdministrationCampaignAudienceType) =>
 const audiencesListCommand = Command.make(
   "list",
   {
-    archived: Flag.boolean("archived").pipe(
+    archived: Flag.Boolean("archived").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Include archived audiences")
     ),
   },
@@ -103,7 +104,7 @@ const reportAudience = (
 const audiencesCreateCommand = Command.make(
   "create",
   {
-    title: Flag.string("title").pipe(Flag.withDescription("Audience title")),
+    title: Flag.String("title").pipe(Flag.withDescription("Audience title")),
     ...filterFlags,
   },
   ({ filter, filterFile, title }) =>
@@ -130,7 +131,7 @@ const audiencesUpdateCommand = Command.make(
   "update",
   {
     audienceId: audienceIdArgument,
-    title: Flag.string("title").pipe(
+    title: Flag.String("title").pipe(
       Flag.optional,
       Flag.withDescription("New audience title")
     ),

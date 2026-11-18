@@ -10,7 +10,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { StyleSheet, View } from "react-native";

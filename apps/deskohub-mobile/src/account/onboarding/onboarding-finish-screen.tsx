@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Redirect, useRouter } from "expo-router";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import CircleCheck from "lucide-react-native/icons/circle-check";

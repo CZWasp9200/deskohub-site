@@ -331,7 +331,7 @@ export class CampaignBatchDelivery extends Context.Service<
               )
             ),
         });
-        const [skipped, reachable] = Arr.separate(classified);
+        const [reachable, skipped] = Arr.separate(classified);
         return yield* renderMessages({
           send: input.send,
           recipients: reachable,

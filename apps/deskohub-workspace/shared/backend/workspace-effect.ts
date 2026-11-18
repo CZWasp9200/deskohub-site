@@ -2,7 +2,7 @@ import { NextEffect } from "@deskohub/next-effect";
 import { NodeHttpServer } from "@effect/platform-node";
 import { waitUntil } from "@vercel/functions";
 import { Cause, Data, Effect, Exit, identity, Layer, Result } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { unstable_rethrow } from "next/navigation";
 import { after } from "next/server";
 import {
@@ -392,19 +392,20 @@ export const toWorkspaceWebHandler = <A, E>(
     | Layer.Success<typeof NodeHttpServer.layerHttpServices>
   >
 ): ((request: Request) => Promise<Response>) => {
-  const { handler } = HttpRouter.toWebHandler(
-    Layer.merge(api, SharedWorkspaceObservabilityLive).pipe(
-      Layer.provide(NodeHttpServer.layerHttpServices)
-    ),
-    {
-      disableLogger: true,
-      // A Layer that registers routes or middleware memoizes with the router
-      // it was built for, so a memo map handlers shared would leave a later
-      // handler's router without them.
-      memoMap: Layer.forkMemoMapUnsafe(workspaceMemoMap),
-    }
-  );
+  // A Layer that registers routes or middleware memoizes with the router it
+  // was built for, so a memo map handlers shared would leave a later
+  // handler's router without them.
+  const memoMap = Layer.forkMemoMapUnsafe(workspaceMemoMap);
+  // Effect's web handler starts building its Layer when it's made; made on
+  // the first request, the API builds then, not when a route module loads.
+  let handler: ((request: Request) => Promise<Response>) | undefined;
   return (request) => {
+    handler ??= HttpRouter.toWebHandler(
+      Layer.merge(api, SharedWorkspaceObservabilityLive).pipe(
+        Layer.provide(NodeHttpServer.layerHttpServices)
+      ),
+      { disableLogger: true, memoMap }
+    ).handler;
     const response = handler(request);
     // The handler runs outside the Workspace runtime, so it schedules the
     // flush a run would.

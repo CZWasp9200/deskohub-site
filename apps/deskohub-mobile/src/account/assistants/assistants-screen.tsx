@@ -1,5 +1,5 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import Bot from "lucide-react-native/icons/bot";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { useState } from "react";

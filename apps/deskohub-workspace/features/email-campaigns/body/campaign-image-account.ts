@@ -7,7 +7,7 @@ import { Config, Effect, Option } from "effect";
  * the config provider.
  */
 export const campaignImageCloudName = Config.option(
-  Config.string("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME")
+  Config.String("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME")
 ).pipe(Effect.orDie);
 
 /** Campaign body images live under this folder, one subfolder per environment. */

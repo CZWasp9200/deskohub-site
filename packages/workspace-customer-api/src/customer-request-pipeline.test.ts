@@ -8,13 +8,13 @@ import {
   HttpRouter,
   HttpServer,
   HttpServerRequest,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   type HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { makeWorkspaceCustomerApiClient } from "./client";
 import { CustomerAccountApi } from "./customer-account-api";
 import type {
@@ -37,7 +37,7 @@ import {
  */
 // A group's `endpoints` record is typed loosely; this names each endpoint's
 // declared type.
-type AccountEndpoint<Name extends string> = HttpApiEndpoint.WithName<
+type AccountEndpoint<Name extends string> = HttpApiEndpoint.WithIdentifier<
   HttpApiGroup.Endpoints<typeof CustomerAccountApi>,
   Name
 >;
@@ -240,6 +240,17 @@ describe("the typed client's profile phone", () => {
 
     expect(updated).toEqual(Result.succeed({ status: "updated" }));
     expect(received).toEqual([{ firstName: "Ada", phone: "" }]);
+  });
+
+  test("refuses to send a field the contract doesn't know", async () => {
+    // A value with an extra field still has the payload's static type.
+    const payload = { firstName: "Ada", email: otherEmail };
+    const updated = await callTypedClient((client) =>
+      client.account.updateProfile({ payload })
+    );
+
+    expect(Result.isFailure(updated)).toBe(true);
+    expect(ran).toEqual([]);
   });
 
   test("never delivers a phone without a phone number", async () => {

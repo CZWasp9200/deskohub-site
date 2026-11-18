@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type {
   CustomerAgentCaller,
   CustomerAgentClientId,
@@ -17,7 +18,14 @@ mock.module("@/db/database-provider.server", () => ({
     WorkspaceDatabase,
     WorkspaceDatabase.make({} as never)
   ),
-  workspaceDatabasePool: { options: { max: 4 } },
+  workspaceDatabaseAdvisoryLockLayer: Layer.succeed(
+    WorkspaceDatabaseAdvisoryLock,
+    WorkspaceDatabaseAdvisoryLock.make({
+      client: {} as never,
+      maxConnections: 4,
+    })
+  ),
+  authDatabasePool: {},
 }));
 
 const { CustomerAgentAuthorization } = await import("@/features/account");

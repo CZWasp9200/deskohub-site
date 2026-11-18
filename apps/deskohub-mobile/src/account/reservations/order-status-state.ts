@@ -1,6 +1,6 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Option, Stream } from "effect";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { AccountReadBudget } from "../../customer-api/account-read-budget";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";

@@ -2,7 +2,7 @@ import "server-only";
 
 import { join } from "node:path";
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { generateStaticMapImage, type StaticMapImageOptions } from "osm";
 import { workspaceLocationMapImageOptions } from "@/shared/utils/workspace-location-map";
 
@@ -25,8 +25,11 @@ const attributionFont = {
 export const generateWorkspaceLocationMapImage = (
   options: StaticMapImageOptions = workspaceLocationMapImageOptions
 ) =>
-  generateStaticMapImage({ attributionFont, ...options }).pipe(
-    Effect.withConcurrency(workspaceLocationMapTileConcurrency),
+  generateStaticMapImage({
+    attributionFont,
+    ...options,
+    tileConcurrency: workspaceLocationMapTileConcurrency,
+  }).pipe(
     Effect.provide(FetchHttpClient.layer),
     Effect.provideService(FetchHttpClient.RequestInit, {
       cache: "force-cache",

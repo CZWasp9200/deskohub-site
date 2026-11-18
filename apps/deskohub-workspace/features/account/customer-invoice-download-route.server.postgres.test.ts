@@ -71,7 +71,7 @@ afterAll(() => postgres?.close());
 const makeInvoiceService = (auth: TestAuth) => {
   const storage = Layer.mergeAll(
     postgres!.layer,
-    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres!.pool),
+    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres!.databasePool),
     AccountingSnapshotKeyService.Default
   );
   const repositories = Layer.mergeAll(

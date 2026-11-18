@@ -55,7 +55,7 @@ export const loadAgentOfferings = Effect.fn("agentTools.loadOfferings")(
     loadPublicOfferings(locale).pipe(
       Effect.flatMap((listing) =>
         Effect.forEach(listing.offerings, toAgentOffering, {
-          concurrency: "inherit",
+          concurrency: "unbounded",
         }).pipe(
           Effect.map(
             (offerings): Omit<ListOfferingsResult, "business"> => ({

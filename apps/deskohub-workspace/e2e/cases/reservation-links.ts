@@ -1,6 +1,6 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import {
   type CanonicalPromotionCode,

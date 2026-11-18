@@ -7,7 +7,7 @@ import {
   AdministrationLegacyUsername,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   confirmationFlag,
   confirmChange,
@@ -43,7 +43,7 @@ const administratorsListCommand = Command.make("list", {}, () =>
 const administratorsGrantCommand = Command.make(
   "grant",
   {
-    email: Flag.string("email").pipe(
+    email: Flag.String("email").pipe(
       Flag.withSchema(AdministrationAccountEmail),
       Flag.withDescription(
         "Login email of the account to make an administrator"
@@ -101,7 +101,7 @@ export const describeRevocationTarget = (
 const administratorsRevokeCommand = Command.make(
   "revoke",
   {
-    accountId: Argument.string("account-id").pipe(
+    accountId: Argument.String("account-id").pipe(
       Argument.withSchema(AdministrationAccountId),
       Argument.withDescription(
         "Account id, as dhw administrators list shows it"
@@ -149,15 +149,16 @@ const formatRecordCounts = (
 const administratorsBackfillLegacyCommand = Command.make(
   "backfill-legacy",
   {
-    legacyUsername: Flag.string("legacy-username").pipe(
+    legacyUsername: Flag.String("legacy-username").pipe(
       Flag.withSchema(AdministrationLegacyUsername),
       Flag.withDescription("Legacy Basic-auth administrator username")
     ),
-    email: Flag.string("email").pipe(
+    email: Flag.String("email").pipe(
       Flag.withSchema(AdministrationAccountEmail),
       Flag.withDescription("Login email of the target Workspace account")
     ),
-    dryRun: Flag.boolean("dry-run").pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Report what would change without writing")
     ),
     yes: confirmationFlag,

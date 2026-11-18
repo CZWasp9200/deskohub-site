@@ -1,6 +1,6 @@
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { reservationsAccess } from "../account-gating";
 import { reservationHistoryAtom } from "./reservations-list-state";

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect, Layer, Redacted } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { AllocationRuntimeConfig } from "./config";
 import { GithubRunStatusService } from "./github-run-status.service";
 

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import { nativeBuildVersion } from "expo-application";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";

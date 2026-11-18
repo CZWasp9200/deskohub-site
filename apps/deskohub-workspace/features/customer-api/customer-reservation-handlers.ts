@@ -20,7 +20,7 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   currentReservationHistoryAccount,
   type CustomerReservationHistory as ReservationHistoryRecord,

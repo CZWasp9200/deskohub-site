@@ -200,7 +200,7 @@ describe.skipIf(!postgresDatabase)(
             Layer.mock(ReservationHoldCleanupScheduleService, {
               enqueueCleanup: spies.enqueueCleanup as never,
             }),
-            WorkspaceDatabaseAdvisoryLock.makeLayer(postgres.pool)
+            WorkspaceDatabaseAdvisoryLock.makeLayer(postgres.databasePool)
           )
         )
       );

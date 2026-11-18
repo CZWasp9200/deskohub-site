@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Cause, Effect, Exit } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { getDatasourceConfig } from "../config";
 import { makeTestE2EEnvironment } from "../e2e-env.test-fixture";

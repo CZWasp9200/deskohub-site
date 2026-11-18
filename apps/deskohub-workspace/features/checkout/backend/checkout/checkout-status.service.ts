@@ -6,7 +6,10 @@ import {
 } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Clock, Context, Duration, Effect, Layer, Match, Option } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import type { FulfillmentState, PaymentState } from "@/db/schema";
 import { checkoutStatusTraits } from "@/features/checkout/checkout-status-kind";
 import { getPaymentAttemptAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
@@ -367,28 +370,30 @@ const implementation = Effect.gen(function* () {
     >;
     readonly prefetchDotyposReservation: boolean;
   }) =>
-    Effect.all(
-      [
-        paymentAttempts.findDisplayableForReservation({
-          workspaceReservationId: input.reservation.id,
-          activePaymentAttemptId:
-            input.reservation.activePaymentAttemptId ?? undefined,
-          paymentState: input.reservation.paymentState,
-        }),
-        input.prefetchDotyposReservation
-          ? input.loadDotyposReservation
-          : Effect.void,
-        inventory.tables.pipe(
-          Effect.tapError((cause) =>
-            Effect.logWarning("Checkout status tables load failed", {
-              cause,
-            })
+    Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+      Effect.all(
+        [
+          paymentAttempts.findDisplayableForReservation({
+            workspaceReservationId: input.reservation.id,
+            activePaymentAttemptId:
+              input.reservation.activePaymentAttemptId ?? undefined,
+            paymentState: input.reservation.paymentState,
+          }),
+          input.prefetchDotyposReservation
+            ? input.loadDotyposReservation
+            : Effect.void,
+          inventory.tables.pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning("Checkout status tables load failed", {
+                cause,
+              })
+            ),
+            Effect.orElseSucceed(() => [])
           ),
-          Effect.orElseSucceed(() => [])
-        ),
-        seatingMap.isOpen,
-      ],
-      { concurrency: "inherit" }
+          seatingMap.isOpen,
+        ],
+        { concurrency }
+      )
     );
 
   const reconstructSummary = Effect.fn(
@@ -774,26 +779,28 @@ const implementation = Effect.gen(function* () {
         },
         reconstruction,
         retrySelection,
-      ] = yield* Effect.all(
-        [
-          resolveStatusKind(
-            reservation,
-            input.includeSupportContact ?? true,
-            refreshed
-          ),
-          reconstructSummary(reservation).pipe(
-            Effect.timeoutOrElse({
-              duration: summaryTimeout,
-              orElse: () =>
-                Effect.logWarning(
-                  "Checkout status summary reconstruction timed out",
-                  { reservationId: reservation.id }
-                ).pipe(Effect.as(timeoutReconstruction)),
-            })
-          ),
-          loadOfferedRetrySelection(reservation),
-        ],
-        { concurrency: "inherit" }
+      ] = yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+        Effect.all(
+          [
+            resolveStatusKind(
+              reservation,
+              input.includeSupportContact ?? true,
+              refreshed
+            ),
+            reconstructSummary(reservation).pipe(
+              Effect.timeoutOrElse({
+                duration: summaryTimeout,
+                orElse: () =>
+                  Effect.logWarning(
+                    "Checkout status summary reconstruction timed out",
+                    { reservationId: reservation.id }
+                  ).pipe(Effect.as(timeoutReconstruction)),
+              })
+            ),
+            loadOfferedRetrySelection(reservation),
+          ],
+          { concurrency }
+        )
       );
 
       const resultBase: CheckoutReservationStatusViewModelBase = {

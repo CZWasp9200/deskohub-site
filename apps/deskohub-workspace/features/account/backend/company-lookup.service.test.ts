@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { AresLookupService } from "@deskohub/ares";
 import { Effect, Layer, Result } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { CustomerAccountAccessError } from "@/features/account/customer-account";
 import { testCustomerSession } from "./account-operations.test-utils";
 import { CompanyLookupService } from "./company-lookup.service";

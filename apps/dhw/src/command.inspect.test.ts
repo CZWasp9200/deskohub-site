@@ -2,13 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { testEmailAddress } from "@deskohub/test-email";
 import { CliAccessToken, CliSessionId } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedAccessCodeAttemptStore,
+  UnreachedClientIdentity,
+  UnreachedUpdateService,
+} from "./testing/unreached-command-services";
 
 type AdminApi = WorkspaceAdminApiClient["Service"];
 
@@ -48,6 +53,9 @@ const runInspection = async (
     ])
   );
   const layer = Layer.mergeAll(
+    UnreachedAccessCodeAttemptStore,
+    UnreachedClientIdentity,
+    UnreachedUpdateService,
     Layer.succeed(WorkspaceAdminApiClient, api as unknown as AdminApi),
     Layer.succeed(AuthenticationService, {
       current: Effect.succeed(
@@ -75,7 +83,7 @@ const runInspection = async (
         updateChecksDisabled: true,
       })
     ),
-    Layer.provideMerge(BunServices.layer)
+    Layer.provideMerge(PlatformLive)
   );
 
   await Command.runWith(dhwCommand, { version: "1.3.0" })(args).pipe(
@@ -174,6 +182,16 @@ describe("dhw reservations", () => {
       "reservation-2\t2026-08-11T09:00\tMeeting room\tcustomer-2\tIn progress",
       "reservation-3\tUnknown\tOffice\tcustomer-3\tCancelled",
     ]);
+  });
+
+  test("names the rejected value of an invalid filter", async () => {
+    await expect(
+      runInspection(["reservations", "list", "--date", "not-a-date"], {
+        listReservations: reservations,
+      })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('"not-a-date"'),
+    });
   });
 
   test("finds a reservation by identifier", async () => {

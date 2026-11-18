@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSchema,
-} from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import { CustomerPlainDate } from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
@@ -20,7 +16,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No invoice with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerInvoiceNotFound extends Schema.TaggedErrorClass<CustomerInvoiceNotFound>()(
+export class CustomerInvoiceNotFound extends Schema.TaggedError<CustomerInvoiceNotFound>()(
   "CustomerInvoiceNotFound",
   {}
 ) {

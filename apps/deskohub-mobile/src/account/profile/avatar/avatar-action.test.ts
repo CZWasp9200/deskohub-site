@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerAvatarRejectionReason } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Option } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { accountAtom } from "../../../customer-api/customer-data-runtime";
 import {
   DeviceCapabilityFailed,

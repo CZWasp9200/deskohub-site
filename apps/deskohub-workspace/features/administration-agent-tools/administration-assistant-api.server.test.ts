@@ -14,7 +14,7 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer, Logger, Option, Schema } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { StandaloneAccessCodeAdministration } from "@/features/access-codes";
 import type { AgentScope } from "@/features/account/agent-scopes";
 import {

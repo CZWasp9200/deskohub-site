@@ -13,8 +13,8 @@ import {
   References,
   Schema,
 } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import { dotyposApiTimeoutDefaultMilliseconds } from "../api-timeout";
 import {
   DotyposRuntimeConfigSchema,
@@ -7875,6 +7875,31 @@ describe("DotyposService ID reads", () => {
         );
         expect(peak).toBe(concurrency);
       }
+    }
+  );
+
+  test.each(["customers", "reservations"] as const)(
+    "%s reads every batch at once without a concurrency option",
+    async (resource) => {
+      let open = 0;
+      let peak = 0;
+      const fetchMock = mockDotyposFetch(async (request) => {
+        if (new URL(request.url).pathname === "/signin/token")
+          return tokenResponse();
+        open++;
+        peak = Math.max(peak, open);
+        await Promise.resolve();
+        open--;
+        return Response.json({ data: [] });
+      });
+      const ids = Array.from({ length: 301 }, (_, i) => `id-${i}`);
+      await runWithService(
+        Effect.flatMap(DotyposService, (dotypos) =>
+          read(dotypos, resource, ids)
+        ),
+        fetchMock
+      );
+      expect(peak).toBe(Math.ceil(ids.length / dotyposIdReadBatchSize));
     }
   );
 });

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Effect, Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import {
   fromSharedSnapshot,
   readSharedSnapshot,

@@ -1,5 +1,5 @@
 import { Context, Schema } from "effect";
-import { HttpApiMiddleware, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiSchema } from "effect/http-api";
 import type { CustomerLocale } from "./customer-locale";
 
 /**
@@ -44,7 +44,7 @@ export class CurrentCustomerSession extends Context.Service<
 >()("@deskohub/workspace-customer-api/CurrentCustomerSession") {}
 
 /** No verified Better Auth session: sign in again. */
-export class CustomerSessionRequired extends Schema.TaggedErrorClass<CustomerSessionRequired>()(
+export class CustomerSessionRequired extends Schema.TaggedError<CustomerSessionRequired>()(
   "CustomerSessionRequired",
   {}
 ) {
@@ -55,7 +55,7 @@ export class CustomerSessionRequired extends Schema.TaggedErrorClass<CustomerSes
  * The request came from another site, or without the customer API client
  * header.
  */
-export class CustomerRequestRejected extends Schema.TaggedErrorClass<CustomerRequestRejected>()(
+export class CustomerRequestRejected extends Schema.TaggedError<CustomerRequestRejected>()(
   "CustomerRequestRejected",
   {}
 ) {
@@ -63,7 +63,7 @@ export class CustomerRequestRejected extends Schema.TaggedErrorClass<CustomerReq
 }
 
 /** The account spent its request budget; retry later. */
-export class CustomerRateLimited extends Schema.TaggedErrorClass<CustomerRateLimited>()(
+export class CustomerRateLimited extends Schema.TaggedError<CustomerRateLimited>()(
   "CustomerRateLimited",
   {}
 ) {
@@ -74,7 +74,7 @@ export class CustomerRateLimited extends Schema.TaggedErrorClass<CustomerRateLim
  * A provider or store the request needs is unavailable or not configured;
  * the request changed nothing it can't retry.
  */
-export class CustomerServiceUnavailable extends Schema.TaggedErrorClass<CustomerServiceUnavailable>()(
+export class CustomerServiceUnavailable extends Schema.TaggedError<CustomerServiceUnavailable>()(
   "CustomerServiceUnavailable",
   {}
 ) {

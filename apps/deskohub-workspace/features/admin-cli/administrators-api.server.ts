@@ -5,7 +5,7 @@ import {
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Match } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   AdministratorRoster,
   LegacyAdministratorBackfill,

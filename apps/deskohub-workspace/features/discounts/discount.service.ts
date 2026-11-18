@@ -1,5 +1,8 @@
 import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
@@ -255,31 +258,33 @@ export class DiscountService extends Context.Service<
           readonly quoteInput: DiscountQuoteInput;
           readonly releaseGates: DiscountReleaseGates;
         }) =>
-          Effect.all(
-            [
-              recoverGatedDiscountResolution({
-                enabled: input.releaseGates.calendarSales,
-                operation: "quote",
-                provider: "calendar",
-                resolve: () =>
-                  calendar
-                    .discover(input.quoteInput)
-                    .pipe(Effect.map(({ candidates }) => candidates)),
-              }),
-              recoverGatedDiscountResolution({
-                enabled: input.releaseGates.customerDiscounts,
-                operation: "quote",
-                provider: "customer",
-                resolve: () => customer.resolve(input.quoteInput),
-              }),
-              recoverGatedDiscountResolution({
-                enabled: input.releaseGates.discountCodes,
-                operation: "quote",
-                provider: "code",
-                resolve: () => code.revalidate(input.quoteInput),
-              }),
-            ],
-            { concurrency: "inherit" }
+          Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+            Effect.all(
+              [
+                recoverGatedDiscountResolution({
+                  enabled: input.releaseGates.calendarSales,
+                  operation: "quote",
+                  provider: "calendar",
+                  resolve: () =>
+                    calendar
+                      .discover(input.quoteInput)
+                      .pipe(Effect.map(({ candidates }) => candidates)),
+                }),
+                recoverGatedDiscountResolution({
+                  enabled: input.releaseGates.customerDiscounts,
+                  operation: "quote",
+                  provider: "customer",
+                  resolve: () => customer.resolve(input.quoteInput),
+                }),
+                recoverGatedDiscountResolution({
+                  enabled: input.releaseGates.discountCodes,
+                  operation: "quote",
+                  provider: "code",
+                  resolve: () => code.revalidate(input.quoteInput),
+                }),
+              ],
+              { concurrency }
+            )
           ).pipe(
             Effect.map((candidatesByProvider) => candidatesByProvider.flat())
           )
@@ -314,34 +319,36 @@ export class DiscountService extends Context.Service<
           readonly affirmationInput: DisplayedDiscountAffirmationInput;
           readonly releaseGates: DiscountReleaseGates;
         }) =>
-          Effect.all(
-            [
-              resolveGatedCandidates({
-                enabled: input.releaseGates.calendarSales,
-                operation: "affirm_displayed_discounts",
-                provider: "calendar",
-                resolve: () => calendar.revalidate(input.affirmationInput),
-              }),
-              resolveGatedCandidates({
-                enabled: input.releaseGates.customerDiscounts,
-                operation: "affirm_displayed_discounts",
-                provider: "customer",
-                resolve: () =>
-                  customer
-                    .resolve(input.affirmationInput)
-                    .pipe(Effect.map(toCompleteResolution)),
-              }),
-              resolveGatedCandidates({
-                enabled: input.releaseGates.discountCodes,
-                operation: "affirm_displayed_discounts",
-                provider: "code",
-                resolve: () =>
-                  code
-                    .revalidate(input.affirmationInput)
-                    .pipe(Effect.map(toCompleteResolution)),
-              }),
-            ],
-            { concurrency: "inherit" }
+          Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+            Effect.all(
+              [
+                resolveGatedCandidates({
+                  enabled: input.releaseGates.calendarSales,
+                  operation: "affirm_displayed_discounts",
+                  provider: "calendar",
+                  resolve: () => calendar.revalidate(input.affirmationInput),
+                }),
+                resolveGatedCandidates({
+                  enabled: input.releaseGates.customerDiscounts,
+                  operation: "affirm_displayed_discounts",
+                  provider: "customer",
+                  resolve: () =>
+                    customer
+                      .resolve(input.affirmationInput)
+                      .pipe(Effect.map(toCompleteResolution)),
+                }),
+                resolveGatedCandidates({
+                  enabled: input.releaseGates.discountCodes,
+                  operation: "affirm_displayed_discounts",
+                  provider: "code",
+                  resolve: () =>
+                    code
+                      .revalidate(input.affirmationInput)
+                      .pipe(Effect.map(toCompleteResolution)),
+                }),
+              ],
+              { concurrency }
+            )
           ).pipe(
             Effect.flatMap((resolutions) =>
               selectAffirmedCandidates({

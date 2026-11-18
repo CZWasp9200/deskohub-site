@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSchema,
-} from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import { CustomerServiceUnavailable } from "./customer-session";
 
@@ -13,7 +9,7 @@ import { CustomerServiceUnavailable } from "./customer-session";
  * The company ID isn't a Czech company ID (IČO): eight digits with a valid
  * check digit. The registry wasn't asked.
  */
-export class CustomerCompanyIdInvalid extends Schema.TaggedErrorClass<CustomerCompanyIdInvalid>()(
+export class CustomerCompanyIdInvalid extends Schema.TaggedError<CustomerCompanyIdInvalid>()(
   "CustomerCompanyIdInvalid",
   {}
 ) {
@@ -21,7 +17,7 @@ export class CustomerCompanyIdInvalid extends Schema.TaggedErrorClass<CustomerCo
 }
 
 /** The public business registry has no company with this ID. */
-export class CustomerCompanyNotFound extends Schema.TaggedErrorClass<CustomerCompanyNotFound>()(
+export class CustomerCompanyNotFound extends Schema.TaggedError<CustomerCompanyNotFound>()(
   "CustomerCompanyNotFound",
   {}
 ) {
@@ -29,7 +25,7 @@ export class CustomerCompanyNotFound extends Schema.TaggedErrorClass<CustomerCom
 }
 
 /** The public business registry didn't answer; retry later. */
-export class CustomerCompanyRegistryUnavailable extends Schema.TaggedErrorClass<CustomerCompanyRegistryUnavailable>()(
+export class CustomerCompanyRegistryUnavailable extends Schema.TaggedError<CustomerCompanyRegistryUnavailable>()(
   "CustomerCompanyRegistryUnavailable",
   {}
 ) {

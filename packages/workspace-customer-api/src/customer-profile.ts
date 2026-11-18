@@ -9,9 +9,9 @@ import { Option, Schema, type SchemaAST } from "effect";
 
 /**
  * Every customer API payload reports all of its issues and refuses fields it
- * doesn't know, the same way the Workspace's account actions validate. The
- * profile schemas themselves carry no parse options, because the browser
- * profile form decodes them with its own.
+ * doesn't know, the same way the Workspace's account actions validate. Each
+ * endpoint applies them to its payload as `HttpApi.PayloadParseOptions`;
+ * the schemas carry none, so callers that decode them directly pass these.
  */
 export const customerInputParseOptions = {
   errors: "all",

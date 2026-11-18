@@ -4,7 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { connectUnreachableWorkspaceDatabase } from "@/shared/testing/unreachable-workspace-database.test-utils";
@@ -39,7 +39,9 @@ describe.skipIf(!suiteDatabase)(
 
     afterAll(() => suiteDatabase.close());
 
-    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(pool);
+    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+      suiteDatabase.databasePool
+    );
 
     /** What the faked session authority answers on every read. */
     type SessionAnswer =
@@ -532,7 +534,7 @@ describe.skipIf(!suiteDatabase)(
           expect(failure.cause?.code).toBe("account-link.lock");
           expect(ran).toBe(false);
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
         }
       });
 

@@ -6,6 +6,7 @@ import type { PoolClient } from "pg";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 
@@ -25,13 +26,13 @@ describe.skipIf(!testDatabase)(
     const inRolledBackTransaction = async (
       scenario: (client: PoolClient) => Promise<void>
     ) => {
-      const client = await testDatabase.pool.connect();
+      const client = await holdDatabaseConnection(testDatabase);
       try {
         await client.query("begin");
         await scenario(client);
       } finally {
         await client.query("rollback");
-        client.release();
+        await client.release();
       }
     };
 

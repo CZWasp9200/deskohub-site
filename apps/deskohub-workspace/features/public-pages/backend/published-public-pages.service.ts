@@ -56,7 +56,7 @@ export class PublishedPublicPagesService extends Context.Service<
         list: Effect.filter(
           publicPages,
           ({ pathname }: PublicPage) => isPublished(pathname),
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         ),
       } satisfies IPublishedPublicPagesService;
     })

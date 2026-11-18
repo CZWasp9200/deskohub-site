@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiSchema } from "effect/http-api";
 
 /** A Prague calendar date, YYYY-MM-DD. */
 export const CustomerPlainDate = Schema.String.check(
@@ -120,7 +120,7 @@ export const CustomerBookingSelectionQuery = Schema.Struct({
  * a family needs is missing, or one it doesn't take is set. `field` names it
  * when one does.
  */
-export class CustomerBookingSelectionInvalid extends Schema.TaggedErrorClass<CustomerBookingSelectionInvalid>()(
+export class CustomerBookingSelectionInvalid extends Schema.TaggedError<CustomerBookingSelectionInvalid>()(
   "CustomerBookingSelectionInvalid",
   { field: Schema.optionalKey(Schema.String) }
 ) {
@@ -128,7 +128,7 @@ export class CustomerBookingSelectionInvalid extends Schema.TaggedErrorClass<Cus
 }
 
 /** The date is outside what can be booked now: from `earliest` to `latest`. */
-export class CustomerBookingDateOutOfRange extends Schema.TaggedErrorClass<CustomerBookingDateOutOfRange>()(
+export class CustomerBookingDateOutOfRange extends Schema.TaggedError<CustomerBookingDateOutOfRange>()(
   "CustomerBookingDateOutOfRange",
   { earliest: CustomerPlainDate, latest: CustomerPlainDate }
 ) {
@@ -136,7 +136,7 @@ export class CustomerBookingDateOutOfRange extends Schema.TaggedErrorClass<Custo
 }
 
 /** The family can't be booked now, such as while office reservations are closed. */
-export class CustomerOfferingUnavailable extends Schema.TaggedErrorClass<CustomerOfferingUnavailable>()(
+export class CustomerOfferingUnavailable extends Schema.TaggedError<CustomerOfferingUnavailable>()(
   "CustomerOfferingUnavailable",
   { family: Schema.Literal("office") }
 ) {

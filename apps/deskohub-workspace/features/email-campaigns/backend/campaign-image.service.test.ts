@@ -7,7 +7,7 @@ import {
   makeCloudinaryRuntimeConfigLayer,
 } from "@deskohub/cloudinary/server";
 import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { env } from "@/env";
 import {
   CampaignImageService,

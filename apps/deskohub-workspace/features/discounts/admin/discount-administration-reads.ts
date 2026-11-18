@@ -1,7 +1,10 @@
 import { type DotyposCustomer, DotyposService } from "@deskohub/dotypos";
 import { GoogleCalendarService } from "@deskohub/google-calendar";
 import { DateTime, Effect, Option } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import type {
   DiscountCode,
   DiscountCodeClaimState,
@@ -379,13 +382,15 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
   const loadCustomerCodeCreation = Effect.fn(
     "DiscountAdministration.loadCustomerCodeCreation"
   )((input: { readonly customerId: DotyposCustomerId }) =>
-    Effect.all(
-      {
-        customer: loadActiveCustomer(input.customerId),
-        discounts: loadDiscounts(),
-        now: DateTime.nowAsDate,
-      },
-      { concurrency: "inherit" }
+    Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+      Effect.all(
+        {
+          customer: loadActiveCustomer(input.customerId),
+          discounts: loadDiscounts(),
+          now: DateTime.nowAsDate,
+        },
+        { concurrency }
+      )
     ).pipe(
       Effect.map(({ customer, discounts, now }) => ({
         customer: toAdminDotyposCustomer(customer, now),

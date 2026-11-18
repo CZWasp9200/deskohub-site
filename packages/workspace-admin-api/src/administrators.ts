@@ -1,5 +1,6 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   destructiveOperation,
@@ -49,8 +50,6 @@ export type AdministrationAdministratorList =
 
 export const AdministrationAdministratorGrantInput = Schema.Struct({
   email: AdministrationAccountEmail,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationAdministratorGrantInput =
   typeof AdministrationAdministratorGrantInput.Type;
@@ -75,8 +74,6 @@ export const AdministrationLegacyAdministratorBackfillInput = Schema.Struct({
   email: AdministrationAccountEmail,
   /** Report what would change without writing. */
   dryRun: Schema.Boolean,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationLegacyAdministratorBackfillInput =
   typeof AdministrationLegacyAdministratorBackfillInput.Type;
@@ -120,10 +117,15 @@ export const AdminCliAdministratorsApi = HttpApiGroup.make("administrators")
         CliResourceNotFound.schema,
         CliServiceUnavailable.schema,
       ],
-    }).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true, preview: administratorsPreview })
-    )
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: administratorsPreview,
+        })
+      )
   )
   .add(
     HttpApiEndpoint.delete(
@@ -148,9 +150,11 @@ export const AdminCliAdministratorsApi = HttpApiGroup.make("administrators")
         success: AdministrationLegacyAdministratorBackfillResult,
         error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true, preview: dryRunPreview })
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({ idempotent: true, preview: dryRunPreview })
+      )
   )
   .pipe(administrationOperationGroup);

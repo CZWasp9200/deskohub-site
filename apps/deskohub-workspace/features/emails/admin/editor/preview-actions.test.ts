@@ -101,6 +101,50 @@ describe("previewEmailDraft", () => {
     expect(result?.serverError).toEqual(expect.any(String));
   });
 
+  test("rejects a draft with an unknown key as invalid input", async () => {
+    const result = await previewEmailDraft({
+      draft: { ...draft, unexpected: true } as typeof draft,
+      locale: "en-US",
+    });
+
+    expect(result?.data).toBeUndefined();
+    expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(1);
+  });
+
+  test("reports every problem in a draft", async () => {
+    const result = await previewEmailDraft({
+      draft: { ...draft, templateKey: "unknown", unexpected: true } as never,
+      locale: "en-US",
+    });
+
+    expect(result?.data).toBeUndefined();
+    expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(2);
+  });
+
+  test("ignores an unknown key beside the draft", async () => {
+    const result = await previewEmailDraft({
+      draft,
+      locale: "en-US",
+      unexpected: true,
+    } as Parameters<typeof previewEmailDraft>[0]);
+
+    expect(result?.validationErrors).toBeUndefined();
+    expect(result?.data?.subject).toBe("Hello [displayName]");
+  });
+
+  test("ignores an unknown key in a prepared value", async () => {
+    const result = await previewEmailDraft({
+      draft,
+      locale: "en-US",
+      values: {
+        first_name: { _tag: "Resolved", value: "Jana", unexpected: true },
+      },
+    } as Parameters<typeof previewEmailDraft>[0]);
+
+    expect(result?.validationErrors).toBeUndefined();
+    expect(result?.data?.subject).toBe("Hello Jana");
+  });
+
   test.each(["signed-out", "not-administrator"] as const)(
     "refuses a %s caller without rendering",
     async (caller) => {

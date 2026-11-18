@@ -9,7 +9,7 @@ import {
   customerAvatarMaxUploadBytes,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match, Stream } from "effect";
-import { type HttpServerRequest, Multipasta } from "effect/unstable/http";
+import { type HttpServerRequest, MultipartParser } from "effect/http";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import {
   admitCurrentAvatarMutation,
@@ -94,9 +94,9 @@ type AvatarBodyPart =
  */
 const parseAvatarBody = (headers: Readonly<Record<string, string>>) => {
   const parts: AvatarBodyPart[] = [];
-  let failure: Multipasta.MultipartError | undefined;
+  let failure: MultipartParser.MultipartError | undefined;
   let done = false;
-  const parser = Multipasta.make({
+  const parser = MultipartParser.make({
     headers,
     maxParts: 1,
     // The parser counts the part's headers toward its size; the explicit
@@ -179,7 +179,7 @@ const readAvatarFile = Effect.fnUntraced(function* (
  * request carries no readable avatar file, the reason the contract has for
  * exactly that.
  */
-const refusedBody = (error: Multipasta.MultipartError) =>
+const refusedBody = (error: MultipartParser.MultipartError) =>
   avatarRejected(
     error._tag === "ReachedLimit" &&
       (error.limit === "MaxPartSize" || error.limit === "MaxTotalSize")

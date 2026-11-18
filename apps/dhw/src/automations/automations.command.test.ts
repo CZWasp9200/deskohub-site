@@ -18,7 +18,6 @@ import {
   CliMutationRejected,
   CliSessionId,
 } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import {
   Console,
   Effect,
@@ -28,12 +27,18 @@ import {
   Redacted,
   Schema,
 } from "effect";
+import { Command } from "effect/cli";
 import { TestClock } from "effect/testing";
-import { Command } from "effect/unstable/cli";
 import { WorkspaceAdminApiClient } from "../api/workspace-admin-api-client.service";
 import { AuthenticationService } from "../authentication/authentication.service";
 import { dhwCommand } from "../command";
 import { DhwConfig } from "../config/dhw-config.service";
+import { PlatformLive } from "../platform";
+import {
+  UnreachedAccessCodeAttemptStore,
+  UnreachedClientIdentity,
+  UnreachedUpdateService,
+} from "../testing/unreached-command-services";
 
 const accessToken = Schema.decodeUnknownSync(CliAccessToken)("a".repeat(43));
 const session = {
@@ -324,10 +329,14 @@ const makeAutomationLayer = (overrides: Partial<AutomationApi> = {}) => {
     calls,
     output,
     errors,
-    layer: Layer.mergeAll(api, authentication, console).pipe(
-      Layer.provideMerge(config),
-      Layer.provideMerge(BunServices.layer)
-    ),
+    layer: Layer.mergeAll(
+      api,
+      authentication,
+      console,
+      UnreachedAccessCodeAttemptStore,
+      UnreachedClientIdentity,
+      UnreachedUpdateService
+    ).pipe(Layer.provideMerge(config), Layer.provideMerge(PlatformLive)),
   };
 };
 

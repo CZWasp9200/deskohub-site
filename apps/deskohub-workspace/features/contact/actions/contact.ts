@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Effect, Schema } from "effect";
+import { Effect, Schema, SchemaIssue } from "effect";
 import { ContactService } from "@/features/contact/backend/contact.service";
 import {
   type ContactFormValues,
@@ -31,6 +31,10 @@ const isContactField = (
 ): key is keyof ContactFormValues =>
   key !== undefined && Object.hasOwn(contactDefaultValues, key);
 
+// Effect 4.1 issues no longer render themselves; this is the formatter their
+// beta.85 `toString` used.
+const formatIssue = SchemaIssue.makeFormatterDefault();
+
 /** The first failed check per form field, keyed by the issue's top path. */
 const getContactFieldErrors = (issue: Schema.SchemaError["issue"]) => {
   const fieldErrors: ContactFormState["fieldErrors"] = {};
@@ -51,7 +55,7 @@ const getContactFieldErrors = (issue: Schema.SchemaError["issue"]) => {
 
     const field = path[0];
     if (current._tag === "Filter" && isContactField(field)) {
-      fieldErrors[field] ??= String(current);
+      fieldErrors[field] ??= formatIssue(current);
     }
   };
 

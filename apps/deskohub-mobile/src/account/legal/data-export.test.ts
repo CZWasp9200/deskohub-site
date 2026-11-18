@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CustomerDataExportUnavailable } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   DeviceCapabilityFailed,

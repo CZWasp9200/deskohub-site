@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RegistryContext } from "@effect/atom-react";
 import { Effect } from "effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { renderToStaticMarkup } from "react-dom/server";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {

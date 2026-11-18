@@ -1,5 +1,5 @@
 import { DateTime, Effect, Option, Predicate } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {
   accountAtom,

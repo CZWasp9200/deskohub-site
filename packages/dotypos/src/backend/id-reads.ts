@@ -37,7 +37,7 @@ export const readByIds = <Id extends string, A extends { readonly id: Id }>(
               : Effect.fail(failure)
           )
         ),
-      { concurrency: options.concurrency ?? "inherit" }
+      { concurrency: options.concurrency ?? "unbounded" }
     ).pipe(
       Effect.map(
         (batches) =>

@@ -1,22 +1,17 @@
 import {
   Context,
-  Crypto,
   Data,
   Effect,
-  Encoding,
   FileSystem,
   Layer,
   Path,
   Schema,
   Stream,
 } from "effect";
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
-import { ChildProcess } from "effect/unstable/process";
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
+import { Digest } from "effect/crypto";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { ChildProcess } from "effect/process";
+import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner";
 import {
   type BuildTarget,
   DHW_BUILD_TARGET,
@@ -44,7 +39,7 @@ export class ExecutableInstaller extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const crypto = yield* Crypto.Crypto;
+      const digest = yield* Digest.Digest;
       const childProcessSpawner = yield* ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
       const httpClient = yield* HttpClient.HttpClient;
@@ -59,7 +54,7 @@ export class ExecutableInstaller extends Context.Service<
                 path: process.execPath,
                 target: DHW_BUILD_TARGET,
               },
-              crypto,
+              digest,
               fileSystem,
               httpClient,
               path,
@@ -98,7 +93,7 @@ interface RunningExecutable {
 interface InstallExecutableInput {
   readonly update: AvailableUpdate;
   readonly executable: RunningExecutable;
-  readonly crypto: Crypto.Crypto;
+  readonly digest: Digest.Digest["Service"];
   readonly fileSystem: FileSystem.FileSystem;
   readonly httpClient: HttpClient.HttpClient;
   readonly path: Path.Path;
@@ -107,7 +102,7 @@ interface InstallExecutableInput {
 export const installExecutable = Effect.fn("installExecutable")(function* ({
   update,
   executable,
-  crypto,
+  digest,
   fileSystem,
   httpClient,
   path,
@@ -141,10 +136,13 @@ export const installExecutable = Effect.fn("installExecutable")(function* ({
     });
   }
 
-  const candidateDigest = yield* crypto.digest("SHA-256", candidateBytes);
+  const candidateDigest = yield* digest.digestHex(
+    Digest.sha256,
+    candidateBytes
+  );
   const expectedDigest = update.assetDigest.slice("sha256:".length);
 
-  if (Encoding.encodeHex(candidateDigest).toLowerCase() !== expectedDigest) {
+  if (candidateDigest !== expectedDigest) {
     return yield* new ExecutableInstallerError({
       message: "The downloaded CLI did not match its release digest.",
       cause: "digest-mismatch",

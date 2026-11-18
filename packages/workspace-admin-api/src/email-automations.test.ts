@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Result, Schema } from "effect";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AutomationActivation,
   AutomationDetail,
@@ -114,7 +115,7 @@ describe("automation flow contract", () => {
 
 describe("automation operation inputs", () => {
   const decodeStrict = (schema: Schema.Decoder<unknown>, input: unknown) =>
-    Schema.decodeUnknownResult(schema)(input);
+    Schema.decodeUnknownResult(schema, administrationInputParseOptions)(input);
 
   test("reject unknown keys", () => {
     expect(

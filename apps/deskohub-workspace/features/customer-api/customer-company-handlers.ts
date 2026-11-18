@@ -8,7 +8,7 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import {
   type CompanyLookupOutcome,

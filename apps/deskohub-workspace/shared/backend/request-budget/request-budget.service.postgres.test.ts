@@ -5,8 +5,12 @@ import { randomUUID } from "node:crypto";
 import { DateTime, Duration, Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import {
+  databaseClient,
+  databasePostgresLayer,
+  makeDatabaseClient,
+} from "@/db/database-client";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   holdPostgresTransaction,
   waitForPostgresLockWaiter,
@@ -40,17 +44,19 @@ const exhaustedUntil = (retryAt: Temporal.Instant) =>
     retryAt: DateTime.makeUnsafe(retryAt.epochMilliseconds),
   });
 
-describe.skipIf(!testDatabase)("RequestBudget on disposable Postgres", () => {
-  if (!testDatabase) return;
-
-  // A second pool and client stand in for another server instance.
-  const otherInstancePool = makeDatabasePool({
+// A second pool and client stand in for another server instance.
+const otherInstancePool =
+  testDatabase &&
+  (await openDatabasePool({
     connectionString: process.env.WORKSPACE_TEST_DATABASE_URL ?? "",
-    ...databasePoolTimeouts,
-  });
+    maxConnections: 10,
+  }));
+
+describe.skipIf(!testDatabase)("RequestBudget on disposable Postgres", () => {
+  if (!testDatabase || !otherInstancePool) return;
 
   afterAll(async () => {
-    await otherInstancePool.end();
+    await otherInstancePool.close();
     await testDatabase.pool.query(
       "delete from request_budget_spends where budget_key like $1",
       [`${keyPrefix}-%`]
@@ -183,14 +189,16 @@ describe.skipIf(!testDatabase)("RequestBudget on disposable Postgres", () => {
 
 describe("RequestBudget without a reachable database", () => {
   test("fails with RequestBudgetUnavailable", async () => {
-    const unreachablePool = makeDatabasePool({
-      connectionString: "postgres://workspace:workspace@127.0.0.1:1/workspace",
-      connectionTimeoutMillis: 1_000,
-    });
     const unreachableDatabase = Layer.effect(
       WorkspaceDatabase,
-      makeDatabaseClient(unreachablePool).pipe(
-        Effect.map((db) => WorkspaceDatabase.make(db))
+      databaseClient.pipe(Effect.map((db) => WorkspaceDatabase.make(db)))
+    ).pipe(
+      Layer.provide(
+        databasePostgresLayer({
+          connectionString:
+            "postgres://workspace:workspace@127.0.0.1:1/workspace",
+          maxConnections: 10,
+        })
       )
     );
 
@@ -204,7 +212,6 @@ describe("RequestBudget without a reachable database", () => {
         )
       )
     );
-    await unreachablePool.end();
 
     expect(exit).toEqual(Exit.succeed(expect.any(RequestBudgetUnavailable)));
   });

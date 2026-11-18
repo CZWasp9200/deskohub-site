@@ -73,7 +73,7 @@ const makeRepositoryLayer = () => {
           Layer.mergeAll(
             testLinkRepository,
             testAuthenticationLayer,
-            WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+            WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
           )
         )
       )

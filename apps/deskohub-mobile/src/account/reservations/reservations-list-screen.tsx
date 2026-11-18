@@ -6,7 +6,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { DateTime, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useIsFocused, useRouter } from "expo-router";
 import CalendarIcon from "lucide-react-native/icons/calendar";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";

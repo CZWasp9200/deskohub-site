@@ -40,6 +40,7 @@ import {
   AdministrationWorkspaceReservationId,
   type AdministrationWorkspaceReservationIdType,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
+  administrationInputParseOptions,
   type CliAccessTokenType,
   CliClientName,
   CliMutationRejected,
@@ -64,7 +65,7 @@ import {
   Schema,
   SchemaGetter,
 } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { administratorsCommand } from "./administrators/administrators.command";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
@@ -195,29 +196,29 @@ const overviewCommand = Command.make("overview", {}, () =>
 const reservationsListCommand = Command.make(
   "list",
   {
-    customer: Flag.string("customer").pipe(
+    customer: Flag.String("customer").pipe(
       Flag.optional,
       Flag.withDescription("Filter by customer ID")
     ),
-    date: Flag.string("date").pipe(
+    date: Flag.String("date").pipe(
       Flag.optional,
       Flag.withDescription("Filter by reservation date (YYYY-MM-DD)")
     ),
-    direction: Flag.choice("direction", ["asc", "desc"]).pipe(
+    direction: Flag.Literals("direction", ["asc", "desc"]).pipe(
       Flag.optional,
       Flag.withDescription("Sort direction")
     ),
-    page: Flag.integer("page").pipe(
+    page: Flag.Int("page").pipe(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
-    sort: Flag.choice("sort", [
+    sort: Flag.Literals("sort", [
       "created",
       "date",
       "reservation",
       "status",
     ]).pipe(Flag.optional, Flag.withDescription("Sort field")),
-    status: Flag.choice("status", [
+    status: Flag.Literals("status", [
       "in_progress",
       "complete",
       "cancelled",
@@ -228,7 +229,7 @@ const reservationsListCommand = Command.make(
         "Reservation status, or needs_refund for paid payments awaiting a refund"
       )
     ),
-    type: Flag.choice("type", ["cowork", "meeting-room", "office"]).pipe(
+    type: Flag.Literals("type", ["cowork", "meeting-room", "office"]).pipe(
       Flag.optional,
       Flag.withDescription("Reservation type")
     ),
@@ -237,7 +238,8 @@ const reservationsListCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const query = yield* Schema.decodeUnknownEffect(
-          AdministrationReservationQuery
+          AdministrationReservationQuery,
+          { reportInput: true }
         )(
           presentFlagValues({
             customerId: customer,
@@ -267,7 +269,7 @@ const reservationsListCommand = Command.make(
 const reservationsGetCommand = Command.make(
   "get",
   {
-    reservationId: Argument.string("reservation-id").pipe(
+    reservationId: Argument.String("reservation-id").pipe(
       Argument.withSchema(AdministrationWorkspaceReservationId)
     ),
   },
@@ -309,7 +311,7 @@ const reservationsGetCommand = Command.make(
 
 const reservationsFindCommand = Command.make(
   "find",
-  { identifier: Argument.string("identifier") },
+  { identifier: Argument.String("identifier") },
   ({ identifier }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
@@ -328,13 +330,15 @@ const reservationsFindCommand = Command.make(
 const reservationsCancelCommand = Command.make(
   "cancel",
   {
-    reservationId: Argument.string("reservation-id"),
-    force: Flag.boolean("force").pipe(
+    reservationId: Argument.String("reservation-id"),
+    force: Flag.Boolean("force").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Cancel a pending payment locally before cancelling the reservation"
       )
     ),
-    sendCancellationEmail: Flag.boolean("send-cancellation-email").pipe(
+    sendCancellationEmail: Flag.Boolean("send-cancellation-email").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Email the customer after cancellation")
     ),
     yes: confirmationFlag,
@@ -343,7 +347,8 @@ const reservationsCancelCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedReservationId = yield* Schema.decodeUnknownEffect(
-          AdministrationWorkspaceReservationId
+          AdministrationWorkspaceReservationId,
+          { reportInput: true }
         )(reservationId);
         // The invoice consequence is read before asking, and the request
         // confirms what was shown; the server refuses it if that changed.
@@ -428,17 +433,19 @@ const restorationAccessMessages = (reservationId: string) =>
 const reservationsRestoreCommand = Command.make(
   "restore",
   {
-    reservationId: Argument.string("reservation-id").pipe(
+    reservationId: Argument.String("reservation-id").pipe(
       Argument.withSchema(AdministrationWorkspaceReservationId)
     ),
-    acknowledgeRefundedPayment: Flag.boolean(
+    acknowledgeRefundedPayment: Flag.Boolean(
       "acknowledge-refunded-payment"
     ).pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Restore although Nexi already refunded some or all of the payment"
       )
     ),
-    sendRestorationEmail: Flag.boolean("send-restoration-email").pipe(
+    sendRestorationEmail: Flag.Boolean("send-restoration-email").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Email the customer that the reservation is valid again, when a cancellation email was sent"
       )
@@ -494,7 +501,8 @@ const reservationsRestoreCommand = Command.make(
 const reservationsBackfillProductDetailsCommand = Command.make(
   "backfill-product-details",
   {
-    dryRun: Flag.boolean("dry-run").pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Report what would be filled without writing")
     ),
     yes: confirmationFlag,
@@ -554,7 +562,7 @@ const reservationsBackfillProductDetailsCommand = Command.make(
 const reservationsRetryAccessCommand = Command.make(
   "retry-access",
   {
-    reservationId: Argument.string("reservation-id").pipe(
+    reservationId: Argument.String("reservation-id").pipe(
       Argument.withSchema(AdministrationWorkspaceReservationId)
     ),
     yes: confirmationFlag,
@@ -571,10 +579,11 @@ const reservationsRetryAccessCommand = Command.make(
 const reservationsReconcileAccessCommand = Command.make(
   "reconcile-access",
   {
-    reservationId: Argument.string("reservation-id").pipe(
+    reservationId: Argument.String("reservation-id").pipe(
       Argument.withSchema(AdministrationWorkspaceReservationId)
     ),
-    providerCredentialRemoved: Flag.boolean("provider-credential-removed").pipe(
+    providerCredentialRemoved: Flag.Boolean("provider-credential-removed").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Confirm the possible AlgoPIN was removed or verified absent in Igloohome"
       )
@@ -642,11 +651,11 @@ const reservationsCommand = Command.make("reservations").pipe(
 const bookingsListCommand = Command.make(
   "list",
   {
-    date: Flag.string("date").pipe(
+    date: Flag.String("date").pipe(
       Flag.optional,
       Flag.withDescription("Filter by booking date (YYYY-MM-DD)")
     ),
-    page: Flag.integer("page").pipe(
+    page: Flag.Int("page").pipe(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
@@ -685,12 +694,13 @@ const bookingsListCommand = Command.make(
 
 const bookingsGetCommand = Command.make(
   "get",
-  { bookingId: Argument.string("booking-id") },
+  { bookingId: Argument.String("booking-id") },
   ({ bookingId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedBookingId = yield* Schema.decodeUnknownEffect(
-          AdministrationDotyposReservationId
+          AdministrationDotyposReservationId,
+          { reportInput: true }
         )(bookingId);
         const detail = yield* api.getBooking(accessToken, decodedBookingId);
         if (json) {
@@ -725,11 +735,11 @@ const bookingsCommand = Command.make("bookings").pipe(
 );
 
 const administrationDateRangeFlags = {
-  from: Flag.string("from").pipe(
+  from: Flag.String("from").pipe(
     Flag.optional,
     Flag.withDescription("Start date (YYYY-MM-DD)")
   ),
-  to: Flag.string("to").pipe(
+  to: Flag.String("to").pipe(
     Flag.optional,
     Flag.withDescription("End date (YYYY-MM-DD)")
   ),
@@ -760,12 +770,13 @@ const ordersListCommand = Command.make(
 
 const ordersGetCommand = Command.make(
   "get",
-  { orderId: Argument.string("order-id") },
+  { orderId: Argument.String("order-id") },
   ({ orderId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedOrderId = yield* Schema.decodeUnknownEffect(
-          AdministrationNexiOrderId
+          AdministrationNexiOrderId,
+          { reportInput: true }
         )(orderId);
         const order = yield* api.getOrder(accessToken, decodedOrderId);
         if (json) {
@@ -790,7 +801,7 @@ const ordersCommand = Command.make("orders").pipe(
 const invoicesListCommand = Command.make(
   "list",
   {
-    sort: Flag.choice("sort", [
+    sort: Flag.Literals("sort", [
       "invoiceNumber",
       "issuedAt",
       "customer",
@@ -799,11 +810,11 @@ const invoicesListCommand = Command.make(
       "source",
       "delivery",
     ]).pipe(Flag.optional, Flag.withDescription("Sort field")),
-    direction: Flag.choice("direction", ["asc", "desc"]).pipe(
+    direction: Flag.Literals("direction", ["asc", "desc"]).pipe(
       Flag.optional,
       Flag.withDescription("Sort direction")
     ),
-    page: Flag.integer("page").pipe(
+    page: Flag.Int("page").pipe(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
@@ -817,7 +828,8 @@ const invoicesListCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const query = yield* Schema.decodeUnknownEffect(
-          AdministrationInvoiceQuery
+          AdministrationInvoiceQuery,
+          { reportInput: true }
         )({
           ...presentFlagValues({ sort, direction, page }),
           ...(includeArchived && { includeArchived }),
@@ -851,7 +863,7 @@ const invoicesListCommand = Command.make(
 const invoicesGetCommand = Command.make(
   "get",
   {
-    invoiceId: Argument.string("invoice-id").pipe(
+    invoiceId: Argument.String("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
   },
@@ -920,10 +932,10 @@ const invoicesDefaultsCommand = Command.make("defaults", {}, () =>
 const invoicesPreviewCommand = Command.make(
   "preview",
   {
-    input: Flag.string("input").pipe(
+    input: Flag.String("input").pipe(
       Flag.withDescription("Strict JSON invoice input file")
     ),
-    output: Flag.string("output").pipe(
+    output: Flag.String("output").pipe(
       Flag.optional,
       Flag.withDescription("PDF output path")
     ),
@@ -955,7 +967,7 @@ const invoicesPreviewCommand = Command.make(
 const invoicesCreateCommand = Command.make(
   "create",
   {
-    input: Flag.string("input").pipe(
+    input: Flag.String("input").pipe(
       Flag.withDescription("Strict JSON invoice input file")
     ),
     yes: confirmationFlag,
@@ -1016,10 +1028,10 @@ const getInvoiceDeliveryLabel = (invoice: {
 const invoicesDownloadCommand = Command.make(
   "download",
   {
-    invoiceId: Argument.string("invoice-id").pipe(
+    invoiceId: Argument.String("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
-    output: Flag.string("output").pipe(
+    output: Flag.String("output").pipe(
       Flag.optional,
       Flag.withDescription("PDF output path")
     ),
@@ -1057,7 +1069,7 @@ const invoicesDownloadCommand = Command.make(
 const invoicesResendCommand = Command.make(
   "resend",
   {
-    invoiceId: Argument.string("invoice-id").pipe(
+    invoiceId: Argument.String("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
     yes: confirmationFlag,
@@ -1232,11 +1244,11 @@ const operationsListCommand = Command.make(
   "list",
   {
     ...administrationDateRangeFlags,
-    channel: Flag.string("channel").pipe(
+    channel: Flag.String("channel").pipe(
       Flag.optional,
       Flag.withDescription("Filter by provider channel")
     ),
-    operationType: Flag.string("operation-type").pipe(
+    operationType: Flag.String("operation-type").pipe(
       Flag.optional,
       Flag.withDescription("Filter by provider operation type")
     ),
@@ -1265,12 +1277,13 @@ const operationsListCommand = Command.make(
 
 const operationsGetCommand = Command.make(
   "get",
-  { operationId: Argument.string("operation-id") },
+  { operationId: Argument.String("operation-id") },
   ({ operationId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedOperationId = yield* Schema.decodeUnknownEffect(
-          AdministrationNexiOperationId
+          AdministrationNexiOperationId,
+          { reportInput: true }
         )(operationId);
         const detail = yield* api.getOperation(accessToken, decodedOperationId);
         if (json) {
@@ -1299,7 +1312,7 @@ const operationsCommand = Command.make("operations").pipe(
 const customersListCommand = Command.make(
   "list",
   {
-    page: Flag.integer("page").pipe(
+    page: Flag.Int("page").pipe(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
@@ -1327,7 +1340,7 @@ const customersListCommand = Command.make(
 
 const customersSearchCommand = Command.make(
   "search",
-  { query: Argument.string("query") },
+  { query: Argument.String("query") },
   ({ query }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
@@ -1358,12 +1371,13 @@ const customersSearchCommand = Command.make(
 
 const customersGetCommand = Command.make(
   "get",
-  { customerId: Argument.string("customer-id") },
+  { customerId: Argument.String("customer-id") },
   ({ customerId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedCustomerId = yield* Schema.decodeUnknownEffect(
-          AdministrationDotyposCustomerId
+          AdministrationDotyposCustomerId,
+          { reportInput: true }
         )(customerId);
         const detail = yield* api.getCustomer(accessToken, decodedCustomerId);
         if (json) {
@@ -1394,12 +1408,13 @@ const customersGetCommand = Command.make(
 
 const customersActivityCommand = Command.make(
   "activity",
-  { customerId: Argument.string("customer-id") },
+  { customerId: Argument.String("customer-id") },
   ({ customerId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedCustomerId = yield* Schema.decodeUnknownEffect(
-          AdministrationDotyposCustomerId
+          AdministrationDotyposCustomerId,
+          { reportInput: true }
         )(customerId);
         const activity = yield* api.getCustomerReservationActivity(
           accessToken,
@@ -1432,8 +1447,8 @@ const customersActivityCommand = Command.make(
 const customersReservationsCommand = Command.make(
   "reservations",
   {
-    customerId: Argument.string("customer-id"),
-    page: Flag.integer("page").pipe(
+    customerId: Argument.String("customer-id"),
+    page: Flag.Int("page").pipe(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
@@ -1442,7 +1457,8 @@ const customersReservationsCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedCustomerId = yield* Schema.decodeUnknownEffect(
-          AdministrationDotyposCustomerId
+          AdministrationDotyposCustomerId,
+          { reportInput: true }
         )(customerId);
         const result = yield* api.listCustomerReservations(
           accessToken,
@@ -1466,10 +1482,10 @@ const customersReservationsCommand = Command.make(
 const customersSetDiscountGroupCommand = Command.make(
   "set-discount-group",
   {
-    customerId: Argument.string("customer-id").pipe(
+    customerId: Argument.String("customer-id").pipe(
       Argument.withSchema(AdministrationDotyposCustomerId)
     ),
-    discountGroupId: Argument.string("discount-group-id").pipe(
+    discountGroupId: Argument.String("discount-group-id").pipe(
       Argument.withSchema(AdministrationDotyposDiscountGroupId)
     ),
     yes: confirmationFlag,
@@ -1489,7 +1505,7 @@ const customersSetDiscountGroupCommand = Command.make(
 const customersClearDiscountGroupCommand = Command.make(
   "clear-discount-group",
   {
-    customerId: Argument.string("customer-id").pipe(
+    customerId: Argument.String("customer-id").pipe(
       Argument.withSchema(AdministrationDotyposCustomerId)
     ),
     yes: confirmationFlag,
@@ -1520,15 +1536,15 @@ const customersCommand = Command.make("customers").pipe(
 );
 
 const discountDefinitionFlags = {
-  labelCs: Flag.string("label-cs").pipe(
+  labelCs: Flag.String("label-cs").pipe(
     Flag.withSchema(Schema.Trim.check(Schema.isNonEmpty())),
     Flag.withDescription("Czech customer-facing label")
   ),
-  labelEn: Flag.string("label-en").pipe(
+  labelEn: Flag.String("label-en").pipe(
     Flag.withSchema(Schema.Trim.check(Schema.isNonEmpty())),
     Flag.withDescription("English customer-facing label")
   ),
-  products: Flag.choiceWithValue("product", [
+  products: Flag.ChoiceWithValue("product", [
     ["cowork", { kind: "cowork" }],
     ["cowork:open-space", { kind: "cowork", tier: "open-space" }],
     ["cowork:reserved-desk", { kind: "cowork", tier: "reserved-desk" }],
@@ -1579,21 +1595,21 @@ const percentageBasisPointsFromString = Schema.String.check(
   )
 );
 
-const percentageFlag = Flag.string("percentage").pipe(
+const percentageFlag = Flag.String("percentage").pipe(
   Flag.withSchema(percentageBasisPointsFromString),
   Flag.withDescription("Percentage from 0.01 through 100")
 );
 
-const fixedValueFlag = Flag.integer("fixed-value").pipe(
+const fixedValueFlag = Flag.Int("fixed-value").pipe(
   Flag.withSchema(Schema.Int.check(Schema.isGreaterThan(0))),
   Flag.withDescription("Money value in minor currency units")
 );
 
-const fixedCurrencyFlag = Flag.choice("currency", ["CZK", "EUR"]).pipe(
+const fixedCurrencyFlag = Flag.Literals("currency", ["CZK", "EUR"]).pipe(
   Flag.withDescription("Currency for the money value")
 );
 
-const discountIdArgument = Argument.string("discount-id").pipe(
+const discountIdArgument = Argument.String("discount-id").pipe(
   Argument.withSchema(AdministrationStoredDiscountId)
 );
 
@@ -1760,30 +1776,30 @@ const discountsCommand = Command.make("discounts").pipe(
   ])
 );
 
-const discountCodeArgument = Argument.string("code").pipe(
+const discountCodeArgument = Argument.String("code").pipe(
   Argument.map((code) => code.trim().toUpperCase()),
   Argument.withSchema(AdministrationCanonicalPromotionCode)
 );
 
-const discountCodeIdArgument = Argument.string("code-id").pipe(
+const discountCodeIdArgument = Argument.String("code-id").pipe(
   Argument.withSchema(AdministrationDiscountCodeId)
 );
 
-const customerIdFlag = Flag.string("customer").pipe(
+const customerIdFlag = Flag.String("customer").pipe(
   Flag.withSchema(AdministrationDotyposCustomerId),
   Flag.optional,
   Flag.withDescription("Restrict the new code to this Dotypos customer")
 );
 
 const serviceDateFlags = {
-  serviceDateFrom: Flag.string("service-date-from").pipe(
+  serviceDateFrom: Flag.String("service-date-from").pipe(
     Flag.withSchema(AdministrationServiceDate),
     Flag.optional,
     Flag.withDescription(
       "First reservation start date (YYYY-MM-DD, Prague) the code applies to; pass with --service-date-until"
     )
   ),
-  serviceDateUntil: Flag.string("service-date-until").pipe(
+  serviceDateUntil: Flag.String("service-date-until").pipe(
     Flag.withSchema(AdministrationServiceDate),
     Flag.optional,
     Flag.withDescription(
@@ -1795,25 +1811,26 @@ const serviceDateFlags = {
 const discountCodeCreateFlags = {
   ...serviceDateFlags,
   customer: customerIdFlag,
-  disabled: Flag.boolean("disabled").pipe(
+  disabled: Flag.Boolean("disabled").pipe(
+    Flag.withDefault(false),
     Flag.withDescription("Create the code disabled")
   ),
-  maxUses: Flag.integer("max-uses").pipe(
+  maxUses: Flag.Int("max-uses").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isGreaterThan(0))),
     Flag.optional,
     Flag.withDescription("Maximum successful redemptions")
   ),
-  maxUsesPerCustomer: Flag.integer("max-uses-per-customer").pipe(
+  maxUsesPerCustomer: Flag.Int("max-uses-per-customer").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isGreaterThan(0))),
     Flag.optional,
     Flag.withDescription("Maximum successful redemptions per customer")
   ),
-  validFrom: Flag.string("valid-from").pipe(
+  validFrom: Flag.String("valid-from").pipe(
     Flag.withSchema(AdministrationInstant),
     Flag.optional,
     Flag.withDescription("Inclusive ISO instant")
   ),
-  validUntil: Flag.string("valid-until").pipe(
+  validUntil: Flag.String("valid-until").pipe(
     Flag.withSchema(AdministrationInstant),
     Flag.optional,
     Flag.withDescription("Exclusive ISO instant")
@@ -1887,7 +1904,7 @@ const codesCreateFixedCommand = Command.make(
     }).pipe(Effect.flatMap(runDiscountMutation))
 ).pipe(Command.withDescription("Create a code and fixed discount atomically"));
 
-const creditValueFlag = Flag.integer("credit-value").pipe(
+const creditValueFlag = Flag.Int("credit-value").pipe(
   Flag.withSchema(Schema.Int.check(Schema.isGreaterThan(0))),
   Flag.withDescription("Issued credit in minor currency units")
 );
@@ -1954,14 +1971,15 @@ const codesUpdateCommand = Command.make(
     codeId: discountCodeIdArgument,
     code: discountCodeArgument,
     discountId: discountIdArgument,
-    enabled: Flag.choiceWithValue("enabled", [
+    enabled: Flag.ChoiceWithValue("enabled", [
       ["true", true],
       ["false", false],
     ] as const),
     maxUses: discountCodeCreateFlags.maxUses,
     maxUsesPerCustomer: discountCodeCreateFlags.maxUsesPerCustomer,
     ...serviceDateFlags,
-    clearServiceDates: Flag.boolean("clear-service-dates").pipe(
+    clearServiceDates: Flag.Boolean("clear-service-dates").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Remove the code's reservation dates; without date flags the update keeps them"
       )
@@ -2006,7 +2024,7 @@ const codesUpdateCommand = Command.make(
     )
 ).pipe(Command.withDescription("Replace a managed discount code"));
 
-const voucherIdArgument = Argument.string("voucher-id").pipe(
+const voucherIdArgument = Argument.String("voucher-id").pipe(
   Argument.withSchema(AdministrationVoucherId)
 );
 
@@ -2015,7 +2033,7 @@ const vouchersUpdateCommand = Command.make(
   {
     voucherId: voucherIdArgument,
     code: discountCodeArgument,
-    enabled: Flag.choiceWithValue("enabled", [
+    enabled: Flag.ChoiceWithValue("enabled", [
       ["true", true],
       ["false", false],
     ] as const),
@@ -2061,7 +2079,7 @@ const codesAddCustomerCommand = Command.make(
   "add-customer",
   {
     codeId: discountCodeIdArgument,
-    customerId: Argument.string("customer-id").pipe(
+    customerId: Argument.String("customer-id").pipe(
       Argument.withSchema(AdministrationDotyposCustomerId)
     ),
     yes: confirmationFlag,
@@ -2078,7 +2096,7 @@ const codesRemoveCustomerCommand = Command.make(
   "remove-customer",
   {
     codeId: discountCodeIdArgument,
-    customerId: Argument.string("customer-id").pipe(
+    customerId: Argument.String("customer-id").pipe(
       Argument.withSchema(AdministrationDotyposCustomerId)
     ),
     yes: confirmationFlag,
@@ -2173,7 +2191,7 @@ const vouchersDeleteCommand = Command.make(
 
 const voucherCustomerArguments = {
   voucherId: voucherIdArgument,
-  customerId: Argument.string("customer-id").pipe(
+  customerId: Argument.String("customer-id").pipe(
     Argument.withSchema(AdministrationDotyposCustomerId)
   ),
   yes: confirmationFlag,
@@ -2281,18 +2299,18 @@ const vouchersCommand = Command.make("vouchers").pipe(
 const accessCodesCreateCommand = Command.make(
   "create",
   {
-    name: Argument.string("name").pipe(
+    name: Argument.String("name").pipe(
       Argument.withSchema(AdministrationStandaloneAccessCodeName)
     ),
-    startsAt: Flag.string("starts-at").pipe(
+    startsAt: Flag.String("starts-at").pipe(
       Flag.withSchema(AdministrationWorkspaceSiteLocalWholeHourDateTime),
       Flag.withDescription("Inclusive site-local start (YYYY-MM-DDTHH:mm)")
     ),
-    endsAt: Flag.string("ends-at").pipe(
+    endsAt: Flag.String("ends-at").pipe(
       Flag.withSchema(AdministrationWorkspaceSiteLocalWholeHourDateTime),
       Flag.withDescription("Exclusive site-local end (YYYY-MM-DDTHH:mm)")
     ),
-    providerCredentialRemoved: Flag.string("provider-credential-removed").pipe(
+    providerCredentialRemoved: Flag.String("provider-credential-removed").pipe(
       Flag.withSchema(AdministrationStandaloneAccessCodeAttemptId),
       Flag.optional,
       Flag.withDescription(
@@ -2311,7 +2329,8 @@ const accessCodesCreateCommand = Command.make(
           });
         }
         const request = yield* Schema.decodeUnknownEffect(
-          AdministrationStandaloneAccessCodeCreateInput
+          AdministrationStandaloneAccessCodeCreateInput,
+          administrationInputParseOptions
         )({ name, startsAt, endsAt }).pipe(
           Effect.mapError(
             () =>
@@ -2509,10 +2528,10 @@ const describeCliSessionStatus = (
 const sessionsRenameCommand = Command.make(
   "rename",
   {
-    sessionId: Argument.string("session-id").pipe(
+    sessionId: Argument.String("session-id").pipe(
       Argument.withSchema(CliSessionId)
     ),
-    clientName: Argument.string("label").pipe(
+    clientName: Argument.String("label").pipe(
       Argument.withSchema(CliClientName)
     ),
   },
@@ -2534,7 +2553,7 @@ const sessionsRenameCommand = Command.make(
 const sessionsRevokeCommand = Command.make(
   "revoke",
   {
-    sessionId: Argument.string("session-id").pipe(
+    sessionId: Argument.String("session-id").pipe(
       Argument.withSchema(CliSessionId)
     ),
     yes: confirmationFlag,
@@ -2578,7 +2597,7 @@ const sessionsCommand = Command.make("sessions").pipe(
 const authCommand = Command.make(
   "auth",
   {
-    name: Flag.string("name").pipe(
+    name: Flag.String("name").pipe(
       Flag.optional,
       Flag.withDescription("Name shown for this client in the admin interface")
     ),
@@ -2951,7 +2970,8 @@ const executeAndReportDiscountMutation = (
 ) =>
   Effect.gen(function* () {
     const validatedMutation = yield* Schema.decodeUnknownEffect(
-      AdministrationDiscountMutation
+      AdministrationDiscountMutation,
+      administrationInputParseOptions
     )(mutation).pipe(
       Effect.mapError(
         () =>

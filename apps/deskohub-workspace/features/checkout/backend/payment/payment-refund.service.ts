@@ -12,7 +12,7 @@ import {
   Layer,
   Option,
 } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";

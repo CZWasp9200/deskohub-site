@@ -73,14 +73,17 @@ export const dotyposTimestampFromDateTime = (
 /** Decodes an ISO 8601 instant with at most six fraction digits. */
 export const DotyposTimestampFromString = Schema.String.pipe(
   Schema.decodeTo(DotyposTimestampSchema, {
-    decode: SchemaGetter.transformOrFail((value: string) =>
+    decode: SchemaGetter.transformEffect((value: string) =>
       Option.match(parseDotyposTimestamp(value), {
         onNone: () =>
           Effect.fail(
-            new SchemaIssue.InvalidValue(Option.some(value), {
-              message:
-                "must be an ISO 8601 instant with at most microsecond precision",
-            })
+            new SchemaIssue.InvalidValue(
+              {
+                message:
+                  "must be an ISO 8601 instant with at most microsecond precision",
+              },
+              value
+            )
           ),
         onSome: Effect.succeed,
       })
