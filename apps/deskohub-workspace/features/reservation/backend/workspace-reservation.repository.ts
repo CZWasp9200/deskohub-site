@@ -58,6 +58,11 @@ import type {
   WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
+import {
+  deleteOfficeInvitees,
+  recordOfficeInvitees,
+  type SealedOfficePeople,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import {
   type ReadLimitExceededError,
@@ -186,6 +191,11 @@ export interface CreateWorkspaceReservationInput {
   readonly reservationDetails: StoredWorkspaceReservationDetails;
   readonly locale: string;
   readonly reservationHoldExpiresAt?: Temporal.Instant;
+  /**
+   * Who is coming to an office booked with a people list, recorded with the
+   * draft in its transaction: whether the contact attends, and each invitee.
+   */
+  readonly officePeople?: SealedOfficePeople;
 }
 
 /**
@@ -640,9 +650,17 @@ const recordReservationDraft = Effect.fnUntraced(function* (
       ),
       locale: input.locale,
       reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+      officeContactAttends: input.officePeople?.contactAttends ?? null,
     })
     .onConflictDoNothing()
-    .returning();
+    .returning()
+    .pipe(
+      Effect.tap(([inserted]) =>
+        inserted && input.officePeople
+          ? recordOfficeInvitees(inserted.id, input.officePeople)
+          : Effect.void
+      )
+    );
 });
 
 /** Locks the reservation's access grant row, if it has one. */
@@ -1521,12 +1539,24 @@ export class WorkspaceReservationRepository extends Context.Service<
                   locale: input.replacement.locale,
                   reservationHoldExpiresAt:
                     input.replacement.reservationHoldExpiresAt,
+                  officeContactAttends:
+                    input.replacement.officePeople?.contactAttends ?? null,
                 })
                 .returning();
 
               if (!replacement) {
                 return yield* Effect.die(
                   "Workspace replacement reservation insert returned no row."
+                );
+              }
+
+              // The superseded draft never books anyone; its people go with
+              // it, and the replacement records its own.
+              yield* deleteOfficeInvitees(input.cancelledReservationId);
+              if (input.replacement.officePeople) {
+                yield* recordOfficeInvitees(
+                  replacement.id,
+                  input.replacement.officePeople
                 );
               }
 

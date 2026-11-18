@@ -1,3 +1,4 @@
+import { Effect, Option } from "effect";
 import type {
   CheckoutSummary,
   CheckoutSummaryChangedKeys,
@@ -10,7 +11,13 @@ import {
   getEarlyPerformanceRequestRequiredAt,
   isEarlyPerformanceRequestRequired,
 } from "@/features/legal/early-performance";
+import type { InviteeEmail } from "@/features/office/office-people";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  getBookedPeopleQuery,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import {
   type Instant,
   temporalInstantToIsoString,
@@ -41,7 +48,56 @@ export type PayStateCheckoutView = {
     /** From this instant on, submitting needs the early-performance request. */
     readonly requiredFrom: string;
   };
+  /**
+   * Who is coming to an office booked with a people list; absent for any
+   * other order. Read from the order's invitee rows, since the Pay state
+   * never carries an invitee's address (`withCheckoutOfficePeople`).
+   */
+  readonly people?: CheckoutOfficePeople;
 };
+
+/** Who is coming to an office order under review: the contact and invitees. */
+export type CheckoutOfficePeople = {
+  readonly contactAttends: boolean;
+  readonly invitees: ReadonlyArray<InviteeEmail>;
+};
+
+/**
+ * Who is coming to a Pay state's order, when it is an office booked with a
+ * people list.
+ */
+export const findCheckoutOfficePeople = Effect.fn(
+  "payState.findCheckoutOfficePeople"
+)(function* (orderId: WorkspaceReservationId) {
+  const reservation = yield* WorkspaceReservationRepository.pipe(
+    Effect.flatMap((reservations) => reservations.findById(orderId))
+  );
+  if (!reservation) return Option.none<CheckoutOfficePeople>();
+  const booked = yield* ReservationInvitees.pipe(
+    Effect.flatMap((invitees) =>
+      invitees.findBookedPeople(getBookedPeopleQuery(reservation))
+    )
+  );
+  return Option.map(
+    booked,
+    (people): CheckoutOfficePeople => ({
+      contactAttends: people.contactAttends,
+      invitees: people.invitees.map(({ email }) => email),
+    })
+  );
+});
+
+/** The view with who is coming to its order, when that is an office. */
+export const withCheckoutOfficePeople = (view: PayStateCheckoutView) =>
+  findCheckoutOfficePeople(view.orderId).pipe(
+    Effect.map(
+      (people): PayStateCheckoutView =>
+        Option.match(people, {
+          onNone: () => view,
+          onSome: (found) => ({ ...view, people: found }),
+        })
+    )
+  );
 
 export const getPayStateCheckoutView = (
   state: PayStateWithHoldExpiry,

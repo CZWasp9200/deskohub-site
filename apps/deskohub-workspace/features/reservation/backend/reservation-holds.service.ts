@@ -43,6 +43,7 @@ import {
   checkoutDetailsLogFields,
 } from "@/features/checkout/schemas/checkout-details";
 import type { Locale } from "@/features/i18n";
+import type { ValidOfficePeople } from "@/features/office/office-people";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
@@ -68,6 +69,7 @@ import {
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
+import type { SealedOfficePeople } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { MissingDotyposId } from "@/shared/backend/missing-dotypos-id";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -93,6 +95,15 @@ type ReservationHoldRequest = {
   };
   /** What a new Dotypos hold carries, from the customer's quote. */
   readonly checkoutDetails: CheckoutDetails;
+  /**
+   * Who is coming to an office booked with a people list: the validated
+   * list, which the attempt key binds, and its sealed form, which the draft
+   * records.
+   */
+  readonly officePeople?: {
+    readonly valid: ValidOfficePeople;
+    readonly sealed: SealedOfficePeople;
+  };
 };
 
 /** Where the attempt's hold stands once the request returns. */
@@ -252,7 +263,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     checkoutSessionId: checkout.checkoutSessionId,
     checkoutAttemptId: checkout.checkoutAttemptId,
     reservation,
+    ...(request.officePeople && { people: request.officePeople.valid }),
     draft: {
+      ...(request.officePeople && {
+        officePeople: request.officePeople.sealed,
+      }),
       dotyposCustomerId: booking.customer,
       authorAccountId: booking.author,
       ...(booking.agent && {
@@ -738,6 +753,7 @@ type ReservationDraftRequest = {
   readonly checkoutSessionId: CheckoutSessionId;
   readonly checkoutAttemptId: CheckoutAttemptId;
   readonly reservation: PreparePayStateInput["reservation"];
+  readonly people?: ValidOfficePeople;
   readonly draft: Omit<
     CreateWorkspaceReservationInput,
     "checkoutSessionKey" | "checkoutAttemptKey"
@@ -1038,6 +1054,7 @@ const prepareDraftInSession = Effect.fnUntraced(function* (
     checkoutSessionId,
     checkoutAttemptId: request.checkoutAttemptId,
     reservation: request.reservation,
+    people: request.people,
   });
 
   const existingAttempt = yield* findSettledAttemptReservation(

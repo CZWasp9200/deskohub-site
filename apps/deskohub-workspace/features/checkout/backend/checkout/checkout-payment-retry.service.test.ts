@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -163,6 +164,9 @@ const runPrepare = (harness: Harness = {}) => {
       Layer.mergeAll(
         Layer.mock(ReservationAuthorizationService, {
           authorize: () => Effect.succeed(harness.authorized ?? true),
+        }),
+        Layer.mock(ReservationInvitees, {
+          findBookedPeople: () => Effect.succeed(Option.none()),
         }),
         Layer.mock(WorkspaceReservationRepository, {
           findById: () => Effect.succeed(stored),

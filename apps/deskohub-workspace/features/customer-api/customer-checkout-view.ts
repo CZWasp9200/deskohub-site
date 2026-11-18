@@ -27,6 +27,12 @@ export const toCustomerCheckout = (
     priceReview: { changedKeys: view.changedKeys },
   }),
   earlyPerformanceConsent: view.earlyPerformanceConsent,
+  ...(view.people !== undefined && {
+    people: {
+      contactAttends: view.people.contactAttends,
+      invitees: [...view.people.invitees],
+    },
+  }),
   ...(facts.referralApplied && { referralApplied: true }),
   ...(facts.rememberReferralCode !== undefined && {
     rememberReferralCode: facts.rememberReferralCode,

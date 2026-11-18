@@ -1,3 +1,4 @@
+import type { OfficePeopleRejection } from "@/features/reservation/backend/office-people-submission";
 import "server-only";
 
 import {
@@ -28,6 +29,7 @@ import {
   Effect,
   Layer,
   Match,
+  Option,
   Predicate,
   Schema,
   type SchemaIssue,
@@ -256,6 +258,7 @@ const toPreparationInput = (
       phone: payload.contact.phone,
       billing: payload.billing,
     },
+    ...(payload.people && { people: payload.people }),
   }).pipe(
     Effect.map((decoded): Parameters<Operations["preparePayState"]>[0] =>
       decoded.marketingConsent === true
@@ -286,6 +289,28 @@ const toCheckoutDetailsField = (issue: SchemaIssue.Issue) => {
   return {};
 };
 
+/**
+ * The contract error for a people list booking can't take: an invitee or an
+ * empty list is a checkout detail, a head count that isn't the selected seats
+ * or the office's capacity is the selection's `seats`, and a list beside
+ * anything but an office is the selection's `people`.
+ */
+const toOfficePeopleAnswer = (rejection: OfficePeopleRejection) =>
+  Match.value(rejection).pipe(
+    Match.tagsExhaustive({
+      InviteeRejected: ({ index }) =>
+        new CustomerCheckoutDetailsInvalid({
+          field: `people.invitees.${index}`,
+        }),
+      NoPeople: () => new CustomerCheckoutDetailsInvalid({ field: "people" }),
+      OverCapacity: () =>
+        new CustomerBookingSelectionInvalid({ field: "seats" }),
+      SeatsMismatch: () =>
+        new CustomerBookingSelectionInvalid({ field: "seats" }),
+      NotOffice: () => new CustomerBookingSelectionInvalid({ field: "people" }),
+    })
+  );
+
 const answerPreparationFailure =
   (operation: string) => (failure: PreparationFailure) =>
     Match.value(failure).pipe(
@@ -294,6 +319,8 @@ const answerPreparationFailure =
           Effect.fail(accessFailure).pipe(answerCustomerApiFailure(operation)),
         AdvertisedPriceMismatchError: () =>
           Effect.fail(new CustomerQuoteExpired()),
+        OfficePeopleRejectedError: ({ rejection }) =>
+          Effect.fail(toOfficePeopleAnswer(rejection)),
         // Preparation seals the checkout it starts; the client sent no
         // checkout token, so this is the server's failure.
         PayStateTokenError: (tokenFailure) =>
@@ -797,8 +824,18 @@ const checkoutAt = (
       Effect.flatMap((updates) => updates.recorded)
     );
 
+    const people = yield* operations
+      .findOfficePeople(state.orderId)
+      .pipe(Effect.catch(retryable("customerApi.findCheckoutOfficePeople")));
+
     return toCustomerCheckout(
-      getPayStateCheckoutView(state, yield* currentInstant),
+      {
+        ...getPayStateCheckoutView(state, yield* currentInstant),
+        ...Option.match(people, {
+          onNone: () => ({}),
+          onSome: (found) => ({ people: found }),
+        }),
+      },
       payStateToken,
       { ...facts, ...referral }
     );

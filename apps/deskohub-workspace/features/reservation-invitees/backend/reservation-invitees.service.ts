@@ -28,10 +28,14 @@ import {
 } from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import {
+  getBookedOfficePeople,
   InviteeEmail,
   type ValidOfficePeople,
 } from "@/features/office/office-people";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type {
+  StoredWorkspaceReservationDetails,
+  WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import {
   getReservationInviteeRetainUntil,
   type ReservationInviteeId,
@@ -166,7 +170,46 @@ export interface DueReservationInvitee {
   readonly email: InviteeEmail | null;
 }
 
+/**
+ * What `findBookedPeople` reads off a stored reservation: its stored
+ * `office_contact_attends` and the seats its office snapshot booked.
+ */
+export const getBookedPeopleQuery = (reservation: {
+  readonly id: WorkspaceReservationId;
+  readonly officeContactAttends: boolean | null;
+  readonly reservationDetails: StoredWorkspaceReservationDetails;
+}) => ({
+  id: reservation.id,
+  officeContactAttends: reservation.officeContactAttends,
+  seats:
+    reservation.reservationDetails.kind === "office"
+      ? reservation.reservationDetails.seats
+      : undefined,
+});
+
+/** Who is coming to a booked office, as its booker sees them. */
+export interface BookedOfficePeople {
+  readonly contactAttends: boolean;
+  readonly invitees: ReadonlyArray<
+    ReservationInvitee & { readonly email: InviteeEmail }
+  >;
+}
+
 export interface IReservationInvitees {
+  /**
+   * Who is coming to a reservation booked with a people list, from its
+   * stored `office_contact_attends`, booked `seats` and invitee rows. None
+   * for any other reservation, and once the retention purge reduced or
+   * deleted an invitee (`getBookedOfficePeople`).
+   */
+  readonly findBookedPeople: (reservation: {
+    readonly id: WorkspaceReservationId;
+    readonly officeContactAttends: boolean | null;
+    readonly seats: number | undefined;
+  }) => Effect.Effect<
+    Option.Option<BookedOfficePeople>,
+    ReservationInviteeStorageError
+  >;
   /** The reservation's invitees in list order, addresses opened. */
   readonly listForReservation: (
     reservationId: WorkspaceReservationId
@@ -219,7 +262,8 @@ export interface IReservationInvitees {
   /**
    * Rows due for the retention purge at `now`, at most `limit`: past the
    * later of `retain_until` and 30 Prague days after a rescheduled access
-   * end, or of a reservation that was never paid and no longer holds.
+   * end, or of a reservation that was never paid and whose hold ended over
+   * a week ago.
    */
   readonly listDue: (input: {
     readonly now: Temporal.Instant;
@@ -283,6 +327,12 @@ type InviteeMetadata = {
 /** Days an address outlives a rescheduled access end, as at the write. */
 const retentionDays = 30;
 const pragueTimeZone = workspaceSiteConstants.location.timeZone;
+/**
+ * How long a never-paid order's people outlive its ended hold: a payment
+ * retry books an expired or retried order again under the same id, so its
+ * rows stay until retrying it is no longer plausible.
+ */
+const unpaidRetryWindow = Temporal.Duration.from({ hours: 7 * 24 });
 
 export class ReservationInvitees extends Context.Service<
   ReservationInvitees,
@@ -390,7 +440,25 @@ export class ReservationInvitees extends Context.Service<
             Effect.flatMap((rows) => openAddresses(rows, reservationId))
           );
 
+      const listForReservation = (reservationId: WorkspaceReservationId) =>
+        listWhere(
+          eq(reservationInvitees.workspaceReservationId, reservationId),
+          reservationId
+        );
+
       return ReservationInvitees.of({
+        findBookedPeople: ({ id, officeContactAttends, seats }) =>
+          officeContactAttends === null || seats === undefined
+            ? Effect.succeed(Option.none())
+            : listForReservation(id).pipe(
+                Effect.map((invitees) =>
+                  getBookedOfficePeople({
+                    contactAttends: officeContactAttends,
+                    seats,
+                    invitees,
+                  })
+                )
+              ),
         listForReservation: (reservationId) =>
           listWhere(
             eq(reservationInvitees.workspaceReservationId, reservationId),
@@ -551,7 +619,10 @@ export class ReservationInvitees extends Context.Service<
                     inArray(workspaceReservations.reservationState, [
                       "cancelled",
                       "hold_expired",
-                    ])
+                    ]),
+                    // A payment retry may still book the same order again
+                    // for a while after its hold ended.
+                    sql`coalesce(${workspaceReservations.reservationCancelledAt}, ${workspaceReservations.reservationHoldExpiredAt}, ${workspaceReservations.reservationHoldExpiresAt}) < ${now.subtract(unpaidRetryWindow).toString()}::timestamptz`
                   )
                 )
               )
