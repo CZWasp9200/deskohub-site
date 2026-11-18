@@ -428,17 +428,6 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
-  // The pinned badge's size and the text column's width, so the title keeps
-  // clear of the badge: beside it when that leaves the title room, else
-  // starting under it.
-  const [badgeSize, setBadgeSize] = useState({ width: 0, height: 0 });
-  const [textWidth, setTextWidth] = useState(0);
-  const besideBadge = Math.max(0, badgeSize.width - rowChevronColumn) + space.sm;
-  const titleClearance = Option.isNone(badge)
-    ? undefined
-    : textWidth - besideBadge >= textWidth * 0.55
-      ? { marginRight: besideBadge }
-      : { marginTop: badgeSize.height + space.xs };
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -448,16 +437,10 @@ function ReservationRow({
         ),
         onNone: () => <DateTilePlaceholder />,
       })}
-      <View
-        onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)}
-        style={styles.rowText}
-      >
+      <View style={styles.rowText}>
         <Text
           variant="bodyStrong"
-          style={[
-            past ? styles.pastTitle : undefined,
-            titleClearance,
-          ]}
+          style={past ? styles.pastTitle : undefined}
         >
           {view.title}
         </Text>
@@ -474,24 +457,28 @@ function ReservationRow({
             />
           )}
       </View>
-      {Option.isSome(target) && (
-        <Icon icon={ChevronRight} size={20} color={color.ink3} />
-      )}
       {Option.match(badge, {
+        // The badge heads the right column; the chevron centres in what's
+        // left below it.
         onSome: (badge) => (
-          <View
-            onLayout={(event) =>
-              setBadgeSize({
-                width: event.nativeEvent.layout.width,
-                height: event.nativeEvent.layout.height,
-              })
-            }
-            style={styles.rowBadge}
-          >
-            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+          <View style={styles.rowAside}>
+            <Badge
+              label={badge.label}
+              tone={badge.tone}
+              icon={badge.icon}
+              wrap
+            />
+            {Option.isSome(target) && (
+              <View style={styles.rowAsideChevron}>
+                <Icon icon={ChevronRight} size={20} color={color.ink3} />
+              </View>
+            )}
           </View>
         ),
-        onNone: () => null,
+        onNone: () =>
+          Option.isSome(target) && (
+            <Icon icon={ChevronRight} size={20} color={color.ink3} />
+          ),
       })}
     </>
   );
@@ -690,14 +677,12 @@ function TodayPin({
   );
 }
 
-/** The chevron and the gap before it, which a row's badge may span. */
-const rowChevronColumn = 20 + space.md;
-
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
   rowDetail: { marginTop: 2 },
-  // A row's status badge, pinned top right above its chevron.
-  rowBadge: { position: "absolute", right: 14, top: space.md },
+  // A row's status badge over its chevron, at most about a third of the row.
+  rowAside: { alignItems: "flex-end", alignSelf: "stretch", maxWidth: "34%" },
+  rowAsideChevron: { flex: 1, justifyContent: "center", paddingTop: space.xs },
   rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
   stubWithdrawal: { alignSelf: "center", textAlign: "center" },

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { Text } from "./text";
@@ -26,19 +27,59 @@ export function Badge({
   label,
   tone,
   icon,
+  wrap = false,
 }: {
   readonly label: string;
   readonly tone: BadgeTone;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
+  /**
+   * Lets the label wrap onto more lines in a narrow space, between words
+   * only (it never gets narrower than its longest word), the icon kept on
+   * the first line.
+   */
+  readonly wrap?: boolean;
 }) {
   const { background, ink } = badgeColors[tone];
+  const [longestWord, setLongestWord] = useState(0);
+  const word = wrap
+    ? label.split(/\s+/).reduce((a, b) => (b.length > a.length ? b : a), "")
+    : "";
   return (
-    <View style={[styles.badge, { backgroundColor: background }]}>
+    <View
+      style={[
+        styles.badge,
+        wrap && styles.badgeWrap,
+        { backgroundColor: background },
+      ]}
+    >
+      {/* Its 16pt icon matches the label's line height, so a wrapped
+          badge, aligned to the top, keeps the icon on the first line. */}
       {icon && <Icon icon={icon} size={16} color={ink} />}
-      <Text variant="badge" style={[styles.label, { color: ink }]}>
+      <Text
+        variant="badge"
+        style={[
+          styles.label,
+          wrap && { minWidth: longestWord },
+          { color: ink },
+        ]}
+      >
         {label}
       </Text>
+      {wrap && (
+        // Measures the longest word, so the label never breaks inside it.
+        <Text
+          aria-hidden
+          variant="badge"
+          numberOfLines={1}
+          onLayout={(event) =>
+            setLongestWord(Math.ceil(event.nativeEvent.layout.width))
+          }
+          style={styles.measure}
+        >
+          {word}
+        </Text>
+      )}
     </View>
   );
 }
@@ -56,4 +97,6 @@ const styles = StyleSheet.create({
     paddingVertical: space.xs,
   },
   label: { flexShrink: 1 },
+  badgeWrap: { alignItems: "flex-start" },
+  measure: { opacity: 0, position: "absolute" },
 });
