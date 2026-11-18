@@ -56,6 +56,8 @@ export function ProfileFormFooter({
   onSave,
   elsewhere,
   locale,
+  layout = "stacked",
+  contentWidth = "form",
 }: {
   readonly state: ProfileSubmitState;
   readonly unsaved: boolean;
@@ -63,10 +65,13 @@ export function ProfileFormFooter({
   readonly onSave: () => void;
   readonly elsewhere: ProfileFormElsewhere;
   readonly locale: AppLocale;
+  readonly layout?: "inline" | "stacked";
+  readonly contentWidth?: "form" | "wide";
 }) {
   const footer = profileFooterView(state, unsaved, shownFields);
   return (
     <ActionFooter
+      contentWidth={layout === "inline" ? contentWidth : undefined}
       message={footerMessage(footer.message, elsewhere, locale)}
       messageTone={
         footer.message === undefined || footer.message.kind === "no-changes"
@@ -79,12 +84,14 @@ export function ProfileFormFooter({
         onPress={onSave}
         disabled={!footer.saveEnabled}
         busy={footer.saving}
+        width={layout === "inline" ? "content" : "full"}
       />
       {footer.message?.kind === "fix-elsewhere" && (
         <Button
           variant="secondary"
           label={elsewhere.label}
           onPress={elsewhere.onPress}
+          width={layout === "inline" ? "content" : "full"}
         />
       )}
     </ActionFooter>
