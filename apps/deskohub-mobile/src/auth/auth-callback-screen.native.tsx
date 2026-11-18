@@ -14,8 +14,10 @@ import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { LoadingIndicator } from "../ui/loading-indicator";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
+import { useViewport } from "../ui/viewport";
 import { useUpdateOfferHost } from "../updates/update-offer";
 import { type AuthCallback, parseAuthCallbackParams } from "./auth-callback";
+import { AuthPhotoSheet } from "./auth-photo-sheet";
 import { nativeAuthRuntime } from "./native-auth-runtime";
 import { completeAuthCallback } from "./native-sign-in";
 import { SignInUnavailable } from "./native-sign-in-errors";
@@ -53,6 +55,7 @@ const startAgain = () =>
  * step.
  */
 export function AuthCallbackScreen() {
+  const { isWide } = useViewport();
   // Signing in is brief and part of the sign-in flow: no update offer here.
   useUpdateOfferHost();
   const locale = useAppLocale();
@@ -128,6 +131,34 @@ export function AuthCallbackScreen() {
     );
   }
 
+  const title = m.callback_failed_title({}, { locale });
+  const body = nativeSignInFailureMessage(state.failure, locale);
+  // A refused callback preserves the current session and returns to its screen.
+  const actions = signedIn ? (
+    <Button label={m.callback_go_back({}, { locale })} onPress={leave} />
+  ) : (
+    <View style={styles.actions}>
+      <Button
+        label={m.callback_start_again({}, { locale })}
+        icon={RotateCcw}
+        onPress={startAgain}
+      />
+      <Button
+        variant={isWide ? "secondary" : "quiet"}
+        label={m.callback_back_to_sign_in({}, { locale })}
+        onPress={backToSignIn}
+      />
+    </View>
+  );
+
+  if (isWide) {
+    return (
+      <AuthPhotoSheet title={title} body={body} alert>
+        {actions}
+      </AuthPhotoSheet>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.failedScreen}
@@ -141,28 +172,10 @@ export function AuthCallbackScreen() {
         icon={CircleAlert}
         tone="danger"
         live="assertive"
-        title={m.callback_failed_title({}, { locale })}
-        body={nativeSignInFailureMessage(state.failure, locale)}
+        title={title}
+        body={body}
       >
-        {/* A refused callback leaves a signed-in app signed in, as when a
-            reauthentication lands on another account: it goes back to where
-            it was, not to sign-in. */}
-        {signedIn ? (
-          <Button label={m.callback_go_back({}, { locale })} onPress={leave} />
-        ) : (
-          <View style={styles.actions}>
-            <Button
-              label={m.callback_start_again({}, { locale })}
-              icon={RotateCcw}
-              onPress={startAgain}
-            />
-            <Button
-              variant="quiet"
-              label={m.callback_back_to_sign_in({}, { locale })}
-              onPress={backToSignIn}
-            />
-          </View>
-        )}
+        {actions}
       </EmptyState>
     </ScrollView>
   );

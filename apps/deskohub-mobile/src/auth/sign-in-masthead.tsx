@@ -9,12 +9,9 @@ import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { QuietUpdateOffer } from "../updates/update-offer-card";
+import { SignInBrand, signInHeroPhoto } from "./sign-in-art";
 
-// The landing page's hero photo with its left 40% (the kitchen) cut off,
-// 1080 x 1012, about 93 KB.
-const heroPhoto = require("../../assets/images/sign-in-hero.jpg");
 const heroAspect = 1080 / 1012;
-const colorLogo = require("../../assets/images/logo-color-on-navy.png");
 
 /**
  * The photo's fade into the navy over its top and bottom 30%, as the board's
@@ -75,20 +72,12 @@ export function SignInMasthead() {
       <FocusedStatusBar style="light" />
       <QuietUpdateOffer backdrop="navy" style={styles.updateOffer} />
       <View style={styles.brand}>
-        <Image source={colorLogo} style={styles.logo} />
-        <View>
-          <Text variant="display" tone="inverse" style={styles.wordmark}>
-            Deskohub
-          </Text>
-          <Text variant="hint" style={styles.workspace}>
-            WORKSPACE
-          </Text>
-        </View>
+        <SignInBrand />
       </View>
       <View style={styles.heroBand} onLayout={onBandLayout} aria-hidden>
         {photo && band && (
           <Image
-            source={heroPhoto}
+            source={signInHeroPhoto}
             resizeMode="cover"
             style={[
               styles.photo,
@@ -136,20 +125,8 @@ const styles = StyleSheet.create({
   },
   updateOffer: { marginHorizontal: space.lg, marginTop: space.md },
   brand: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
     paddingHorizontal: space.xxl,
     paddingTop: space.xl,
-  },
-  logo: { height: 45, width: 40 },
-  wordmark: { fontSize: 20, letterSpacing: -0.2, lineHeight: 20 },
-  workspace: {
-    color: color.onNavyMuted,
-    fontSize: 12,
-    letterSpacing: 2.4,
-    lineHeight: 12,
-    marginTop: 4,
   },
   heroBand: {
     flex: 1,
