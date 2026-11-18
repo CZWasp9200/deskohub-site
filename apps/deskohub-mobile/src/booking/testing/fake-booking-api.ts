@@ -163,8 +163,6 @@ const withdrawalPeriodDays = 14;
 export class FakeBookingApi {
   /** Requests in arrival order, with what they sent. */
   readonly calls: FakeBookingCall[] = [];
-  /** The clock checkouts expire by; tests may replace it. */
-  now: () => Date = () => new Date();
   /** Dates nothing can be booked on. */
   unavailableDates: string[];
   /** Dates a Reserved Desk needs a monitor workstation on. */
@@ -196,7 +194,11 @@ export class FakeBookingApi {
   private readonly quotes = new Map<string, string>();
   private sequence = 0;
 
-  constructor(private readonly workspace: FakeWorkspace) {
+  constructor(
+    private readonly workspace: FakeWorkspace,
+    /** The clock for the booking calendar and checkout expiry. */
+    public now: () => Date = () => new Date()
+  ) {
     const today = this.today();
     this.unavailableDates = [addDays(today, 3), addDays(today, 10)];
     this.workstationRequiredDates = [addDays(today, 5)];
@@ -429,10 +431,13 @@ const defaultChangedKeys: ChangedKeys = {
 const states = new WeakMap<FakeWorkspace, FakeBookingApi>();
 
 /** The booking state and scripts of `workspace`, created on first use. */
-export const fakeBooking = (workspace: FakeWorkspace): FakeBookingApi => {
+export const fakeBooking = (
+  workspace: FakeWorkspace,
+  now?: () => Date
+): FakeBookingApi => {
   const existing = states.get(workspace);
   if (existing !== undefined) return existing;
-  const created = new FakeBookingApi(workspace);
+  const created = new FakeBookingApi(workspace, now);
   states.set(workspace, created);
   return created;
 };

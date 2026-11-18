@@ -22,15 +22,18 @@ export function CoworkDateHeading({
   overnightStay,
   stay,
   onStayChange,
+  first = false,
 }: {
   readonly locale: AppLocale;
   readonly overnightStay: CoworkOvernightStay | undefined;
   readonly stay: CustomerCoworkStay;
   readonly onStayChange: (stay: CustomerCoworkStay) => void;
+  readonly first?: boolean;
 }) {
   const overnight = m.booking_cowork_stay_overnight({}, { locale });
   return (
     <BookingSectionHeading
+      first={first}
       title={m.booking_date_heading({}, { locale })}
       control={
         overnightStay === undefined ? undefined : (

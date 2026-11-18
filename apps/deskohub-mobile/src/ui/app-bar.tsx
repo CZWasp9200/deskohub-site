@@ -26,6 +26,7 @@ export function AppBar({
   raised = false,
   back = "back",
   tone = "paper",
+  alignToContent = false,
 }: {
   readonly title: string;
   readonly onBack?: () => void;
@@ -33,12 +34,20 @@ export function AppBar({
   readonly actions?: ReactNode;
   readonly raised?: boolean;
   readonly tone?: "paper" | "navy";
+  readonly alignToContent?: boolean;
 }) {
   const locale = useAppLocale();
   const navy = tone === "navy";
   return (
-    <View style={[styles.bar, navy && styles.navyBar, raised && styles.raised]}>
-      {onBack ? (
+    <View
+      style={[
+        styles.bar,
+        alignToContent && styles.alignedBar,
+        navy && styles.navyBar,
+        raised && styles.raised,
+      ]}
+    >
+      {onBack && (
         <Pressable
           role="button"
           aria-label={
@@ -57,13 +66,16 @@ export function AppBar({
             color={navy ? color.white : color.navy}
           />
         </Pressable>
-      ) : (
-        <View style={styles.lead} />
       )}
+      {!onBack && !alignToContent && <View style={styles.lead} />}
       <Text
         variant="title"
         role="heading"
-        style={[styles.title, navy && styles.navyTitle]}
+        style={[
+          styles.title,
+          alignToContent && styles.alignedTitle,
+          navy && styles.navyTitle,
+        ]}
       >
         {title}
       </Text>
@@ -87,6 +99,7 @@ const styles = StyleSheet.create({
     paddingRight: space.sm,
     paddingVertical: space.xs,
   },
+  alignedBar: { paddingLeft: 0, paddingRight: 0 },
   navyBar: { backgroundColor: color.navy },
   raised: { borderBottomColor: color.line },
   back: {
@@ -106,6 +119,7 @@ const styles = StyleSheet.create({
     minWidth: "50%",
     paddingLeft: space.xs,
   },
+  alignedTitle: { paddingLeft: 0 },
   navyTitle: { color: color.white },
   // Wraps under the title when the title's half and the actions can't share
   // the line; a long action label then wraps within the bar's width.

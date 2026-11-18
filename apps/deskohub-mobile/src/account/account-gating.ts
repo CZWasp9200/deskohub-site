@@ -30,6 +30,8 @@ export type AccountSection = (typeof accountSectionOrder)[number];
 /** The sections whose row opens a screen of its own. */
 export type AccountScreenSection = Exclude<AccountSection, "payment-methods">;
 
+export type AccountDetailSection = Exclude<AccountScreenSection, "complete">;
+
 /**
  * Where each section's row on the Account tab leads. Payment methods has no
  * screen yet: its row only shows, behind its release.
@@ -47,6 +49,20 @@ export const accountSectionHref = {
   legal: "/account/legal",
   danger: "/account/danger",
 } as const satisfies Record<AccountScreenSection, Href>;
+
+/** The Account stack's detail screen, excluding Profile opened by checkout. */
+export const accountDetailSection = (segments: readonly string[]) => {
+  const [account, tabs, tab, detail] = segments;
+  if (account !== "(account)" || tabs !== "(tabs)" || tab !== "account") {
+    return undefined;
+  }
+  return accountSectionOrder.find(
+    (section): section is AccountDetailSection =>
+      section === detail &&
+      section !== "complete" &&
+      section !== "payment-methods"
+  );
+};
 
 /** Why the account can't show its profile and reservations, if it can't. */
 export type AccountNotice =

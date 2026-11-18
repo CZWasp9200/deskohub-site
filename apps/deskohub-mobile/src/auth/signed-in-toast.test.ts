@@ -1,7 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import { expoRouterStandIn } from "../testing/expo-router-stand-in";
 import type { AuthSessionState } from "./auth-session-state";
-import { followSettledSession, type SettledSession } from "./signed-in-toast";
+import type { SettledSession } from "./signed-in-toast";
+
+mock.module("expo-router", () => expoRouterStandIn());
+const { followSettledSession } = await import("./signed-in-toast");
 
 const restoring: AuthSessionState = { status: "restoring" };
 const signedOut: AuthSessionState = { status: "signed-out" };

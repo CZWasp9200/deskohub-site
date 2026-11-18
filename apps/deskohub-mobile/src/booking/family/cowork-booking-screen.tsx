@@ -76,6 +76,11 @@ import {
 import { BookingGate } from "./booking-gate";
 import { BookingReadFailure, BookingReadView } from "./booking-read-view";
 import {
+  chooseStyles,
+  useChooseTracks,
+  useCoworkTierPair,
+} from "./choose-layout";
+import {
   coworkBookingModel,
   type KeptCoworkDraft,
   openingCoworkDraft,
@@ -283,6 +288,8 @@ function CoworkSelection({
   };
 
   const chosen = tiers.find(({ tier }) => tier === model.draft.tier);
+  const tracks = useChooseTracks(3);
+  const tierPair = useCoworkTierPair(tracks);
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
   const blocked = enablement.blockers.flatMap((blocker) => {
@@ -452,142 +459,169 @@ function CoworkSelection({
               onRetry={retrySupportingReads}
             />
 
-            <BookingSectionHeading
-              title={m.booking_cowork_tier_heading({}, { locale })}
-              first
-            />
-            <CoworkTierCards
-              label={m.booking_cowork_tier_heading({}, { locale })}
-              cards={cards}
-              selected={model.draft.tier}
-              onSelect={(tier) => {
-                setTapped(undefined);
-                setDraft(selectCoworkTier(model.draft, tier));
-              }}
-              locale={locale}
-            />
-            <CoworkDateHeading
-              locale={locale}
-              overnightStay={overnightStay}
-              stay={model.draft.stay}
-              onStayChange={(stay) => {
-                setTapped(undefined);
-                setDraft(selectCoworkStay(model.draft, stay));
-              }}
-            />
-            <MonthCalendar
-              label={m.booking_date_heading({}, { locale })}
-              locale={locale}
-              dates={enablement.dates}
-              selected={chosenDate}
-              onSelect={(date) => {
-                setTapped(undefined);
-                setDraft(selectCoworkDate(model.draft, date));
-              }}
-              today={today}
-              focusedDate={focusedDay}
-              onUnavailablePress={(date) =>
-                setTapped({ date, tier: model.draft.tier })
-              }
-              dayInfo={fullDayInfo}
-              previousMonthLabel={m.booking_calendar_previous_month(
-                {},
-                { locale }
-              )}
-              nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
-              unavailableLabel={m.booking_calendar_unavailable_day(
-                {},
-                { locale }
-              )}
-            />
-            <CoworkStayTimes
-              locale={locale}
-              overnightStay={overnightStay}
-              selection={model.selection}
-            />
-            <View style={styles.after}>
-              <Notice
-                tone="info"
-                message={
-                  enablement.notices
-                    .map((notice) => availabilityNoticeMessage(notice, locale))
-                    .join(" ") || undefined
-                }
-              />
-            </View>
-
-            {coffee !== undefined && (
-              <>
-                <BookingSectionHeading title={coffee.name} />
-                <AddonToggle
-                  label={coffee.name}
-                  icon={Coffee}
-                  checked={model.draft.coffee}
-                  onToggle={(checked) =>
-                    setDraft({ ...model.draft, coffee: checked })
+            <View style={tracks && chooseStyles.row}>
+              <View style={tracks && chooseStyles.track}>
+                <BookingSectionHeading
+                  title={m.booking_cowork_tier_heading({}, { locale })}
+                  first
+                />
+                <CoworkTierCards
+                  label={m.booking_cowork_tier_heading({}, { locale })}
+                  cards={cards}
+                  paired={tierPair}
+                  stretch={tracks}
+                  selected={model.draft.tier}
+                  onSelect={(tier) => {
+                    setTapped(undefined);
+                    setDraft(selectCoworkTier(model.draft, tier));
+                  }}
+                  locale={locale}
+                />
+              </View>
+              <View style={tracks && chooseStyles.calendar}>
+                <CoworkDateHeading
+                  first={tracks}
+                  locale={locale}
+                  overnightStay={overnightStay}
+                  stay={model.draft.stay}
+                  onStayChange={(stay) => {
+                    setTapped(undefined);
+                    setDraft(selectCoworkStay(model.draft, stay));
+                  }}
+                />
+                <MonthCalendar
+                  stretch={tracks}
+                  label={m.booking_date_heading({}, { locale })}
+                  locale={locale}
+                  dates={enablement.dates}
+                  selected={chosenDate}
+                  onSelect={(date) => {
+                    setTapped(undefined);
+                    setDraft(selectCoworkDate(model.draft, date));
+                  }}
+                  today={today}
+                  focusedDate={focusedDay}
+                  onUnavailablePress={(date) =>
+                    setTapped({ date, tier: model.draft.tier })
                   }
-                  price={m.booking_addon_price(
-                    { price: formatMoney(coffee.price, locale) },
+                  dayInfo={fullDayInfo}
+                  previousMonthLabel={m.booking_calendar_previous_month(
+                    {},
+                    { locale }
+                  )}
+                  nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
+                  unavailableLabel={m.booking_calendar_unavailable_day(
+                    {},
                     { locale }
                   )}
                 />
-              </>
-            )}
-
-            {workstation !== undefined && (
-              <>
-                <BookingSectionHeading title={workstation.name} />
-                <AddonToggle
-                  label={workstation.name}
-                  icon={Monitor}
-                  checked={chosenWorkstation !== undefined}
-                  disabled={enablement.workstationRequired}
-                  onToggle={(checked) =>
-                    setDraft(
-                      selectCoworkWorkstation(
-                        model.draft,
-                        checked
-                          ? Option.fromNullishOr(firstFreeWorkstation?.id)
-                          : Option.none()
-                      )
-                    )
-                  }
-                  price={m.booking_addon_price(
-                    { price: formatMoney(workstation.price, locale) },
-                    { locale }
-                  )}
+                <CoworkStayTimes
+                  locale={locale}
+                  overnightStay={overnightStay}
+                  selection={model.selection}
                 />
-                {chosenWorkstation !== undefined && (
-                  <AddonOptions
-                    label={workstation.name}
-                    options={enablement.workstations.map(({ id, name }) => ({
-                      value: id,
-                      label: name,
-                      disabled: enablement.unavailableWorkstations.has(id),
-                    }))}
-                    selected={chosenWorkstation.option}
-                    onSelect={(option) =>
-                      setDraft(
-                        selectCoworkWorkstation(
-                          model.draft,
-                          Option.some(option)
-                        )
-                      )
-                    }
-                  />
-                )}
                 <View style={styles.after}>
                   <Notice
                     tone="info"
                     message={
-                      chosenWorkstation?.origin === "requirement"
-                        ? m.booking_cowork_workstation_added({}, { locale })
-                        : undefined
+                      enablement.notices
+                        .map((notice) =>
+                          availabilityNoticeMessage(notice, locale)
+                        )
+                        .join(" ") || undefined
                     }
                   />
                 </View>
-              </>
-            )}
+              </View>
+              {(coffee !== undefined || workstation !== undefined) && (
+                <View style={tracks && chooseStyles.track}>
+                  {coffee !== undefined && (
+                    <>
+                      <BookingSectionHeading
+                        title={coffee.name}
+                        first={tracks}
+                      />
+                      <AddonToggle
+                        label={coffee.name}
+                        icon={Coffee}
+                        checked={model.draft.coffee}
+                        onToggle={(checked) =>
+                          setDraft({ ...model.draft, coffee: checked })
+                        }
+                        price={m.booking_addon_price(
+                          { price: formatMoney(coffee.price, locale) },
+                          { locale }
+                        )}
+                      />
+                    </>
+                  )}
+
+                  {workstation !== undefined && (
+                    <>
+                      <BookingSectionHeading
+                        title={workstation.name}
+                        first={tracks && coffee === undefined}
+                      />
+                      <AddonToggle
+                        label={workstation.name}
+                        icon={Monitor}
+                        checked={chosenWorkstation !== undefined}
+                        disabled={enablement.workstationRequired}
+                        onToggle={(checked) =>
+                          setDraft(
+                            selectCoworkWorkstation(
+                              model.draft,
+                              checked
+                                ? Option.fromNullishOr(firstFreeWorkstation?.id)
+                                : Option.none()
+                            )
+                          )
+                        }
+                        price={m.booking_addon_price(
+                          { price: formatMoney(workstation.price, locale) },
+                          { locale }
+                        )}
+                      />
+                      {chosenWorkstation !== undefined && (
+                        <AddonOptions
+                          label={workstation.name}
+                          options={enablement.workstations.map(
+                            ({ id, name }) => ({
+                              value: id,
+                              label: name,
+                              disabled:
+                                enablement.unavailableWorkstations.has(id),
+                            })
+                          )}
+                          selected={chosenWorkstation.option}
+                          onSelect={(option) =>
+                            setDraft(
+                              selectCoworkWorkstation(
+                                model.draft,
+                                Option.some(option)
+                              )
+                            )
+                          }
+                        />
+                      )}
+                      <View style={styles.after}>
+                        <Notice
+                          tone="info"
+                          message={
+                            chosenWorkstation?.origin === "requirement"
+                              ? m.booking_cowork_workstation_added(
+                                  {},
+                                  { locale }
+                                )
+                              : undefined
+                          }
+                        />
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
           </>
         )}
       </BookingReadView>

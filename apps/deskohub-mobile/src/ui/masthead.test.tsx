@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
+import { clientRoot } from "../testing/client-root";
 import { expoRouterStandIn } from "../testing/expo-router-stand-in";
 
 let focused = true;
@@ -13,7 +14,8 @@ mock.module("expo-router", () =>
   expoRouterStandIn({ useIsFocused: () => focused })
 );
 
-const { FocusedStatusBar } = await import("./focused-status-bar");
+const { FocusedStatusBar, StatusBarObserverContext, useStatusBarForeground } =
+  await import("./focused-status-bar");
 const { Masthead } = await import("./masthead");
 const { elementTree, find, flatStyle } = await import("./testing/element-tree");
 const { Text } = await import("./text");
@@ -48,32 +50,35 @@ describe("Masthead", () => {
   });
 
   test("identity content sits above the title, the subtitle below it in muted white", () => {
-    const parts = Children.toArray(
+    const [statusBar, column] = Children.toArray(
       masthead({
         title: "title",
         subtitle: "subtitle",
         children: createElement("Identity"),
       }).props.children
-    ) as ReactElement<{ style?: unknown; variant?: string }>[];
-    expect(parts.map((part) => part.type)).toEqual([
-      FocusedStatusBar,
-      "Identity",
-      Text,
-      Text,
-    ]);
-    expect(flatStyle(parts[3]?.props.style)).toMatchObject({
+    ) as ReactElement<{ children?: ReactNode }>[];
+    expect(statusBar?.type).toBe(FocusedStatusBar);
+    const parts = Children.toArray(column?.props.children) as ReactElement<{
+      style?: unknown;
+    }>[];
+    expect(parts.map((part) => part.type)).toEqual(["Identity", Text, Text]);
+    expect(flatStyle(parts[2]?.props.style)).toMatchObject({
       color: color.onNavyMuted,
     });
   });
 
   test("without a subtitle only the title shows", () => {
-    expect(
-      Children.toArray(masthead({ title: "title" }).props.children)
-    ).toHaveLength(2);
+    const [, column] = Children.toArray(
+      masthead({ title: "title" }).props.children
+    ) as ReactElement<{ children?: ReactNode }>[];
+    const content = Children.toArray(column?.props.children) as ReactElement[];
+    expect(content.map((part) => part.type)).toEqual([Text]);
   });
 });
 
 describe("FocusedStatusBar", () => {
+  const root = clientRoot();
+
   test("sets the status bar only while its screen has focus", () => {
     focused = true;
     expect(
@@ -86,5 +91,30 @@ describe("FocusedStatusBar", () => {
     focused = false;
     expect(elementTree(FocusedStatusBar, { style: "light" })).toBeNull();
     focused = true;
+  });
+
+  test("restores the masthead foreground when a collapsed header unmounts", async () => {
+    function Screen({ collapsed }: { readonly collapsed: boolean }) {
+      const { foreground, observe } = useStatusBarForeground();
+      return (
+        <StatusBarObserverContext value={observe}>
+          <div data-foreground={foreground} />
+          <FocusedStatusBar style="light" />
+          {collapsed && <FocusedStatusBar style="dark" />}
+        </StatusBarObserverContext>
+      );
+    }
+
+    const foreground = () =>
+      root
+        .container()
+        .querySelector("[data-foreground]")
+        ?.getAttribute("data-foreground");
+    await root.render(<Screen collapsed={false} />);
+    expect(foreground()).toBe("light");
+    await root.render(<Screen collapsed />);
+    expect(foreground()).toBe("dark");
+    await root.render(<Screen collapsed={false} />);
+    expect(foreground()).toBe("light");
   });
 });

@@ -36,6 +36,8 @@ export function MeetingRoomLengths({
   selected,
   onSelect,
   locale,
+  cards = false,
+  horizontal = false,
 }: {
   /** Names the group for assistive tech. */
   readonly label: string;
@@ -44,6 +46,8 @@ export function MeetingRoomLengths({
   readonly selected: CustomerMeetingRoomDuration | undefined;
   readonly onSelect: (duration: CustomerMeetingRoomDuration) => void;
   readonly locale: AppLocale;
+  readonly cards?: boolean;
+  readonly horizontal?: boolean;
 }) {
   const rowRefs = useRef<Array<ComponentRef<typeof Pressable> | null>>([]);
   const tabStop = tabStopIndex(
@@ -57,7 +61,14 @@ export function MeetingRoomLengths({
     }
   };
   return (
-    <View role="radiogroup" aria-label={label} style={styles.list}>
+    <View
+      role="radiogroup"
+      aria-label={label}
+      style={[
+        cards ? styles.cards : styles.list,
+        horizontal && styles.horizontal,
+      ]}
+    >
       {lengths.map((length, index) => {
         const checked = length.duration === selected;
         return (
@@ -83,17 +94,21 @@ export function MeetingRoomLengths({
             }}
             style={({ pressed }) => [
               styles.row,
-              index > 0 && styles.divided,
+              cards ? styles.card : index > 0 && styles.divided,
+              horizontal && styles.horizontalCard,
               checked && styles.checked,
+              cards && checked && styles.checkedCard,
               pressed && !checked && styles.pressed,
             ]}
           >
-            <RadioMark checked={checked} disabled={false} />
-            <View style={styles.content}>
+            <View style={cards && styles.cardRadio}>
+              <RadioMark checked={checked} disabled={false} />
+            </View>
+            <View style={[styles.content, cards && styles.cardContent]}>
               <Text variant="bodyStrong" style={styles.name}>
                 {length.label}
               </Text>
-              <View style={styles.price}>
+              <View style={cards ? styles.cardPrice : styles.price}>
                 {length.was !== undefined && (
                   <Text
                     variant="caption"
@@ -105,7 +120,7 @@ export function MeetingRoomLengths({
                   </Text>
                 )}
                 <Text
-                  variant="bodyStrong"
+                  variant={cards ? "title" : "bodyStrong"}
                   tone={length.was === undefined ? "default" : "positive"}
                   numeric
                   style={styles.amount}
@@ -122,6 +137,8 @@ export function MeetingRoomLengths({
 }
 
 const styles = StyleSheet.create({
+  cards: { flexGrow: 1, gap: space.sm },
+  horizontal: { flexDirection: "row" },
   list: {
     backgroundColor: color.surface,
     borderColor: color.line,
@@ -139,6 +156,28 @@ const styles = StyleSheet.create({
   },
   divided: { borderTopColor: color.divider, borderTopWidth: 1 },
   checked: { backgroundColor: color.actionTint },
+  card: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.group,
+    borderWidth: 2,
+    flexGrow: 1,
+    minHeight: 120,
+    paddingVertical: space.lg,
+    position: "relative",
+  },
+  checkedCard: { borderColor: color.action },
+  horizontalCard: { flex: 1, minWidth: 0 },
+  cardRadio: { position: "absolute", right: space.lg, top: space.lg },
+  cardContent: {
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    flexDirection: "column",
+    flexWrap: "nowrap",
+    gap: space.md,
+    paddingRight: 28,
+  },
+  cardPrice: { alignItems: "flex-start" },
   pressed: { backgroundColor: color.pressed },
   content: {
     alignItems: "center",

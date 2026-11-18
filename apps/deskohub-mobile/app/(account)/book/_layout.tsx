@@ -1,7 +1,9 @@
 import { Stack } from "expo-router";
+import { useProfileContentWidth } from "../../../src/account/profile/profile-layout";
+import { renderChooseHeader } from "../../../src/booking/ui/choose-header";
 import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
-import { stackScreenOptions } from "../../../src/ui/navigation";
+import { StackHeader, stackScreenOptions } from "../../../src/ui/navigation";
 import { useUpdateOfferHost } from "../../../src/updates/update-offer";
 
 /**
@@ -10,6 +12,7 @@ import { useUpdateOfferHost } from "../../../src/updates/update-offer";
  */
 export default function BookLayout() {
   const locale = useAppLocale();
+  const profileContentWidth = useProfileContentWidth(true);
   // The whole flow is critical: its screens show the quiet update card, and
   // the banner stays away even while one loads or fails.
   useUpdateOfferHost();
@@ -17,15 +20,24 @@ export default function BookLayout() {
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen
         name="cowork"
-        options={{ title: m.booking_family_cowork_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_cowork_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="meeting-room"
-        options={{ title: m.booking_family_meeting_room_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_meeting_room_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="office"
-        options={{ title: m.booking_family_office_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_office_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="checkout"
@@ -33,7 +45,12 @@ export default function BookLayout() {
       />
       <Stack.Screen
         name="profile"
-        options={{ title: m.account_section_profile({}, { locale }) }}
+        options={{
+          header: (props) => (
+            <StackHeader {...props} contentWidth={profileContentWidth} />
+          ),
+          title: m.account_section_profile({}, { locale }),
+        }}
       />
     </Stack>
   );

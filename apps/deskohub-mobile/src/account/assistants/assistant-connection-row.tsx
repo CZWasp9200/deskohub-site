@@ -42,10 +42,12 @@ const detailsText = (row: AssistantRow, locale: AppLocale) => {
 export function AssistantConnectionRow({
   row,
   locale,
+  inlineActions = false,
   onDisconnect,
 }: {
   readonly row: AssistantRow;
   readonly locale: AppLocale;
+  readonly inlineActions?: boolean;
   readonly onDisconnect: () => void;
 }) {
   const name = row.name ?? m.assistants_unnamed({}, { locale });
@@ -55,12 +57,12 @@ export function AssistantConnectionRow({
       label={name}
       description={detailsText(row, locale)}
       below={
-        <>
+        <View style={inlineActions && styles.inlineActions}>
           {(row.scopes.length > 0 || row.administration) && (
             <View
               role="list"
               aria-label={m.assistants_scopes_label({ name }, { locale })}
-              style={styles.scopes}
+              style={[styles.scopes, inlineActions && styles.inlineScopes]}
             >
               {row.scopes.map((scope) => (
                 <View key={scope} role="listitem" style={styles.scope}>
@@ -87,7 +89,12 @@ export function AssistantConnectionRow({
               )}
             </View>
           )}
-          <View style={styles.disconnect}>
+          <View
+            style={[
+              styles.disconnect,
+              inlineActions && styles.inlineDisconnect,
+            ]}
+          >
             <Button
               variant="secondary"
               size="small"
@@ -100,16 +107,24 @@ export function AssistantConnectionRow({
               onPress={onDisconnect}
             />
           </View>
-        </>
+        </View>
       }
     />
   );
 }
 
 const styles = StyleSheet.create({
+  inlineActions: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: space.md,
+    justifyContent: "flex-end",
+  },
   scopes: { gap: space.xs, marginTop: space.sm + space.xxs },
+  inlineScopes: { flex: 1, minWidth: 0 },
   scope: { flexDirection: "row", gap: space.sm, paddingTop: space.xxs },
   scopeLabel: { color: color.navy, flex: 1, marginTop: -space.xxs },
   administration: { color: color.warningInk, fontWeight: "600" },
   disconnect: { alignItems: "flex-start", marginTop: space.md },
+  inlineDisconnect: { flexShrink: 1, maxWidth: "45%", marginTop: space.xs },
 });
