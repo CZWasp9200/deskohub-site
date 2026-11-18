@@ -36,7 +36,11 @@ export function bookingFamilyReset(
   root: NavigationState | undefined,
   family: CustomerReservationFamily
 ) {
-  const current = root?.routes[root.index];
+  const slot = root?.routes[root.index];
+  // Expo Router hosts the app's Stack under its container route.
+  const app = slot?.name === "__root" ? slot.state : root;
+  if (app?.stale !== false) return undefined;
+  const current = app.routes[app.index];
   if (current?.name !== "(account)" || current.state?.stale !== false) {
     return undefined;
   }

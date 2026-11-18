@@ -90,10 +90,17 @@ describe("the signed-in rail", () => {
         },
       ],
     };
+    const container = (app: NavigationState): NavigationState => ({
+      ...app,
+      key: "container",
+      index: 0,
+      routeNames: ["__root"],
+      routes: [{ key: "app", name: "__root", state: app }],
+    });
     expect(
-      bookingFamilyReset({ ...root, index: 0 }, "meeting-room")
+      bookingFamilyReset(container({ ...root, index: 0 }), "meeting-room")
     ).toBeUndefined();
-    const destination = bookingFamilyReset(root, "meeting-room");
+    const destination = bookingFamilyReset(container(root), "meeting-room");
     if (destination === undefined) throw new Error("Missing booking reset");
     expect(destination.target).toBe("book");
     const action = { ...reset(destination.state), target: destination.target };
