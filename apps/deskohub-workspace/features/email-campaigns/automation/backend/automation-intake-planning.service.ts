@@ -5,23 +5,31 @@ import {
   asc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
   notExists,
   or,
 } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   customerEvents,
   emailCampaignAutomationRuns as runs,
+  workspaceReservations,
 } from "@/db/schema";
 import type { DatabaseQueryError } from "@/db/sql-constraint";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { audienceEvaluationAt } from "../../backend/audience-evaluation-context";
 import type { AudienceDotyposReads } from "../../backend/audience-facts.service";
+import type { CampaignId } from "../../campaign-identifiers";
 import type { AutomationRunId } from "../automation-identifiers";
 import { automationTickAtOrBefore } from "../automation-ticks";
+import {
+  type WorkspaceCancellations,
+  withdrawnByWorkspaceCancellation,
+} from "../automation-trigger-verification";
 import { AutomationEvaluationFacts } from "./automation-evaluation-facts.service";
 import {
   type IntakeMatch,
@@ -31,13 +39,16 @@ import {
 import { lockAutomationForEngine } from "./automation-lifecycle-lock";
 import { loadAutomationEntryVersions } from "./automation-run-entry";
 import { AutomationRunTransitions } from "./automation-run-transitions";
-
+import { lockTriggeringReservations } from "./automation-triggering-reservations";
 import { planAutomationUnits } from "./automation-unit-planning";
 import { plannedIntakeUnit, revisitedReservations } from "./intake";
 
 /** What planner step 4 did, for the plan summary. */
 export type AutomationIntakePlan = {
-  /** Runs ended `withdrawn` by eager withdrawal (D28). */
+  /**
+   * Runs ended `withdrawn` by eager withdrawal (D28), or because a restore
+   * undid the cancellation that triggered them.
+   */
   readonly withdrawnRuns: number;
   /** Events packed into intake units. */
   readonly eventsMatched: number;
@@ -58,7 +69,10 @@ export const emptyAutomationIntakePlan: AutomationIntakePlan = {
 /** The most unplanned events one planner run matches (§5.5). */
 const intakeBatchSize = 2000;
 
-/** The most runs one planner run withdraws; the next planner run takes the rest. */
+/**
+ * The most runs one planner run withdraws, and the most whose cancellation
+ * a restore undid; the next planner run takes the rest.
+ */
 const withdrawalBatchSize = 5000;
 
 /**
@@ -71,12 +85,34 @@ const withdrawableRuns = and(
   ne(runs.triggerKind, "reservation-cancelled")
 );
 
+/**
+ * The event's reservation, while the event's cancellation stands: still
+ * cancelled at the event's instant, so no restore has undone it.
+ */
+const standingCancellation = and(
+  eq(workspaceReservations.id, customerEvents.workspaceReservationId),
+  eq(workspaceReservations.reservationCancelledAt, customerEvents.occurredAt)
+);
+
+/**
+ * The triggering reservation of a run a cancellation triggered, once a
+ * restore has undone that cancellation: the reservation is no longer
+ * cancelled at the run's trigger instant.
+ */
+const undoneCancellation = and(
+  eq(workspaceReservations.id, runs.triggerReservationId),
+  or(
+    isNull(workspaceReservations.reservationCancelledAt),
+    ne(workspaceReservations.reservationCancelledAt, runs.triggerAt)
+  )
+);
+
 /** The most Dotypos requests one packed unit makes (§5.3). */
 const maxUnitRequestCost = 8;
 
 interface IAutomationIntakePlanning {
   /**
-   * Planner step 4 (§5.6): withdraws the active runs of each unprocessed `reservation-cancelled` event's reservation, up to 5,000 per run, matches up to 2,000 unplanned events against active automations, marks events matching nothing processed, and packs the rest by customer into intake units. A cancellation waits for its withdrawals before intake takes it. Runs its own short idempotent transactions, so overlapping
+   * Planner step 4 (§5.6): withdraws the active runs of each unprocessed `reservation-cancelled` event's reservation while its cancellation stands, up to 5,000 per run, then up to 5,000 active runs whose triggering cancellation a restore undid, matches up to 2,000 unplanned events against active automations, marks events matching nothing processed, and packs the rest by customer into intake units. A cancellation waits for its withdrawals before intake takes it. Runs its own short idempotent transactions, so overlapping
    * planners are harmless.
    */
   readonly plan: (
@@ -95,17 +131,67 @@ export class AutomationIntakePlanning extends Context.Service<
       const facts = yield* AutomationEvaluationFacts;
 
       /**
-       * D28: each unprocessed cancellation ends its withdrawable runs.
-       * `sending` runs are in a persisted batch and settle normally. One
-       * short transaction per automation, under its lifecycle lock. Intake
-       * leaves a cancellation unprocessed until none remain, so runs past
-       * the batch are withdrawn by subsequent planner runs.
+       * Ends one automation's `runs` `withdrawn` in one short transaction:
+       * under its lifecycle lock and their triggering reservations' share
+       * locks, only those `withdrawn` still holds for, so a restore or a
+       * cancellation committing since the select is respected.
+       */
+      const endWithdrawn = <
+        Run extends {
+          readonly runId: AutomationRunId;
+          readonly reservationId: WorkspaceReservationId | null;
+        },
+      >(
+        campaignId: CampaignId,
+        ofCampaign: readonly Run[],
+        withdrawn: (run: Run, cancellations: WorkspaceCancellations) => boolean,
+        at: Temporal.Instant
+      ) =>
+        transaction(
+          lockAutomationForEngine(campaignId).pipe(
+            Effect.andThen(
+              lockTriggeringReservations(
+                ofCampaign.map(({ reservationId }) => reservationId)
+              )
+            ),
+            Effect.map((cancellations) =>
+              ofCampaign
+                .filter((run) => withdrawn(run, cancellations))
+                .map(({ runId }) => runId)
+            ),
+            Effect.flatMap((runIds) =>
+              runIds.length === 0
+                ? Effect.succeed([])
+                : AutomationRunTransitions.end({
+                    runIds,
+                    expect: { status: "active" },
+                    outcome: "withdrawn",
+                    at,
+                  })
+            )
+          )
+        );
+
+      /**
+       * D28: each unprocessed cancellation that still stands ends its
+       * withdrawable runs. `sending` runs are in a persisted batch and
+       * settle normally. One short transaction per automation, under its
+       * lifecycle lock. Intake leaves a standing cancellation unprocessed
+       * until none remain, so runs past the batch are withdrawn by
+       * subsequent planner runs. A cancellation a restore undid withdraws
+       * nothing.
        */
       const withdraw = (at: Temporal.Instant) =>
         db
-          .selectDistinct({ campaignId: runs.campaignId, runId: runs.id })
+          .selectDistinct({
+            campaignId: runs.campaignId,
+            runId: runs.id,
+            reservationId: runs.triggerReservationId,
+            cancelledAt: customerEvents.occurredAt,
+          })
           .from(runs)
           .innerJoin(customerEvents, withdrawableRuns)
+          .innerJoin(workspaceReservations, standingCancellation)
           .where(
             and(
               eq(customerEvents.kind, "reservation-cancelled"),
@@ -115,28 +201,79 @@ export class AutomationIntakePlanning extends Context.Service<
           .orderBy(asc(runs.campaignId), asc(runs.id))
           .limit(withdrawalBatchSize)
           .pipe(
-            Effect.flatMap((withdrawn) =>
+            Effect.flatMap((withdrawable) =>
               Effect.forEach(
-                Map.groupBy(withdrawn, ({ campaignId }) => campaignId),
+                Map.groupBy(withdrawable, ({ campaignId }) => campaignId),
                 ([campaignId, ofCampaign]) =>
-                  transaction(
-                    lockAutomationForEngine(campaignId).pipe(
-                      Effect.andThen(
-                        AutomationRunTransitions.end({
-                          runIds: ofCampaign.map(
-                            ({ runId }): AutomationRunId => runId
-                          ),
-                          expect: { status: "active" },
-                          outcome: "withdrawn",
-                          at,
-                        })
-                      )
-                    )
+                  endWithdrawn(
+                    campaignId,
+                    ofCampaign,
+                    ({ reservationId, cancelledAt }, cancellations) =>
+                      reservationId !== null &&
+                      Option.exists(
+                        Option.fromUndefinedOr(
+                          cancellations.get(reservationId)
+                        ),
+                        (at) => at.equals(cancelledAt)
+                      ),
+                    at
                   )
               )
             ),
             Effect.map((ended) => ended.flat().length),
             Effect.withSpan("AutomationIntakePlanning.withdraw")
+          );
+
+      /**
+       * Ends the active runs whose triggering cancellation a restore undid,
+       * so no cancellation message goes out for it and the customer's open
+       * run slot frees (D4). `sending` runs settle normally. Up to 5,000
+       * per planner run, one short transaction per automation, as in
+       * `withdraw`.
+       */
+      const withdrawUndone = (at: Temporal.Instant) =>
+        db
+          .select({
+            campaignId: runs.campaignId,
+            runId: runs.id,
+            kind: runs.triggerKind,
+            triggerAt: runs.triggerAt,
+            reservationId: runs.triggerReservationId,
+          })
+          .from(runs)
+          .innerJoin(workspaceReservations, undoneCancellation)
+          .where(
+            and(
+              eq(runs.status, "active"),
+              eq(runs.triggerKind, "reservation-cancelled"),
+              isNotNull(runs.triggerReservationId)
+            )
+          )
+          .orderBy(asc(runs.campaignId), asc(runs.id))
+          .limit(withdrawalBatchSize)
+          .pipe(
+            Effect.flatMap((undone) =>
+              Effect.forEach(
+                Map.groupBy(undone, ({ campaignId }) => campaignId),
+                ([campaignId, ofCampaign]) =>
+                  endWithdrawn(
+                    campaignId,
+                    ofCampaign,
+                    (run, cancellations) =>
+                      withdrawnByWorkspaceCancellation(
+                        {
+                          kind: run.kind,
+                          at: run.triggerAt,
+                          reservationId: run.reservationId,
+                        },
+                        cancellations
+                      ),
+                    at
+                  )
+              )
+            ),
+            Effect.map((ended) => ended.flat().length),
+            Effect.withSpan("AutomationIntakePlanning.withdrawUndone")
           );
 
       /** The Dotypos reads the entry gates of these versions need, together. */
@@ -242,7 +379,7 @@ export class AutomationIntakePlanning extends Context.Service<
       /**
        * One transaction: locks up to 2,000 unplanned events that occurred
        * by the tick `at` falls in (skipping those an overlapping planner
-       * holds, and cancellations with runs still to withdraw), marks those
+       * holds, and standing cancellations with runs still to withdraw), marks those
        * no automation takes processed, and plans
        * units for the rest, owning their events by compare-and-set. Unit
        * keys include the planner instant, so events a dropped unit released
@@ -272,6 +409,10 @@ export class AutomationIntakePlanning extends Context.Service<
                         db
                           .select({ id: runs.id })
                           .from(runs)
+                          .innerJoin(
+                            workspaceReservations,
+                            standingCancellation
+                          )
                           .where(withdrawableRuns)
                       )
                     )
@@ -350,10 +491,15 @@ export class AutomationIntakePlanning extends Context.Service<
         plan: (at) =>
           Effect.Do.pipe(
             Effect.bind("withdrawnRuns", () => withdraw(at)),
+            Effect.bind("undoneRuns", () => withdrawUndone(at)),
             Effect.bind("events", () => planEvents(at)),
             Effect.map(
-              ({ withdrawnRuns, events }): AutomationIntakePlan => ({
+              ({
                 withdrawnRuns,
+                undoneRuns,
+                events,
+              }): AutomationIntakePlan => ({
+                withdrawnRuns: withdrawnRuns + undoneRuns,
                 ...events,
               })
             ),

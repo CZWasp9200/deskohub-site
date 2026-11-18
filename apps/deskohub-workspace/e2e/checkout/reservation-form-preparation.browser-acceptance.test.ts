@@ -555,7 +555,7 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="false"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label id="monitor"><input type="radio" value="2x27-qhd" /></label>
+        <label id="monitor"><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
         <script>
           const price = document.querySelector('[data-reservation-type-price="reserved-desk"]');
           const tier = document.querySelector("#reservation-entry-tier-reserved-desk");
@@ -602,7 +602,7 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label><input type="radio" value="2x27-qhd" /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
       `;
 
       await prepareOn(
@@ -612,6 +612,34 @@ describe("cowork reservation preparation in Chromium", () => {
       expect(
         await getPage().locator('input[value="2x27-qhd"]').isChecked()
       ).toBe(true);
+    }
+  );
+
+  test.skipIf(!chromiumAvailable)(
+    "chooses the monitor only from its own radio group",
+    async () => {
+      const html = `
+        <input name="date" value="2099-09-01" />
+        <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
+        <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
+        <label><input name="otherChoice" type="radio" value="2x27-qhd" /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" /></label>
+      `;
+
+      await prepareOn(
+        html,
+        withWaits(toReservationSelectionPreparation(reservedDeskData))
+      );
+      expect(
+        await getPage().evaluate(() => ({
+          monitor: document.querySelector<HTMLInputElement>(
+            'input[name="monitorOption"]'
+          )?.checked,
+          other: document.querySelector<HTMLInputElement>(
+            'input[name="otherChoice"]'
+          )?.checked,
+        }))
+      ).toEqual({ monitor: true, other: false });
     }
   );
 
@@ -631,8 +659,8 @@ describe("cowork reservation preparation in Chromium", () => {
             workstation.setAttribute("aria-checked", "true");
             document.body.insertAdjacentHTML(
               "beforeend",
-              '<label><input type="radio" value="2x27-qhd" checked /></label>' +
-                '<label><input type="radio" value="2x32-qhd" /></label>'
+              '<label><input name="monitorOption" type="radio" value="2x27-qhd" checked /></label>' +
+                '<label><input name="monitorOption" type="radio" value="2x32-qhd" /></label>'
             );
           });
         </script>
@@ -665,7 +693,7 @@ describe("cowork reservation preparation in Chromium", () => {
         <input name="date" value="2099-09-01" />
         <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
         <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
-        <label><input type="radio" value="2x27-qhd" checked /></label>
+        <label><input name="monitorOption" type="radio" value="2x27-qhd" checked /></label>
       `;
 
       expect(

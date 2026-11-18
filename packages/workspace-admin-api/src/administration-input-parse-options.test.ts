@@ -78,6 +78,7 @@ describe("administration input parse options", () => {
     expect(strict).toEqual(
       [
         "administration.cancelReservation payload",
+        "administration.restoreReservation payload",
         "administration.backfillReservationProductDetails payload",
         "administration.mutateReservationAccess payload",
         "administration.previewInvoice payload",

@@ -115,11 +115,13 @@ export class ReservationAccessAdministration extends Context.Service<
 
             yield* Match.value(mutation).pipe(
               Match.discriminatorsExhaustive("kind")({
+                // A pending grant has no credential either: a restored
+                // reservation whose issuance never ran keeps one.
                 "retry-failed": () =>
-                  grant.state === "failed"
+                  grant.state === "failed" || grant.state === "pending"
                     ? Effect.void
                     : invalidState(
-                        "Only definitively failed access can be retried."
+                        "Only failed or not yet issued access can be retried."
                       ),
                 "confirm-provider-credential-removed": () =>
                   grant.state === "uncertain" ||

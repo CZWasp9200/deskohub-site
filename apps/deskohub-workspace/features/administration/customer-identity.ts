@@ -11,6 +11,16 @@ import {
 } from "./customer-name";
 
 /**
+ * Whether an administrator may find the customer at `now`, the time the record
+ * was read: neither deleted nor expired. Searches, lookups and invoice
+ * issuance skip every other customer.
+ */
+export const isFindableAdministrationCustomer = (
+  customer: DotyposCustomer,
+  now: Date
+) => customerLifecycle(customer, now) === "active";
+
+/**
  * How an administrator sees a Dotypos customer's name at `now`, the time the
  * record was read. A deleted or expired customer is never named: it gets its
  * placeholder. Otherwise the person (first and last name), else the company,

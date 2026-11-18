@@ -167,6 +167,36 @@ describe("administration agent tools", () => {
   });
 });
 
+describe("administration agent tool for restoring a reservation", () => {
+  const toolNamed = (name: string) => {
+    const tool = administrationOperationTools.find(
+      (candidate) => candidate.name === name
+    );
+    if (tool === undefined) {
+      throw new Error(`No tool ${name}.`);
+    }
+    return tool;
+  };
+
+  test("takes the restore inputs and asks for confirmation after the same preview as cancelling", () => {
+    const restore = toolNamed("admin_restore_reservation");
+    const cancel = toolNamed("admin_cancel_reservation");
+
+    expect(restore.reference).toBe("administration.restoreReservation");
+    expect([...restore.argumentNames].sort()).toEqual([
+      "acknowledgeRefundedPayment",
+      "confirm",
+      "reservationId",
+      "sendRestorationEmail",
+    ]);
+    expect(restore.requiredArgumentNames.has("confirm")).toBe(false);
+    expect(restore.behavior).toEqual(cancel.behavior);
+    expect(
+      agentTools.find((tool) => tool.name === "admin_restore_reservation")
+    ).toMatchObject({ destructive: true, idempotent: false, readOnly: false });
+  });
+});
+
 describe("administration agent tool derivation", () => {
   const Secret = Schema.String.annotate({ credential: true });
   const apiWith = (group: HttpApiGroup.Constraint) =>

@@ -15,6 +15,7 @@ import {
   AdministrationOverview,
   AdministrationReservationActivity,
   type AdministrationReservationDetailType,
+  type AdministrationReservationRestorationResultType,
   AdministrationStandaloneAccessCodeAttemptId,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
@@ -463,6 +464,146 @@ describe("dhw mutation commands", () => {
         },
       },
     ]);
+  });
+
+  test("restores a reservation with the refund acknowledgement and email choice", async () => {
+    const restorations: unknown[] = [];
+    const result = {
+      outcome: "restored",
+      email: "sent",
+      access: "issued",
+    } as const;
+    const { layer, output } = makeCommandLayer({
+      restoreReservation: (_accessToken, id, input) =>
+        Effect.sync(() => {
+          restorations.push({ id, input });
+          return result;
+        }),
+    });
+
+    await runCommand(
+      [
+        "--json",
+        "reservations",
+        "restore",
+        reservationId,
+        "--acknowledge-refunded-payment",
+        "--send-restoration-email",
+        "--yes",
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(restorations).toEqual([
+      {
+        id: reservationId,
+        input: { acknowledgeRefundedPayment: true, sendRestorationEmail: true },
+      },
+    ]);
+    expect(JSON.parse(output.join(""))).toEqual(result);
+  });
+
+  test("restores without acknowledging a refund or emailing unless asked", async () => {
+    const restorations: unknown[] = [];
+    const { layer } = makeCommandLayer({
+      restoreReservation: (_accessToken, _id, input) =>
+        Effect.sync(() => {
+          restorations.push(input);
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+          } as const;
+        }),
+    });
+
+    await runCommand(
+      ["--json", "reservations", "restore", reservationId, "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(restorations).toEqual([
+      { acknowledgeRefundedPayment: false, sendRestorationEmail: false },
+    ]);
+  });
+
+  test("requires explicit confirmation for non-interactive restoration", async () => {
+    let restorations = 0;
+    const { layer } = makeCommandLayer({
+      restoreReservation: () =>
+        Effect.sync(() => {
+          restorations += 1;
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+          } as const;
+        }),
+    });
+
+    const error = await runCommand(
+      ["--json", "reservations", "restore", reservationId],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toMatchObject({ _tag: "ConfirmationRequiredError" });
+    expect(restorations).toBe(0);
+  });
+
+  test("fails a refund refusal with the server's message, which names the refunded amount", async () => {
+    const refusal = new CliMutationRejected({
+      message: "Synthetic refund refusal naming 250.00 CZK",
+    });
+    const { layer, output } = makeCommandLayer({
+      restoreReservation: () => Effect.fail(refusal),
+    });
+
+    const error = await runCommand(
+      ["reservations", "restore", reservationId, "--yes"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toBeInstanceOf(CliMutationRejected);
+    expect(error).toMatchObject({ message: refusal.message });
+    expect(output).toEqual([]);
+  });
+
+  test("reports each restore result field on one line and names the reservation when access failed", async () => {
+    const reportLine = async (
+      result: AdministrationReservationRestorationResultType
+    ) => {
+      const { layer, output } = makeCommandLayer({
+        restoreReservation: () => Effect.succeed(result),
+      });
+      await runCommand(
+        ["reservations", "restore", reservationId, "--yes"],
+        layer
+      ).pipe(Effect.runPromise);
+      expect(output).toHaveLength(1);
+      return output[0] ?? "";
+    };
+    const base = {
+      outcome: "restored",
+      email: "not_requested",
+      access: "not_needed",
+    } as const;
+    const variations = {
+      outcome: ["restored", "already_confirmed"],
+      email: ["not_requested", "sent", "failed", "not_available"],
+      access: ["issued", "failed", "not_needed"],
+    } as const;
+
+    for (const [field, values] of Object.entries(variations)) {
+      const lines = [];
+      for (const value of values) {
+        lines.push(await reportLine({ ...base, [field]: value }));
+      }
+      // Each value of one field reads differently with the others fixed.
+      expect(new Set(lines).size).toBe(values.length);
+    }
+    expect(await reportLine({ ...base, access: "failed" })).toContain(
+      reservationId
+    );
   });
 
   test("shows who booked a reservation for someone else", async () => {
@@ -1708,6 +1849,7 @@ const makeCommandLayer = ({
   backfillReservationProductDetails = () => Effect.die("not used"),
   cancelReservation = () =>
     Effect.succeed({ outcome: "already_cancelled", email: "not_requested" }),
+  restoreReservation = () => Effect.die("not used"),
   clear = Effect.succeed(true),
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
@@ -1728,6 +1870,7 @@ const makeCommandLayer = ({
   readonly backfillLegacyAdministrator?: WorkspaceAdminApiClient["Service"]["backfillLegacyAdministrator"];
   readonly backfillReservationProductDetails?: WorkspaceAdminApiClient["Service"]["backfillReservationProductDetails"];
   readonly cancelReservation?: WorkspaceAdminApiClient["Service"]["cancelReservation"];
+  readonly restoreReservation?: WorkspaceAdminApiClient["Service"]["restoreReservation"];
   readonly clear?: AuthenticationService["Service"]["clear"];
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
@@ -1756,6 +1899,7 @@ const makeCommandLayer = ({
     backfillLegacyAdministrator,
     backfillReservationProductDetails,
     cancelReservation,
+    restoreReservation,
     createInvoice,
     createStandaloneAccessCode: (
       accessToken: Redacted.Redacted<CliAccessTokenType>,

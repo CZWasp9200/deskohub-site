@@ -1,5 +1,6 @@
 import {
   AdministrationReservationCancellationInput,
+  AdministrationReservationRestorationInput,
   AdministrationWorkspaceReservationId,
 } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
@@ -15,6 +16,24 @@ export const reservationCancellationStandardSchema = Schema.toStandardSchemaV1(
 
 export type ReservationCancellationInput =
   typeof reservationCancellationSchema.Type;
+
+const reservationRestorationSchema = Schema.Struct({
+  reservationId: AdministrationWorkspaceReservationId,
+  ...AdministrationReservationRestorationInput.fields,
+});
+
+export const reservationRestorationStandardSchema = Schema.toStandardSchemaV1(
+  reservationRestorationSchema,
+  {
+    parseOptions: {
+      errors: "all",
+      onExcessProperty: "error",
+    },
+  }
+);
+
+export type ReservationRestorationInput =
+  typeof reservationRestorationSchema.Type;
 
 const reservationLookupSchema = Schema.Struct({
   identifier: Schema.Trim.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),

@@ -24,6 +24,7 @@ import {
   type AdministrationReservationAuthorType,
   type AdministrationReservationProductDetailsBackfillBatchType,
   AdministrationReservationQuery,
+  type AdministrationReservationRestorationResultType,
   type AdministrationReservationSummaryType,
   AdministrationServiceDate,
   type AdministrationServiceDateType,
@@ -368,6 +369,92 @@ const reservationsCancelCommand = Command.make(
     )
 ).pipe(Command.withDescription("Cancel a reservation in Dotypos"));
 
+const restorationOutcomeMessages = {
+  restored: "Reservation restored.",
+  already_confirmed: "Reservation was already restored.",
+} satisfies Record<
+  AdministrationReservationRestorationResultType["outcome"],
+  string
+>;
+
+const restorationEmailMessages = {
+  not_requested: null,
+  sent: "The customer was emailed.",
+  failed: "The restoration email could not be sent.",
+  not_available:
+    "No restoration email was sent because no cancellation email was recorded.",
+} satisfies Record<
+  AdministrationReservationRestorationResultType["email"],
+  string | null
+>;
+
+const restorationAccessMessages = (reservationId: string) =>
+  ({
+    issued: "A new door PIN was issued.",
+    failed: `Access could not be issued; the restore stands. Run dhw reservations retry-access ${reservationId}.`,
+    not_needed: null,
+  }) satisfies Record<
+    AdministrationReservationRestorationResultType["access"],
+    string | null
+  >;
+
+const reservationsRestoreCommand = Command.make(
+  "restore",
+  {
+    reservationId: Argument.String("reservation-id").pipe(
+      Argument.withSchema(AdministrationWorkspaceReservationId)
+    ),
+    acknowledgeRefundedPayment: Flag.Boolean(
+      "acknowledge-refunded-payment"
+    ).pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Restore although Nexi already refunded some or all of the payment"
+      )
+    ),
+    sendRestorationEmail: Flag.Boolean("send-restoration-email").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Email the customer that the reservation is valid again, when a cancellation email was sent"
+      )
+    ),
+    yes: confirmationFlag,
+  },
+  ({ acknowledgeRefundedPayment, reservationId, sendRestorationEmail, yes }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        const confirmed = yield* confirmChange(
+          "administration.restoreReservation",
+          yes,
+          json,
+          "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN."
+        );
+        if (!confirmed) {
+          yield* reportCancellation(json);
+          return;
+        }
+        const result = yield* api.restoreReservation(
+          accessToken,
+          reservationId,
+          { acknowledgeRefundedPayment, sendRestorationEmail }
+        );
+        if (json) {
+          yield* Console.log(JSON.stringify(result));
+          return;
+        }
+        yield* Console.log(
+          [
+            restorationOutcomeMessages[result.outcome],
+            restorationEmailMessages[result.email],
+            restorationAccessMessages(reservationId)[result.access],
+          ]
+            .filter((line) => line !== null)
+            .join(" ")
+        );
+      })
+    )
+).pipe(Command.withDescription("Restore a cancelled reservation"));
+
 const reservationsBackfillProductDetailsCommand = Command.make(
   "backfill-product-details",
   {
@@ -504,13 +591,14 @@ const reservationsActivityCommand = Command.make("activity", {}, () =>
 );
 
 const reservationsCommand = Command.make("reservations").pipe(
-  Command.withDescription("Inspect and cancel Workspace reservations"),
+  Command.withDescription("Inspect, cancel and restore Workspace reservations"),
   Command.withSubcommands([
     reservationsListCommand,
     reservationsActivityCommand,
     reservationsGetCommand,
     reservationsFindCommand,
     reservationsCancelCommand,
+    reservationsRestoreCommand,
     reservationsBackfillProductDetailsCommand,
     reservationsRetryAccessCommand,
     reservationsReconcileAccessCommand,

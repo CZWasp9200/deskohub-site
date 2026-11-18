@@ -675,7 +675,9 @@ describe("ReservationAccessService", () => {
       accessEndsAt: movedReservation.reservedUntil,
     };
     const ensure = mock(() => Effect.succeed(replacementGrant));
-    const claim = mock((_: ScheduledBounds) => Effect.succeed(true));
+    const claim = mock((_: ScheduledBounds) =>
+      Effect.succeed("claimed" as const)
+    );
     const markIssued = mock(() => Effect.void);
     const markUncertain = mock(() => Effect.void);
     const issueHourlyAlgoPin = mock(() =>
@@ -759,7 +761,7 @@ describe("ReservationAccessService", () => {
       accessEndsAt: movedReservation.reservedUntil,
     };
     const ensure = mock(() => Effect.succeed(replacementGrant));
-    const claim = mock(() => Effect.succeed(true));
+    const claim = mock(() => Effect.succeed("claimed" as const));
     const markIssued = mock(() => Effect.void);
     const markUncertain = mock(() => Effect.void);
     const issueHourlyAlgoPin = mock(() =>
@@ -937,7 +939,7 @@ describe("ReservationAccessService", () => {
   });
 
   test("names a new credential by its grant, not its reservation", async () => {
-    const claim = mock(() => Effect.succeed(true));
+    const claim = mock(() => Effect.succeed("claimed" as const));
     const issueHourlyAlgoPin = mock(() =>
       Effect.succeed({ pin: accessCode, pinId })
     );
@@ -1015,7 +1017,7 @@ describe("ReservationAccessService", () => {
                 ensure: mock(() =>
                   Effect.succeed({ ...grant, state: "pending" })
                 ),
-                claim: mock(() => Effect.succeed(true)),
+                claim: mock(() => Effect.succeed("claimed" as const)),
                 markUncertain,
                 markFailed,
               }),

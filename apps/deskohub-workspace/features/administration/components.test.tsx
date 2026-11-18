@@ -37,6 +37,7 @@ import {
   ReservationTimeline,
 } from "./components";
 import { loadFixtureReservation, loadFixtureReservations } from "./fixtures";
+import { m } from "./i18n";
 import { ReservationOrderList } from "./payment-components";
 import { OperationTable, OrderTable } from "./payment-tables";
 import { ReservationAccessAdministration } from "./reservation-access-administration";
@@ -96,6 +97,47 @@ describe("administration reservation components", () => {
       kind: "retry-failed",
       reservationId: detail.reservation.id,
     });
+  });
+
+  test("offers retrying access only while no credential exists", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    if (!detail?.accessGrant) throw new Error("Missing access grant fixture");
+    const { accessGrant } = detail;
+    const execute = mock();
+    workspaceUseAction.mockReturnValue({
+      execute,
+      isExecuting: false,
+    } as never);
+    const retriesFrom = (state: typeof accessGrant.state) => {
+      execute.mockClear();
+      const view = render(
+        <ReservationAccessAdministration
+          grant={{ ...accessGrant, state }}
+          reservationId={detail.reservation.id}
+        />
+      );
+      const retry = view.queryByRole("button", {
+        name: m.administrationReservationAccessRetry({}, { locale: "en-US" }),
+      });
+      if (retry) fireEvent.click(retry);
+      cleanup();
+      return retry !== null;
+    };
+
+    for (const state of ["pending", "failed"] as const) {
+      expect(retriesFrom(state)).toBe(true);
+      expect(execute.mock.calls).toEqual([
+        [{ kind: "retry-failed", reservationId: detail.reservation.id }],
+      ]);
+    }
+    for (const state of [
+      "provisioning",
+      "issued",
+      "expired",
+      "uncertain",
+    ] as const) {
+      expect(retriesFrom(state)).toBe(false);
+    }
   });
 
   test("requires explicit manual provider reconciliation for uncertain access", async () => {

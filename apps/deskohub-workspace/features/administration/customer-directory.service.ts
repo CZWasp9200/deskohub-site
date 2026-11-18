@@ -1,5 +1,4 @@
 import {
-  customerLifecycle,
   type DotyposCustomer,
   type DotyposCustomerId,
   type DotyposReadFailure,
@@ -7,6 +6,7 @@ import {
 } from "@deskohub/dotypos";
 import { Context, DateTime, Effect, Layer, Option } from "effect";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { isFindableAdministrationCustomer } from "./customer-identity";
 import {
   degradeProviderRead,
   type ProviderReadPolicy,
@@ -57,16 +57,14 @@ export class AdministrationCustomerDirectory extends Context.Service<
     this,
     Effect.gen(function* () {
       const dotypos = yield* DotyposService;
-      /** Whether an administrator may find the customer: neither deleted nor expired when read. */
-      const isFindable = (customer: DotyposCustomer, now: Date) =>
-        customerLifecycle(customer, now) === "active";
-
       const search = Effect.fn("AdministrationCustomerDirectory.search")(
         function* (query: string) {
           const found = yield* dotypos.searchCustomers(query);
           const now = yield* DateTime.nowAsDate;
           const customers = found
-            .filter((customer) => isFindable(customer, now))
+            .filter((customer) =>
+              isFindableAdministrationCustomer(customer, now)
+            )
             .slice(0, searchLimit);
           let kind: AdministrationCustomerSearch["kind"] = "not-found";
           if (customers.length === 1) kind = "matched";
@@ -80,7 +78,9 @@ export class AdministrationCustomerDirectory extends Context.Service<
       ) {
         const customer = yield* dotypos.getCustomer(id);
         const now = yield* DateTime.nowAsDate;
-        return Option.filter(customer, (found) => isFindable(found, now));
+        return Option.filter(customer, (found) =>
+          isFindableAdministrationCustomer(found, now)
+        );
       });
 
       const findMany = Effect.fn("AdministrationCustomerDirectory.findMany")(

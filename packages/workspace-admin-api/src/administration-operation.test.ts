@@ -3,6 +3,7 @@ import { Context, Option, Schema, SchemaAST } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   AdministrationOperationBehavior,
+  type AdministrationOperationReference,
   AdministrationOperationVariants,
   administrationOperations,
   administrationOperationVariantOf,
@@ -179,6 +180,23 @@ describe("administration operations", () => {
     });
 
     expect(invalid).toEqual([]);
+  });
+
+  test("restoring a reservation is declared like cancelling it", () => {
+    const access = (reference: AdministrationOperationReference) =>
+      operationByReference.get(reference)?.access;
+
+    expect(access("administration.restoreReservation")).toEqual(
+      access("administration.cancelReservation")
+    );
+    expect(access("administration.restoreReservation")).toMatchObject({
+      _tag: "Operation",
+      behavior: {
+        kind: "destructive",
+        idempotent: false,
+        preview: { operations: ["administration.getReservation"] },
+      },
+    });
   });
 
   // `administrationOperationGroup` refuses CLI-only endpoints; this finds an

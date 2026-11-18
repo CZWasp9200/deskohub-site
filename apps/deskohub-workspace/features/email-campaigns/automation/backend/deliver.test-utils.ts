@@ -101,6 +101,8 @@ export type SeedSendReadyRun = {
   readonly customer: DotyposCustomerId;
   readonly triggerKind?: AutomationTriggerKind;
   readonly reservationId?: WorkspaceReservationId;
+  /** The seeding instant unless given. */
+  readonly triggerAt?: Temporal.Instant;
 };
 
 /** Inserts `ready` runs at the send step, as the steps before it leave them. */
@@ -123,7 +125,7 @@ export const seedSendReadyRuns = async (
           versionId: input.versionId,
           dotyposCustomerId: run.customer,
           triggerKind: run.triggerKind ?? "account-created",
-          triggerAt: input.at,
+          triggerAt: run.triggerAt ?? input.at,
           triggerReservationId: run.reservationId ?? null,
           status: "active" as const,
           stepId: (input.stepId ?? "send") as never,
