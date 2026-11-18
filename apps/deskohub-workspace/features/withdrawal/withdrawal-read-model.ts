@@ -72,6 +72,15 @@ export type WithdrawalAvailability = {
 };
 
 /**
+ * A reservation's online withdrawal as its status page shows it: the
+ * customer withdrew (with what it owes back), can withdraw now, or neither.
+ */
+export type ReservationWithdrawalEntry =
+  | { readonly status: "withdrawn"; readonly refundAmount: Money }
+  | { readonly status: "offered" }
+  | { readonly status: "none" };
+
+/**
  * A withdrawal as the customer's account data export holds it: which
  * contract, when it was submitted, what it owes back, and whether its
  * receipt, notice and cancellation are all done (`completed`) or still being

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { CalendarDays, UserRound, Users } from "lucide-react";
+import type { ReactNode } from "react";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type {
   CustomerReservationHistory,
@@ -10,7 +10,6 @@ import type {
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
 import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
-import { ReservationOptionsMenu } from "@/features/reservation/components/reservation-options-menu";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
 import {
   formatReservationDisplayDateRange,
@@ -20,6 +19,7 @@ import {
   reservationAccessPath,
   reservationStatusPath,
 } from "@/features/reservation/routes";
+import { ReservationWithdrawalLink } from "@/features/withdrawal/components/reservation-withdrawal-link";
 import { GuardedLink } from "@/shared/components/guarded-link";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -161,29 +161,24 @@ const getReservationHref = (
 ) =>
   `/${locale}${reservationStatusPath}/${encodeURIComponent(workspaceReservationId)}`;
 
-/** The ⋮ menu of a reservation the customer can still withdraw from. */
-function ReservationRowMenu({
+/** The withdrawal link of a reservation the customer can withdraw from now. */
+function ReservationRowWithdrawal({
   className,
-  linkClassName,
-  linkOnly,
   locale,
   reservation,
 }: {
-  readonly className?: string;
-  readonly linkClassName?: string;
-  readonly linkOnly?: boolean;
+  readonly className: string;
   readonly locale: Locale;
   readonly reservation: CustomerReservationSummary;
 }) {
   if (!reservation.withdrawal?.eligible || !reservation.workspaceReservationId)
     return null;
   return (
-    <ReservationOptionsMenu
+    <ReservationWithdrawalLink
       className={className}
-      linkClassName={linkClassName}
-      linkOnly={linkOnly}
       locale={locale}
-      withdrawalHref={`${getReservationHref(locale, reservation.workspaceReservationId)}?withdraw=1`}
+      orderId={reservation.workspaceReservationId}
+      reference={reservation.id}
     />
   );
 }
@@ -294,9 +289,8 @@ function FeaturedReservationItem({
               {reservation.id}
             </code>
           </div>
-          <ReservationRowMenu
-            className="-my-1.5 -mr-2"
-            linkClassName="@max-3xl:hidden"
+          <ReservationRowWithdrawal
+            className="@max-3xl:hidden"
             locale={locale}
             reservation={reservation}
           />
@@ -359,9 +353,8 @@ function FeaturedReservationItem({
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
-          <ReservationRowMenu
-            linkClassName="-mt-4 w-full text-center underline @3xl:hidden"
-            linkOnly
+          <ReservationRowWithdrawal
+            className="-mt-4 w-full text-center underline @3xl:hidden"
             locale={locale}
             reservation={reservation}
           />
@@ -482,9 +475,8 @@ function CompactReservationItem({
   return (
     <li className="min-w-0">
       <article className="relative min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
-        <ReservationRowMenu
-          linkClassName="absolute top-4 right-4 @2xl:hidden"
-          linkOnly
+        <ReservationRowWithdrawal
+          className="absolute top-4 right-4 @2xl:hidden"
           locale={locale}
           reservation={reservation}
         />
@@ -570,9 +562,8 @@ function CompactReservationItem({
           </div>
 
           <div className="flex min-w-0 flex-col items-stretch gap-1 @2xl:items-center">
-            <ReservationRowMenu
-              linkClassName="hidden w-full text-center underline @2xl:block"
-              linkOnly
+            <ReservationRowWithdrawal
+              className="hidden w-full text-center underline @2xl:block"
               locale={locale}
               reservation={reservation}
             />
@@ -583,12 +574,6 @@ function CompactReservationItem({
                   reservation={reservation}
                 />
               </div>
-              <ReservationRowMenu
-                className="-mr-2"
-                linkClassName="hidden"
-                locale={locale}
-                reservation={reservation}
-              />
             </div>
           </div>
         </div>

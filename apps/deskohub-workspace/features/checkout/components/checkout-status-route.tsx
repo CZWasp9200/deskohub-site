@@ -23,8 +23,7 @@ import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
-import { reservationStatusPath } from "@/features/reservation/routes";
-import { isReservationWithdrawalOffered } from "@/features/withdrawal/backend/withdrawal-entry.server";
+import { readReservationWithdrawalEntry } from "@/features/withdrawal/backend/withdrawal-entry.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { RouteAutoRefresh } from "@/shared/components/route-auto-refresh";
 import {
@@ -96,7 +95,7 @@ async function CheckoutStatusContent({
       () => ({ outcome: undefined })
     );
     const returnOutcome = decodedSearchParams.outcome ?? "unknown";
-    const status = await Effect.gen(function* () {
+    const loadStatus = Effect.gen(function* () {
       const service = yield* CheckoutStatusService;
       const authorization = yield* ReservationAuthorizationService;
       return yield* loadCheckoutStatusPage(service, authorization, {
@@ -119,9 +118,17 @@ async function CheckoutStatusContent({
           CheckoutStatusService.Live,
           ReservationAuthorizationService.Live
         )
-      ),
-      runWorkspaceEffect("checkout.status.load")
+      )
     );
+    // The withdrawal entry loads beside the status, so the page waits for
+    // the slower of the two only.
+    const [status, withdrawal] = await Effect.all(
+      [
+        loadStatus,
+        readReservationWithdrawalEntry({ reservationId: orderId, locale }),
+      ],
+      { concurrency: "unbounded" }
+    ).pipe(runWorkspaceEffect("checkout.status.load"));
     // A signed-out visitor, such as one following the link in the author's
     // email, signs in and comes back instead of seeing "not found".
     if (status.status === "not_found" && (await isSignedOut())) {
@@ -133,14 +140,6 @@ async function CheckoutStatusContent({
         )
       );
     }
-    // The ⋮ withdrawal entry shows only when the confirm step's quote is
-    // available to the signed-in customer.
-    const withdrawalOffered =
-      status.status === "fulfilled" &&
-      (await isReservationWithdrawalOffered({
-        reservationId: orderId,
-        locale,
-      }).pipe(runWorkspaceEffect("checkout.status.withdrawal")));
     return (
       <>
         <RouteAutoRefresh
@@ -151,10 +150,11 @@ async function CheckoutStatusContent({
           locale={locale}
           presentation={presentation}
           status={status}
-          withdrawalHref={
-            withdrawalOffered
-              ? `/${locale}${reservationStatusPath}/${encodeURIComponent(orderId)}?withdraw=1`
-              : undefined
+          withdrawal={
+            // The confirm step is offered on a confirmed reservation only.
+            withdrawal.status === "offered" && status.status !== "fulfilled"
+              ? { status: "none" }
+              : withdrawal
           }
         />
       </>

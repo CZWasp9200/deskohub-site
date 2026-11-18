@@ -1,6 +1,6 @@
 import { cva } from "class-variance-authority";
-import { Undo2 } from "lucide-react";
 import { Match } from "effect";
+import { Undo2 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -13,20 +13,20 @@ import { getCoworkCheckoutStatusSummary } from "@/features/cowork/components/cow
 import { type Locale, m } from "@/features/i18n";
 import { getMeetingRoomCheckoutStatusSummary } from "@/features/meeting-room/components/meeting-room-checkout-status-summary";
 import { getOfficeCheckoutStatusSummary } from "@/features/office/components/office-checkout-status-summary";
+import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
 import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
-import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
-import { ReservationOptionsMenu } from "@/features/reservation/components/reservation-options-menu";
 import {
   getCoworkReservationPath,
   getReservationStartPath,
   reservationAccessPath,
-  reservationStatusPath,
 } from "@/features/reservation/routes";
 import { getSelectionPath } from "@/features/reservation/selection-path";
+import { ReservationWithdrawalLink } from "@/features/withdrawal/components/reservation-withdrawal-link";
+import type { ReservationWithdrawalEntry } from "@/features/withdrawal/withdrawal-read-model";
 import { Button } from "@/shared/components/ui/button";
-import { formatMoney, type Money } from "@/shared/money/money";
+import { formatMoney } from "@/shared/money/money";
 import { cn } from "@/shared/utils";
 import { CheckoutFlowLayout } from "./checkout-flow-layout";
 import {
@@ -41,10 +41,11 @@ type CheckoutStatusPageProps = {
   readonly locale: Locale;
   readonly presentation?: "page" | "modal";
   readonly status: CheckoutStatusViewModel;
-  /** The confirm step's link while the customer can withdraw; no ⋮ without it. */
-  readonly withdrawalHref?: string;
-  /** Set once the customer withdrew: the reservation reads as cancelled. */
-  readonly withdrawn?: { readonly refundAmount: Money };
+  /**
+   * The reservation's online withdrawal: once the customer withdrew it reads
+   * as cancelled; while they can withdraw, it shows the withdrawal link.
+   */
+  readonly withdrawal?: ReservationWithdrawalEntry;
 };
 
 const statusIconWrapperVariants = cva(
@@ -226,9 +227,12 @@ export function CheckoutStatusPage({
   locale,
   presentation = "page",
   status,
-  withdrawalHref: offeredWithdrawalHref,
-  withdrawn,
+  withdrawal,
 }: CheckoutStatusPageProps) {
+  const withdrawn =
+    status.status !== "not_found" && withdrawal?.status === "withdrawn"
+      ? withdrawal
+      : undefined;
   const statusCopy = getCheckoutStatusCopy(status, locale);
   const copy: CheckoutStatusCopy = withdrawn
     ? {
@@ -242,8 +246,9 @@ export function CheckoutStatusPage({
         Icon: Undo2,
       }
     : statusCopy;
-  const withdrawalHref = withdrawn ? undefined : offeredWithdrawalHref;
   const showReservationDetails = status.status !== "not_found";
+  const withdrawalOffered =
+    showReservationDetails && withdrawal?.status === "offered";
   const summaryPresentation = getSummaryPresentation(status, locale);
   const supportContactHref = getSupportContactHref(
     status,
@@ -294,17 +299,19 @@ export function CheckoutStatusPage({
           locale={locale}
           status={status}
           summaryPresentation={summaryPresentation}
-          withdrawalHref={withdrawalHref}
+          withdrawalOffered={withdrawalOffered}
         />
       )}
 
       {/* Phone: the withdrawal link sits centred right above the actions. */}
-      <ReservationOptionsMenu
-        linkClassName="mt-3 -mb-5 block w-full text-center underline sm:hidden"
-        linkOnly
-        locale={locale}
-        withdrawalHref={showReservationDetails ? withdrawalHref : undefined}
-      />
+      {withdrawalOffered && (
+        <ReservationWithdrawalLink
+          className="mt-3 -mb-5 block w-full text-center underline sm:hidden"
+          locale={locale}
+          orderId={status.orderId}
+          reference={status.orderId}
+        />
+      )}
       <CheckoutStatusActions
         locale={locale}
         offersNewReservation={offersNewReservation}
@@ -332,7 +339,6 @@ export function CheckoutStatusPage({
             : undefined
         }
       />
-
     </CheckoutStatusFrame>
   );
 }
@@ -439,12 +445,12 @@ function CheckoutStatusReservationDetails({
   locale,
   status,
   summaryPresentation,
-  withdrawalHref,
+  withdrawalOffered,
 }: {
   readonly locale: Locale;
   readonly status: CheckoutReservationStatusViewModel;
   readonly summaryPresentation: CheckoutStatusSummaryPresentation | undefined;
-  readonly withdrawalHref: string | undefined;
+  readonly withdrawalOffered: boolean;
 }) {
   const summaryRows = summaryPresentation?.rows ?? [];
 
@@ -455,12 +461,14 @@ function CheckoutStatusReservationDetails({
           <h2 className="min-w-0 text-xl text-navy-blue">
             {m.checkoutStatusSummaryTitle({}, { locale })}
           </h2>
-          <ReservationOptionsMenu
-            className="-my-1.5 -mr-2"
-            linkClassName="underline max-sm:hidden"
-            locale={locale}
-            withdrawalHref={withdrawalHref}
-          />
+          {withdrawalOffered && (
+            <ReservationWithdrawalLink
+              className="underline max-sm:hidden"
+              locale={locale}
+              orderId={status.orderId}
+              reference={status.orderId}
+            />
+          )}
         </div>
 
         <dl className="mt-5 grid gap-3">

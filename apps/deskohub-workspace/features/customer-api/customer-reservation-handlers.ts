@@ -16,6 +16,7 @@ import {
   CustomerReservationNotFound,
   type CustomerReservationSummary,
   CustomerSessionRequired,
+  CustomerWithdrawalNameRequired,
   type CustomerWithdrawalQuote,
   type CustomerWithdrawalReceipt,
   CustomerWithdrawalRefused,
@@ -50,6 +51,7 @@ import {
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
 import {
+  WithdrawalNameRequiredError,
   WithdrawalRefusedError,
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
@@ -213,6 +215,9 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
               accountId,
               locale: payload.locale,
               contract: { kind: "reservation", id: orderId },
+              ...(payload.customerName !== undefined && {
+                customerName: payload.customerName,
+              }),
             })
           ).pipe(
             providePerRequest(withdrawalLayer),
@@ -268,34 +273,43 @@ type CustomerReservationAccountId = Parameters<
   WithdrawalService["Service"]["quote"]
 >[0]["accountId"];
 
+/** The public errors a withdrawal operation failing with `E` answers. */
+type WithdrawalFailureAnswer<E> =
+  | CustomerReservationNotFound
+  | CustomerWithdrawalRefused
+  | ([Extract<E, WithdrawalNameRequiredError>] extends [never]
+      ? never
+      : CustomerWithdrawalNameRequired)
+  | CustomerApiFailure<
+      Exclude<E, WithdrawalRefusedError | WithdrawalNameRequiredError>
+    >;
+
 /**
  * Answers a refused withdrawal with its public reason, an order the account
- * didn't book as not found, and every other failure as the API's failures.
+ * didn't book as not found, a statement without a name as name required, and
+ * every other failure as the API's failures.
  */
 const answerWithdrawalFailure =
   (operation: string) =>
   <A, E, R>(
     effect: Effect.Effect<A, E, R>
-  ): Effect.Effect<
-    A,
-    | CustomerReservationNotFound
-    | CustomerWithdrawalRefused
-    | CustomerApiFailure<Exclude<E, WithdrawalRefusedError>>,
-    R
-  > =>
+  ): Effect.Effect<A, WithdrawalFailureAnswer<E>, R> =>
     effect.pipe(
       Effect.catch(
-        (
-          failure
-        ): Effect.Effect<
-          never,
-          | CustomerReservationNotFound
-          | CustomerWithdrawalRefused
-          | CustomerApiFailure<Exclude<E, WithdrawalRefusedError>>
-        > => {
+        (failure): Effect.Effect<never, WithdrawalFailureAnswer<E>> => {
+          if (failure instanceof WithdrawalNameRequiredError) {
+            return Effect.fail(
+              new CustomerWithdrawalNameRequired() as WithdrawalFailureAnswer<E>
+            );
+          }
           if (!(failure instanceof WithdrawalRefusedError)) {
             return answerCustomerApiFailure(operation)(
-              Effect.fail(failure as Exclude<E, WithdrawalRefusedError>)
+              Effect.fail(
+                failure as Exclude<
+                  E,
+                  WithdrawalRefusedError | WithdrawalNameRequiredError
+                >
+              )
             );
           }
           const { reason } = failure;

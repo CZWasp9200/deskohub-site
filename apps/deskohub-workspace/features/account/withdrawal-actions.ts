@@ -32,15 +32,28 @@ const reservationWithdrawalSchema = Schema.toStandardSchemaV1(
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
 
+const reservationWithdrawalStatementSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    orderId: workspaceReservationIdSchema,
+    /** The name the customer typed; used only when the profile has none. */
+    customerName: Schema.optionalKey(Schema.String),
+  }),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
+
 /** The quote, or why the customer can't withdraw from the reservation now. */
 export type ReservationWithdrawalQuoteResult =
   | { readonly status: "available"; readonly quote: WithdrawalQuoteData }
   | { readonly status: "refused"; readonly reason: WithdrawalRefusal };
 
-/** The receipt, or why the withdrawal wasn't accepted. */
+/**
+ * The receipt, why the withdrawal wasn't accepted, or that the statement
+ * needs the customer's name (the profile has none and none was typed).
+ */
 export type ReservationWithdrawalResult =
   | { readonly status: "withdrawn"; readonly receipt: WithdrawalReceiptData }
-  | { readonly status: "refused"; readonly reason: WithdrawalRefusal };
+  | { readonly status: "refused"; readonly reason: WithdrawalRefusal }
+  | { readonly status: "name_required" };
 
 /**
  * Runs a withdrawal operation for the signed-in customer while the online
@@ -113,24 +126,36 @@ const quoteReservationWithdrawalAction = defineWorkspaceAction(
 const withdrawFromReservationAction = defineWorkspaceAction(
   {
     operation: "account.withdraw-from-reservation",
-    schema: reservationWithdrawalSchema,
+    schema: reservationWithdrawalStatementSchema,
   },
   (input, { locale }) =>
     runForSignedInCustomer(locale, (withdrawals, accountId) =>
-      withdrawals.withdraw({
-        accountId,
-        locale,
-        contract: { kind: "reservation", id: input.orderId },
-      })
+      withdrawals
+        .withdraw({
+          accountId,
+          locale,
+          contract: { kind: "reservation", id: input.orderId },
+          ...(input.customerName !== undefined && {
+            customerName: input.customerName,
+          }),
+        })
+        .pipe(
+          Effect.map(
+            (receipt): ReservationWithdrawalResult => ({
+              status: "withdrawn",
+              receipt: toWithdrawalReceiptData(receipt),
+            })
+          ),
+          Effect.catchTag("WithdrawalNameRequiredError", () =>
+            Effect.succeed<ReservationWithdrawalResult>({
+              status: "name_required",
+            })
+          )
+        )
     ).pipe(
       Effect.map(
         (result): ReservationWithdrawalResult =>
-          result.status === "done"
-            ? {
-                status: "withdrawn",
-                receipt: toWithdrawalReceiptData(result.value),
-              }
-            : result
+          result.status === "done" ? result.value : result
       )
     )
 );

@@ -48,8 +48,12 @@ const makeHarness = (options: {
   readonly cancellationFailures?: ContractCancellationError[];
   readonly receiptFailures?: number;
   readonly operatorNoticeFailures?: number;
+  /** The profile's name; `null` when the profile has none. */
+  readonly profileName?: string | null;
 }) => {
   const log: string[] = [];
+  /** The customer name each email carried, in sending order. */
+  const emailNames: (string | null)[] = [];
   const rows = new Map<WithdrawalId, ContractWithdrawal>();
   const cancellationFailures = [...(options.cancellationFailures ?? [])];
   let receiptFailures = options.receiptFailures ?? 0;
@@ -174,9 +178,10 @@ const makeHarness = (options: {
           return Effect.fail(new Error("Resend unavailable") as never);
         }
         log.push(`receipt to ${message.receiptEmail}`);
+        emailNames.push(message.customerName);
         return Effect.void;
       }),
-    sendOperatorNotice: () =>
+    sendOperatorNotice: (message) =>
       Effect.suspend(() => {
         if (operatorNoticeFailures > 0) {
           operatorNoticeFailures -= 1;
@@ -184,6 +189,7 @@ const makeHarness = (options: {
           return Effect.fail(new Error("Resend unavailable") as never);
         }
         log.push("operator notice");
+        emailNames.push(message.customerName);
         return Effect.void;
       }),
   });
@@ -228,7 +234,10 @@ const makeHarness = (options: {
   const contacts = Layer.mock(CustomerAccountContactService, {
     current: Effect.succeed({
       accountId,
-      name: "Alex Example",
+      name:
+        options.profileName === undefined
+          ? "Alex Example"
+          : options.profileName,
       email: receiptEmail,
       phone: "+420000000000",
     }),
@@ -285,7 +294,15 @@ const makeHarness = (options: {
     accountReadable = readable;
   };
 
-  return { log, rows, run, runExit, makeRetriesDue, setAccountReadable };
+  return {
+    log,
+    emailNames,
+    rows,
+    run,
+    runExit,
+    makeRetriesDue,
+    setAccountReadable,
+  };
 };
 
 const noRetry = { attempts: 0, failureCode: null, retryAt: null } as const;
@@ -549,6 +566,62 @@ describe("WithdrawalService.withdraw", () => {
       failureCode: "customer_address_unavailable",
     });
     expect(row.settledAt).toBeNull();
+  });
+});
+
+describe("WithdrawalService.withdraw statement name", () => {
+  test("carries the profile name and ignores a typed one", async () => {
+    const harness = makeHarness({});
+    await harness.run((service) =>
+      service.withdraw({ ...input, customerName: "Typed Name" })
+    );
+
+    expect(harness.emailNames).toEqual(["Alex Example", "Alex Example"]);
+  });
+
+  test("carries the trimmed typed name when the profile has none", async () => {
+    const harness = makeHarness({ profileName: null });
+    await harness.run((service) =>
+      service.withdraw({ ...input, customerName: "  Sam Typed  " })
+    );
+
+    expect(harness.emailNames).toEqual(["Sam Typed", "Sam Typed"]);
+    expect(harness.rows.size).toBe(1);
+  });
+
+  test.each([
+    ["no typed name", undefined],
+    ["a blank typed name", "   "],
+  ])(
+    "requires a name and records nothing with %s when the profile has none",
+    async (_case, customerName) => {
+      const harness = makeHarness({ profileName: null });
+      const exit = await harness.runExit((service) =>
+        service.withdraw({
+          ...input,
+          ...(customerName !== undefined && { customerName }),
+        })
+      );
+
+      expect(exit).toMatchObject({
+        _tag: "Failure",
+        cause: {
+          reasons: [{ error: { _tag: "WithdrawalNameRequiredError" } }],
+        },
+      });
+      expect(harness.rows.size).toBe(0);
+      expect(harness.log).toEqual([]);
+    }
+  );
+
+  test("answers a recorded withdrawal's receipt without asking for a name", async () => {
+    const harness = makeHarness({ profileName: null });
+    const first = await harness.run((service) =>
+      service.withdraw({ ...input, customerName: "Sam Typed" })
+    );
+    const second = await harness.run((service) => service.withdraw(input));
+
+    expect(second.withdrawalId).toBe(first.withdrawalId);
   });
 });
 

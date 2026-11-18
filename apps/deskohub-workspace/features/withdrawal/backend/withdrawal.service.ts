@@ -44,6 +44,14 @@ export class WithdrawalRefusedError extends Data.TaggedError(
   readonly reason: WithdrawalRefusal;
 }> {}
 
+/**
+ * The statement has no name to carry: the profile has none and the customer
+ * didn't type one.
+ */
+export class WithdrawalNameRequiredError extends Data.TaggedError(
+  "WithdrawalNameRequiredError"
+) {}
+
 /** The withdrawal ledger or the contract's family couldn't be read. */
 export class WithdrawalUnavailableError extends Data.TaggedError(
   "WithdrawalUnavailableError"
@@ -56,6 +64,14 @@ type WithdrawalInput = {
   readonly accountId: CustomerAccountId;
   readonly contract: WithdrawableContractRef;
   readonly locale: Locale;
+};
+
+/**
+ * A withdrawal statement. `customerName` is the name the customer typed for
+ * it, used only when the profile has none.
+ */
+type WithdrawalSubmission = WithdrawalInput & {
+  readonly customerName?: string;
 };
 
 type WithdrawalFailure =
@@ -79,11 +95,16 @@ interface IWithdrawalService {
    * Records the signed-in author's withdrawal, then sends the receipt, the
    * operator notice and ends the contract. Only recording can fail the
    * customer: a later step that fails is retried by `settleDue`. Submitting
-   * again answers the recorded withdrawal's receipt.
+   * again answers the recorded withdrawal's receipt. The statement carries
+   * the profile name, else the trimmed typed one; with neither, a new
+   * withdrawal fails with `WithdrawalNameRequiredError`.
    */
   readonly withdraw: (
-    input: WithdrawalInput
-  ) => Effect.Effect<WithdrawalReceipt, WithdrawalFailure>;
+    input: WithdrawalSubmission
+  ) => Effect.Effect<
+    WithdrawalReceipt,
+    WithdrawalFailure | WithdrawalNameRequiredError
+  >;
   /** Retries the unfinished steps of up to `limit` due withdrawals. */
   readonly settleDue: (input: {
     readonly limit: number;
@@ -444,7 +465,9 @@ export class WithdrawalService extends Context.Service<
         withdraw: Effect.fn("WithdrawalService.withdraw")(
           function* (input) {
             const family = families.get(input.contract.kind);
-            const customerName = yield* currentCustomerName;
+            const customerName =
+              (yield* currentCustomerName) ??
+              (input.customerName?.trim() || null);
             const { withdrawal, recorded, receiptEmail } =
               yield* sections.withActiveAccount(
                 input.accountId,
@@ -485,6 +508,9 @@ export class WithdrawalService extends Context.Service<
                       recorded: false,
                       receiptEmail: held.email,
                     };
+                  }
+                  if (customerName === null) {
+                    return yield* new WithdrawalNameRequiredError();
                   }
                   const { contract, assessment } = assessed;
                   const result = yield* repository

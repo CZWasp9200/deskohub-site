@@ -3,6 +3,7 @@ import "@/shared/polyfills/temporal";
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
+  WithdrawalNameRequiredError,
   WithdrawalRefusedError,
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
@@ -62,7 +63,9 @@ const withdrawals = (
         }),
       withdraw: (input) =>
         Effect.suspend(() => {
-          calls.push(`withdraw ${input.contract.id} ${input.locale}`);
+          calls.push(
+            `withdraw ${input.contract.id} ${input.locale}${input.customerName === undefined ? "" : ` as ${input.customerName}`}`
+          );
           return service.withdraw
             ? service.withdraw(input)
             : Effect.succeed(receipt);
@@ -141,6 +144,36 @@ describe("customer API withdrawal endpoints", () => {
     expect(notFound.status).toBe(404);
     expect(await notFound.json()).toMatchObject({
       _tag: "CustomerReservationNotFound",
+    });
+  });
+
+  test("passes the typed name with the statement", async () => {
+    const { calls, reservations } = withdrawals(true);
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...withdrawCall,
+        body: { locale: "en-US", customerName: "Sam Typed" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["withdraw reservation-1 en-US as Sam Typed"]);
+  });
+
+  test("answers a statement without a name as unprocessable", async () => {
+    const { reservations } = withdrawals(true, {
+      withdraw: () => Effect.fail(new WithdrawalNameRequiredError()),
+    });
+
+    const response = await makeCustomerApiTestServer({ reservations }).handle(
+      customerApiRequest(withdrawCall)
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerWithdrawalNameRequired",
     });
   });
 });

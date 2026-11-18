@@ -38,7 +38,9 @@ interface IReservationOnSite {
    */
   readonly forReservations: (
     reservations: readonly OnSiteReservation[]
-  ) => Effect.Effect<ReadonlyMap<WorkspaceReservationId, ReservationOnSiteDetails>>;
+  ) => Effect.Effect<
+    ReadonlyMap<WorkspaceReservationId, ReservationOnSiteDetails>
+  >;
 }
 
 export class ReservationOnSite extends Context.Service<
@@ -54,7 +56,12 @@ export class ReservationOnSite extends Context.Service<
       return {
         forReservations: Effect.fn("ReservationOnSite.forReservations")(
           function* (reservations: readonly OnSiteReservation[]) {
-            if (reservations.length === 0) return new Map();
+            if (reservations.length === 0) {
+              return new Map<
+                WorkspaceReservationId,
+                ReservationOnSiteDetails
+              >();
+            }
             const tables = yield* inventory.tables.pipe(
               Effect.tapError((cause) =>
                 Effect.logWarning("Reservation on-site tables load failed", {
@@ -83,7 +90,9 @@ export class ReservationOnSite extends Context.Service<
                   })
                 )
             );
-            return new Map(details);
+            return new Map<WorkspaceReservationId, ReservationOnSiteDetails>(
+              details
+            );
           }
         ),
       };

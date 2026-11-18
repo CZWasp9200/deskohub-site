@@ -111,6 +111,7 @@ The provider return route (`app/[locale]/(site)/(minimal-header)/checkout/pay/re
 - Start-over links from terminal status or invalid Pay state use document navigation. Cache Components can keep the previous reservation route, with its completed action result, in a hidden Activity boundary; client navigation can remount it and replay the stale Pay redirect.
 
 Customer-visible status wording and the support-request rules are in the [checkout specification](../../../../apps/deskohub-workspace/docs/checkout-lifecycle.md#payment-and-fulfillment).
+- The status page's online withdrawal comes from `readReservationWithdrawalEntry` (`features/withdrawal/backend/withdrawal-entry.server.ts`), which `checkout-status-route.tsx` runs beside the status load with `Effect.all`, never after it. A recorded withdrawal shows the withdrawn state to every authorized viewer, even after the `online_withdrawal` gate closes; the withdrawal link needs the gate, a verified session, and an available quote, and shows on a `fulfilled` status only. The link (`ReservationWithdrawalLink`) opens the confirm dialog over the page and refreshes the route when the dialog closes after a withdrawal; there is no URL entry point.
 
 ## Browser site tools
 

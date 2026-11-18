@@ -48,6 +48,17 @@ function MockNextLink({
 }
 
 mock.module("next/link", () => ({ default: MockNextLink }));
+// The link's dialog has its own tests; here it marks where it's offered.
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({
+    ReservationWithdrawalLink: ({ orderId }: { readonly orderId: string }) => (
+      <button data-withdrawal-order={orderId} type="button">
+        {m.reservationWithdrawalAction({}, { locale: "en-US" })}
+      </button>
+    ),
+  })
+);
 
 const { ReservationHistory } = await import("./reservation-history");
 
@@ -757,6 +768,55 @@ describe("ReservationHistory", () => {
       }
     });
   }
+
+  test("offers withdrawal only on reservations the customer can withdraw from now", () => {
+    const withdrawalLinks = (current: CustomerReservationSummary[]) => {
+      const view = renderHistory("en-US", {
+        kind: "available",
+        groups: { current, past: [], unavailable: [] },
+      });
+      const orders = view
+        .queryAllByRole("button", {
+          name: m.reservationWithdrawalAction({}, { locale: "en-US" }),
+        })
+        .map((link) => link.getAttribute("data-withdrawal-order"));
+      cleanup();
+      return [...new Set(orders)].toSorted();
+    };
+    const periodEndsAt = "2026-09-20T22:00:00Z";
+    const linked = (id: string) => ({
+      id,
+      workspaceReservationId: workspaceReservationIdSchema.make(id),
+    });
+
+    expect(
+      withdrawalLinks([
+        reservation({
+          ...linked("eligible-featured"),
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+        reservation({
+          ...linked("eligible-compact"),
+          startsAt: "2026-09-25T12:00:00Z",
+          endsAt: "2026-09-25T14:00:00Z",
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+      ])
+    ).toEqual(["eligible-compact", "eligible-featured"]);
+    expect(
+      withdrawalLinks([
+        reservation({
+          ...linked("period-over"),
+          withdrawal: { eligible: false, periodEndsAt },
+        }),
+        reservation(linked("not-offered")),
+        reservation({
+          id: "provider-only",
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+      ])
+    ).toEqual([]);
+  });
 
   test("keeps the profile page usable when the reservation provider is unavailable", () => {
     const locale = "en-US";

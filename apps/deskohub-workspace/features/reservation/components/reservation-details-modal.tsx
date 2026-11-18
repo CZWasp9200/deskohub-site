@@ -31,7 +31,7 @@ export function ReservationDetailsModal({
         aria-describedby="reservation-details-modal-description"
         locale={locale}
         // Open on the close button, not on the first action in the summary
-        // (its ⋮ withdrawal menu).
+        // (its withdrawal link).
         onOpenAutoFocus={(event) => {
           const close =
             event.currentTarget instanceof HTMLElement
