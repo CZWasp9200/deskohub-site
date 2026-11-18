@@ -1,4 +1,5 @@
 import { Match, Schema } from "effect";
+import type { OrderId } from "@/features/order";
 import type { NormalizedCoworkReservationOrder } from "@/features/reservation/cowork-reservation";
 import {
   getStoredCoworkReservationDetails,
@@ -53,3 +54,14 @@ export const workspaceReservationIdSchema = Schema.NonEmptyString.pipe(
 export type WorkspaceReservationId = Schema.Schema.Type<
   typeof workspaceReservationIdSchema
 >;
+
+/**
+ * The ID of a reservation's order. The database mirrors every reservation
+ * into a `reservation` order with the same ID.
+ */
+export const reservationOrderId = (
+  reservationId: WorkspaceReservationId
+): OrderId => {
+  const id: string = reservationId;
+  return id as OrderId;
+};
