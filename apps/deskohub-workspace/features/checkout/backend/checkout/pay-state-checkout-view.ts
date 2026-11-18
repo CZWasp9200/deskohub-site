@@ -17,6 +17,7 @@ import type { InviteeEmail } from "@/features/office/office-people";
 import { isReservationSupersedable } from "@/features/reservation/backend/reservation-supersession";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { CheckoutOfficeSelection } from "@/features/reservation/reservation-checkout-contact";
 import {
   type BookedOfficePeople,
   getBookedPeopleQuery,
@@ -95,12 +96,12 @@ export const findCheckoutOfficePeople = Effect.fn(
 });
 
 /**
- * Reads the list from a held office when the Pay token belongs to this
+ * Reads the selection from a held office when the Pay token belongs to this
  * visitor. An order without an account author can be recovered with its
  * existing signed Pay token.
  */
-export const findCheckoutOfficePeopleForVisitor = Effect.fn(
-  "payState.findCheckoutOfficePeopleForVisitor"
+export const findCheckoutOfficeSelectionForVisitor = Effect.fn(
+  "payState.findCheckoutOfficeSelectionForVisitor"
 )(function* (input: {
   readonly payStateToken: string;
   readonly locale: Locale;
@@ -109,22 +110,22 @@ export const findCheckoutOfficePeopleForVisitor = Effect.fn(
     locale: input.locale,
   });
   if (state.reservation.kind !== "office")
-    return Option.none<CheckoutOfficePeople>();
+    return Option.none<CheckoutOfficeSelection>();
 
   const reservations = yield* WorkspaceReservationRepository;
   const reservation = yield* reservations.findById(state.orderId);
   if (
-    !reservation ||
+    reservation?.reservationDetails.kind !== "office" ||
     !isReservationSupersedable(reservation) ||
     !reservation.reservationHoldExpiresAt
   ) {
-    return Option.none<CheckoutOfficePeople>();
+    return Option.none<CheckoutOfficeSelection>();
   }
   const now = yield* currentInstant;
   if (
     Temporal.Instant.compare(reservation.reservationHoldExpiresAt, now) <= 0
   ) {
-    return Option.none<CheckoutOfficePeople>();
+    return Option.none<CheckoutOfficeSelection>();
   }
   if (reservation.authorAccountId !== null) {
     const authentication = yield* CustomerAuthentication;
@@ -133,18 +134,33 @@ export const findCheckoutOfficePeopleForVisitor = Effect.fn(
       session?.accountId !== reservation.authorAccountId ||
       session.deletionRequested
     ) {
-      return Option.none<CheckoutOfficePeople>();
+      return Option.none<CheckoutOfficeSelection>();
     }
+  }
+
+  // A null marker means the checkout never recorded a guest list. A list
+  // that cannot be read must not silently become a seat-only checkout.
+  if (reservation.officeContactAttends === null) {
+    return Option.some<CheckoutOfficeSelection>({
+      kind: "seats",
+      seats: state.reservation.seats,
+    });
   }
 
   const invitees = yield* ReservationInvitees;
   const booked = yield* invitees.findBookedPeople(
     getBookedPeopleQuery(reservation)
   );
-  return Option.map(booked, toCheckoutOfficePeople);
+  return Option.map(
+    booked,
+    (people): CheckoutOfficeSelection => ({
+      kind: "people",
+      people: toCheckoutOfficePeople(people),
+    })
+  );
 });
 
-export const checkoutOfficePeopleForVisitorServices = Layer.mergeAll(
+export const checkoutOfficeSelectionForVisitorServices = Layer.mergeAll(
   CustomerAuthentication.Default,
   ReservationInvitees.Default,
   SealedStateKeys.Default,

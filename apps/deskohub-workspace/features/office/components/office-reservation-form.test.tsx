@@ -9,12 +9,14 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import type { ComponentProps } from "react";
+import { makeOfficePayRouteFixture } from "@/features/checkout/backend/checkout/office-pay-route.test-utils";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { discountIdSchema } from "@/features/discounts";
 import { m } from "@/features/i18n";
+import { recordReservationPagePreloads } from "@/features/reservation/backend/reservation-page-preloads.service.mock";
 import { mockReservationCheckoutStep } from "@/features/reservation/components/reservation-checkout-step.test-utils";
 import { mockCheckoutEmailVerification } from "@/features/reservation/components/use-checkout-email-verification.test-utils";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
@@ -55,6 +57,9 @@ mock.module("@/features/reservation/actions/get-advertised-price", () => ({
 
 const verifyEmail = mockCheckoutEmailVerification();
 const checkoutStep = mockReservationCheckoutStep();
+mock.module("next/root-params", () => ({
+  locale: () => Promise.resolve("en-US"),
+}));
 
 const { OfficeReservationForm, OfficeReservationFormFallback } = await import(
   "./office-reservation-form"
@@ -261,6 +266,133 @@ describe("OfficeReservationForm", () => {
     });
   const normalizeSpaces = (text: string | null | undefined) =>
     text?.replaceAll(/[\u00a0\u202f]/g, " ");
+
+  test("edits and resubmits the signed three-seat, two-day Pay hold", async () => {
+    checkoutStep.initial = "contact";
+    const today = getCurrentWorkspaceDate();
+    const startsOn = decodePlainDate(today.toString());
+    const endsOn = decodePlainDate(today.add({ days: 1 }).toString());
+    const held = makeOfficePayRouteFixture({
+      seatOnly: true,
+      startsOn,
+      endsOn,
+    });
+    const checkoutView = await import(
+      "@/features/checkout/backend/checkout/pay-state-checkout-view"
+    );
+    let visitorServices = held.services;
+    mock.module(
+      "@/features/checkout/backend/checkout/pay-state-checkout-view",
+      () => ({
+        ...checkoutView,
+        checkoutOfficeSelectionForVisitorServices: Layer.unwrap(
+          Effect.sync(() => visitorServices)
+        ),
+      })
+    );
+    const { loadRestoredReservation } = await import(
+      "@/features/reservation/components/create-reservation-page.server"
+    );
+    const { officeReservationPage } = await import("./office-reservation-page");
+    const token = await held.seal("en-US");
+    const restored = await Effect.runPromise(
+      loadRestoredReservation(token, "en-US", "office")
+    );
+    if (!restored) throw new Error("Expected a restored reservation");
+    const prices = officeAdvertisedPrices(startsOn, endsOn);
+    const content = await Effect.runPromise(
+      officeReservationPage
+        .loadContent({
+          checkoutAccount: {
+            status: "linked",
+            customer: {
+              contact: {
+                email: held.reservation.email,
+                name: held.reservation.name,
+                phone: held.reservation.phone,
+              },
+              hasMarketingConsent: false,
+            },
+          },
+          pageData: 3,
+          locale: "en-US",
+          restoredReservation: restored,
+          searchParams: { payState: token, seats: "1" },
+        })
+        .pipe(
+          Effect.provide(
+            recordReservationPagePreloads({
+              advertisedPrices: () => Effect.succeed(prices),
+            }).layer
+          )
+        )
+    );
+    if (content.kind !== "form") throw new Error("Expected the office form");
+    expect(content.form.replacementToken === token).toBe(true);
+    globalThis.fetch = Object.assign(
+      mock(async () =>
+        officeAvailabilityResponse({
+          from: startsOn,
+          to: today.add({ days: 30 }).toString(),
+        })
+      ),
+      { preconnect: originalFetch.preconnect }
+    );
+    const view = renderOfficeForm({
+      ...content.form,
+      seatCapacity: content.form.pageData,
+    });
+    const total = formatMoney(
+      prices[2]!.advertisedPrice.quote.payment.expectedPrice,
+      "en-US"
+    );
+    expect(normalizeSpaces(view.container.textContent)).toContain(
+      normalizeSpaces(total)
+    );
+    const submit = view.container.querySelector<HTMLButtonElement>(
+      "#reservation-submit"
+    );
+    if (!submit) throw new Error("Expected the checkout button");
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(executeAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          advertisedPriceToken: "office-3",
+          checkoutSessionId: "office-session",
+          reservation: expect.objectContaining({
+            kind: "office",
+            seats: 3,
+            startsOn,
+            endsOn,
+          }),
+        })
+      )
+    );
+    expect(executeAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        people: expect.anything(),
+      })
+    );
+
+    held.signInAsAnotherAccount();
+    expect(
+      await Effect.runPromise(loadRestoredReservation(token, "en-US", "office"))
+    ).toBeUndefined();
+
+    const unreadable = makeOfficePayRouteFixture({
+      unavailablePeople: true,
+      startsOn,
+      endsOn,
+    });
+    visitorServices = unreadable.services;
+    const unreadableToken = await unreadable.seal("en-US");
+    expect(
+      await Effect.runPromise(
+        loadRestoredReservation(unreadableToken, "en-US", "office")
+      )
+    ).toBeUndefined();
+  });
 
   test("prices the office and each person beside the people list", () => {
     const startsOn = decodePlainDate("2026-08-10");

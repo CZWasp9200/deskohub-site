@@ -89,20 +89,16 @@ export const resendInvitationAtom = Atom.family(
 );
 
 /**
- * Whether an invited person offers Resend, and from when: none before their
- * first invitation went out (the order isn't confirmed yet); else from the
- * later of the server's `resendAvailableAt` and a resend this screen made
- * (`resentUntil`), open now when neither is ahead of `now`.
+ * When an eligible person's Resend opens: the later of the server's
+ * `resendAvailableAt` and a resend this screen made (`resentUntil`).
  */
 export const inviteeResend = (
-  invitee: Pick<
-    CustomerReservationInvitee,
-    "invitationSentAt" | "resendAvailableAt"
-  >,
+  resendable: boolean | undefined,
+  invitee: Pick<CustomerReservationInvitee, "resendAvailableAt">,
   resentUntil: Option.Option<string>,
   now: DateTime.Utc
 ): Option.Option<{ readonly opensAt: Option.Option<DateTime.Utc> }> => {
-  if (invitee.invitationSentAt === null) return Option.none();
+  if (resendable !== true) return Option.none();
   const ahead = [Option.fromUndefinedOr(invitee.resendAvailableAt), resentUntil]
     .flatMap((at) => Option.toArray(Option.flatMap(at, DateTime.make)))
     .filter((at) => DateTime.isGreaterThan(at, now))

@@ -4,22 +4,24 @@ import { DateTime, Option } from "effect";
 import { inviteeResend, OrderContact, orderContactOf } from "./order-people";
 
 const now = DateTime.makeUnsafe("2026-11-18T10:00:00Z");
-const sent = { invitationSentAt: "2026-11-18T09:00:00Z" };
-
 describe("inviteeResend", () => {
-  test("offers no Resend before the first invitation went out", () => {
-    expect(
-      inviteeResend({ invitationSentAt: null }, Option.none(), now)
-    ).toEqual(Option.none());
-  });
+  test.each([false, undefined])(
+    "offers no Resend unless the server confirms eligibility (%s)",
+    (resendable) => {
+      expect(inviteeResend(resendable, {}, Option.none(), now)).toEqual(
+        Option.none()
+      );
+    }
+  );
 
   test("is open now when nothing holds it", () => {
-    expect(inviteeResend(sent, Option.none(), now)).toEqual(
+    expect(inviteeResend(true, {}, Option.none(), now)).toEqual(
       Option.some({ opensAt: Option.none() })
     );
     expect(
       inviteeResend(
-        { ...sent, resendAvailableAt: "2026-11-18T09:30:00Z" },
+        true,
+        { resendAvailableAt: "2026-11-18T09:30:00Z" },
         Option.none(),
         now
       )
@@ -31,7 +33,7 @@ describe("inviteeResend", () => {
     const resent = "2026-11-18T10:15:00Z";
     const opensAt = (resentUntil: Option.Option<string>) =>
       Option.flatMap(
-        inviteeResend({ ...sent, resendAvailableAt: server }, resentUntil, now),
+        inviteeResend(true, { resendAvailableAt: server }, resentUntil, now),
         (resend) => resend.opensAt
       ).pipe(Option.map(DateTime.formatIso));
     expect(opensAt(Option.none())).toEqual(

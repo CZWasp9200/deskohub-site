@@ -15,8 +15,8 @@ import {
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import {
-  checkoutOfficePeopleForVisitorServices,
-  findCheckoutOfficePeopleForVisitor,
+  checkoutOfficeSelectionForVisitorServices,
+  findCheckoutOfficeSelectionForVisitor,
 } from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { PublicOfferingsStructuredData } from "@/features/checkout/components/public-offerings-structured-data";
@@ -28,7 +28,6 @@ import {
 } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import type { OfficePeople } from "@/features/office/office-people";
 import {
   publicPageMetadata,
   requirePublishedPublicPage,
@@ -97,7 +96,7 @@ type ReservationPageRequest<Kind extends ReservationKind, PageData> = {
 
 type RestoredReservation<Kind extends ReservationKind> = {
   readonly checkoutSessionId?: CheckoutSessionId;
-  readonly officePeople?: OfficePeople;
+  readonly officeSelection?: CheckoutOfficeSelection;
   readonly reservation: ReservationForKind<Kind>;
   readonly replacementToken: string;
   readonly submittedCode?: CanonicalPromotionCode;
@@ -243,22 +242,27 @@ export const loadRestoredReservation = Effect.fn(
   );
   if (!payState) return undefined;
 
-  const officePeople =
+  const officeSelection =
     payState.reservation.kind === "office"
       ? Option.getOrUndefined(
-          yield* findCheckoutOfficePeopleForVisitor({
+          yield* findCheckoutOfficeSelectionForVisitor({
             payStateToken: token,
             locale,
           }).pipe(
-            Effect.provide(checkoutOfficePeopleForVisitorServices),
+            Effect.provide(checkoutOfficeSelectionForVisitorServices),
             Effect.orElseSucceed(() => Option.none())
           )
         )
       : undefined;
 
+  // Opening a new form without a verified selection keeps it from replacing
+  // an office hold whose guest list is unreadable or belongs to someone else.
+  if (payState.reservation.kind === "office" && !officeSelection)
+    return undefined;
+
   return {
     checkoutSessionId: payState.checkoutSessionId,
-    officePeople,
+    officeSelection,
     reservation: payState.reservation as ReservationForKind<Kind>,
     replacementToken: token,
     // Restored requested intent (or the applied code on older tokens) wins
@@ -499,7 +503,9 @@ const loadReservationPageSelection = Effect.fnUntraced(function* <
   const restoration = restoredReservation
     ? definition.restore(
         restoredReservation.reservation,
-        request.searchParams,
+        restoredReservation.officeSelection?.kind === "seats"
+          ? { ...request.searchParams, seats: undefined }
+          : request.searchParams,
         scope
       )
     : undefined;
@@ -565,10 +571,7 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
               prefillsContact: definition.prefillsContact,
             }),
         restored: selection.kind === "restored",
-        values:
-          selection.kind === "restored" && restoredReservation?.officePeople
-            ? { ...selection.values, people: restoredReservation.officePeople }
-            : selection.values,
+        values: selection.values,
       });
     const checkoutCustomer =
       seededCustomer.status === "profile-missing" &&
@@ -595,7 +598,11 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
       kind: "form",
       form: {
         checkoutCustomer,
-        checkoutOfficeSelection: request.checkoutOfficeSelection,
+        checkoutOfficeSelection:
+          request.checkoutOfficeSelection ??
+          (selection.kind === "restored"
+            ? restoredReservation?.officeSelection
+            : undefined),
         checkoutSessionId: restoredReservation?.checkoutSessionId,
         initialAdvertisedPrices,
         initialAvailability,

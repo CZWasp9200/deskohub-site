@@ -590,6 +590,7 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
           total: { value: 116000, exponent: 2, currency: "CZK" },
           people: {
             contactAttends: true,
+            resendable: true,
             invitees: [
               {
                 id: CustomerReservationInviteeId.make("sample-invitee-1"),

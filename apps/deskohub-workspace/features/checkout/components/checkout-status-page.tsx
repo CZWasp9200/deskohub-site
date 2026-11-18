@@ -43,18 +43,7 @@ type CheckoutStatusPageProps = {
   readonly presentation?: "page" | "modal";
   /** Sends an office invitee their invitation again, where the page can. */
   readonly resendInvitation?: ResendOfficeInvitation;
-  readonly status: CheckoutStatusViewModel & {
-    /** Who is coming to an office booked with a people list. */
-    readonly people?: {
-      readonly contactAttends: boolean;
-      readonly invitees: ReadonlyArray<{
-        readonly id: string;
-        readonly email: string;
-        readonly resendAvailableAt?: Temporal.Instant;
-      }>;
-      readonly resendable: boolean;
-    };
-  };
+  readonly status: CheckoutStatusViewModel;
 };
 
 const statusIconWrapperVariants = cva(
@@ -278,25 +267,29 @@ export function CheckoutStatusPage({
 }: CheckoutStatusPageProps) {
   const copy = getCheckoutStatusCopy(status, locale);
   const showReservationDetails = status.status !== "not_found";
-  const officePeople = status.status !== "not_found" && status.people && (
-    <OfficeStatusPeopleList
-      changeHref={getPeopleChangeContactHref(status, locale)}
-      contact={status.supportContactPrefill}
-      locale={locale}
-      orderId={status.orderId}
-      people={{
-        contactAttends: status.people.contactAttends,
-        invitees: status.people.invitees.map(
-          ({ id, email, resendAvailableAt }) => ({
-            id,
-            email,
-            resendAvailableAt: resendAvailableAt?.toString(),
-          })
-        ),
-      }}
-      resendInvitation={status.people.resendable ? resendInvitation : undefined}
-    />
-  );
+  const officePeople = status.status !== "not_found" &&
+    status.kind === "office" &&
+    status.people && (
+      <OfficeStatusPeopleList
+        changeHref={getPeopleChangeContactHref(status, locale)}
+        contact={status.supportContactPrefill}
+        locale={locale}
+        orderId={status.orderId}
+        people={{
+          contactAttends: status.people.contactAttends,
+          invitees: status.people.invitees.map(
+            ({ id, email, resendAvailableAt }) => ({
+              id,
+              email,
+              resendAvailableAt: resendAvailableAt?.toString(),
+            })
+          ),
+        }}
+        resendInvitation={
+          status.people.resendable ? resendInvitation : undefined
+        }
+      />
+    );
   const summaryPresentation = getSummaryPresentation(
     status,
     locale,
@@ -349,6 +342,9 @@ export function CheckoutStatusPage({
       {showReservationDetails && (
         <CheckoutStatusReservationDetails
           locale={locale}
+          officePeople={
+            summaryPresentation ? undefined : officePeople || undefined
+          }
           status={status}
           summaryPresentation={summaryPresentation}
         />
@@ -485,14 +481,24 @@ function CheckoutStatusHeadline({
 
 function CheckoutStatusReservationDetails({
   locale,
+  officePeople,
   status,
   summaryPresentation,
 }: {
   readonly locale: Locale;
+  readonly officePeople?: ReactNode;
   readonly status: CheckoutReservationStatusViewModel;
   readonly summaryPresentation: CheckoutStatusSummaryPresentation | undefined;
 }) {
   const summaryRows = summaryPresentation?.rows ?? [];
+  const rows = officePeople
+    ? [
+        {
+          label: m.checkoutStatusPeopleLabel({}, { locale }),
+          value: officePeople,
+        },
+      ]
+    : summaryRows;
 
   return (
     <>
@@ -525,7 +531,7 @@ function CheckoutStatusReservationDetails({
               </dd>
             </div>
           )}
-          {summaryRows.map((row) => (
+          {rows.map((row) => (
             <div
               key={row.label}
               className="grid gap-1 rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4"

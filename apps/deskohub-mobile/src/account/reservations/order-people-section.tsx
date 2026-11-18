@@ -115,6 +115,7 @@ export function OrderPeopleSection({
   const rows = people.invitees.map((invitee) => ({
     invitee,
     resend: inviteeResend(
+      people.resendable,
       invitee,
       Option.fromUndefinedOr(resentUntil[invitee.id]),
       now

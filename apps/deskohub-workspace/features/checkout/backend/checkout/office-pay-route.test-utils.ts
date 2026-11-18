@@ -22,7 +22,14 @@ import { instantStringSchema } from "@/shared/utils/temporal";
 import { buildSignedPayState, sealPayState } from "./pay-state";
 
 /** A sealed office checkout with one stored guest and a changeable session. */
-export const makeOfficePayRouteFixture = () => {
+export const makeOfficePayRouteFixture = (
+  options: {
+    readonly seatOnly?: boolean;
+    readonly startsOn?: string;
+    readonly endsOn?: string;
+    readonly unavailablePeople?: boolean;
+  } = {}
+) => {
   const orderId = workspaceReservationIdSchema.make("office-order");
   const author = customerAccountIdSchema.make("office-author");
   const inviteeEmail = InviteeEmail.make(testEmailAddress("office-guest"));
@@ -30,9 +37,9 @@ export const makeOfficePayRouteFixture = () => {
     normalizedOfficeReservationOrderSchema
   )({
     kind: "office",
-    startsOn: "2099-06-20",
-    endsOn: "2099-06-21",
-    seats: 2,
+    startsOn: options.startsOn ?? "2099-06-20",
+    endsOn: options.endsOn ?? "2099-06-21",
+    seats: options.seatOnly ? 3 : 2,
     name: "Ada Sample",
     email: testEmailAddress("office-booker"),
     phone: "+420777000111",
@@ -42,7 +49,7 @@ export const makeOfficePayRouteFixture = () => {
   const row = {
     id: orderId,
     authorAccountId: author,
-    officeContactAttends: true,
+    officeContactAttends: options.seatOnly ? null : true,
     reservationDetails: getStoredWorkspaceReservationDetails(reservation),
     reservationState: "held",
     paymentState: "not_started",
@@ -70,7 +77,10 @@ export const makeOfficePayRouteFixture = () => {
     Layer.mock(ReservationInvitees, {
       findBookedPeople: ({ id, officeContactAttends, seats }) =>
         Effect.succeed(
-          id === orderId && officeContactAttends && seats === 2
+          id === orderId &&
+            officeContactAttends &&
+            seats === 2 &&
+            !options.unavailablePeople
             ? Option.some({
                 contactAttends: true,
                 invitees: [

@@ -94,7 +94,7 @@ mock.module(
   "@/features/checkout/backend/checkout/pay-state-checkout-view",
   () => ({
     ...checkoutView,
-    checkoutOfficePeopleForVisitorServices: officeCheckout.services,
+    checkoutOfficeSelectionForVisitorServices: officeCheckout.services,
   })
 );
 
@@ -641,16 +641,19 @@ test("restores the office people from Pay for its author only", async () => {
     );
 
   await renderEdit();
-  expect(family.renderForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject({
-    name: officeCheckout.reservation.name,
-    people: { contactAttends: true, invitees: [officeCheckout.inviteeEmail] },
+  expect(family.renderForm.mock.calls.at(-1)?.[0]).toMatchObject({
+    initialValues: { name: officeCheckout.reservation.name },
+    checkoutOfficeSelection: {
+      kind: "people",
+      people: { contactAttends: true, invitees: [officeCheckout.inviteeEmail] },
+    },
   });
 
   officeCheckout.signInAsAnotherAccount();
   await renderEdit();
   expect(
-    family.renderForm.mock.calls.at(-1)?.[0].initialValues
-  ).not.toHaveProperty("people");
+    family.renderForm.mock.calls.at(-1)?.[0].checkoutOfficeSelection
+  ).toBeUndefined();
 });
 
 describe("the reservation page recipe", () => {

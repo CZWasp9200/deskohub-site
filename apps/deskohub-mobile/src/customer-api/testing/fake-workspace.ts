@@ -16,6 +16,7 @@ import {
   CustomerCompanyRegistryUnavailable,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
+  CustomerInvitationResendRefused,
   CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
   type CustomerInvoicesApi,
@@ -686,18 +687,24 @@ const serverLayer = (workspace: FakeWorkspace) => {
         // Sends again to a listed invitee, then accepts no other resend for
         // five minutes, as the Workspace's cooldown does.
         .handle("resendInvitation", ({ params }) =>
-          Effect.flatMap(order(params.orderId), (found) => {
+          Effect.gen(function* () {
+            const found = yield* order(params.orderId);
             const listed = found.state.people?.invitees.some(
               ({ id }) => id === params.inviteeId
             );
             if (listed !== true) {
-              return Effect.fail(new CustomerReservationNotFound());
+              return yield* new CustomerReservationNotFound();
+            }
+            if (found.state.people?.resendable !== true) {
+              return yield* new CustomerInvitationResendRefused({
+                reason: "not-confirmed",
+              });
             }
             const now = Date.now();
-            return Effect.succeed({
+            return {
               invitationSentAt: new Date(now).toISOString(),
               resendAvailableAt: new Date(now + 5 * 60_000).toISOString(),
-            });
+            };
           })
         )
         .handle("getReservationStatus", ({ params }) =>

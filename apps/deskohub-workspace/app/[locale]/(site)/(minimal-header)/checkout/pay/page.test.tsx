@@ -91,7 +91,7 @@ mock.module(
   "@/features/checkout/backend/checkout/pay-state-checkout-view",
   () => ({
     ...checkoutView,
-    checkoutOfficePeopleForVisitorServices: officeCheckout.services,
+    checkoutOfficeSelectionForVisitorServices: officeCheckout.services,
   })
 );
 

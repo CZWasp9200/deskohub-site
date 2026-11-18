@@ -436,6 +436,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
             reservation.people && {
               people: {
                 contactAttends: reservation.people.contactAttends,
+                resendable: reservation.people.resendable,
                 invitees: reservation.people.invitees.map(
                   ({ id, email, invitationSentAt, resendAvailableAt }) => ({
                     id,

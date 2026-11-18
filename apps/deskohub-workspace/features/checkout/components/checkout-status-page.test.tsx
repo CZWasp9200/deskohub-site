@@ -22,7 +22,9 @@ import {
 import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
 import { readContactPrefill } from "@/features/contact/components/contact-page-link";
 import { type Locale, m } from "@/features/i18n";
+import { InviteeEmail } from "@/features/office/office-people";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
+import { reservationInviteeIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -518,8 +520,63 @@ describe("CheckoutStatusPage", () => {
     ).toBe("/en-US/reservation/office?dayCount=3&seats=3");
   });
 
+  test.each([true, false])(
+    "shows people and the change request without a price or date summary (resendable %s)",
+    (resendable) => {
+      const email = InviteeEmail.make(testEmailAddress("office-status-guest"));
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          resendInvitation={async () => ({ status: "failed" })}
+          status={{
+            ...baseStatus,
+            kind: "office",
+            status: resendable ? "fulfilled" : "reservation_cancelled",
+            supportContactPrefill: {
+              name: "Alex Sample",
+              email: testEmailAddressForAda,
+            },
+            people: {
+              contactAttends: false,
+              invitees: [
+                {
+                  id: reservationInviteeIdSchema.make("office-guest"),
+                  email,
+                  invitationSentAt: null,
+                },
+              ],
+              resendable,
+            },
+          }}
+        />
+      );
+      const people = view.container.querySelector(
+        "[data-office-status-people]"
+      );
+      expect(people?.textContent).toContain(email);
+      const href = people?.querySelector("a")?.getAttribute("href");
+      if (!href) throw new Error("Expected the change-request link");
+      const { searchParams } = new URL(href, "https://deskohub.test");
+      expect(searchParams.get("name")).toBe("Alex Sample");
+      expect(searchParams.get("email")).toBe(testEmailAddressForAda);
+      expect(searchParams.get("message")).toContain(baseStatus.orderId);
+      expect(
+        Boolean(
+          view.queryByRole("button", {
+            name: m.checkoutStatusPeopleResendLabel(
+              { email },
+              { locale: "en-US" }
+            ),
+          })
+        )
+      ).toBe(resendable);
+    }
+  );
+
   test("lists who is coming to an office and sends an invitation again", async () => {
     const reservedFrom = Temporal.Instant.from("2026-11-17T23:00:00Z");
+    const jana = InviteeEmail.make(testEmailAddress("office-guest-jana"));
+    const petr = InviteeEmail.make(testEmailAddress("office-guest-petr"));
     const resendInvitation = mock(async () => ({
       status: "sent" as const,
       resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }).toString(),
@@ -545,10 +602,15 @@ describe("CheckoutStatusPage", () => {
           people: {
             contactAttends: true,
             invitees: [
-              { id: "invitee-jana", email: "jana.novak@example.org" },
               {
-                id: "invitee-petr",
-                email: "petr.svoboda@example.org",
+                id: reservationInviteeIdSchema.make("invitee-jana"),
+                email: jana,
+                invitationSentAt: reservedFrom,
+              },
+              {
+                id: reservationInviteeIdSchema.make("invitee-petr"),
+                email: petr,
+                invitationSentAt: reservedFrom,
                 resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }),
               },
             ],
@@ -565,11 +627,11 @@ describe("CheckoutStatusPage", () => {
         { locale: "en-US" }
       )
     );
-    expect(people?.textContent).toContain("jana.novak@example.org");
+    expect(people?.textContent).toContain(jana);
     expect(
       view.getByRole("button", {
         name: m.checkoutStatusPeopleResendLabel(
-          { email: "petr.svoboda@example.org" },
+          { email: petr },
           { locale: "en-US" }
         ),
       })
@@ -614,7 +676,7 @@ describe("CheckoutStatusPage", () => {
       fireEvent.click(
         view.getByRole("button", {
           name: m.checkoutStatusPeopleResendLabel(
-            { email: "jana.novak@example.org" },
+            { email: jana },
             { locale: "en-US" }
           ),
         })
@@ -631,7 +693,7 @@ describe("CheckoutStatusPage", () => {
       view
         .getByText(
           m.checkoutStatusPeopleSentAnnouncement(
-            { email: "jana.novak@example.org" },
+            { email: jana },
             { locale: "en-US" }
           )
         )

@@ -615,6 +615,59 @@ describe("getReservationStatus", () => {
     });
   });
 
+  test.each([true, false])(
+    "sends office people with explicit resend eligibility %s",
+    async (resendable) => {
+      const email = testEmailAddress("office-status-api-guest");
+      const refreshStatus = mock(() =>
+        Effect.succeed({
+          orderId,
+          returnOutcome: "unknown",
+          kind: "office",
+          status: resendable ? "fulfilled" : "reservation_cancelled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          people: {
+            contactAttends: false,
+            resendable,
+            invitees: [{ id: "office-guest", email, invitationSentAt: null }],
+          },
+          supportContactPrefill: {
+            name: "Ada Example",
+            email: testEmailAddress("office-status-api-contact"),
+          },
+        } as CheckoutStatusViewModel)
+      );
+      const api = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus),
+      });
+      const response = await api.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        people: {
+          contactAttends: false,
+          resendable,
+          invitees: [{ email, invitationSentAt: null }],
+        },
+      });
+      expect(body).not.toHaveProperty("supportContactPrefill");
+
+      const unrelated = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus, { authorized: false }),
+      });
+      refreshStatus.mockClear();
+      const rejected = await unrelated.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(rejected.status).toBe(404);
+      expect(await rejected.text()).not.toContain(email);
+      expect(refreshStatus).not.toHaveBeenCalled();
+    }
+  );
+
   test("answers the order's booked selection beside its status", async () => {
     const refreshStatus = mock(() =>
       Effect.succeed({

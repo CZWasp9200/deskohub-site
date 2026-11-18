@@ -251,3 +251,46 @@ test.each(["pending", "paid"] as const)(
     );
   }
 );
+
+test.each([
+  ["fulfilled", true, true],
+  ["cancelled", false, false],
+  ["cancelled", undefined, false],
+] as const)(
+  "only shows Resend when the office is eligible (%s, %s)",
+  (status, resendable, offersResend) => {
+    const locale = "cs-CZ";
+    const order = sampleWorkspaceData("linked", new Date()).orders.get(
+      sampleOrderIds.officePeople
+    )?.state;
+    if (!order?.people) throw new Error("Expected a paid office with people");
+    const state: StatusRefreshState = {
+      order: {
+        ...order,
+        status,
+        ...(status === "cancelled" && { reservationCancelled: true }),
+        people: {
+          contactAttends: order.people.contactAttends,
+          invitees: order.people.invitees,
+          ...(resendable !== undefined && { resendable }),
+        },
+      },
+      reading: false,
+      automatic: AutomaticRefresh.Stopped({ reason: "settled" }),
+      attempt: 0,
+      failure: Option.none(),
+    };
+    const tree = hostTree(
+      <OrderStatusScreen orderId={order.orderId} visit="normal" />,
+      (screen) =>
+        withCustomerData(<ToastProvider>{screen}</ToastProvider>, state)
+    );
+    const labels = findAll(tree, "Text").map(textOf);
+    expect(labels.includes(m.reservations_people_resend({}, { locale }))).toBe(
+      offersResend
+    );
+    expect(labels.join(" ")).toContain(
+      order.people.invitees[0]!.email.split("@")[0]!
+    );
+  }
+);

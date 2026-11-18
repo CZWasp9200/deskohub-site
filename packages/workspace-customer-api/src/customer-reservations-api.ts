@@ -385,6 +385,8 @@ export type CustomerReservationInvitee = typeof CustomerReservationInvitee.Type;
  */
 export const CustomerReservationPeople = Schema.Struct({
   contactAttends: Schema.Boolean,
+  /** The paid, confirmed order currently accepts explicit invitation resends. */
+  resendable: Schema.optionalKey(Schema.Boolean),
   invitees: Schema.Array(CustomerReservationInvitee),
 }).annotate({ identifier: "CustomerReservationPeople" });
 export type CustomerReservationPeople = typeof CustomerReservationPeople.Type;

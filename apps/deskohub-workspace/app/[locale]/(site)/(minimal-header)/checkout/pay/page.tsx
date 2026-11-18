@@ -11,8 +11,8 @@ import {
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import {
-  checkoutOfficePeopleForVisitorServices,
-  findCheckoutOfficePeopleForVisitor,
+  checkoutOfficeSelectionForVisitorServices,
+  findCheckoutOfficeSelectionForVisitor,
 } from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import { isOrderBoundPayState } from "@/features/checkout/backend/checkout/pay-state-contract";
 import {
@@ -117,8 +117,15 @@ const loadPayableCheckout = (payStateToken: string, locale: Locale) =>
     ),
     Effect.bind("officePeople", ({ checkout }) =>
       checkout.state.reservation.kind === "office"
-        ? findCheckoutOfficePeopleForVisitor({ payStateToken, locale }).pipe(
-            Effect.provide(checkoutOfficePeopleForVisitorServices),
+        ? findCheckoutOfficeSelectionForVisitor({ payStateToken, locale }).pipe(
+            Effect.provide(checkoutOfficeSelectionForVisitorServices),
+            Effect.map(
+              Option.flatMap((selection) =>
+                selection.kind === "people"
+                  ? Option.some(selection.people)
+                  : Option.none()
+              )
+            ),
             Effect.orElseSucceed(() => Option.none())
           )
         : Effect.succeed(Option.none())

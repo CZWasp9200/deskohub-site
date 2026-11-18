@@ -5957,6 +5957,9 @@
           "contactAttends": {
             "type": "boolean"
           },
+          "resendable": {
+            "type": "boolean"
+          },
           "invitees": {
             "type": "array",
             "items": {
