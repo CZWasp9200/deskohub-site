@@ -38,6 +38,7 @@ import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Text } from "../../ui/text";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { useContentColumn } from "../../ui/viewport";
 import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type {
   CheckoutDetails,
@@ -47,6 +48,7 @@ import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingSteps } from "../ui/booking-steps";
 import { retryMessage } from "./checkout-copy";
+import { checkoutTrackStyles, useCheckoutLayout } from "./checkout-layout";
 import {
   type AddressDraft,
   asksPersonalAddress,
@@ -129,6 +131,9 @@ export function DetailsStep(props: DetailsStepProps) {
     null
   );
   const keyboardShown = useKeyboardShown();
+  const { contentWidth, isWide } = useCheckoutLayout();
+  const column = useContentColumn(contentWidth);
+  const split = contentWidth === "wide";
 
   // A server refusal naming a field marks it as a submit's problem would.
   const serverField = notice.pipe(
@@ -215,58 +220,75 @@ export function DetailsStep(props: DetailsStepProps) {
       keyboardVerticalOffset={props.keyboardOffset ?? 0}
       style={styles.screen}
     >
-      <BookingSteps current="details" raised={raised} locale={locale} />
+      <BookingSteps
+        current="details"
+        raised={raised}
+        locale={locale}
+        contentWidth={contentWidth}
+      />
       <FocusedFieldContext value={focusedField.tracker}>
         <ScrollView
           ref={scroll}
           onLayout={focusedField.onLayout}
           style={styles.body}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, isWide && column]}
           keyboardShouldPersistTaps="handled"
           onScroll={onScroll}
           scrollEventThrottle={32}
         >
           <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
-          <BookingSectionHeading
-            title={m.booking_details_who_heading({}, { locale })}
-            first
-          />
-          <WhoChoice
-            selected={draft.bookingFor}
-            onSelect={(bookingFor) =>
-              change({ ...draft, bookingFor }, { _tag: "BookingFor" })
-            }
-            disabled={busy}
-            locale={locale}
-          />
-          {draft.bookingFor === "self" ? (
-            <SelfSection {...props} self={self} change={change} field={field} />
-          ) : (
-            <SomeoneElseFields
-              draft={draft}
-              change={change}
-              field={field}
-              locale={locale}
-            />
-          )}
-          <InvoiceSection
-            draft={draft}
-            saved={profile.saved}
-            change={change}
-            field={field}
-            busy={busy}
-            locale={locale}
-          />
-          {draft.bookingFor === "self" && (
-            <MarketingSection
-              checked={draft.marketingConsent}
-              onChange={(marketingConsent) =>
-                busy || onDraftChange({ ...draft, marketingConsent })
-              }
-              onOpenDocument={props.onOpenMarketingDocument}
-              consentLocale={props.consentLocale}
-            />
-          )}
+          <View style={split && checkoutTrackStyles.container}>
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_details_who_heading({}, { locale })}
+                first
+              />
+              <WhoChoice
+                selected={draft.bookingFor}
+                onSelect={(bookingFor) =>
+                  change({ ...draft, bookingFor }, { _tag: "BookingFor" })
+                }
+                disabled={busy}
+                locale={locale}
+              />
+              {draft.bookingFor === "self" ? (
+                <SelfSection
+                  {...props}
+                  self={self}
+                  change={change}
+                  field={field}
+                />
+              ) : (
+                <SomeoneElseFields
+                  draft={draft}
+                  change={change}
+                  field={field}
+                  locale={locale}
+                />
+              )}
+            </View>
+            <View style={split && checkoutTrackStyles.track}>
+              <InvoiceSection
+                first={split}
+                draft={draft}
+                saved={profile.saved}
+                change={change}
+                field={field}
+                busy={busy}
+                locale={locale}
+              />
+              {draft.bookingFor === "self" && (
+                <MarketingSection
+                  checked={draft.marketingConsent}
+                  onChange={(marketingConsent) =>
+                    busy || onDraftChange({ ...draft, marketingConsent })
+                  }
+                  onOpenDocument={props.onOpenMarketingDocument}
+                  consentLocale={props.consentLocale}
+                />
+              )}
+            </View>
+          </View>
           <RetryNotice
             notice={notice}
             busy={busy}
@@ -277,6 +299,7 @@ export function DetailsStep(props: DetailsStepProps) {
       </FocusedFieldContext>
       <BookingBar
         locale={locale}
+        contentWidth={contentWidth}
         // With the keyboard up only the button rides above it (board 30).
         summary={keyboardShown ? undefined : summary}
         action={{
@@ -536,6 +559,7 @@ const savedAddressText = (address: InvoiceAddress, locale: AppLocale) =>
  * invoice asks for the company and its address.
  */
 function InvoiceSection({
+  first,
   draft,
   saved,
   change,
@@ -543,6 +567,7 @@ function InvoiceSection({
   busy,
   locale,
 }: Locale & {
+  readonly first: boolean;
   readonly draft: DetailsDraft;
   readonly saved: DetailsProfile["saved"];
   readonly change: Change;
@@ -588,6 +613,7 @@ function InvoiceSection({
     <>
       <BookingSectionHeading
         title={m.booking_details_invoice_heading({}, { locale })}
+        first={first}
       />
       <ChoiceList
         label={m.booking_details_invoice_heading({}, { locale })}

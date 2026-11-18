@@ -73,8 +73,7 @@ describe("invoice rows", () => {
         locale
       ).start
     );
-    expect(text.amount).toContain(formatInvoiceTotal(desk.total, locale));
-    expect(text.amount).toContain(desk.invoiceNumber);
+    expect(text.amount).toBe(formatInvoiceTotal(desk.total, locale));
   });
 
   test("an office's row names its seats after the product", () => {

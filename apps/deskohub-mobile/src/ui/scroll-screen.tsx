@@ -18,6 +18,7 @@ import {
 } from "./focused-field-scroll";
 import { LoadingIndicator } from "./loading-indicator";
 import { color, radius, shadow, space, tabBarRaisedOverhang } from "./tokens";
+import { type ContentWidth, useContentColumn, useViewport } from "./viewport";
 
 /**
  * Scrolls the enclosing `ScrollScreen` back to its top; outside one, it does
@@ -69,6 +70,7 @@ export function ScrollScreen({
   refreshing = false,
   onRefresh,
   overlap = true,
+  contentWidth,
 }: {
   readonly children: ReactNode;
   /** The tab root's `Masthead`, drawn above the content. */
@@ -79,8 +81,11 @@ export function ScrollScreen({
   readonly onRefresh?: () => void;
   /** Whether the first content overlaps the masthead's navy band. */
   readonly overlap?: boolean;
+  readonly contentWidth?: ContentWidth;
 }) {
   const insets = useSafeAreaInsets();
+  const column = useContentColumn(contentWidth);
+  const { isWide } = useViewport();
   const [mastheadHeight, setMastheadHeight] = useState<number>();
   const [collapsed, setCollapsed] = useState(false);
   const scrollView = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -141,6 +146,8 @@ export function ScrollScreen({
               <View
                 style={[
                   styles.content,
+                  column,
+                  isWide && { paddingBottom: insets.bottom + space.xxl },
                   overlapping && styles.overlapping,
                   withMasthead && !overlap && styles.belowBand,
                 ]}
@@ -191,14 +198,10 @@ const styles = StyleSheet.create({
     top: 0,
   },
   content: {
-    alignSelf: "center",
     gap: space.md,
-    maxWidth: 640,
     // The last control ends clear of the tab bar's raised circle.
     paddingBottom: space.xxl + tabBarRaisedOverhang,
-    paddingHorizontal: space.gutter,
     paddingTop: space.sm,
-    width: "100%",
   },
   overlapping: { paddingTop: 0 },
   belowBand: { paddingTop: space.lg },

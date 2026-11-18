@@ -34,9 +34,11 @@ const cameraDisc = 44;
 export function AvatarSection({
   avatar,
   initials,
+  inlineActions = false,
 }: {
   readonly avatar: CustomerAvatarPresentation;
   readonly initials: string;
+  readonly inlineActions?: boolean;
 }) {
   const locale = useAppLocale();
   const toast = useToast();
@@ -64,45 +66,47 @@ export function AvatarSection({
 
   return (
     <View style={styles.section}>
-      <View style={styles.avatar}>
-        <AccountAvatar
-          size="large"
-          tone="on-paper"
-          initials={initials}
-          {...(image !== null && { photoUrl: image.url })}
-        />
-        <Pressable
-          role="button"
-          aria-label={changeLabel}
-          disabled={busy}
-          onPress={change}
-          style={({ pressed }) => [
-            styles.camera,
-            pressed && styles.cameraPressed,
-          ]}
-        >
-          <Icon icon={Camera} size={20} color={color.action} />
-        </Pressable>
-      </View>
-      <View style={styles.actions}>
-        <Button
-          variant="text"
-          size="small"
-          width="content"
-          label={changeLabel}
-          onPress={change}
-          disabled={busy}
-        />
-        {image !== null && (
+      <View style={[styles.photo, inlineActions && styles.inlinePhoto]}>
+        <View style={styles.avatar}>
+          <AccountAvatar
+            size="large"
+            tone="on-paper"
+            initials={initials}
+            {...(image !== null && { photoUrl: image.url })}
+          />
+          <Pressable
+            role="button"
+            aria-label={changeLabel}
+            disabled={busy}
+            onPress={change}
+            style={({ pressed }) => [
+              styles.camera,
+              pressed && styles.cameraPressed,
+            ]}
+          >
+            <Icon icon={Camera} size={20} color={color.action} />
+          </Pressable>
+        </View>
+        <View style={styles.actions}>
           <Button
-            variant="dangerText"
+            variant="text"
             size="small"
             width="content"
-            label={m.profile_avatar_remove({}, { locale })}
-            onPress={() => setConfirmingRemoval(true)}
+            label={changeLabel}
+            onPress={change}
             disabled={busy}
           />
-        )}
+          {image !== null && (
+            <Button
+              variant="dangerText"
+              size="small"
+              width="content"
+              label={m.profile_avatar_remove({}, { locale })}
+              onPress={() => setConfirmingRemoval(true)}
+              disabled={busy}
+            />
+          )}
+        </View>
       </View>
       <View style={styles.notice}>
         <Notice
@@ -130,6 +134,8 @@ export function AvatarSection({
 
 const styles = StyleSheet.create({
   section: { alignItems: "center", gap: space.xs, paddingTop: space.xs },
+  photo: { alignItems: "center", gap: space.xs },
+  inlinePhoto: { alignSelf: "stretch", flexDirection: "row", gap: space.lg },
   avatar: { height: 88, width: 88 },
   camera: {
     alignItems: "center",
@@ -148,6 +154,7 @@ const styles = StyleSheet.create({
   actions: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     flexWrap: "wrap",
     justifyContent: "center",
   },

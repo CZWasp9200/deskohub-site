@@ -14,6 +14,7 @@ import { useBackFallback } from "../routing/back-fallback";
 import { AppBar } from "./app-bar";
 import { FocusedStatusBar } from "./focused-status-bar";
 import { color } from "./tokens";
+import { type ContentWidth, useContentColumn, useViewport } from "./viewport";
 
 // Options are one object per locale, so a navigator sees the same options
 // until the locale changes. The stack header is the app's own `AppBar`,
@@ -35,6 +36,7 @@ export function StackHeader({
   closes = false,
   tone = "paper",
   backFallback,
+  contentWidth,
 }: NativeStackHeaderProps & {
   /** The screen ends a flow: its button closes it rather than going back. */
   readonly closes?: boolean;
@@ -46,8 +48,11 @@ export function StackHeader({
    * (`useBackFallback`).
    */
   readonly backFallback?: Href;
+  readonly contentWidth?: ContentWidth;
 }) {
   const insets = useSafeAreaInsets();
+  const { isWide } = useViewport();
+  const column = useContentColumn(contentWidth);
   const router = useRouter();
   useBackFallback(navigation, backFallback);
   const canGoBack = back !== undefined;
@@ -60,20 +65,24 @@ export function StackHeader({
         styles.header,
         tone === "navy" && styles.navyHeader,
         { paddingTop: insets.top },
+        isWide && { paddingLeft: insets.left, paddingRight: insets.right },
       ]}
     >
       <FocusedStatusBar style={tone === "navy" ? "light" : "dark"} />
-      <AppBar
-        title={getHeaderTitle(options, route.name)}
-        onBack={options.headerBackVisible === false ? undefined : goBack}
-        actions={options.headerRight?.({
-          tintColor: tone === "navy" ? color.white : color.navy,
-          canGoBack,
-        })}
-        raised={options.headerShadowVisible === true}
-        back={closes ? "close" : "back"}
-        tone={tone}
-      />
+      <View style={isWide ? column : undefined}>
+        <AppBar
+          title={getHeaderTitle(options, route.name)}
+          onBack={options.headerBackVisible === false ? undefined : goBack}
+          actions={options.headerRight?.({
+            tintColor: tone === "navy" ? color.white : color.navy,
+            canGoBack,
+          })}
+          raised={options.headerShadowVisible === true}
+          back={closes ? "close" : "back"}
+          tone={tone}
+          alignToContent={isWide}
+        />
+      </View>
     </View>
   );
 }

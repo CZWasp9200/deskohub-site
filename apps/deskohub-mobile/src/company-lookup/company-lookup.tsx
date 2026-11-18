@@ -2,7 +2,7 @@ import type { CustomerCompanyDetails } from "@deskohub/workspace-customer-api";
 import { useAtomSet } from "@effect/atom-react";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
 import CircleCheck from "lucide-react-native/icons/circle-check";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../i18n/app-locale";
 import { countryName } from "../i18n/country-names";
@@ -43,6 +43,8 @@ export interface CompanyLookupProps {
   readonly disabled: boolean;
   /** The form has a Save button, so the applied state says to press it. */
   readonly remindsToSave: boolean;
+  /** Places the lookup button alongside the field it reads when space allows. */
+  readonly renderAction?: (action: ReactNode) => ReactNode;
   readonly locale: AppLocale;
 }
 
@@ -62,6 +64,7 @@ export function CompanyLookup({
   onApply,
   disabled,
   remindsToSave,
+  renderAction,
   locale,
 }: CompanyLookupProps) {
   const [state, setState] = useState<CompanyLookupState>(
@@ -88,17 +91,22 @@ export function CompanyLookup({
     );
   };
 
+  const action = (
+    <Button
+      variant="secondary"
+      label={(busy ? m.company_lookup_busy : actionLabel[lookupAction(shown)])(
+        {},
+        { locale }
+      )}
+      busy={busy}
+      disabled={disabled}
+      onPress={start}
+    />
+  );
+
   return (
     <View style={styles.lookup}>
-      <Button
-        variant="secondary"
-        label={(busy
-          ? m.company_lookup_busy
-          : actionLabel[lookupAction(shown)])({}, { locale })}
-        busy={busy}
-        disabled={disabled}
-        onPress={start}
-      />
+      {renderAction === undefined ? action : renderAction(action)}
       <LookupStatusLine
         status={lookupStatus(shown, { remindsToSave, locale })}
       />

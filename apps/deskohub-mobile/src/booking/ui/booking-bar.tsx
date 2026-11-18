@@ -26,6 +26,13 @@ import { useReducedMotion } from "../../ui/reduced-motion";
 import { Text } from "../../ui/text";
 import { useToastObstruction } from "../../ui/toast";
 import { color, space, touchTarget, typeScale } from "../../ui/tokens";
+import {
+  type ContentWidth,
+  contentColumnWidth,
+  useContentColumn,
+  useViewport,
+  wideGutter,
+} from "../../ui/viewport";
 import type { PriceBreakdown, PriceLine } from "./price-breakdown";
 import type { PriceLineDescription } from "./price-line-description";
 import { PriceLines, wasPriceLabel } from "./price-lines";
@@ -137,6 +144,7 @@ export function BookingBar({
   reasonTone = "info",
   locale,
   initiallyOpen = false,
+  contentWidth = "wide",
 }: {
   readonly summary?: BookingBarSummary;
   readonly action: BookingBarAction;
@@ -151,9 +159,17 @@ export function BookingBar({
   readonly locale: AppLocale;
   /** Draws the breakdown open at first; for the gallery and captures. */
   readonly initiallyOpen?: boolean;
+  readonly contentWidth?: ContentWidth;
 }) {
   const { bottom } = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const column = useContentColumn(contentWidth);
+  const width = Math.min(
+    Math.max(0, availableWidth - 2 * wideGutter),
+    contentColumnWidth[contentWidth]
+  );
+  const inline = isWide && width / fontScale >= 540;
   const [height, setHeight] = useState(0);
   useToastObstruction(height);
   const reducedMotion = useReducedMotion() !== false;
@@ -197,74 +213,114 @@ export function BookingBar({
   const detailsLabel = shownOpen
     ? m.booking_price_hide_details({}, { locale })
     : m.booking_price_show_details({}, { locale });
+  const disclosure =
+    itemized === undefined
+      ? undefined
+      : {
+          label: detailsLabel,
+          open: shownOpen,
+          onPress: () => toggle(!shownOpen),
+        };
+  const actionButton = (
+    <Button
+      label={action.label}
+      onPress={action.onPress}
+      disabled={action.disabled}
+      busy={action.busy}
+      icon={action.icon}
+    />
+  );
+  const breakdown = itemized !== undefined && shownOpen && (
+    // Long lists scroll, so the summary and the action stay on screen.
+    <ScrollView
+      bounces={false}
+      style={{ maxHeight: windowHeight * openListShare }}
+    >
+      <PriceLines
+        breakdown={itemized.breakdown}
+        describeLine={itemized.describeLine}
+        locale={locale}
+        variant="bar"
+      />
+    </ScrollView>
+  );
+  const summaryText = summary !== undefined && (
+    <View style={styles.what}>
+      <Text style={styles.title}>{summary.title}</Text>
+      {summary.detail !== undefined && summary.detail !== "" && (
+        <Text style={styles.detail}>{summary.detail}</Text>
+      )}
+    </View>
+  );
 
   return (
     <View
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       style={[
         styles.bar,
+        column,
         summary === undefined ? styles.actionOnly : styles.withSummary,
+        isWide && [styles.wideBar, { width }],
         shownOpen && styles.open,
         { paddingBottom: space.md + bottom },
       ]}
     >
-      {summary !== undefined && (
+      {!inline && summary !== undefined && (
         <View style={styles.summaryArea}>
-          {itemized !== undefined && (
+          {disclosure !== undefined && (
             <View {...swipeResponder} style={styles.grabArea}>
               <Pressable
                 role="button"
-                aria-label={detailsLabel}
-                aria-expanded={shownOpen}
-                onPress={() => toggle(!shownOpen)}
+                aria-label={disclosure.label}
+                aria-expanded={disclosure.open}
+                onPress={disclosure.onPress}
                 style={styles.grab}
               >
-                <Chevron open={shownOpen} />
+                <Chevron open={disclosure.open} />
               </Pressable>
             </View>
           )}
-          {itemized !== undefined && shownOpen && (
-            // Long lists scroll, so the summary and the action stay on screen.
-            <ScrollView
-              bounces={false}
-              style={{ maxHeight: windowHeight * openListShare }}
-            >
-              <PriceLines
-                breakdown={itemized.breakdown}
-                describeLine={itemized.describeLine}
-                locale={locale}
-                variant="bar"
-              />
-            </ScrollView>
-          )}
+          {breakdown}
           <View {...swipeResponder}>
             <Pressable
-              // A pointer convenience: the arrow is the accessible toggle.
+              // A pointer convenience: the disclosure is the accessible toggle.
               accessible={false}
               focusable={false}
               disabled={itemized === undefined}
               onPress={() => toggle(!shownOpen)}
               style={styles.summary}
             >
-              <View style={styles.what}>
-                <Text style={styles.title}>{summary.title}</Text>
-                {summary.detail !== undefined && summary.detail !== "" && (
-                  <Text style={styles.detail}>{summary.detail}</Text>
-                )}
-              </View>
+              {summaryText}
               <BarPrice price={summary.price} locale={locale} />
             </Pressable>
           </View>
         </View>
       )}
-      <Button
-        label={action.label}
-        onPress={action.onPress}
-        disabled={action.disabled}
-        busy={action.busy}
-        icon={action.icon}
-      />
-      <Reason reason={reason} tone={reasonTone} />
+      {inline && breakdown}
+      {inline ? (
+        <View style={styles.inline}>
+          {summary === undefined ? (
+            <View style={styles.what}>
+              <Reason reason={reason} tone={reasonTone} alignStart />
+            </View>
+          ) : (
+            <View {...swipeResponder} style={styles.inlineSummary}>
+              {summaryText}
+              <BarPrice
+                price={summary.price}
+                locale={locale}
+                disclosure={disclosure}
+              />
+            </View>
+          )}
+          <View style={styles.inlineAction}>{actionButton}</View>
+        </View>
+      ) : (
+        actionButton
+      )}
+      {(!inline || summary !== undefined) && (
+        <Reason reason={reason} tone={reasonTone} alignStart={isWide} />
+      )}
     </View>
   );
 }
@@ -306,9 +362,15 @@ const pricedColumn = (
 function BarPrice({
   price,
   locale,
+  disclosure,
 }: {
   readonly price: BookingBarPrice;
   readonly locale: AppLocale;
+  readonly disclosure?: {
+    readonly label: string;
+    readonly open: boolean;
+    readonly onPress: () => void;
+  };
 }) {
   const updating =
     price.kind === "updating"
@@ -316,6 +378,21 @@ function BarPrice({
       : undefined;
   useLiveRegionAnnouncement(updating, "polite");
   const priced = pricedColumn(price);
+  const amount =
+    priced === undefined ? undefined : formatMoney(priced.amount, locale);
+  const total = m.booking_review_total({}, { locale });
+  const priceText =
+    priced === undefined ? null : (
+      <>
+        {priced.was !== undefined && <Was was={priced.was} locale={locale} />}
+        <Text numeric style={styles.total}>
+          {amount}
+        </Text>
+        {priced.unit !== undefined && (
+          <Text style={styles.unit}>{priced.unit}</Text>
+        )}
+      </>
+    );
   return (
     <>
       <View
@@ -329,17 +406,35 @@ function BarPrice({
         )}
         <Text style={styles.updatingText}>{updating ?? ""}</Text>
       </View>
-      {priced !== undefined && (
-        <View style={styles.price}>
-          {priced.was !== undefined && <Was was={priced.was} locale={locale} />}
-          <Text numeric style={styles.total}>
-            {formatMoney(priced.amount, locale)}
-          </Text>
-          {priced.unit !== undefined && (
-            <Text style={styles.unit}>{priced.unit}</Text>
-          )}
-        </View>
-      )}
+      {priced !== undefined &&
+        (disclosure === undefined ? (
+          <View style={styles.price}>{priceText}</View>
+        ) : (
+          <Pressable
+            role="button"
+            aria-label={[
+              disclosure.label,
+              `${total}: ${amount}`,
+              priced.unit,
+              priced.was === undefined
+                ? undefined
+                : wasPriceLabel(priced.was, locale),
+            ]
+              .filter(Boolean)
+              .join(", ")}
+            aria-expanded={disclosure.open}
+            onPress={disclosure.onPress}
+            style={[styles.price, styles.totalDisclosure]}
+          >
+            <View style={styles.totalLabel}>
+              <Text variant="hint" tone="muted">
+                {total}
+              </Text>
+              <Chevron open={disclosure.open} />
+            </View>
+            {priceText}
+          </Pressable>
+        ))}
     </>
   );
 }
@@ -367,9 +462,11 @@ const reasonIcon = { info: Info, plain: undefined, error: CircleAlert };
 function Reason({
   reason,
   tone,
+  alignStart = false,
 }: {
   readonly reason: string | undefined;
   readonly tone: BookingBarReasonTone;
+  readonly alignStart?: boolean;
 }) {
   const icon = reasonIcon[tone];
   const ink = tone === "error" ? color.dangerInk : color.ink2;
@@ -380,10 +477,20 @@ function Reason({
       role="status"
       aria-live="polite"
       accessibilityLiveRegion="polite"
-      style={shown ? styles.reason : idleLiveRegionLayout}
+      style={
+        shown
+          ? [styles.reason, alignStart && styles.reasonStart]
+          : idleLiveRegionLayout
+      }
     >
       {shown && icon && <Icon icon={icon} size={16} color={ink} />}
-      <Text style={[styles.reasonText, tone === "error" && styles.reasonError]}>
+      <Text
+        style={[
+          styles.reasonText,
+          alignStart && styles.reasonTextStart,
+          tone === "error" && styles.reasonError,
+        ]}
+      >
         {shown ? reason : ""}
       </Text>
     </View>
@@ -401,12 +508,36 @@ const styles = StyleSheet.create({
   },
   withSummary: { paddingTop: space.xs },
   actionOnly: { paddingTop: space.md },
+  wideBar: {
+    borderColor: color.line,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+  },
   open: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     boxShadow: "0 -12px 28px -12px rgba(0, 2, 79, 0.35)",
   },
+  inline: { flexDirection: "row", alignItems: "center", gap: space.lg },
+  inlineSummary: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.lg,
+  },
+  inlineAction: { minWidth: "30%", maxWidth: "42%" },
   summaryArea: { gap: 10 },
+  totalDisclosure: { minHeight: touchTarget, justifyContent: "center" },
+  totalLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xxs,
+  },
   // The arrow sits in the board's 20-tall strip on the bar's top edge, but
   // its target is a full 48 tall and spans the bar. The target overlaps the
   // summary (which toggles too) or the list's top, and sits above them, so
@@ -454,12 +585,14 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: "center",
   },
+  reasonStart: { justifyContent: "flex-start" },
   reasonText: {
     ...typeScale.hint,
     color: color.ink2,
     flexShrink: 1,
     textAlign: "center",
   },
+  reasonTextStart: { textAlign: "left" },
   // Board 31: the details step's "Fix 2 fields" note, danger ink at 500.
   reasonError: { ...typeScale.hintStrong, color: color.dangerInk },
 });

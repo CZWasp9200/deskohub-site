@@ -1,5 +1,11 @@
 import type { Href, ImperativeRouter } from "expo-router";
+import type { NavigationState } from "expo-router/react-navigation";
 import type { BottomTabNavigationOptions } from "expo-router/tabs";
+import { useCallback, useEffect, useRef } from "react";
+import {
+  type AccountDetailSection,
+  accountSectionHref,
+} from "./account-gating";
 
 /** The Account tab's root: its index, the list of sections. */
 export const accountRootHref = "/account" as const satisfies Href;
@@ -20,6 +26,88 @@ export const returnToAccountRoot = (
  * section that opens the stack, so the section shows Back to the root.
  */
 export const accountStackAnchor = "index";
+
+export interface AccountSectionMenu {
+  readonly activeSection: AccountDetailSection;
+  readonly openSection: (section: AccountDetailSection) => void;
+}
+
+export const isProfileEditor = (section: AccountDetailSection) =>
+  section === "profile" || section === "billing";
+
+/** Opens the real Profile route when a linked overview enters expanded mode. */
+export function useDefaultAccountProfile(
+  router: Pick<ImperativeRouter, "navigate">,
+  {
+    focused,
+    isExpanded,
+    inAccount,
+    detail,
+  }: {
+    readonly focused: boolean;
+    readonly isExpanded: boolean;
+    readonly inAccount: boolean;
+    readonly detail: AccountDetailSection | undefined;
+  }
+) {
+  const openedDetail = useRef(false);
+  useEffect(() => {
+    if (!isExpanded || !inAccount) openedDetail.current = false;
+    else if (detail !== undefined) openedDetail.current = true;
+  }, [detail, inAccount, isExpanded]);
+
+  return useCallback(() => {
+    // The index stays below the detail and remains reachable by Back.
+    if (
+      isExpanded &&
+      inAccount &&
+      focused &&
+      detail === undefined &&
+      !openedDetail.current
+    ) {
+      openedDetail.current = true;
+      router.navigate(accountSectionHref.profile, {
+        dangerouslySingular: true,
+      });
+    }
+  }, [detail, focused, inAccount, isExpanded, router]);
+}
+
+/** Leaving the profile editors removes both in one guarded navigation action. */
+export function accountSectionReset(
+  root: NavigationState | undefined,
+  section: AccountDetailSection
+) {
+  const slot = root?.routes[root.index];
+  // Expo Router hosts the app's Stack under its container route.
+  const app = slot?.name === "__root" ? slot.state : root;
+  if (app?.stale !== false) return undefined;
+  const signedIn = app.routes[app.index];
+  if (signedIn?.name !== "(account)" || signedIn.state?.stale !== false) {
+    return undefined;
+  }
+  const tabs = signedIn.state.routes[signedIn.state.index];
+  if (tabs?.name !== "(tabs)" || tabs.state?.stale !== false) {
+    return undefined;
+  }
+  const account = tabs.state.routes[tabs.state.index];
+  const stack = account?.state;
+  if (account?.name !== "account" || stack?.stale !== false) return undefined;
+
+  const anchor = stack.routes.find(({ name }) => name === accountStackAnchor);
+  const detail = stack.routes.findLast(({ name }) => name === section);
+  return {
+    target: stack.key,
+    state: {
+      ...stack,
+      index: 1,
+      routes: [
+        anchor ?? { name: accountStackAnchor },
+        detail ?? { name: section },
+      ],
+    },
+  };
+}
 
 /**
  * The Account tab's stack mounts with the tabs instead of on its first visit

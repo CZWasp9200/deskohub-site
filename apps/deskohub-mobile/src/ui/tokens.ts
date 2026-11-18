@@ -66,6 +66,8 @@ export const color = {
   scrim: "rgba(0, 2, 79, 0.48)",
   /** Supporting text on navy. */
   onNavyMuted: "#C9CCE6",
+  /** Subtle outlines and dividers on navy. */
+  onNavyBorder: "rgba(255, 255, 255, 0.18)",
   /** A toast's action on navy or green. */
   toastAction: "#FFC86B",
   /** The grab handle of a bottom sheet. */

@@ -9,7 +9,7 @@
     "start": "expo start",
     "build:web": "expo export --platform web",
     "lint": "cd ../.. && biome check apps/deskohub-mobile --config-path biome.json --vcs-root .",
-    "test": "bun test",
+    "test": "bun test --isolate",
     "typecheck": "tsc --project tsconfig.json",
     "i18n:compile": "bun x @inlang/paraglide-js compile --project ./project.inlang --outdir ./src/i18n/paraglide --strategy baseLocale --is-server false --disable-async-local-storage --output-structure locale-modules",
     "release:apk": "bun scripts/release/mobile-release.ts build",

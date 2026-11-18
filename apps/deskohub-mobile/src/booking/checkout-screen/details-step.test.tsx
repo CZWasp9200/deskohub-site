@@ -1,16 +1,19 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerCompanyDetails } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import {
   Children,
+  createElement,
   isValidElement,
   type JSXElementConstructor,
   type ReactElement,
   type ReactNode,
 } from "react";
+import * as ReactNative from "react-native";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 import type { HostProps } from "../../ui/testing/element-tree";
+import { AvailableWidthContext } from "../../ui/viewport";
 import type { DetailsDraft } from "./details-form";
 import type { DetailsStepProps } from "./details-step";
 
@@ -103,6 +106,42 @@ const business = (patch: Partial<DetailsDraft> = {}): DetailsDraft => ({
 });
 
 describe("DetailsStep layout (the company form scrolls, board 30)", () => {
+  test.each([
+    { width: 800, availableWidth: 688, fontScale: 1, contentWidth: "form" },
+    { width: 1024, availableWidth: 912, fontScale: 1, contentWidth: "wide" },
+    { width: 1280, availableWidth: 1168, fontScale: 1.3, contentWidth: "wide" },
+    { width: 1280, availableWidth: 1168, fontScale: 2, contentWidth: "form" },
+    { width: 1280, availableWidth: 700, fontScale: 1, contentWidth: "form" },
+  ])(
+    "fits tracks to $availableWidth dp at $fontScale text scale",
+    (viewport) => {
+      const { width, availableWidth, fontScale, contentWidth } = viewport;
+      const dimensions = spyOn(
+        ReactNative,
+        "useWindowDimensions"
+      ).mockReturnValue({
+        width,
+        height: 800,
+        fontScale,
+        scale: 2,
+      });
+      try {
+        const screen = elementTree(DetailsStep, props(), (node) =>
+          createElement(AvailableWidthContext, { value: availableWidth }, node)
+        );
+        const bar = find(screen, BookingBar);
+        const scroll = find(screen, "ScrollView");
+        const tracks = findAll(scroll, "View").filter(
+          (view) => flatStyle(view.props.style).flexDirection === "row"
+        );
+        expect(bar?.props.contentWidth).toBe(contentWidth);
+        expect(tracks).toHaveLength(contentWidth === "wide" ? 1 : 0);
+      } finally {
+        dimensions.mockRestore();
+      }
+    }
+  );
+
   test("the whole company form is inside one scroll view that grows with it", () => {
     const screen = screenOf({ draft: business() });
     const scroll = scrollOf(screen);

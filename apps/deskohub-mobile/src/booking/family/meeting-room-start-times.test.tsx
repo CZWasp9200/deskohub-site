@@ -113,6 +113,12 @@ describe("MeetingRoomStartTimes", () => {
 });
 
 describe("startTimeColumns", () => {
+  test("fits five times in the wide column and two in an expanded track", () => {
+    expect(startTimeColumns(640, 1, 5)).toBe(5);
+    expect(startTimeColumns(280, 1, 2)).toBe(2);
+    expect(startTimeColumns(440, 2, 5)).toBeLessThan(5);
+  });
+
   test("fits four chips a row at the normal font size on a 360 px phone", () => {
     expect(startTimeColumns(328, 1)).toBe(4);
     expect(startTimeColumns(0, 1)).toBe(4);

@@ -1,7 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
+import { clientRoot } from "../testing/client-root";
 import { expoRouterStandIn } from "../testing/expo-router-stand-in";
+import { TestWindowDimensions } from "../testing/window-dimensions";
 
 // The footer registers its height with the toasts while its screen has
 // focus; outside a navigator the focus effect does nothing.
@@ -40,6 +42,8 @@ const footer = (props: Partial<ComponentProps<typeof ActionFooter>> = {}) => {
 };
 
 describe("ActionFooter", () => {
+  const root = clientRoot();
+
   test("is white with a hairline above, holding its buttons", () => {
     const { tree, footer: style } = footer();
     expect(style).toMatchObject({
@@ -70,5 +74,28 @@ describe("ActionFooter", () => {
     const { region } = footer({ message: "m", messageTone: "error" });
     expect(flat(region?.style).color).toBe(color.dangerInk);
     expect(region?.role).toBe("status");
+  });
+
+  test("keeps the same live region through resizing and validation", async () => {
+    const render = (width: number, messageTone: "neutral" | "error") =>
+      root.render(
+        <TestWindowDimensions
+          value={{ width, height: 780, scale: 2, fontScale: 1 }}
+        >
+          <ToastProvider>
+            <ActionFooter message="m" messageTone={messageTone}>
+              <span />
+            </ActionFooter>
+          </ToastProvider>
+        </TestWindowDimensions>
+      );
+    const status = () => root.container().querySelector('[role="status"]');
+    await render(1024, "neutral");
+    const liveRegion = status();
+    expect(liveRegion).not.toBeNull();
+    await render(1024, "error");
+    expect(status()).toBe(liveRegion);
+    await render(360, "neutral");
+    expect(status()).toBe(liveRegion);
   });
 });

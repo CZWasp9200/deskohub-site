@@ -106,14 +106,14 @@ path-filtered and not required, so Workspace validation also runs the
 app's tests ([testing and CI](../../deskohub-repository/references/testing-and-ci.md#ci)).
 CI builds no native app; the release workflow's PR dry run builds the APK.
 
-- Tests are colocated `*.test.ts(x)` files run by `bun test`; `bunfig.toml`
+- Tests are colocated `*.test.ts(x)` files run by `bun test --isolate`; `bunfig.toml`
   preloads `src/testing/native-modules.preload.ts`, which replaces
   `react-native` and the Expo modules with Bun module mocks. Add a mock there
-  when a new native module enters a tested import graph. All test files share
-  one module registry and run in no fixed order, so a `mock.module` inside a
-  test file misses a module another file loaded first: mock a module that
-  several test graphs reach in the preload, with a recording stand-in in
-  `src/testing/` (`posthog-stand-in.ts`). Component tests either inspect the
+  when a new native module enters a tested import graph. File isolation
+  keeps module overrides local to each test file. Run targeted tests with
+  `bun run test ./path/to/file.test.ts` to use the same isolation as CI.
+  Keep stand-ins that several test files use in `src/testing/`
+  (`posthog-stand-in.ts`). Component tests either inspect the
   element tree (`src/ui/testing/element-tree.ts`) or render into happy-dom
   with `clientRoot()` (`src/testing/client-root.ts`). A rendered component
   that talks to the fake auth server needs `clientRoot({ keepFetch: true })`:

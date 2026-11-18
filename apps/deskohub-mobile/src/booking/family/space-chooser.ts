@@ -35,7 +35,10 @@ export interface SpaceCard {
 }
 
 /** A row of cards: one full-width card, or two sharing the row. */
-export type SpaceRow = readonly [SpaceCard] | readonly [SpaceCard, SpaceCard];
+export type SpaceRow =
+  | readonly [SpaceCard]
+  | readonly [SpaceCard, SpaceCard]
+  | readonly [SpaceCard, SpaceCard, SpaceCard];
 
 const cheaper = <
   A extends { readonly advertisedPrice: { readonly price: Money } },
@@ -140,10 +143,19 @@ export const spaceCards = (
  */
 export const spaceRows = (
   cards: ReadonlyArray<SpaceCard>,
-  pairFits: boolean
+  pairFits: boolean,
+  expanded = false
 ): ReadonlyArray<SpaceRow> => {
   const office = cards.find(({ family }) => family === "office");
   const room = cards.find(({ family }) => family === "meeting-room");
+  const cowork = cards.find(({ family }) => family === "cowork");
+  if (expanded && office && room && cowork) {
+    return [[office, room, cowork]];
+  }
+  if (expanded && cards.length === 2) {
+    const [first, second] = cards;
+    if (first && second) return [[first, second]];
+  }
   if (!pairFits || office === undefined || room === undefined) {
     return cards.map((card): SpaceRow => [card]);
   }
@@ -159,22 +171,28 @@ export const spaceRows = (
 const halfCardMinimumText = 110;
 
 /**
- * Whether two cards fit side by side in a content column `contentWidth`
+ * Whether the cards fit side by side in a content column `contentWidth`
  * wide: each half card's text column, scaled back to 100% text size, must
  * keep `halfCardMinimumText`, so a long name never breaks inside a word at a
  * large font size.
  */
-export const pairFits = ({
+export const spaceColumnsFit = ({
+  columns,
   contentWidth,
   fontScale,
   gap,
   padding,
+  minimumTextWidth = halfCardMinimumText,
 }: {
+  readonly columns: 2 | 3;
   readonly contentWidth: number;
   readonly fontScale: number;
   /** The space between the two cards. */
   readonly gap: number;
   /** A half card's text inset on each side. */
   readonly padding: number;
+  /** Text width at the default font size for this card's type scale. */
+  readonly minimumTextWidth?: number;
 }) =>
-  ((contentWidth - gap) / 2 - 2 * padding) / fontScale >= halfCardMinimumText;
+  ((contentWidth - (columns - 1) * gap) / columns - 2 * padding) / fontScale >=
+  minimumTextWidth;

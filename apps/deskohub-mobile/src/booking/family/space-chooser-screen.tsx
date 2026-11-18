@@ -19,7 +19,13 @@ export function SpaceChooserScreen() {
   const router = useRouter();
   return (
     <ScrollScreen
-      masthead={<Masthead title={m.booking_stack_title({}, { locale })} />}
+      contentWidth="wide"
+      masthead={
+        <Masthead
+          contentWidth="wide"
+          title={m.booking_stack_title({}, { locale })}
+        />
+      }
     >
       <BookingGate>
         <BookingOfferingsView

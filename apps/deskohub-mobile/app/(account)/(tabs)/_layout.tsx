@@ -15,6 +15,7 @@ import { startTabAtom } from "../../../src/routing/start-tab";
 import { tabBarHidden } from "../../../src/routing/tab-bar-visibility";
 import { tabScreenOptions } from "../../../src/ui/navigation";
 import { TabBar, type TabBarItem } from "../../../src/ui/tab-bar";
+import { useViewport } from "../../../src/ui/viewport";
 
 /** The tabs' icons; Account carries a dot while the profile isn't finished. */
 const tabItems = (
@@ -32,6 +33,7 @@ const tabItems = (
  */
 export default function AccountTabsLayout() {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const startTab = useAtomValue(startTabAtom);
   const profileMissing = Option.exists(
     AsyncResult.value(useAtomValue(accountAtom)),
@@ -54,8 +56,9 @@ export default function AccountTabsLayout() {
             {...props}
             items={items}
             hidden={
-              tab !== undefined &&
-              tabBarHidden(tab.name, getFocusedRouteNameFromRoute(tab))
+              isWide ||
+              (tab !== undefined &&
+                tabBarHidden(tab.name, getFocusedRouteNameFromRoute(tab)))
             }
           />
         );
