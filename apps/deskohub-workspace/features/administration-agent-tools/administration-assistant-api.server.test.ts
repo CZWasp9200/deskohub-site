@@ -60,6 +60,7 @@ import { DiscountAdministration } from "@/features/discounts/admin/discount-admi
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
+import { AdministrationAgentDocuments } from "./administration-agent-documents";
 import {
   administrationOperationTools,
   makeAdministrationAgentTools,
@@ -223,6 +224,10 @@ const makeAssistantServices = ({
   });
   const layer = Layer.mergeAll(
     agents,
+    // The documents these tests read are linked nowhere.
+    Layer.succeed(AdministrationAgentDocuments, {
+      link: () => Effect.succeedNone,
+    }),
     AdministratorAgentAuthorization.Default.pipe(
       Layer.provide(
         Layer.mergeAll(

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import {
   AdministrationRecordNotFound,
   runAdministrationPage,
@@ -11,6 +12,8 @@ import {
   InvoiceAdministrationService,
 } from "./invoice-administration.service";
 import { invoiceListQuery } from "./invoice-list-query";
+import { invoicePreviewIdSchema } from "./invoice-preview-id";
+import { InvoicePreviews } from "./invoice-previews.service";
 
 export type InvoiceAdministrationSearchParams = Promise<SearchParamsRecord>;
 
@@ -68,6 +71,31 @@ export const loadInvoiceAdministrationPdf = (invoiceId: string) =>
       Effect.catchTag("InvoiceAdministrationNotFoundError", invoiceNotFound)
     ),
     InvoiceAdministrationService.Live
+  );
+
+/**
+ * A preview an administrator's AI agent kept, for that administrator only
+ * and until it expires; anything else answers the administration 404.
+ */
+export const loadInvoicePreviewPdf = (previewId: string) =>
+  runAdministrationPage(
+    "invoice-administration.preview-pdf",
+    Effect.gen(function* () {
+      const id = yield* Schema.decodeUnknownEffect(invoicePreviewIdSchema)(
+        previewId
+      ).pipe(Effect.mapError(() => new AdministrationRecordNotFound()));
+      const administrator = yield* CurrentAdministrator;
+      const previews = yield* InvoicePreviews;
+      const preview = yield* previews.open({
+        id,
+        administratorAccountId: administrator.accountId,
+      });
+      return yield* Option.match(preview, {
+        onNone: invoiceNotFound,
+        onSome: Effect.succeed,
+      });
+    }),
+    InvoicePreviews.Live
   );
 
 export const loadInvoiceAdministrationCorrectiveDocumentPdf = (

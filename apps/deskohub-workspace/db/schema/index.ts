@@ -93,6 +93,7 @@ export {
   invoiceEmailDeliveryAudiences,
   invoiceEmailDeliveryStates,
 } from "./invoice-email-deliveries";
+export { invoicePreviews } from "./invoice-previews";
 export { invoices } from "./invoices";
 export {
   type LatePaymentRecovery,
