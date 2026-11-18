@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
-import { inviteeResend } from "./order-people";
+import { inviteeResend, OrderContact, orderContactOf } from "./order-people";
 
 const now = DateTime.makeUnsafe("2026-11-18T10:00:00Z");
 const sent = { invitationSentAt: "2026-11-18T09:00:00Z" };
@@ -38,6 +38,27 @@ describe("inviteeResend", () => {
     );
     expect(opensAt(Option.some(resent))).toEqual(
       Option.some("2026-11-18T10:15:00.000Z")
+    );
+  });
+});
+
+describe("orderContactOf", () => {
+  test("is the account itself unless the account booked for another customer", () => {
+    expect(orderContactOf(undefined)).toEqual(OrderContact.You());
+    expect(
+      orderContactOf({ kind: "booked-by", authorName: "Sam Example" })
+    ).toEqual(OrderContact.You());
+    expect(orderContactOf({ kind: "booked-by-deleted-account" })).toEqual(
+      OrderContact.You()
+    );
+  });
+
+  test("names the customer the account booked for, never as You", () => {
+    expect(
+      orderContactOf({ kind: "booked-for", customerName: "Bob Example" })
+    ).toEqual(OrderContact.Customer({ name: Option.some("Bob Example") }));
+    expect(orderContactOf({ kind: "booked-for", customerName: null })).toEqual(
+      OrderContact.Customer({ name: Option.none() })
     );
   });
 });

@@ -36,7 +36,13 @@ import {
   accessWindowSpanOf,
 } from "./access-window-text";
 import { shortDate } from "./booking-ticket-text";
-import { inviteeResend, resendInvitationAtom } from "./order-people";
+import {
+  inviteeResend,
+  OrderContact,
+  orderContactOf,
+  resendInvitationAtom,
+} from "./order-people";
+import { reservationOfOrderAtom } from "./order-ticket-view";
 
 /** The booking's day or days, as the change request names them. */
 const bookedDaysText = (order: CustomerOrderState, locale: AppLocale) =>
@@ -71,6 +77,15 @@ export function OrderPeopleSection({
   const contact: Option.Option<OfficeContact> = Option.flatMap(
     AsyncResult.value(useAtomValue(accountAtom)),
     officeContactOf
+  );
+  // The account is the attending contact, unless it booked for another customer.
+  const orderContact = orderContactOf(
+    Option.getOrUndefined(
+      Option.flatMap(
+        useAtomValue(reservationOfOrderAtom(order.orderId)),
+        (row) => Option.fromUndefinedOr(row.party)
+      )
+    )
   );
   const resend = useAtomSet(resendInvitationAtom(order.orderId), {
     mode: "promiseExit",
@@ -165,14 +180,25 @@ export function OrderPeopleSection({
       />
       <View style={styles.stack}>
         <ListGroup>
-          {people.contactAttends && you !== undefined && (
-            <PersonRow
-              key="you"
-              email={you.email}
-              {...(you.name !== undefined && { name: you.name })}
-              you={m.booking_office_person_you({}, { locale })}
-            />
-          )}
+          {people.contactAttends &&
+            OrderContact.$match(orderContact, {
+              You: () =>
+                you === undefined ? null : (
+                  <PersonRow
+                    key="you"
+                    email={you.email}
+                    {...(you.name !== undefined && { name: you.name })}
+                    you={m.booking_office_person_you({}, { locale })}
+                  />
+                ),
+              Customer: ({ name }) =>
+                Option.match(name, {
+                  onNone: () => null,
+                  onSome: (customer) => (
+                    <PersonRow key="contact" name={customer} />
+                  ),
+                }),
+            })}
           {rows.map(({ invitee, resend: offered }) => (
             <PersonRow
               key={invitee.id}

@@ -2,12 +2,33 @@ import type {
   CustomerReservationInvitee,
   CustomerReservationInviteeId,
   CustomerReservationOrderId,
+  CustomerReservationParty,
 } from "@deskohub/workspace-customer-api";
 import { Data, DateTime, Effect, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerWrite } from "../../customer-api/customer-request";
+
+/**
+ * Who the order's contact is to the signed-in account: the account itself
+ * ("You"), unless the history says the account booked the order for another
+ * customer, named there when their name could be read. Without the history's
+ * party (a saved or not yet listed row) the account is the contact, as for
+ * most orders.
+ */
+export type OrderContact = Data.TaggedEnum<{
+  You: Record<never, never>;
+  Customer: { readonly name: Option.Option<string> };
+}>;
+export const OrderContact = Data.taggedEnum<OrderContact>();
+
+export const orderContactOf = (
+  party: CustomerReservationParty | undefined
+): OrderContact =>
+  party?.kind === "booked-for"
+    ? OrderContact.Customer({ name: Option.fromNullishOr(party.customerName) })
+    : OrderContact.You();
 
 /** What asking for an invitation again came to. */
 export type InvitationResend = Data.TaggedEnum<{
