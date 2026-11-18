@@ -3,6 +3,7 @@ import { type Locale, m } from "@/features/i18n";
 import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
 import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import { formatMoney, type Money } from "@/shared/money/money";
+import { emailWithBreak } from "@/shared/utils/email-with-break";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
@@ -100,7 +101,7 @@ export const contractWithdrawalReceiptDetails = ({
     : []),
   {
     label: m.withdrawalEmailEmailLabel({}, { locale }),
-    value: receiptEmail,
+    value: emailWithBreak(receiptEmail),
   },
   {
     label: m.withdrawalEmailSubmittedAtLabel({}, { locale }),
