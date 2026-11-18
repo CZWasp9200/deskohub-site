@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.2...mobile-v0.2.3) (2026-11-18)
+
+### Features
+
+* **mobile:** a cancelled invoice is marked Cancelled in Invoices and still downloads
+* **mobile:** download a cancelled invoice's credit note from Invoices, next to the invoice itself
+
 ## [0.2.2](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.1...mobile-v0.2.2) (2026-11-17)
 
 ### Features
