@@ -360,7 +360,7 @@ function FeaturedReservationItem({
 
         <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
           <ReservationRowMenu
-            linkClassName="w-full text-center @3xl:hidden"
+            linkClassName="-mt-4 w-full text-center underline @3xl:hidden"
             linkOnly
             locale={locale}
             reservation={reservation}
@@ -571,7 +571,7 @@ function CompactReservationItem({
 
           <div className="flex min-w-0 flex-col items-stretch gap-1 @2xl:items-center">
             <ReservationRowMenu
-              linkClassName="hidden w-full text-center @2xl:block"
+              linkClassName="hidden w-full text-center underline @2xl:block"
               linkOnly
               locale={locale}
               reservation={reservation}

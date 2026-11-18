@@ -282,7 +282,7 @@ export function CheckoutStatusPage({
 
       {/* Phone: the withdrawal link sits centred right above the actions. */}
       <ReservationOptionsMenu
-        linkClassName="mt-8 -mb-5 block w-full text-center sm:hidden"
+        linkClassName="mt-3 -mb-5 block w-full text-center underline sm:hidden"
         linkOnly
         locale={locale}
         withdrawalHref={showReservationDetails ? withdrawalHref : undefined}
@@ -439,7 +439,7 @@ function CheckoutStatusReservationDetails({
           </h2>
           <ReservationOptionsMenu
             className="-my-1.5 -mr-2"
-            linkClassName="max-sm:hidden"
+            linkClassName="underline max-sm:hidden"
             locale={locale}
             withdrawalHref={withdrawalHref}
           />
