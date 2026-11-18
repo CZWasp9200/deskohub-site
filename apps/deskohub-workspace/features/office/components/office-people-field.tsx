@@ -23,7 +23,7 @@ import {
 import { breakEmail, getInitials, OfficePersonRow } from "./office-person-row";
 
 /** The reservation's contact as the form knows them so far. */
-export type OfficePeopleContact = {
+type OfficePeopleContact = {
   readonly name: string;
   readonly email: string;
 };

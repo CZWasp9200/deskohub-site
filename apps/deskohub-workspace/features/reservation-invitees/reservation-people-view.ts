@@ -29,10 +29,6 @@ export interface ReservationPeopleView {
   readonly invitees: ReadonlyArray<ReservationInviteeView>;
 }
 
-/** When a resend after one sent at `sentAt` is accepted. */
-export const getInvitationResendAvailableAt = (sentAt: Temporal.Instant) =>
-  sentAt.add(invitationResendCooldown);
-
 /** The booker's view of a booked office's people at `now`. */
 export const toReservationPeopleView = (
   people: {
@@ -51,7 +47,7 @@ export const toReservationPeopleView = (
     const availableAt =
       invitee.lastInvitationSentAt === null
         ? undefined
-        : getInvitationResendAvailableAt(invitee.lastInvitationSentAt);
+        : invitee.lastInvitationSentAt.add(invitationResendCooldown);
     return {
       id: invitee.id,
       email: invitee.email,

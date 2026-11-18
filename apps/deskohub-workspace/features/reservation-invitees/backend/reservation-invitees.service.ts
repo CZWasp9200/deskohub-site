@@ -156,7 +156,7 @@ export interface ReservationInvitee {
 }
 
 /** Who is asking to see their invitations: a signed-in account. */
-export interface InviteeViewer {
+interface InviteeViewer {
   readonly accountId: CustomerAccountId;
   /** The account's verified login email. */
   readonly email: string;

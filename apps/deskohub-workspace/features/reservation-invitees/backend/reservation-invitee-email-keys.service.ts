@@ -23,14 +23,14 @@ import {
  * digest. Both are HKDF subkeys of the entry, so they never coincide with its
  * Pay-state or checkout lookup use.
  */
-export interface ReservationInviteeEmailKey {
+interface ReservationInviteeEmailKey {
   readonly id: ReservationInviteeKeyId;
   readonly passphrase: Redacted.Redacted<string>;
   readonly lookupSecret: Redacted.Redacted<Buffer>;
 }
 
 /** An address's lookup digest under one key. */
-export interface ReservationInviteeEmailDigest {
+interface ReservationInviteeEmailDigest {
   readonly keyId: ReservationInviteeKeyId;
   readonly digest: string;
 }

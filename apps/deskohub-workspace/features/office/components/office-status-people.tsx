@@ -9,7 +9,7 @@ import { Button } from "@/shared/components/ui/button";
 import { textLink } from "@/shared/components/ui/text-link";
 
 /** An invited person on a booked office, as its booker sees them. */
-export type OfficeStatusInvitee = {
+type OfficeStatusInvitee = {
   readonly id: string;
   readonly email: string;
   /** When the booker may send the invitation again; absent when they may now. */
@@ -17,13 +17,13 @@ export type OfficeStatusInvitee = {
 };
 
 /** Who is coming to a booked office, as its booker's status page lists them. */
-export type OfficeStatusPeople = {
+type OfficeStatusPeople = {
   readonly contactAttends: boolean;
   readonly invitees: ReadonlyArray<OfficeStatusInvitee>;
 };
 
 /** What sending an invitation again did. */
-export type OfficeInvitationResend =
+type OfficeInvitationResend =
   | { readonly status: "sent"; readonly resendAvailableAt: string }
   | { readonly status: "cooldown"; readonly retryAt: string }
   | { readonly status: "failed" };
