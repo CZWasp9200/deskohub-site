@@ -136,6 +136,14 @@ function WithdrawalStatement({
   const router = useRouter();
   const [submission, withdraw] = useAtom(withdrawAtom);
   const pending = submission.waiting;
+
+  // The name comes from the account; an input stands in only when it has none.
+  const [name, setName] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const nameMissing =
+    quote.customerName === null && submitted && name.trim() === "";
+  const basis = quote.refundBasis;
+
   if (AsyncResult.isSuccess(submission))
     return (
       <WithdrawalReceived
@@ -144,12 +152,6 @@ function WithdrawalStatement({
         reference={reference}
       />
     );
-  // The name comes from the account; an input stands in only when it has none.
-  const [name, setName] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const nameMissing =
-    quote.customerName === null && submitted && name.trim() === "";
-  const basis = quote.refundBasis;
 
   const confirm = () => {
     setSubmitted(true);
