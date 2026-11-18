@@ -596,7 +596,7 @@
   "reservations_price_refunding": "{price} · повертаємо",
   "reservations_time_until": "До {time}",
   "reservations_time_date_until": "{date}, до {time}",
-  "reservations_section_later": "Пізніше",
+  "reservations_section_later": "Майбутні",
   "reservations_section_past": "Минулі",
   "reservations_show_all_past": "Показати всі минулі бронювання",
   "reservations_nothing_upcoming": "Нічого не заплановано",

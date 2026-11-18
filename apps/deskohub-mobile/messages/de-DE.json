@@ -596,7 +596,7 @@
   "reservations_price_refunding": "{price} · wird erstattet",
   "reservations_time_until": "Bis {time}",
   "reservations_time_date_until": "{date}, bis {time}",
-  "reservations_section_later": "Später",
+  "reservations_section_later": "Bevorstehend",
   "reservations_section_past": "Vergangen",
   "reservations_show_all_past": "Alle vergangenen Buchungen anzeigen",
   "reservations_nothing_upcoming": "Nichts geplant",

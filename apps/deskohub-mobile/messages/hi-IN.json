@@ -596,7 +596,7 @@
   "reservations_price_refunding": "{price} · रिफ़ंड हो रहा है",
   "reservations_time_until": "{time} तक",
   "reservations_time_date_until": "{date}, {time} तक",
-  "reservations_section_later": "बाद में",
+  "reservations_section_later": "आगामी",
   "reservations_section_past": "पिछली",
   "reservations_show_all_past": "सभी पिछली बुकिंग दिखाएँ",
   "reservations_nothing_upcoming": "कुछ भी आगे नहीं है",

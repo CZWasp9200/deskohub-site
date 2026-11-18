@@ -1,3 +1,4 @@
+import CalendarDays from "lucide-react-native/icons/calendar-days";
 import Check from "lucide-react-native/icons/check";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import X from "lucide-react-native/icons/x";
@@ -39,7 +40,13 @@ export function DateTile({
         { backgroundColor: look.background },
       ]}
     >
-      <Text style={[styles.tileSmall, { color: look.muted }]}>
+      <Text
+        style={[
+          styles.tileSmall,
+          compact && styles.tileSmallCompact,
+          { color: look.muted },
+        ]}
+      >
         {parts.weekday}
       </Text>
       <Text
@@ -52,9 +59,36 @@ export function DateTile({
       >
         {parts.day}
       </Text>
-      <Text style={[styles.tileSmall, { color: look.muted }]}>
+      <Text
+        style={[
+          styles.tileSmall,
+          compact && styles.tileSmallCompact,
+          { color: look.muted },
+        ]}
+      >
         {parts.month}
       </Text>
+    </View>
+  );
+}
+
+/**
+ * The compact tile of a row whose day can't be read: the same light tile,
+ * with a calendar in place of the date.
+ */
+export function DateTilePlaceholder() {
+  const look = tileLooks.soft;
+  return (
+    <View
+      aria-hidden
+      style={[
+        styles.tile,
+        styles.tileCompact,
+        styles.tilePlaceholder,
+        { backgroundColor: look.background },
+      ]}
+    >
+      <Icon icon={CalendarDays} size={22} color={look.muted} />
     </View>
   );
 }
@@ -420,6 +454,9 @@ const styles = StyleSheet.create({
   tileSmall: brandText(12, 14, 600),
   tileDay: brandText(24, 28, 700),
   tileDayCompact: brandText(20, 24, 700),
+  // Weekday and month step down in a list row so the day leads.
+  tileSmallCompact: brandText(11, 13, 600),
+  tilePlaceholder: { height: 63, justifyContent: "center" },
   meta: { gap: space.sm, marginTop: 14 },
   metaLine: { alignItems: "flex-start", flexDirection: "row", gap: 10 },
   metaIcon: { marginTop: 1 },

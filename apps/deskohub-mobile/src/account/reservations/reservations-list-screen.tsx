@@ -53,6 +53,7 @@ import {
   BookingTicket,
   BookingTicketSkeleton,
   DateTile,
+  DateTilePlaceholder,
 } from "./booking-ticket";
 import { countdownText, ticketBadge } from "./booking-ticket-text";
 import { establishmentAtom, establishmentPlace } from "./establishment";
@@ -434,32 +435,47 @@ function ReservationRow({
         onSome: (parts) => (
           <DateTile parts={parts} tone={past ? "dim" : "soft"} compact />
         ),
-        onNone: () => <View style={styles.noTile} />,
+        onNone: () => <DateTilePlaceholder />,
       })}
       <View style={styles.rowText}>
-        <View style={styles.rowTitleLine}>
-          <Text
-            variant="bodyStrong"
-            style={past ? styles.pastTitle : undefined}
-          >
-            {view.title}
+        <Text
+          variant="bodyStrong"
+          style={past ? styles.pastTitle : undefined}
+        >
+          {view.title}
+        </Text>
+        <View style={styles.rowMeta}>
+          <Text variant="bodySmall" style={styles.rowDetail}>
+            {view.detail}
           </Text>
           {Option.match(badge, {
             onSome: (badge) => (
-              <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+              <>
+                <Text aria-hidden variant="bodySmall">
+                  ·
+                </Text>
+                <Badge
+                  label={badge.label}
+                  tone={badge.tone}
+                  icon={badge.icon}
+                />
+              </>
             ),
             onNone: () => null,
           })}
         </View>
-        {Option.isNone(badge) && (
-          <Text variant="bodySmall">{view.detail}</Text>
-        )}
+        {!past &&
+          row.withdrawal?.eligible === true &&
+          Option.isSome(target) && (
+            <WithdrawalLink
+              orderId={target.value}
+              style={styles.rowWithdrawal}
+              underlined
+            />
+          )}
       </View>
       {Option.isSome(target) && (
         <Icon icon={ChevronRight} size={20} color={color.ink3} />
-      )}
-      {!past && row.withdrawal?.eligible === true && Option.isSome(target) && (
-        <WithdrawalLink orderId={target.value} style={styles.rowWithdrawal} />
       )}
     </>
   );
@@ -660,14 +676,19 @@ function TodayPin({
 
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
-  rowTitleLine: {
+  // Line 2 of a row: its time, then a status badge when it has one; held to
+  // the badge's height so rows with and without one match.
+  rowMeta: {
     alignItems: "center",
+    columnGap: 6,
     flexDirection: "row",
     flexWrap: "wrap",
-    columnGap: space.sm,
-    rowGap: space.xs,
+    marginTop: 2,
+    minHeight: 26,
+    rowGap: 2,
   },
-  rowWithdrawal: { position: "absolute", right: 14, top: space.sm },
+  rowDetail: { flexShrink: 1 },
+  rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
   stubWithdrawal: { alignSelf: "center", textAlign: "center" },
   pressed: { opacity: 0.7 },
@@ -694,12 +715,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  noTile: { width: 52 },
   rowText: { flex: 1, minWidth: 0 },
   // The stub's text keeps room to read; at large font sizes the action
   // wraps under it (see `useStubTextWidth`).
   stubText: { flexBasis: 0, flexGrow: 1 },
-  rowBadge: { marginTop: space.xs },
   skeletonText: { gap: space.sm },
   sectionSkeleton: { paddingBottom: space.sm, paddingTop: space.xl },
   pastTitle: { color: color.ink2 },

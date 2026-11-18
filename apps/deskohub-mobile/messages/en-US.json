@@ -598,7 +598,7 @@
   "reservations_price_refunding": "{price} · being refunded",
   "reservations_time_until": "Until {time}",
   "reservations_time_date_until": "{date}, until {time}",
-  "reservations_section_later": "Later",
+  "reservations_section_later": "Upcoming",
   "reservations_section_past": "Past",
   "reservations_show_all_past": "Show all past bookings",
   "reservations_nothing_upcoming": "Nothing coming up",

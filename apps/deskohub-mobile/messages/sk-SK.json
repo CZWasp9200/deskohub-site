@@ -596,7 +596,7 @@
   "reservations_price_refunding": "{price} · vraciame",
   "reservations_time_until": "Do {time}",
   "reservations_time_date_until": "{date}, do {time}",
-  "reservations_section_later": "Neskôr",
+  "reservations_section_later": "Nadchádzajúce",
   "reservations_section_past": "Minulé",
   "reservations_show_all_past": "Zobraziť všetky minulé rezervácie",
   "reservations_nothing_upcoming": "Nič ťa nečaká",

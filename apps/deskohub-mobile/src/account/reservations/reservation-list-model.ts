@@ -102,7 +102,10 @@ export interface ReservationRowView {
   readonly title: string;
   /** Its day's tile; none when its time can't be read. */
   readonly date: Option.Option<DateTileParts>;
-  /** The time, or for a past cancelled one only that it was cancelled. */
+  /**
+   * The time (with seats for an office), or for a past cancelled one only
+   * that it was cancelled. Always shown, the badge beside it.
+   */
   readonly detail: string;
   /** The status badge of an upcoming one not confirmed yet. */
   readonly badge: Option.Option<TicketBadgeKind>;
