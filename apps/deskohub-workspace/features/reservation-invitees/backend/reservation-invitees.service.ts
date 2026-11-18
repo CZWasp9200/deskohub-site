@@ -404,41 +404,42 @@ export class ReservationInvitees extends Context.Service<
             ),
             reservationId
           ).pipe(Effect.map(Arr.head)),
-        findInvitedReservations: (viewer) =>
-          Effect.gen(function* () {
-            const digests = keys
-              .digests(InviteeEmail.make(viewer.email.trim().toLowerCase()))
-              .map(({ digest }) => digest);
-            const rows = yield* db
-              .selectDistinct({
-                reservationId: reservationInvitees.workspaceReservationId,
-              })
-              .from(reservationInvitees)
-              .where(
-                or(
-                  inArray(reservationInvitees.emailLookupKey, digests),
-                  eq(reservationInvitees.customerAccountId, viewer.accountId),
-                  ...(viewer.dotyposCustomerId
-                    ? [
-                        eq(
-                          reservationInvitees.dotyposCustomerId,
-                          viewer.dotyposCustomerId
-                        ),
-                      ]
-                    : [])
-                )
+        findInvitedReservations: Effect.fn(
+          "reservationInvitees.findInvitedReservations"
+        )(function* (viewer) {
+          const digests = keys
+            .digests(InviteeEmail.make(viewer.email.trim().toLowerCase()))
+            .map(({ digest }) => digest);
+          const rows = yield* db
+            .selectDistinct({
+              reservationId: reservationInvitees.workspaceReservationId,
+            })
+            .from(reservationInvitees)
+            .where(
+              or(
+                inArray(reservationInvitees.emailLookupKey, digests),
+                eq(reservationInvitees.customerAccountId, viewer.accountId),
+                ...(viewer.dotyposCustomerId
+                  ? [
+                      eq(
+                        reservationInvitees.dotyposCustomerId,
+                        viewer.dotyposCustomerId
+                      ),
+                    ]
+                  : [])
               )
-              .pipe(
-                Effect.withTracerEnabled(false),
-                Effect.mapError((error) =>
-                  storageError(
-                    "load",
-                    "Invited reservations could not be loaded."
-                  )(censorDatabaseQueryError(error))
-                )
-              );
-            return rows.map((row) => row.reservationId);
-          }),
+            )
+            .pipe(
+              Effect.withTracerEnabled(false),
+              Effect.mapError((error) =>
+                storageError(
+                  "load",
+                  "Invited reservations could not be loaded."
+                )(censorDatabaseQueryError(error))
+              )
+            );
+          return rows.map((row) => row.reservationId);
+        }),
         markInvitationSent: ({ inviteeId, sendCount, sentAt }) =>
           db
             .update(reservationInvitees)
@@ -502,8 +503,8 @@ export class ReservationInvitees extends Context.Service<
                 )
               )
             ),
-        listDue: ({ now, limit }) =>
-          Effect.gen(function* () {
+        listDue: Effect.fn("reservationInvitees.listDue")(
+          function* ({ now, limit }) {
             const paid = or(
               eq(workspaceReservations.paymentState, "paid"),
               isNotNull(workspaceReservations.reservationConfirmedAt)
@@ -581,16 +582,16 @@ export class ReservationInvitees extends Context.Service<
                 email: emails.get(row.id) ?? null,
               })
             );
-          }).pipe(
-            Effect.mapError((error) =>
-              error instanceof ReservationInviteeStorageError
-                ? error
-                : storageError(
-                    "load",
-                    "Due invitee rows could not be loaded."
-                  )(error)
-            )
-          ),
+          },
+          Effect.mapError((error) =>
+            error instanceof ReservationInviteeStorageError
+              ? error
+              : storageError(
+                  "load",
+                  "Due invitee rows could not be loaded."
+                )(error)
+          )
+        ),
         reduceToCustomerLink: ({ inviteeId, link }) =>
           db
             .update(reservationInvitees)
