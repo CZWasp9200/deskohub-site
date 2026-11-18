@@ -9,6 +9,7 @@ import { m } from "../../i18n/messages";
 import { Button } from "../../ui/controls";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { LoginEmailCard } from "../profile/login-email-card";
 import { identityFields } from "../profile/profile-draft";
 import { ProfileTextFields } from "../profile/profile-fields";
@@ -115,6 +116,7 @@ function AboutYouForm({
       style={styles.screen}
     >
       <ScrollScreen>
+        <QuietUpdateOffer backdrop="paper" />
         <OnboardingStepHead
           step="about-you"
           title={m.onboarding_about_you_title({}, { locale })}

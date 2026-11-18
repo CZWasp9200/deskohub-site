@@ -12,6 +12,7 @@ import { useSessionLocale } from "../src/i18n/use-session-locale";
 import { ToastProvider } from "../src/ui/toast";
 import { color } from "../src/ui/tokens";
 import { UpdateBanner } from "../src/updates/update-banner";
+import { UpdateOfferProvider } from "../src/updates/update-offer-provider";
 
 // The entry (index.ts) has already taken sign-in secrets out of the address
 // bar; now load BotID for the sign-in requests (web production only).
@@ -53,37 +54,40 @@ export default function RootLayout() {
   return (
     <AppLocaleProvider locale={locale} choose={choose}>
       <ToastProvider>
-        <SignedInToast />
-        <AnalyticsRoot>
-          <CustomerDataExitCleanup>
-            {restored && (
-              <ThemeProvider value={navigationTheme}>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="sign-in" />
-                  <Stack.Protected guard={session.status === "signed-in"}>
-                    <Stack.Screen name="(account)" />
-                  </Stack.Protected>
-                  {/* Navy under the "Signing you in…" screen, so no light
+        <UpdateOfferProvider>
+          <SignedInToast />
+          <AnalyticsRoot>
+            <CustomerDataExitCleanup>
+              {restored && (
+                <ThemeProvider value={navigationTheme}>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="sign-in" />
+                    <Stack.Protected guard={session.status === "signed-in"}>
+                      <Stack.Screen name="(account)" />
+                    </Stack.Protected>
+                    {/* Navy under the "Signing you in…" screen, so no light
                     frame shows between it and the sign-in screen. */}
-                  <Stack.Screen
-                    name="auth/callback"
-                    options={{
-                      animation: "fade",
-                      contentStyle: { backgroundColor: color.navy },
-                    }}
-                  />
-                  <Stack.Screen name="account-deleted" />
-                  <Stack.Screen name="dev/effect-smoke" />
-                  <Stack.Screen name="dev/design-system" />
-                  <Stack.Screen name="dev/booking-components" />
-                  <Stack.Screen name="dev/reservations" />
-                </Stack>
-              </ThemeProvider>
-            )}
-          </CustomerDataExitCleanup>
-        </AnalyticsRoot>
+                    <Stack.Screen
+                      name="auth/callback"
+                      options={{
+                        animation: "fade",
+                        contentStyle: { backgroundColor: color.navy },
+                      }}
+                    />
+                    <Stack.Screen name="account-deleted" />
+                    <Stack.Screen name="dev/effect-smoke" />
+                    <Stack.Screen name="dev/design-system" />
+                    <Stack.Screen name="dev/booking-components" />
+                    <Stack.Screen name="dev/reservations" />
+                  </Stack>
+                </ThemeProvider>
+              )}
+            </CustomerDataExitCleanup>
+          </AnalyticsRoot>
+          {/* After the screens, so it lies over them; the toast lies over it. */}
+          <UpdateBanner />
+        </UpdateOfferProvider>
       </ToastProvider>
-      <UpdateBanner />
     </AppLocaleProvider>
   );
 }
