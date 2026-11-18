@@ -333,7 +333,7 @@ export const sampleLaterMeetingRoom = (
   const end = new Date(start.getTime() + 3 * 3600 * 1000);
   return {
     id: "sample-reservation-room-later",
-    orderId: sampleDeskOrderId("fulfilled"),
+    orderId: sampleOrderIds.upcoming,
     product: { kind: "meeting-room" },
     startsAt: start.toISOString(),
     endsAt: end.toISOString(),

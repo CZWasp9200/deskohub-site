@@ -12,6 +12,7 @@ import CircleAlert from "lucide-react-native/icons/circle-alert";
 import CircleCheck from "lucide-react-native/icons/circle-check";
 import { reservationsHref } from "../../booking/booking-routes";
 import { formatInstant, parseInstant } from "../../i18n/date-time-format";
+import { emailWithBreak } from "../../ui/email-with-break";
 import { Icon } from "../../ui/icon";
 import { reservationHistoryAtom } from "./reservations-list-state";
 import { type ReactNode, useState } from "react";
@@ -410,7 +411,7 @@ function WithdrawalReceived({
           </Card>
           <Text variant="bodySmall">
             {m.withdrawal_received_emailed(
-              { email: receipt.receiptEmail },
+              { email: emailWithBreak(receipt.receiptEmail) },
               { locale }
             )}
           </Text>
