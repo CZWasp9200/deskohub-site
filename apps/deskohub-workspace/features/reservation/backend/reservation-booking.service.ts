@@ -41,12 +41,10 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import {
-  type CheckoutSummary,
-  type CheckoutSummaryChangedKeys,
-  getCheckoutSummaryChangedKeys,
+import type {
+  CheckoutSummary,
+  CheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
-import { getOfficeEditPriceSummary } from "@/features/checkout/checkout-summary-office";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
 import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
@@ -280,40 +278,11 @@ const quotePreparedReservation = Effect.fn(
 
   const verdict = yield* pricing.quoteForCustomer({
     advertisement: input.advertisement,
+    displayedOfficePrice: input.displayedOfficePrice,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     ...referral,
   });
-
-  const advertisedChanges = getPriceVerdictChangedKeys(verdict);
-  // The displayed snapshot can only require a review. The quote, discount
-  // eligibility and held amount come from the normal current-price checks.
-  const displayedChanges =
-    input.displayedOfficePrice && verdict.priced.kind === "office"
-      ? getCheckoutSummaryChangedKeys(
-          input.displayedOfficePrice,
-          getOfficeEditPriceSummary(verdict.priced.quote)
-        )
-      : undefined;
-  const changedKeys =
-    displayedChanges &&
-    (displayedChanges.sectionKeys.length > 0 ||
-      displayedChanges.itemKeys.length > 0)
-      ? {
-          sectionKeys: [
-            ...new Set([
-              ...(advertisedChanges?.sectionKeys ?? []),
-              ...displayedChanges.sectionKeys,
-            ]),
-          ].sort(),
-          itemKeys: [
-            ...new Set([
-              ...(advertisedChanges?.itemKeys ?? []),
-              ...displayedChanges.itemKeys,
-            ]),
-          ].sort(),
-        }
-      : advertisedChanges;
 
   return {
     ...verdict.priced,
@@ -321,7 +290,7 @@ const quotePreparedReservation = Effect.fn(
     requestedDiscountCode:
       input.advertisement.priced.requestedDiscountCode ??
       input.referralCodePrefill,
-    changedKeys,
+    changedKeys: getPriceVerdictChangedKeys(verdict),
   };
 });
 

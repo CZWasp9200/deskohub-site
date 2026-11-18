@@ -4,6 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
+import { getOfficeEditPriceSummary } from "@/features/checkout/checkout-summary-office";
 import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   affirmedDiscountAdvertisementQuoteCodec,
@@ -431,6 +432,125 @@ const withExtraDiscount = (
 };
 
 describe("CheckoutPricingService.quoteForCustomer", () => {
+  test.each([
+    ["amount", "pricing_changed", ["product:office:3:2", "total:final"]],
+    ["currency", "pricing_changed", ["product:office:3:2", "total:final"]],
+    ["public label", "pricing_changed", ["product:office:3:2"]],
+    ["staff label", "affirmed", []],
+    [
+      "both boundaries",
+      "pricing_changed",
+      ["product:office:3:2", "total:final"],
+    ],
+  ] as const)(
+    "reviews changes from the displayed office hold (%s)",
+    async (change, status, itemKeys) => {
+      const advertisement = await families[2].advertise("en-US");
+      const result = await run(
+        Effect.gen(function* () {
+          const pricing = yield* CheckoutPricingService;
+          const affirmed = yield* pricing.affirmAdvertisement({
+            advertisement,
+            bookedAt,
+            locale: "en-US",
+            reservation: officeOrder,
+          });
+          if (affirmed.priced.kind !== "office")
+            throw new Error("Expected an office quote");
+          const quote = affirmed.priced.advertisedQuote;
+          const item = quote.items[0];
+          const both = change === "both boundaries";
+          const total = affirmed.priced.discountQuote.discountedSubtotal;
+          const displayedOfficePrice = getOfficeEditPriceSummary({
+            ...quote,
+            items: [
+              both
+                ? {
+                    ...item,
+                    accessAmount: {
+                      ...item.accessAmount,
+                      value: item.accessAmount.value + 300,
+                    },
+                    seatAmount: {
+                      ...item.seatAmount,
+                      value: item.seatAmount.value - 100,
+                    },
+                  }
+                : item,
+            ],
+            payment: {
+              ...quote.payment,
+              expectedPrice: {
+                ...total,
+                value: change === "amount" ? total.value - 100 : total.value,
+                currency: change === "currency" ? "EUR" : total.currency,
+              },
+              discounts: both
+                ? []
+                : quote.payment.discounts.map((applied) => ({
+                    ...applied,
+                    discount: {
+                      ...applied.discount,
+                      ...(change === "public label" && {
+                        label: "Earlier public label",
+                      }),
+                      ...(change === "staff label" && {
+                        staffLabel: "Earlier staff label",
+                      }),
+                    },
+                  })),
+            },
+          });
+          const verdict = yield* pricing.quoteForCustomer({
+            advertisement: affirmed,
+            displayedOfficePrice,
+            dotyposCustomerId,
+            locale: "en-US",
+          });
+          return { verdict, total };
+        }),
+        DiscountServiceMock({
+          affirmAdvertisement: (input) =>
+            Effect.succeed(
+              affirmedDiscountAdvertisementQuoteCodec.make(
+                change === "both boundaries"
+                  ? noSale(input)
+                  : halfOffSale(input)
+              )
+            ),
+          applyCustomerDiscount: ({ affirmedAdvertisement }) =>
+            Effect.succeed({
+              ...affirmedAdvertisement,
+              ...(change === "staff label" && {
+                discounts: affirmedAdvertisement.discounts.map((applied) => ({
+                  ...applied,
+                  discount: {
+                    ...applied.discount,
+                    staffLabel: "Current staff label",
+                  },
+                })),
+              }),
+              advertisedPriceChanged: false,
+            }),
+        })
+      );
+
+      expect(result.verdict.status).toBe(status);
+      expect(result.verdict.priced.quote.payment.expectedPrice).toEqual(
+        result.total
+      );
+      if (result.verdict.status === "pricing_changed") {
+        expect(result.verdict.changedKeys.itemKeys).toEqual(itemKeys);
+        if (change === "both boundaries") {
+          expect(result.verdict.changedKeys.sectionKeys).toEqual([
+            "order",
+            "total",
+          ]);
+        }
+      }
+    }
+  );
+
   describe.each(families)("$kind", (family) => {
     /**
      * Affirms the advertised sale at submission, kept or gone, then quotes

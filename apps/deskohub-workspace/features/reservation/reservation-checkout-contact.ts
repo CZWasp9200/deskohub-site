@@ -1,5 +1,9 @@
-import { Schema } from "effect";
-import { officePeopleSchema } from "@/features/office/office-people";
+import { Result, Schema } from "effect";
+import {
+  getOfficePeopleSeats,
+  officePeopleSchema,
+  validateOfficePeople,
+} from "@/features/office/office-people";
 import { officeSeatsSchema } from "./office-reservation";
 import { reservationBillingSelectionSchema } from "./reservation-billing";
 import { reservationCustomerSchema } from "./reservation-contact";
@@ -33,3 +37,31 @@ export const checkoutOfficeSelectionSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("seats"), seats: officeSeatsSchema }),
 ]);
 export type CheckoutOfficeSelection = typeof checkoutOfficeSelectionSchema.Type;
+
+const officePeopleEqual = Schema.toEquivalence(officePeopleSchema);
+
+/** Whether a verified draft still names exactly the attendees of the held office. */
+export const matchesHeldOfficeSelection = (
+  held: CheckoutOfficeSelection,
+  draft: CheckoutOfficeSelection,
+  context: { readonly seats: number; readonly contactEmail?: string }
+): boolean => {
+  if (held.kind === "seats") {
+    return (
+      draft.kind === "seats" &&
+      draft.seats === held.seats &&
+      held.seats === context.seats
+    );
+  }
+  if (draft.kind !== "people") return false;
+
+  const checked = validateOfficePeople(draft.people, {
+    seatCapacity: context.seats,
+    contactEmail: context.contactEmail,
+  });
+  return (
+    Result.isSuccess(checked) &&
+    getOfficePeopleSeats(checked.success) === context.seats &&
+    officePeopleEqual(held.people, checked.success)
+  );
+};

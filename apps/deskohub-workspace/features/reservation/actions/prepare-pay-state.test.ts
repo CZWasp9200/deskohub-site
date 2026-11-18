@@ -1621,7 +1621,7 @@ describe("prepareWorkspacePayState", () => {
         reservationHoldExpiresAt: Temporal.Now.instant().add({ minutes: 10 }),
       })
     );
-    const { error, result } = await runReusableReservationScenario({
+    const scenario = await runReusableReservationScenario({
       advertisedPriceToken,
       reservation: officeReservation,
       people,
@@ -1653,8 +1653,16 @@ describe("prepareWorkspacePayState", () => {
       ),
       quoteForCustomer: mock(() => Effect.succeed(quote)),
     });
+    const { error, result, quoteForCustomer } = scenario;
 
     expect(error).toBeUndefined();
+    expect(quoteForCustomer).toHaveBeenCalledTimes(1);
+    expect(quoteForCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayedOfficePrice,
+        advertisement: expect.objectContaining({ status: "affirmed" }),
+      })
+    );
     expect(holdForAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         officePeople: {

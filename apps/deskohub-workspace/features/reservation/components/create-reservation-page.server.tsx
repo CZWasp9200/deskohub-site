@@ -45,9 +45,11 @@ import {
 } from "@/features/reservation/backend/checkout-contact-return-state";
 import { loadReservationCheckoutAccount } from "@/features/reservation/backend/reservation-existing-customer.server";
 import { ReservationPagePreloads } from "@/features/reservation/backend/reservation-page-preloads.service";
+import { getOfficeReservationDayCount } from "@/features/reservation/office-reservation";
 import {
   type CheckoutOfficeSelection,
   checkoutContactQueryParam,
+  matchesHeldOfficeSelection,
   type ReservationCheckoutContact,
 } from "@/features/reservation/reservation-checkout-contact";
 import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
@@ -598,6 +600,28 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
         ? { ...seededCustomer, continuesCheckout: false }
         : seededCustomer;
 
+    const restoredOfficeSelection =
+      selection.kind === "restored"
+        ? restoredReservation?.officeSelection
+        : undefined;
+    const heldOfficePrice =
+      restoredOfficeSelection && restoredReservation?.heldOfficePrice;
+    const draft = request.checkoutOfficeSelection;
+    // The verified draft carries attendance. Dates come from the restored form selection.
+    const draftMatchesHold =
+      draft &&
+      restoredOfficeSelection &&
+      heldOfficePrice &&
+      "startsOn" in initialValues &&
+      initialValues.startsOn === heldOfficePrice.startsOn &&
+      "dayCount" in initialValues &&
+      initialValues.dayCount ===
+        getOfficeReservationDayCount(heldOfficePrice) &&
+      matchesHeldOfficeSelection(restoredOfficeSelection, draft, {
+        seats: heldOfficePrice.seats,
+        contactEmail: request.checkoutContact?.email,
+      });
+
     const replacementToken = restoredReservation?.replacementToken;
     const preload = definition.preload(initialValues, scope);
     const preloads = yield* ReservationPagePreloads;
@@ -616,16 +640,12 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
       kind: "form",
       form: {
         checkoutCustomer,
-        checkoutOfficeSelection:
-          request.checkoutOfficeSelection ??
-          (selection.kind === "restored"
-            ? restoredReservation?.officeSelection
-            : undefined),
+        checkoutOfficeSelection: draftMatchesHold
+          ? restoredOfficeSelection
+          : (draft ?? restoredOfficeSelection),
         checkoutSessionId: restoredReservation?.checkoutSessionId,
         heldOfficePrice:
-          selection.kind === "restored" && !request.checkoutOfficeSelection
-            ? restoredReservation?.heldOfficePrice
-            : undefined,
+          !draft || draftMatchesHold ? heldOfficePrice : undefined,
         initialAdvertisedPrices,
         initialAvailability,
         initialValues,
