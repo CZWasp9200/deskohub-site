@@ -55,6 +55,10 @@ import {
 import { countdownText, ticketBadge } from "./booking-ticket-text";
 import { establishmentAtom, establishmentPlace } from "./establishment";
 import {
+  invitedReservationsAtom,
+  invitedReservationView,
+} from "./invited-reservations";
+import {
   type NextAccess,
   nextReservationView,
   type ReservationGroups,
@@ -103,7 +107,11 @@ function ReservationsMasthead() {
   return <Masthead title={m.account_section_reservations({}, { locale })} />;
 }
 
-/** The tab's screen: the masthead over its content, pull to refresh. */
+/**
+ * The tab's screen: the masthead over its content, pull to refresh, and the
+ * orders the account is invited to under whatever the content shows, read
+ * on their own: a gate, a failed history or a loading one never hides them.
+ */
 function ReservationsScreen({
   refreshing,
   onRefresh,
@@ -113,13 +121,18 @@ function ReservationsScreen({
   readonly onRefresh: () => void;
   readonly children: ReactNode;
 }) {
+  const refreshInvited = useAtomRefresh(invitedReservationsAtom);
   return (
     <ScrollScreen
       masthead={<ReservationsMasthead />}
       refreshing={refreshing}
-      onRefresh={onRefresh}
+      onRefresh={() => {
+        onRefresh();
+        refreshInvited();
+      }}
     >
       {children}
+      <InvitedReservations />
     </ScrollScreen>
   );
 }
@@ -333,6 +346,66 @@ function ReservationGroupsView({
         </View>
       )}
       {groups.past.length > 0 && <PastReservations rows={groups.past} />}
+    </View>
+  );
+}
+
+/**
+ * Orders someone else booked that invite this account, read-only: each
+ * opens its access screen. Nothing shows while they load, when the read
+ * fails, or when there are none; the account's own history stands alone.
+ */
+function InvitedReservations() {
+  const locale = useAppLocale();
+  const router = useRouter();
+  const invited = Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(invitedReservationsAtom))
+  );
+  if (invited === undefined) return null;
+  const reservations = [...invited.current, ...invited.past];
+  if (reservations.length === 0) return null;
+  return (
+    <View style={styles.invited}>
+      <SectionHeader title={m.reservations_section_invited({}, { locale })} />
+      <View style={styles.group}>
+        {reservations.map((reservation, index) => {
+          const view = invitedReservationView(reservation, locale);
+          return (
+            <Pressable
+              key={view.orderId}
+              role="link"
+              onPress={() =>
+                router.push({
+                  pathname: "/reservations/[orderId]/access",
+                  params: { orderId: view.orderId },
+                })
+              }
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            >
+              {index > 0 && <View aria-hidden style={styles.divider} />}
+              {Option.match(view.date, {
+                onSome: (parts) => (
+                  <DateTile parts={parts} tone="soft" compact />
+                ),
+                onNone: () => <View style={styles.noTile} />,
+              })}
+              <View style={styles.rowText}>
+                <Text variant="bodyStrong">{view.title}</Text>
+                <Text variant="bodySmall">{view.detail}</Text>
+                {reservation.status === "cancelled" && (
+                  <View style={styles.rowBadge}>
+                    <Badge
+                      label={m.reservations_status_cancelled({}, { locale })}
+                      tone="neutral"
+                    />
+                  </View>
+                )}
+              </View>
+              <Icon icon={ChevronRight} size={20} color={color.ink3} />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -661,6 +734,7 @@ function TodayPin({
 }
 
 const styles = StyleSheet.create({
+  invited: { marginTop: space.xl },
   stack: { gap: space.lg },
   pressed: { opacity: 0.7 },
   group: {

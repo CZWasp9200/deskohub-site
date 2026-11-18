@@ -6,10 +6,11 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { StyleSheet, View } from "react-native";
+import { accountAtom } from "../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
@@ -67,10 +68,12 @@ import {
   type KeptOfficeDraft,
   type OfficeSteppers,
   officeBookingModel,
+  officeContactOf,
   officeFromPrice,
   officeOfferingOf,
   openingOfficeDraft,
 } from "./office-booking-model";
+import { OfficePeopleList } from "./office-people-list";
 import { RestartNotice } from "./restart-notice";
 import { selectionBar } from "./selection-bar";
 
@@ -227,6 +230,10 @@ function OfficeSelection({
     if (quoteRepeats) refreshQuote();
   };
 
+  const contact = Option.flatMap(
+    AsyncResult.value(useAtomValue(accountAtom)),
+    officeContactOf
+  );
   const { name } = offering;
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const blocked = enablement.blockers.flatMap((blocker) => {
@@ -238,6 +245,7 @@ function OfficeSelection({
     selection: model.selection,
     blockers: enablement.blockers,
     quote: Option.flatMap(quote, freshValue),
+    people: model.draft.people,
   });
   const failedQuote = Option.getOrUndefined(quote);
   const quoteFailure =
@@ -375,15 +383,30 @@ function OfficeSelection({
             {steppers !== undefined && (
               <>
                 <BookingSectionHeading
-                  title={m.booking_office_days_and_seats_heading(
-                    {},
-                    { locale }
-                  )}
+                  title={m.booking_office_days_label({}, { locale })}
                 />
-                <OfficeStayControls
-                  steppers={steppers}
+                <OfficeDaysControl
+                  days={steppers.days}
                   draft={model.draft}
                   onChange={setDraft}
+                  locale={locale}
+                />
+                <BookingSectionHeading
+                  title={m.booking_office_people_heading({}, { locale })}
+                  aside={Option.getOrUndefined(
+                    Option.map(steppers.people.maximum, (maximum) =>
+                      m.booking_office_people_of(
+                        { count: steppers.people.count, maximum },
+                        { locale }
+                      )
+                    )
+                  )}
+                />
+                <OfficePeopleList
+                  people={model.draft.people}
+                  contact={contact}
+                  maximumSeats={steppers.people.maximum}
+                  onChange={(people) => setDraft({ ...model.draft, people })}
                   locale={locale}
                 />
               </>
@@ -406,55 +429,31 @@ function OfficeSelection({
   );
 }
 
-/**
- * The days and seats steppers on one card: days name the stay's last day;
- * seats say how many the office takes, in warning ink once the draft has
- * them all.
- */
-export function OfficeStayControls({
-  steppers: { days, seats },
+/** The days stepper on its card, named by the stay's last day. */
+export function OfficeDaysControl({
+  days,
   draft,
   onChange,
   locale,
 }: {
-  readonly steppers: OfficeSteppers;
+  readonly days: OfficeSteppers["days"];
   readonly draft: OfficeDraft;
   readonly onChange: (draft: OfficeDraft) => void;
   readonly locale: AppLocale;
 }) {
-  const until = m.booking_office_until(
-    { date: formatShortPragueDate(days.lastDate, locale) },
-    { locale }
-  );
-  const seatsHint = Option.map(seats.maximum, (count) =>
-    seats.reached
-      ? m.booking_office_seats_maximum({ count }, { locale })
-      : m.booking_office_seats_up_to({ count }, { locale })
-  );
   return (
     <ListGroup>
       <Stepper
-        key="days"
-        label={m.booking_office_days_label({}, { locale })}
-        hint={until}
+        label={m.booking_office_until(
+          { date: formatShortPragueDate(days.lastDate, locale) },
+          { locale }
+        )}
         value={draft.dayCount}
         min={1}
         max={days.maximum}
         onChange={(dayCount) => onChange({ ...draft, dayCount })}
         decrementLabel={m.booking_office_days_decrease({}, { locale })}
         incrementLabel={m.booking_office_days_increase({}, { locale })}
-      />
-      <Stepper
-        key="seats"
-        label={m.booking_office_seats_label({}, { locale })}
-        hint={Option.getOrUndefined(seatsHint)}
-        hintTone={seats.reached ? "warning" : "muted"}
-        value={draft.seats}
-        min={1}
-        max={Option.getOrElse(seats.maximum, () => draft.seats)}
-        onChange={(count) => onChange({ ...draft, seats: count })}
-        decrementLabel={m.booking_office_seats_decrease({}, { locale })}
-        incrementLabel={m.booking_office_seats_increase({}, { locale })}
       />
     </ListGroup>
   );

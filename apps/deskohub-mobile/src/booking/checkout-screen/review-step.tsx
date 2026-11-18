@@ -6,6 +6,7 @@ import Interpolate from "@doist/react-interpolate";
 import { DateTime, Option } from "effect";
 import CircleCheck from "lucide-react-native/icons/circle-check";
 import Lock from "lucide-react-native/icons/lock";
+import Mail from "lucide-react-native/icons/mail";
 import Tag from "lucide-react-native/icons/tag";
 import X from "lucide-react-native/icons/x";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
@@ -31,8 +32,10 @@ import {
   useFocusedFieldScroll,
 } from "../../ui/focused-field-scroll";
 import { Icon } from "../../ui/icon";
+import { ListGroup } from "../../ui/list";
 import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
+import { PersonRow } from "../../ui/person-row";
 import { Text } from "../../ui/text";
 import { color, radius, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
@@ -61,6 +64,7 @@ import {
   type PriceChangeView,
   type ReviewInvoice,
   type ReviewParty,
+  type ReviewPeople,
   type ReviewView,
   reviewView,
 } from "./review-view";
@@ -168,6 +172,9 @@ export function ReviewStep({
             invoice={view.invoice}
             locale={locale}
           />
+          {Option.isSome(view.people) && (
+            <ReviewPeopleCard people={view.people.value} locale={locale} />
+          )}
           <BookingSectionHeading
             title={m.booking_review_price_heading({}, { locale })}
           />
@@ -318,6 +325,44 @@ function BookingCard({
         </Row>
       </View>
     </Card>
+  );
+}
+
+/** Who is coming to the office, read-only, and that each gets the PIN after paying. */
+function ReviewPeopleCard({
+  people,
+  locale,
+}: Locale & { readonly people: ReviewPeople }) {
+  const contact = Option.getOrUndefined(people.contact);
+  return (
+    <>
+      <BookingSectionHeading
+        title={m.booking_office_people_who_is_coming({}, { locale })}
+      />
+      <View style={styles.people}>
+        <ListGroup>
+          {contact !== undefined && (
+            <PersonRow
+              key="contact"
+              email={contact.email}
+              name={contact.name}
+              {...(contact.you && {
+                you: m.booking_office_person_you({}, { locale }),
+              })}
+            />
+          )}
+          {people.invitees.map((email) => (
+            <PersonRow key={email} email={email} />
+          ))}
+        </ListGroup>
+        <View style={styles.peopleNote}>
+          <Icon icon={Mail} size={16} color={color.ink2} />
+          <Text variant="hint" style={styles.peopleNoteText}>
+            {m.booking_review_people_pin_note({}, { locale })}
+          </Text>
+        </View>
+      </View>
+    </>
   );
 }
 
@@ -740,6 +785,14 @@ const reviewNoticeMessage = (notice: ReviewNotice, locale: AppLocale) => {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  people: { gap: space.md },
+  peopleNote: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    paddingHorizontal: space.xs,
+  },
+  peopleNoteText: { flexShrink: 1 },
   banner: {
     backgroundColor: color.paper,
     borderBottomColor: color.line,

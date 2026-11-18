@@ -1,19 +1,30 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import { RegistryProvider } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
+import { DateTime, Option } from "effect";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AsyncView } from "../../customer-api/async-view";
-import { customerDataLayer } from "../../customer-api/customer-data-runtime";
+import {
+  accountAtom,
+  customerDataLayer,
+} from "../../customer-api/customer-data-runtime";
 import {
   fakeCustomerDataLayer,
   makeFakeDevice,
 } from "../../customer-api/testing/fake-customer-data";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
-import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
+import {
+  sampleOfficePeopleReservation,
+  sampleOrderIds,
+  sampleWorkspaceData,
+} from "../../customer-api/testing/sample-fixtures";
 import { AppLocaleProvider } from "../../i18n/locale-context";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
-import { elementTree, find } from "../../ui/testing/element-tree";
+import { PersonRow } from "../../ui/person-row";
+import { elementTree, find, findAll } from "../../ui/testing/element-tree";
+import { reservationGroups } from "./reservation-list-model";
+import { reservationsListAtom } from "./reservations-list-state";
 import type { StatusVisit } from "./status-refresh-rules";
 
 // The stand-in's focus effect never runs the screen's callback, so the
@@ -26,12 +37,14 @@ mock.module("../../auth/auth-client", () => ({
 
 const { OrderStatusScreen } = await import("./order-status-screen");
 const { BookingTicketSkeleton } = await import("./booking-ticket");
+const { OrderPeopleSection } = await import("./order-people-section");
+const { ToastProvider } = await import("../../ui/toast");
 
 /**
  * The screen's first paint, before its first status read has answered: the
  * markup a static render produces, with host components as their names.
  */
-const firstPaint = (visit: StatusVisit) => {
+const withoutNativeWarnings = <A,>(render: () => A) => {
   // React DOM warns about the React Native host names and props it renders.
   const { error } = console;
   const warnings = spyOn(console, "error").mockImplementation((...args) => {
@@ -43,11 +56,14 @@ const firstPaint = (visit: StatusVisit) => {
       error(...args);
   });
   try {
-    return renderStatusScreen(visit);
+    return render();
   } finally {
     warnings.mockRestore();
   }
 };
+
+const firstPaint = (visit: StatusVisit) =>
+  withoutNativeWarnings(() => renderStatusScreen(visit));
 
 /** `screen` under the locale and the fake customer data it reads. */
 const withCustomerData = (screen: ReactElement) => (
@@ -114,4 +130,59 @@ describe("the booking view before its first read answers", () => {
       expect(firstPaint(visit)).not.toMatch(/<Pressable\b/);
     });
   }
+});
+
+test("the attending contact uses the booked-for customer only after history answers", () => {
+  const now = new Date();
+  const sample = sampleWorkspaceData("linked", now);
+  const order = sample.orders.get(sampleOrderIds.officePeople)?.state;
+  const people = order?.people;
+  if (!order || !people?.contactAttends) {
+    throw new Error("Expected an office order with an attending contact");
+  }
+  const customer = "Morgan Example";
+  const at = DateTime.makeUnsafe(now);
+  const inviteeNames = people.invitees.map(() => undefined);
+  const reservation = sampleOfficePeopleReservation(now);
+  const rows = (saved: boolean) => {
+    const history = {
+      ...sample.history,
+      current: [
+        saved
+          ? reservation
+          : {
+              ...reservation,
+              party: { kind: "booked-for" as const, customerName: customer },
+            },
+      ],
+    };
+    const list = {
+      groups: reservationGroups(history, at),
+      savedAt: saved ? Option.some(at) : Option.none(),
+    };
+    const tree = withoutNativeWarnings(() =>
+      elementTree(OrderPeopleSection, { order, people }, (node) => (
+        <AppLocaleProvider locale="en-US">
+          <RegistryProvider
+            initialValues={[
+              Atom.initialValue(
+                accountAtom,
+                AsyncResult.success(sample.account)
+              ),
+              Atom.initialValue(
+                reservationsListAtom,
+                AsyncResult.success(list)
+              ),
+            ]}
+          >
+            <ToastProvider>{node}</ToastProvider>
+          </RegistryProvider>
+        </AppLocaleProvider>
+      ))
+    );
+    return findAll(tree, PersonRow).map(({ props }) => props.name);
+  };
+
+  expect(rows(true)).toEqual(inviteeNames);
+  expect(rows(false)).toEqual([customer, ...inviteeNames]);
 });

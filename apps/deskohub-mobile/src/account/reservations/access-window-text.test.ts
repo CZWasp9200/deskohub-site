@@ -114,6 +114,26 @@ describe("accessChipOf", () => {
     );
   });
 
+  test("a whole day's start is named by its date alone, a timed one by its date and time", () => {
+    const tomorrow = { kind: "tomorrow" } as const;
+    for (const locale of appLocales) {
+      const wholeDay = accessChipText(
+        AccessChip.Starts({ at: pragueMidnight26, countdown: tomorrow }),
+        locale
+      );
+      expect(wholeDay).toContain(shortDate(pragueMidnight26, locale));
+      expect(wholeDay).not.toContain(
+        formatInstant(pragueMidnight26, locale, "time")
+      );
+      expect(
+        accessChipText(
+          AccessChip.Starts({ at: ninePm26, countdown: tomorrow }),
+          locale
+        )
+      ).toContain(formatInstant(ninePm26, locale, "time"));
+    }
+  });
+
   test("every chip has text in every locale", () => {
     const now = at("2026-11-10T08:00:00Z");
     const chips = [

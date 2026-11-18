@@ -6,6 +6,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Data, Option } from "effect";
 import type { AvailabilityQuery, DateChoice } from "./booking-selection";
+import { type OfficePeople, officePeopleCount, youOnly } from "./office-people";
 import {
   addDays,
   daysBetween,
@@ -19,7 +20,8 @@ export type OfficeDraft = {
   readonly date: Option.Option<PragueDate>;
   /** Days booked from `date`, inclusive. */
   readonly dayCount: number;
-  readonly seats: number;
+  /** Who is coming; each person takes one of the office's seats. */
+  readonly people: OfficePeople;
 };
 
 export type OfficeOffering = Extract<
@@ -27,11 +29,11 @@ export type OfficeOffering = Extract<
   { readonly family: "office" }
 >;
 
-/** The draft an office screen opens with: no day picked, one day, one seat. */
+/** The draft an office screen opens with: no day picked, one day, You only. */
 export const emptyOfficeDraft: OfficeDraft = {
   date: Option.none(),
   dayCount: 1,
-  seats: 1,
+  people: youOnly,
 };
 
 /** The last day a stay of `dayCount` days from `date` books. */
@@ -46,13 +48,13 @@ export const toOfficeSelection = (
     family: "office",
     date,
     endDate: officeLastDate(date, draft.dayCount),
-    seats: draft.seats,
+    seats: officePeopleCount(draft.people),
   }));
 
 /**
  * The draft a booked office selection ("Book again") opens: its first day
- * while the calendar still offers it, its days and its seats. The screen
- * brings the days and seats within what the office then allows.
+ * while the calendar still offers it and its days, with You only on the
+ * people list. The screen brings the days within what the office then allows.
  */
 export const officeDraftFromSelection = (
   selection: CustomerBookingSelection,
@@ -66,7 +68,7 @@ export const officeDraftFromSelection = (
       (date) => date >= earliest && date <= latest
     ),
     dayCount: Math.max(1, daysBetween(selection.date, endDate) + 1),
-    seats: Math.max(1, selection.seats ?? 1),
+    people: youOnly,
   });
 };
 
@@ -130,7 +132,7 @@ export type OfficeBlocker = Data.TaggedEnum<{
    * the count isn't a whole number of days.
    */
   DayCountUnavailable: { readonly maximumDayCount: number };
-  /** More seats than the office has, or not a whole positive number. */
+  /** More people than the office has seats, or no one. */
   SeatsUnavailable: { readonly maximumSeats: Option.Option<number> };
 }>;
 export const OfficeBlocker = Data.taggedEnum<OfficeBlocker>();
@@ -197,7 +199,7 @@ export const officeEnablement = (
   } else if (!isCountWithin(draft.dayCount, Option.some(maximumDayCount))) {
     blockers.push(OfficeBlocker.DayCountUnavailable({ maximumDayCount }));
   }
-  if (!isCountWithin(draft.seats, maximumSeats)) {
+  if (!isCountWithin(officePeopleCount(draft.people), maximumSeats)) {
     blockers.push(OfficeBlocker.SeatsUnavailable({ maximumSeats }));
   }
 
@@ -219,29 +221,19 @@ export const officeEnablement = (
 };
 
 /**
- * The draft with its day count and seats brought to whole numbers within
- * what the enablement allows. A first day that allows no days (or none
- * picked yet) keeps the draft's count; unknown capacity
- * keeps the drafted seats.
+ * The draft with its day count brought to a whole number within what the
+ * enablement allows. A first day that allows no days (or none picked yet)
+ * keeps the draft's count. The people list is kept as listed: the screen
+ * shows when it has more people than seats.
  */
-const clampCount = (count: number, maximum: Option.Option<number>) => {
-  const atLeastOne = Math.max(Math.trunc(count), 1);
-  return Option.match(maximum, {
-    onNone: () => atLeastOne,
-    onSome: (most) => Math.min(atLeastOne, most),
-  });
-};
-
 export const clampOfficeDraft = (
   draft: OfficeDraft,
-  enablement: Pick<OfficeEnablement, "maximumDayCount" | "maximumSeats">
+  enablement: Pick<OfficeEnablement, "maximumDayCount">
 ): OfficeDraft => {
-  const dayCount =
-    enablement.maximumDayCount === 0
-      ? draft.dayCount
-      : clampCount(draft.dayCount, Option.some(enablement.maximumDayCount));
-  const seats = clampCount(draft.seats, enablement.maximumSeats);
-  return dayCount === draft.dayCount && seats === draft.seats
-    ? draft
-    : { ...draft, dayCount, seats };
+  if (enablement.maximumDayCount === 0) return draft;
+  const dayCount = Math.min(
+    Math.max(Math.trunc(draft.dayCount), 1),
+    enablement.maximumDayCount
+  );
+  return dayCount === draft.dayCount ? draft : { ...draft, dayCount };
 };

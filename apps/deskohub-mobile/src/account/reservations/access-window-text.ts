@@ -159,10 +159,13 @@ const startsWhenText = (countdown: BookingCountdown, locale: AppLocale) => {
 /** The chip's text. */
 export const accessChipText = (chip: AccessChip, locale: AppLocale): string =>
   AccessChip.$match(chip, {
+    // A start at a Prague midnight (a whole day) is named by its date alone.
     Starts: ({ at, countdown }) =>
       m.reservations_access_chip_starts(
         {
-          start: accessDateTimeText(at, locale, "start"),
+          start: isWorkspaceMidnight(at)
+            ? shortDate(at, locale)
+            : accessDateTimeText(at, locale, "start"),
           when: startsWhenText(countdown, locale),
         },
         { locale }

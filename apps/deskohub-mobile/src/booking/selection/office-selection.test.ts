@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerAvailability } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import { officePeopleOf } from "../testing/office-people-fixtures";
+import { youOnly } from "./office-people";
 import {
   clampOfficeDraft,
   emptyOfficeDraft,
@@ -64,7 +66,7 @@ const enablementOf = (
     availability: Option.some(availability(overrides)),
   });
 
-/** One day from `date` with one seat. */
+/** One day from `date` with You only. */
 const oneDayOn = (date: string): OfficeDraft =>
   selectOfficeDate(emptyOfficeDraft, date);
 
@@ -74,11 +76,11 @@ const blockerTags = (
 ) => enablementOf(draft, overrides).blockers.map(({ _tag }) => _tag);
 
 describe("emptyOfficeDraft", () => {
-  test("opens with no first day, one day and one seat", () => {
+  test("opens with no first day, one day and You only", () => {
     expect(emptyOfficeDraft).toEqual({
       date: Option.none(),
       dayCount: 1,
-      seats: 1,
+      people: youOnly,
     });
   });
 });
@@ -86,7 +88,11 @@ describe("emptyOfficeDraft", () => {
 describe("toOfficeSelection", () => {
   test("ends on the last day booked, inclusive", () => {
     expect(
-      toOfficeSelection({ date: Option.some(today), dayCount: 3, seats: 2 })
+      toOfficeSelection({
+        date: Option.some(today),
+        dayCount: 3,
+        people: officePeopleOf(2),
+      })
     ).toEqual(
       Option.some({
         family: "office",
@@ -113,21 +119,23 @@ describe("officeDraftFromSelection", () => {
     seats: 4,
   } as const;
 
-  test("opens a booked stay on its first day, days and seats", () => {
+  test("opens a booked stay on its first day and days, with You only on the list", () => {
     expect(officeDraftFromSelection(booked, bookableDates)).toEqual(
-      Option.some({ date: Option.some("2026-11-10"), dayCount: 3, seats: 4 })
+      Option.some({
+        date: Option.some("2026-11-10"),
+        dayCount: 3,
+        people: youOnly,
+      })
     );
   });
 
-  test("drops a first day the calendar no longer offers, keeping days and seats", () => {
+  test("drops a first day the calendar no longer offers, keeping the days", () => {
     expect(
       officeDraftFromSelection(booked, {
         earliest: "2026-11-11",
         latest: "2026-12-11",
-      }).pipe(
-        Option.map(({ date, dayCount, seats }) => ({ date, dayCount, seats }))
-      )
-    ).toEqual(Option.some({ date: Option.none(), dayCount: 3, seats: 4 }));
+      }).pipe(Option.map(({ date, dayCount }) => ({ date, dayCount })))
+    ).toEqual(Option.some({ date: Option.none(), dayCount: 3 }));
     expect(
       Option.map(
         officeDraftFromSelection(
@@ -249,9 +257,13 @@ describe("officeEnablement", () => {
     ).toBe(0);
   });
 
-  test("keeps the drafted seats while the capacity can't be read", () => {
+  test("keeps the drafted people while the capacity can't be read", () => {
     const { maximumSeats: _, ...withoutCapacity } = offering;
-    const group = { date: Option.some(today), dayCount: 1, seats: 4 };
+    const group = {
+      date: Option.some(today),
+      dayCount: 1,
+      people: officePeopleOf(9),
+    };
     const enablement = enablementOf(group, {}, withoutCapacity);
 
     expect(enablement.maximumSeats).toEqual(Option.none());
@@ -259,13 +271,10 @@ describe("officeEnablement", () => {
     expect(clampOfficeDraft(group, enablement)).toBe(group);
   });
 
-  test("blocks counts that aren't whole numbers", () => {
+  test("blocks a day count that isn't a whole number", () => {
     expect(
-      blockerTags({ date: Option.some(today), dayCount: 1.5, seats: 1 })
+      blockerTags({ date: Option.some(today), dayCount: 1.5, people: youOnly })
     ).toEqual(["DayCountUnavailable"]);
-    expect(
-      blockerTags({ date: Option.some(today), dayCount: 1, seats: 2.5 })
-    ).toEqual(["SeatsUnavailable"]);
   });
 
   test("blocks an unavailable or out-of-horizon first day", () => {
@@ -278,7 +287,7 @@ describe("officeEnablement", () => {
 
   test("blocks a stay past the first unavailable day", () => {
     const enablement = enablementOf(
-      { date: Option.some(today), dayCount: 5, seats: 1 },
+      { date: Option.some(today), dayCount: 5, people: youOnly },
       { unavailableDates: ["2026-11-11"] }
     );
 
@@ -287,20 +296,16 @@ describe("officeEnablement", () => {
     ]);
   });
 
-  test("blocks more seats than the office has", () => {
-    expect(
-      blockerTags({ date: Option.some(today), dayCount: 1, seats: officeSeats })
-    ).toEqual([]);
-    expect(
+  test("blocks more people than the office has seats, and no one at all", () => {
+    const withPeople = (count: number) =>
       blockerTags({
         date: Option.some(today),
         dayCount: 1,
-        seats: officeSeats + 1,
-      })
-    ).toEqual(["SeatsUnavailable"]);
-    expect(
-      blockerTags({ date: Option.some(today), dayCount: 1, seats: 0 })
-    ).toEqual(["SeatsUnavailable"]);
+        people: officePeopleOf(count),
+      });
+    expect(withPeople(officeSeats)).toEqual([]);
+    expect(withPeople(officeSeats + 1)).toEqual(["SeatsUnavailable"]);
+    expect(withPeople(0)).toEqual(["SeatsUnavailable"]);
   });
 
   test("asks for a first day before anything else", () => {
@@ -327,7 +332,7 @@ describe("officeEnablement", () => {
   test("shows the notices within the days drafted", () => {
     const notice = { date: "2026-11-08", startsAt: "", endsAt: "" };
     const enablement = enablementOf(
-      { date: Option.some(today), dayCount: 2, seats: 1 },
+      { date: Option.some(today), dayCount: 2, people: youOnly },
       { notices: [notice, { ...notice, date: "2026-11-09" }] }
     );
 
@@ -336,42 +341,49 @@ describe("officeEnablement", () => {
 });
 
 describe("clampOfficeDraft", () => {
-  test("brings days and seats within what the first day allows", () => {
+  test("brings the days within what the first day allows, keeping the people as listed", () => {
+    const people = officePeopleOf(9);
     expect(
       clampOfficeDraft(
-        { date: Option.some(today), dayCount: 10, seats: 9 },
-        { maximumDayCount: 4, maximumSeats: Option.some(6) }
+        { date: Option.some(today), dayCount: 10, people },
+        { maximumDayCount: 4 }
       )
-    ).toEqual({ date: Option.some(today), dayCount: 4, seats: 6 });
+    ).toEqual({ date: Option.some(today), dayCount: 4, people });
   });
 
-  test("rounds fractional counts down to whole ones", () => {
+  test("rounds a fractional day count down to a whole one", () => {
     expect(
       clampOfficeDraft(
-        { date: Option.some(today), dayCount: 2.7, seats: 0.4 },
-        { maximumDayCount: 4, maximumSeats: Option.some(6) }
+        { date: Option.some(today), dayCount: 2.7, people: youOnly },
+        { maximumDayCount: 4 }
       )
-    ).toEqual({ date: Option.some(today), dayCount: 2, seats: 1 });
+    ).toEqual({ date: Option.some(today), dayCount: 2, people: youOnly });
   });
 
   test("keeps a draft already within bounds", () => {
-    const draft = { date: Option.some(today), dayCount: 3, seats: 2 };
+    const draft = {
+      date: Option.some(today),
+      dayCount: 3,
+      people: officePeopleOf(2),
+    };
 
     expect(
       clampOfficeDraft(draft, {
         maximumDayCount: 4,
-        maximumSeats: Option.some(6),
       })
     ).toBe(draft);
   });
 
   test("keeps the day count when the first day allows none", () => {
-    const draft = { date: Option.some(today), dayCount: 3, seats: 2 };
+    const draft = {
+      date: Option.some(today),
+      dayCount: 3,
+      people: officePeopleOf(2),
+    };
 
     expect(
       clampOfficeDraft(draft, {
         maximumDayCount: 0,
-        maximumSeats: Option.some(6),
       }).dayCount
     ).toBe(3);
   });

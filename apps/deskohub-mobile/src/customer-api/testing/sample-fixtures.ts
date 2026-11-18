@@ -6,6 +6,7 @@ import {
   type CustomerAgentConnection,
   type CustomerCompanyDetails,
   type CustomerEstablishment,
+  type CustomerInvitedReservations,
   type CustomerInvoice,
   CustomerInvoiceId,
   type CustomerMarketingPreferences,
@@ -16,6 +17,7 @@ import {
   type CustomerProfile,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
+  CustomerReservationInviteeId,
   CustomerReservationOrderId,
   type CustomerReservationSummary,
   type ReferralAccountOverview,
@@ -61,6 +63,8 @@ export interface FakeWorkspaceData {
   readonly assistants: ReadonlyArray<CustomerAgentConnection>;
   readonly marketing: CustomerMarketingPreferences;
   readonly referrals: ReferralAccountOverview;
+  /** Orders someone else booked that invite the account; none when absent. */
+  readonly invited?: CustomerInvitedReservations;
 }
 
 export const sampleAccountId = CustomerAccountId.make("sample-account-1");
@@ -165,6 +169,10 @@ export const sampleOrderIds = {
   latePaymentReview: CustomerReservationOrderId.make(
     "sample-order-late-payment-review"
   ),
+  // A booked private office with its people, and one the account is
+  // invited to: reachable by deep link, not listed in the history.
+  officePeople: CustomerReservationOrderId.make("sample-order-office-people"),
+  officeInvited: CustomerReservationOrderId.make("sample-order-office-invited"),
 } as const;
 
 const hour = 60 * 60 * 1000;
@@ -569,6 +577,56 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
       },
     ],
     [
+      sampleOrderIds.officePeople,
+      {
+        state: {
+          orderId: sampleOrderIds.officePeople,
+          kind: "office",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: pragueDayStart(now, 1).toISOString(),
+          endsAt: pragueDayStart(now, 2).toISOString(),
+          total: { value: 116000, exponent: 2, currency: "CZK" },
+          people: {
+            contactAttends: true,
+            invitees: [
+              {
+                id: CustomerReservationInviteeId.make("sample-invitee-1"),
+                email: testEmailAddress("jana.novak"),
+                invitationSentAt: at(now, -1 * day),
+              },
+            ],
+          },
+        },
+        access: {
+          code: "4826913",
+          accessStartsAt: pragueDayStart(now, 1).toISOString(),
+          accessEndsAt: pragueDayStart(now, 2).toISOString(),
+        },
+        invoice: sampleInvoicePdf(),
+      },
+    ],
+    [
+      sampleOrderIds.officeInvited,
+      {
+        state: {
+          orderId: sampleOrderIds.officeInvited,
+          kind: "office",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: pragueDayStart(now, 1).toISOString(),
+          endsAt: pragueDayStart(now, 4).toISOString(),
+        },
+        access: {
+          code: "4826913",
+          accessStartsAt: pragueDayStart(now, 1).toISOString(),
+          accessEndsAt: pragueDayStart(now, 4).toISOString(),
+        },
+      },
+    ],
+    [
       sampleOrderIds.workstation,
       {
         state: {
@@ -872,6 +930,36 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
   },
 ];
 
+/** The sample order with an attending contact and one invitee. */
+export const sampleOfficePeopleReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-office-people",
+  orderId: sampleOrderIds.officePeople,
+  product: { kind: "office" },
+  startsAt: pragueDayStart(now, 1).toISOString(),
+  endsAt: pragueDayStart(now, 2).toISOString(),
+  seats: 2,
+  status: "confirmed",
+});
+
+/** The office the sample account is invited to, from tomorrow for three days. */
+export const sampleInvitedReservations = (
+  now: Date
+): CustomerInvitedReservations => ({
+  current: [
+    {
+      orderId: sampleOrderIds.officeInvited,
+      product: { kind: "office" },
+      status: "confirmed",
+      accessStartsAt: pragueDayStart(now, 1).toISOString(),
+      accessEndsAt: pragueDayStart(now, 4).toISOString(),
+      bookedBy: { name: "Sam Example" },
+    },
+  ],
+  past: [],
+});
+
 /** A complete synthetic Workspace for one account in the given state. */
 export const sampleWorkspaceData = (
   kind: SampleAccountKind,
@@ -887,4 +975,5 @@ export const sampleWorkspaceData = (
   assistants: sampleAssistants(now),
   marketing: { status: "active", context: "sample-marketing-context-1" },
   referrals: sampleReferrals,
+  invited: sampleInvitedReservations(now),
 });

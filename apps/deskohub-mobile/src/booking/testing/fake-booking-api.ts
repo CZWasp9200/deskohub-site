@@ -27,6 +27,7 @@ import {
   type CustomerMeetingRoomUnavailableDates,
   type CustomerMonitorOption,
   CustomerOfferingUnavailable,
+  type CustomerOfficePeople,
   CustomerQuoteExpired,
   CustomerReservationOrderId,
   type CustomerReservationSummary,
@@ -152,6 +153,8 @@ export interface FakeBookingCheckout {
   readonly earlyPerformanceRequired: boolean;
   /** A meeting room's early setup, which its summary lists for free. */
   readonly earlySetup?: boolean;
+  /** An office's people, as the checkout sent them. */
+  readonly people?: CustomerOfficePeople;
 }
 
 export const fakeHoldDuration = 10 * 60_000;
@@ -772,6 +775,7 @@ const startCheckout = ({
         inclusiveDays(pragueToday(now), payload.selection.date) <=
         withdrawalPeriodDays,
       earlySetup: payload.earlySetup === true,
+      ...(payload.people === undefined ? {} : { people: payload.people }),
     },
     scripted
   );
@@ -1212,6 +1216,7 @@ const checkoutOf = (
       requiredFrom: requiredFrom.toISOString(),
     },
     ...(checkout.referralApplied ? { referralApplied: true as const } : {}),
+    ...(checkout.people === undefined ? {} : { people: checkout.people }),
   };
 };
 

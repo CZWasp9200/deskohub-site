@@ -96,7 +96,7 @@ describe("plural messages on an engine without plural rules", () => {
       appLocales.flatMap((locale) =>
         counts.flatMap((count) => [
           m.booking_price_line_days({ count }, { locale }),
-          m.booking_price_line_seats({ count }, { locale }),
+          m.booking_office_people_count({ count }, { locale }),
           m.referrals_joined_invitees({ count }, { locale }),
           m.referrals_joined_eligible({ count }, { locale }),
         ])

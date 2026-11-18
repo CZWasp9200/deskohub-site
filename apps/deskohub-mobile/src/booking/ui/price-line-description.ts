@@ -66,7 +66,7 @@ const productDetail = (
 
 /**
  * A counted line's factors, each already worded, as the boards write them:
- * "6 seats × 3 days × CZK 315", the price of one unit last where the quote
+ * "6 people × 3 days × CZK 315", the price of one unit last where the quote
  * gives it. The multiplication sign reads the same in every app locale.
  */
 const countedDetail = (
@@ -100,10 +100,10 @@ const chargeDescription = (
       };
     case "OfficeSeats":
       return {
-        label: m.booking_checkout_line_office_seats({}, { locale }),
+        label: m.booking_checkout_line_office_people({}, { locale }),
         detail: countedDetail(
           [
-            m.booking_price_line_seats({ count: subject.seats }, { locale }),
+            m.booking_office_people_count({ count: subject.seats }, { locale }),
             m.booking_price_line_days({ count: subject.dayCount }, { locale }),
           ],
           subject.dailySeatRate,
