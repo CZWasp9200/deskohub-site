@@ -481,6 +481,20 @@ describe("WorkspaceAdminApiClient", () => {
           });
           return Response.json({ outcome: "cancelled", email: "sent" });
         }
+        if (url.pathname.endsWith("/reservations/reservation-1/restoration")) {
+          expect(request.headers.get("authorization")).toBe(
+            `Bearer ${accessToken}`
+          );
+          expect(await request.json()).toEqual({
+            acknowledgeRefundedPayment: true,
+            sendRestorationEmail: false,
+          });
+          return Response.json({
+            outcome: "restored",
+            email: "not_requested",
+            access: "failed",
+          });
+        }
         if (url.pathname.endsWith("/reservations/reservation-1/access")) {
           accessMutationAttempts += 1;
           expect(request.method).toBe("POST");
@@ -811,6 +825,17 @@ describe("WorkspaceAdminApiClient", () => {
             }
           )
         ).toEqual({ outcome: "cancelled", email: "sent", invoice: null });
+        expect(
+          yield* client.restoreReservation(
+            Redacted.make(accessToken),
+            reservation.id,
+            { acknowledgeRefundedPayment: true, sendRestorationEmail: false }
+          )
+        ).toEqual({
+          outcome: "restored",
+          email: "not_requested",
+          access: "failed",
+        });
         yield* client.findReservation(Redacted.make(accessToken), "payment-1");
         yield* client.listBookings(Redacted.make(accessToken), {
           date: "2026-08-10",
@@ -891,6 +916,10 @@ describe("WorkspaceAdminApiClient", () => {
         {
           method: "POST",
           path: "/api/v1/cli/reservations/reservation-1/cancellation",
+        },
+        {
+          method: "POST",
+          path: "/api/v1/cli/reservations/reservation-1/restoration",
         },
         { method: "GET", path: "/api/v1/cli/reservations/find" },
         { method: "GET", path: "/api/v1/cli/bookings" },

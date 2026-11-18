@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import "@/shared/polyfills/temporal";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceProductMonitorOption } from "@/features/reservation/cowork-reservation-product";
+import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import {
   TableAssignmentUnavailableError,
   type WorkspaceTableAssignmentReservation,
@@ -152,11 +153,10 @@ const makeDotyposReservation = (input: {
   status: input.status,
 });
 
-const assignTableId = (
-  reservation: WorkspaceTableAssignmentReservation,
+const makeAssignmentLayer = (
   tables: readonly Table[],
-  dotyposReservations: readonly Reservation[] = [],
-  expiredHoldDotyposReservationIds: readonly string[] = [],
+  dotyposReservations: readonly Reservation[],
+  expiredHoldDotyposReservationIds: readonly string[],
   onReservationInterval?: (interval: DotyposReservationInterval) => void
 ) => {
   const dotyposService: DotyposAssignmentTestService = {
@@ -177,27 +177,66 @@ const assignTableId = (
     getCategories: mock(() => Effect.die("getCategories not mocked")),
   };
 
-  return Effect.gen(function* () {
+  return WorkspaceTableAssignmentService.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(DotyposService, dotyposService),
+        Layer.succeed(WorkspaceReservationRepository, {
+          selectExpiredHoldDotyposReservationIds: mock(() =>
+            Effect.succeed([...expiredHoldDotyposReservationIds])
+          ),
+        } as never)
+      )
+    )
+  );
+};
+
+const assignTableId = (
+  reservation: WorkspaceTableAssignmentReservation,
+  tables: readonly Table[],
+  dotyposReservations: readonly Reservation[] = [],
+  expiredHoldDotyposReservationIds: readonly string[] = [],
+  onReservationInterval?: (interval: DotyposReservationInterval) => void
+) =>
+  Effect.gen(function* () {
     const service = yield* WorkspaceTableAssignmentService;
     return yield* service.assignTableId(reservation);
   }).pipe(
     Effect.provide(
-      WorkspaceTableAssignmentService.Default.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeed(DotyposService, dotyposService),
-            Layer.succeed(WorkspaceReservationRepository, {
-              selectExpiredHoldDotyposReservationIds: mock(() =>
-                Effect.succeed([...expiredHoldDotyposReservationIds])
-              ),
-            } as never)
-          )
-        )
+      makeAssignmentLayer(
+        tables,
+        dotyposReservations,
+        expiredHoldDotyposReservationIds,
+        onReservationInterval
       )
     ),
     Effect.runPromise
   );
-};
+
+const getAssignedTableAvailability = (
+  input: {
+    readonly reservation: Reservation;
+    readonly kind: WorkspaceReservationKind;
+  },
+  tables: readonly Table[],
+  dotyposReservations: readonly Reservation[] = [],
+  expiredHoldDotyposReservationIds: readonly string[] = [],
+  onReservationInterval?: (interval: DotyposReservationInterval) => void
+) =>
+  Effect.gen(function* () {
+    const service = yield* WorkspaceTableAssignmentService;
+    return yield* service.getAssignedTableAvailability(input);
+  }).pipe(
+    Effect.provide(
+      makeAssignmentLayer(
+        tables,
+        dotyposReservations,
+        expiredHoldDotyposReservationIds,
+        onReservationInterval
+      )
+    ),
+    Effect.runPromise
+  );
 
 describe("WorkspaceTableAssignmentService", () => {
   test("loads only reservations overlapping the exact meeting-room interval", async () => {
@@ -833,5 +872,291 @@ describe("WorkspaceTableAssignmentService", () => {
         ]
       )
     ).rejects.toMatchObject({ _tag: "TableAssignmentUnconfigured" });
+  });
+});
+
+describe("WorkspaceTableAssignmentService.getAssignedTableAvailability", () => {
+  const meetingRoom = makeTable({
+    id: "room-1",
+    name: "Room 1",
+    tags: ["reservation:meeting-room"],
+    seats: "12",
+  });
+  const office = makeTable({
+    id: "office",
+    name: "Office",
+    tags: ["reservation:office"],
+    seats: "8",
+  });
+  const openSpace = makeTable({
+    id: "open-space-1",
+    name: "Open Space 1",
+    tags: ["cowork:open-space"],
+    seats: "2",
+  });
+  // A cancelled 08:00–09:00 UTC booking of room-1.
+  const restoredMeetingRoom = makeDotyposReservation({
+    id: "restored-booking",
+    tableId: "room-1",
+    status: "CANCELLED",
+    startDate: "2099-06-10T08:00:00Z",
+    endDate: "2099-06-10T09:00:00Z",
+  });
+
+  test("reports a free assigned table as available and queries the held span", async () => {
+    const intervals: DotyposReservationInterval[] = [];
+
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        [meetingRoom],
+        [],
+        [],
+        (interval) => intervals.push(interval)
+      )
+    ).resolves.toBe("available");
+    expect(intervals).toEqual([
+      {
+        startDate: new Date("2099-06-10T08:00:00Z"),
+        endDate: new Date("2099-06-10T09:00:00Z"),
+      },
+    ]);
+  });
+
+  test.each(["NEW", "CONFIRMED"] as const)(
+    "reports a table an overlapping %s booking holds as unavailable",
+    async (status) => {
+      await expect(
+        getAssignedTableAvailability(
+          { reservation: restoredMeetingRoom, kind: "meeting-room" },
+          [meetingRoom],
+          [
+            makeDotyposReservation({
+              id: "other-booking",
+              tableId: "room-1",
+              status,
+              startDate: "2099-06-10T08:30:00Z",
+              endDate: "2099-06-10T09:30:00Z",
+            }),
+          ]
+        )
+      ).resolves.toBe("unavailable");
+    }
+  );
+
+  test("ignores cancelled bookings, other tables, and expired local holds", async () => {
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        [meetingRoom],
+        [
+          makeDotyposReservation({
+            id: "cancelled-booking",
+            tableId: "room-1",
+            status: "CANCELLED",
+            startDate: "2099-06-10T08:00:00Z",
+            endDate: "2099-06-10T09:00:00Z",
+          }),
+          makeDotyposReservation({
+            id: "other-room-booking",
+            tableId: "room-2",
+            status: "CONFIRMED",
+            startDate: "2099-06-10T08:00:00Z",
+            endDate: "2099-06-10T09:00:00Z",
+          }),
+          makeDotyposReservation({
+            id: "expired-hold",
+            tableId: "room-1",
+            status: "NEW",
+            startDate: "2099-06-10T08:00:00Z",
+            endDate: "2099-06-10T09:00:00Z",
+          }),
+        ],
+        ["expired-hold"]
+      )
+    ).resolves.toBe("available");
+  });
+
+  test("keeps the occupancy interval half-open at both bounds", async () => {
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        [meetingRoom],
+        [
+          makeDotyposReservation({
+            id: "before",
+            tableId: "room-1",
+            status: "CONFIRMED",
+            startDate: "2099-06-10T07:00:00Z",
+            endDate: "2099-06-10T08:00:00Z",
+          }),
+          makeDotyposReservation({
+            id: "after",
+            tableId: "room-1",
+            status: "NEW",
+            startDate: "2099-06-10T09:00:00Z",
+            endDate: "2099-06-10T10:00:00Z",
+          }),
+        ]
+      )
+    ).resolves.toBe("available");
+  });
+
+  test("checks the early-setup span Dotypos holds for a meeting room", async () => {
+    // Booked 08:00–09:00 with early setup: Dotypos holds it from 07:45.
+    const earlySetupBooking = {
+      ...restoredMeetingRoom,
+      startDate: "2099-06-10T07:45:00Z",
+    };
+    const preceding = makeDotyposReservation({
+      id: "preceding",
+      tableId: "room-1",
+      status: "CONFIRMED",
+      startDate: "2099-06-10T07:00:00Z",
+      endDate: "2099-06-10T07:50:00Z",
+    });
+
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: earlySetupBooking, kind: "meeting-room" },
+        [meetingRoom],
+        [preceding]
+      )
+    ).resolves.toBe("unavailable");
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: earlySetupBooking, kind: "meeting-room" },
+        [meetingRoom],
+        [{ ...preceding, endDate: "2099-06-10T07:45:00Z" }]
+      )
+    ).resolves.toBe("available");
+  });
+
+  test("never counts the restored booking itself, even once Dotypos confirmed it", async () => {
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        [meetingRoom],
+        [{ ...restoredMeetingRoom, status: "CONFIRMED" }]
+      )
+    ).resolves.toBe("available");
+  });
+
+  test("requires an office to be otherwise empty and to fit its seats", async () => {
+    const restoredOffice = makeDotyposReservation({
+      id: "restored-office",
+      tableId: "office",
+      status: "CANCELLED",
+      seats: "3",
+    });
+
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredOffice, kind: "office" },
+        [office],
+        [
+          makeDotyposReservation({
+            id: "office-seat",
+            tableId: "office",
+            status: "CONFIRMED",
+            seats: "1",
+          }),
+        ]
+      )
+    ).resolves.toBe("unavailable");
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: { ...restoredOffice, seats: "9" }, kind: "office" },
+        [office]
+      )
+    ).resolves.toBe("unavailable");
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredOffice, kind: "office" },
+        [office]
+      )
+    ).resolves.toBe("available");
+  });
+
+  test("lets cowork share its table up to the table's seat capacity", async () => {
+    const restoredCowork = makeDotyposReservation({
+      id: "restored-cowork",
+      tableId: "open-space-1",
+      status: "CANCELLED",
+    });
+    const sharing = makeDotyposReservation({
+      id: "sharing",
+      tableId: "open-space-1",
+      status: "CONFIRMED",
+    });
+
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredCowork, kind: "cowork" },
+        [openSpace],
+        [sharing]
+      )
+    ).resolves.toBe("available");
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredCowork, kind: "cowork" },
+        [openSpace],
+        [sharing, { ...sharing, id: "sharing-2" }]
+      )
+    ).resolves.toBe("unavailable");
+  });
+
+  test.each([
+    { name: "missing", tables: [] },
+    { name: "disabled", tables: [{ ...meetingRoom, enabled: false }] },
+    { name: "hidden", tables: [{ ...meetingRoom, display: false }] },
+  ])("reports a $name assigned table as unavailable", async ({ tables }) => {
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        tables
+      )
+    ).resolves.toBe("unavailable");
+  });
+
+  test("reports a booking without a table, an increasing span, or readable seats as unavailable", async () => {
+    for (const reservation of [
+      { ...restoredMeetingRoom, startDate: restoredMeetingRoom.endDate },
+      { ...restoredMeetingRoom, seats: "many" },
+    ]) {
+      await expect(
+        getAssignedTableAvailability({ reservation, kind: "meeting-room" }, [
+          meetingRoom,
+        ])
+      ).resolves.toBe("unavailable");
+    }
+
+    await expect(
+      getAssignedTableAvailability(
+        {
+          reservation: { ...restoredMeetingRoom, _tableId: undefined },
+          kind: "meeting-room",
+        },
+        [meetingRoom]
+      )
+    ).resolves.toBe("unavailable");
+    await expect(
+      getAssignedTableAvailability(
+        {
+          reservation: { ...restoredMeetingRoom, endDate: "not-a-date" },
+          kind: "meeting-room",
+        },
+        [meetingRoom]
+      )
+    ).resolves.toBe("unavailable");
+  });
+
+  test("fails on an assigned table with an unusable seat capacity", async () => {
+    await expect(
+      getAssignedTableAvailability(
+        { reservation: restoredMeetingRoom, kind: "meeting-room" },
+        [{ ...meetingRoom, seats: "zero" }]
+      )
+    ).rejects.toMatchObject({ _tag: "InvalidDotyposTableSeats" });
   });
 });

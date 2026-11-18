@@ -1,5 +1,6 @@
 import {
   AdministrationReservationCancellationInput,
+  AdministrationReservationRestorationInput,
   AdministrationWorkspaceReservationId,
 } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
@@ -15,6 +16,22 @@ export const reservationCancellationStandardSchema = Schema.toStandardSchemaV1(
 
 export type ReservationCancellationInput =
   typeof reservationCancellationSchema.Type;
+
+// Spreading the contract's fields drops its strict parse options, so the
+// struct restates them.
+const reservationRestorationSchema = Schema.Struct({
+  reservationId: AdministrationWorkspaceReservationId,
+  ...AdministrationReservationRestorationInput.fields,
+}).annotate({
+  parseOptions: { errors: "all", onExcessProperty: "error" },
+});
+
+export const reservationRestorationStandardSchema = Schema.toStandardSchemaV1(
+  reservationRestorationSchema
+);
+
+export type ReservationRestorationInput =
+  typeof reservationRestorationSchema.Type;
 
 const reservationLookupSchema = Schema.Struct({
   identifier: Schema.Trim.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),

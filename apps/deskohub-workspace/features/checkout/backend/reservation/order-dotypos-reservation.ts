@@ -21,7 +21,10 @@ import {
 import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type {
+  StoredWorkspaceReservationDetails,
+  WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
@@ -71,7 +74,7 @@ const isOfficeSnapshot = (
  * snapshot is for another reservation kind than the order.
  */
 export const rebuildAcceptedReservation = (
-  row: WorkspaceReservation,
+  row: Pick<WorkspaceReservation, "reservationDetails">,
   snapshot: AccountingDocumentSnapshot,
   /** The Reserved Desk stay {@link findOrderCoworkStay} read; Workspace stores none. */
   coworkStay: CoworkStay | undefined
@@ -167,10 +170,21 @@ export const findOrderCoworkStay = Effect.fnUntraced(function* (input: {
   );
   return Option.match(decodeBookedReservation(booked).interval, {
     onNone: () => undefined,
-    onSome: (interval) =>
-      getBookedCoworkStay({ tier: details.entryTier, interval }),
+    onSome: (interval) => getOrderCoworkStay(details, interval),
   });
 });
+
+/**
+ * The stay of a Reserved Desk whose Dotypos reservation books `interval`.
+ * Undefined for other reservations, which rebuilds a day stay.
+ */
+export const getOrderCoworkStay = (
+  details: StoredWorkspaceReservationDetails,
+  interval: Parameters<typeof getBookedCoworkStay>[0]["interval"]
+): CoworkStay | undefined =>
+  details.kind === "cowork" && details.entryTier === overnightCoworkStayTier
+    ? getBookedCoworkStay({ tier: details.entryTier, interval })
+    : undefined;
 
 /**
  * The order's active (NEW or CONFIRMED) Dotypos reservations overlapping the

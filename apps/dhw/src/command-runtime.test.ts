@@ -98,6 +98,10 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
     },
   },
   {
+    args: ["reservations", "restore", reservationId],
+    operation: "administration.restoreReservation",
+  },
+  {
     args: ["reservations", "backfill-product-details"],
     operation: "administration.backfillReservationProductDetails",
   },

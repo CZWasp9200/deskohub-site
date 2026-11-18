@@ -34,6 +34,42 @@ export const canCancelReservation = (
         })
       ) <= 0));
 
+/**
+ * Whether an administrator may restore a cancelled reservation: a paid,
+ * confirmed reservation whose cancellation finished cleanly, that Dotypos
+ * still knows, and whose checkout session has no active reservation since.
+ * Unpaid, expired and superseded holds and unfinished cancellations stay
+ * cancelled. The restore re-checks this under lock.
+ */
+export const canRestoreReservation = (
+  reservation: Pick<
+    WorkspaceReservationRow,
+    | "cancellationCause"
+    | "dotyposReservationId"
+    | "failureCode"
+    | "paymentState"
+    | "reservationCancelledAt"
+    | "reservationConfirmedAt"
+    | "reservationHoldExpiredAt"
+    | "reservationState"
+  >,
+  checkoutSession: {
+    /** Another reservation of the same checkout session isn't cancelled. */
+    readonly hasActiveSuccessor: boolean;
+  }
+) =>
+  reservation.reservationState === "cancelled" &&
+  // An operator cancelled it; reservations cancelled before causes were
+  // recorded have none, and a paid confirmed one could only be an operator's.
+  (reservation.cancellationCause ?? "operator") === "operator" &&
+  reservation.paymentState === "paid" &&
+  reservation.reservationConfirmedAt !== null &&
+  reservation.reservationCancelledAt !== null &&
+  reservation.reservationHoldExpiredAt === null &&
+  reservation.failureCode === null &&
+  Boolean(reservation.dotyposReservationId?.trim()) &&
+  !checkoutSession.hasActiveSuccessor;
+
 export type AdministrationStatusGroup =
   | "attention"
   | "in_progress"

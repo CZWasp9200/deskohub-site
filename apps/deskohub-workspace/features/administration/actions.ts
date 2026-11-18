@@ -10,8 +10,10 @@ import { administrationHref } from "./administration-href";
 import {
   type ReservationCancellationInput,
   type ReservationLookupInput,
+  type ReservationRestorationInput,
   reservationCancellationStandardSchema,
   reservationLookupStandardSchema,
+  reservationRestorationStandardSchema,
 } from "./contracts";
 import { AdministrationCustomerDirectory } from "./customer-directory.service";
 import { describeAdministrationCustomer } from "./customer-identity";
@@ -28,6 +30,7 @@ import {
 import {
   getReservationAccessErrorMessage,
   getReservationCancellationErrorMessage,
+  getReservationRestorationErrorMessage,
 } from "./reservation-error-messages";
 
 const failureCopy: WorkspaceActionFailureCopy = {
@@ -123,6 +126,36 @@ export const cancelAdministrationReservation: typeof cancelAdministrationReserva
   async (...args: Parameters<typeof cancelAdministrationReservationAction>) => {
     "use server";
     return await cancelAdministrationReservationAction(...args);
+  };
+
+const restoreAdministrationReservationAction = defineAdministrationAction(
+  {
+    operation: "administration.restore-reservation",
+    failureCopy,
+    schema: reservationRestorationStandardSchema,
+    capabilities: ReservationAdministrationService.Live,
+    publicFailure: (cause, locale) =>
+      cause instanceof ReservationAdministrationError
+        ? getReservationRestorationErrorMessage(
+            cause.reason,
+            locale,
+            cause.refundedPayment
+          )
+        : m.administrationReservationRestorationFailed({}, { locale }),
+    revalidates: reservationPath,
+  },
+  Effect.fn(function* (input: ReservationRestorationInput) {
+    const administration = yield* ReservationAdministrationService;
+    return yield* administration.restore(input);
+  })
+);
+
+export const restoreAdministrationReservation: typeof restoreAdministrationReservationAction =
+  async (
+    ...args: Parameters<typeof restoreAdministrationReservationAction>
+  ) => {
+    "use server";
+    return await restoreAdministrationReservationAction(...args);
   };
 
 const reservationAccessMutationSchema = Schema.toStandardSchemaV1(

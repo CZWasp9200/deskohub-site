@@ -89,7 +89,7 @@ export function ReservationAccessAdministration({
         <StatusBadge tone={status.tone}>
           {status.label({}, { locale })}
         </StatusBadge>
-        {grant.state === "failed" && (
+        {canRetryReservationAccess(grant) && (
           <Button
             disabled={isExecuting}
             onClick={() => {
@@ -135,6 +135,14 @@ export function ReservationAccessAdministration({
     </AdministrationDetailSection>
   );
 }
+
+/**
+ * Whether no credential exists to conflict with a new one: a definitive
+ * provider rejection, or a grant a restore left pending.
+ */
+const canRetryReservationAccess = (
+  grant: AdministrationReservationAccessGrant
+) => grant.state === "failed" || grant.state === "pending";
 
 /** Whether the provider may hold a credential Workspace can't confirm: uncertain, or stuck provisioning. */
 const needsReservationAccessReconciliation = (

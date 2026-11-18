@@ -44,6 +44,7 @@ import {
 } from "@/features/admin-cli/workspace-admin-api.server";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { UnusedAdministrationCustomerDirectory } from "@/features/administration/customer-directory.test-utils";
+import { loadFixtureReservation } from "@/features/administration/fixtures";
 import { ReservationAccessAdministration } from "@/features/administration/reservation-access-administration.service";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
 import {
@@ -273,6 +274,28 @@ const makeAssistantServices = ({
   return { connects, layer };
 };
 
+/** A cancelled reservation an administrator may restore, after a partial refund. */
+const restorableReservation = (() => {
+  const detail = loadFixtureReservation("0198-admin-fixture-attention");
+  if (detail === null) {
+    throw new Error("No fixture reservation 0198-admin-fixture-attention.");
+  }
+  return {
+    ...detail,
+    canCancel: false,
+    canRestore: true,
+    restoration: {
+      cancellationEmailRecorded: true,
+      issuesNewAccess: true,
+      clearsRefundRequirement: false,
+      refundedPayment: {
+        amount: { value: 25000, exponent: 2, currency: "CZK" },
+        coverage: "partial" as const,
+      },
+    },
+  };
+})();
+
 /**
  * The domain services behind every instance. The CLI authentication accepts
  * only `cliBearer`, so an instance that consults it would admit the CLI.
@@ -288,6 +311,10 @@ const makeInstanceServices = ({
   > = [];
   const sessionOwners: Array<string> = [];
   const sessionAuthentications: Array<string> = [];
+  const reservationReads: Array<string> = [];
+  const restorations: Array<
+    Parameters<ReservationAdministrationService["Service"]["restore"]>[0]
+  > = [];
   const layer = Layer.mergeAll(
     Layer.succeed(CliAuthentication, {
       ...({} as CliAuthentication["Service"]),
@@ -330,11 +357,31 @@ const makeInstanceServices = ({
       finish: () => Effect.void,
     }),
     Layer.succeed(CliAuthenticationAdmission, {} as never),
-    Layer.succeed(AdministrationService, {} as never),
+    Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadReservation: (id) =>
+        Effect.sync(() => {
+          reservationReads.push(id);
+          return id === restorableReservation.reservation.id
+            ? restorableReservation
+            : null;
+        }),
+    }),
     Layer.succeed(AdministratorRoster, {} as never),
     Layer.succeed(LegacyAdministratorBackfill, {} as never),
     Layer.succeed(CampaignOperations, {} as never),
-    Layer.succeed(ReservationAdministrationService, {} as never),
+    Layer.succeed(ReservationAdministrationService, {
+      ...({} as ReservationAdministrationService["Service"]),
+      restore: (input) =>
+        Effect.sync(() => {
+          restorations.push(input);
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "issued",
+          } as const;
+        }),
+    }),
     Layer.succeed(ReservationProductDetailsBackfill, {
       runBatch: (input) =>
         Effect.sync(() => {
@@ -359,6 +406,8 @@ const makeInstanceServices = ({
     backfills,
     callers,
     layer,
+    reservationReads,
+    restorations,
     sessionAuthentications,
     sessionOwners,
   };
@@ -713,6 +762,102 @@ describe("administration tools through the assistant API", () => {
     expect(applied).toMatchObject({ result: { outcome: "applied" } });
     expect(backfills.at(-1)).toEqual({ dryRun: false, after: null });
     expect(callers.map(({ channel }) => channel)).toEqual([assistantChannel]);
+  });
+
+  const restoreTool = makeAdministrationAgentTools(
+    administrationOperationTools
+  ).find(({ name }) => name === "admin_restore_reservation");
+
+  const callRestore = (handler: Handler, args: Schema.Json) =>
+    restoreTool!
+      .call(args, Option.some(caller))
+      .pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeAssistantServices().layer,
+            AdministrationApiClient.Default.pipe(
+              Layer.provide(Layer.succeed(AdministrationApiTransport, handler))
+            )
+          )
+        ),
+        Effect.result,
+        Effect.runPromise
+      );
+
+  test("previews a restore with the reservation's refund and changes nothing without confirm: true", async () => {
+    const { callers, handler, reservationReads, restorations } =
+      serveAssistant();
+    const reservationId = restorableReservation.reservation.id;
+    const input = {
+      reservationId,
+      acknowledgeRefundedPayment: true,
+      sendRestorationEmail: true,
+    };
+
+    const previews = [
+      await callRestore(handler, input),
+      await callRestore(handler, { ...input, confirm: false }),
+    ];
+
+    for (const preview of previews) {
+      expect(preview).toMatchObject({
+        _tag: "Success",
+        success: {
+          result: {
+            outcome: "confirmation-required",
+            operation: "admin_restore_reservation",
+            input,
+            current: {
+              "administration.getReservation": {
+                canRestore: true,
+                restoration: {
+                  refundedPayment:
+                    restorableReservation.restoration.refundedPayment,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+    expect(reservationReads).toEqual([reservationId, reservationId]);
+    expect(restorations).toEqual([]);
+    expect(callers).toEqual([]);
+
+    const applied = await callRestore(handler, { ...input, confirm: true });
+
+    expect(applied).toMatchObject({
+      _tag: "Success",
+      success: {
+        result: {
+          outcome: "applied",
+          result: {
+            outcome: "restored",
+            email: "not_requested",
+            access: "issued",
+          },
+        },
+      },
+    });
+    expect(restorations).toEqual([input]);
+    expect(callers.map(({ channel }) => channel)).toEqual([assistantChannel]);
+  });
+
+  test("answers a restore preview of a missing reservation with the API's refusal", async () => {
+    const { callers, handler, restorations } = serveAssistant();
+
+    const preview = await callRestore(handler, {
+      reservationId: "01980000-0000-7000-8000-0000000000f1",
+      acknowledgeRefundedPayment: false,
+      sendRestorationEmail: false,
+    });
+
+    expect(preview).toMatchObject({
+      _tag: "Failure",
+      failure: { details: { code: "administration_failed" } },
+    });
+    expect(restorations).toEqual([]);
+    expect(callers).toEqual([]);
   });
 });
 

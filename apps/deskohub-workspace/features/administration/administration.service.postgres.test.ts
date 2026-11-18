@@ -28,8 +28,12 @@ import {
 } from "@/db/schema";
 import { ReservationAuthorDirectory } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
+import {
+  checkoutSessionKeySchema,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type StoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
@@ -132,6 +136,7 @@ describe.skipIf(!testDatabase)(
         }).pipe(
           Effect.provide(
             AdministrationService.Default.pipe(
+              Layer.provide(WorkspaceReservationRepository.Default),
               Layer.provide(
                 Layer.mergeAll(
                   testDatabase.layer,
@@ -1176,6 +1181,98 @@ describe.skipIf(!testDatabase)(
         });
         expect(self?.author).toBeNull();
       });
+    });
+
+    test("offers to restore a cancelled paid reservation unless its checkout session has an active reservation", async () => {
+      const insertReservation = async (
+        label: string,
+        stage: Parameters<
+          ReturnType<typeof workspaceFixtures>["reservation"]
+        >[0]["stage"],
+        overrides: Parameters<
+          ReturnType<typeof workspaceFixtures>["reservation"]
+        >[0]["overrides"]
+      ) => {
+        const { id } = await Effect.runPromise(
+          workspaceFixtures(testDatabase.db).reservation({
+            stage,
+            customer: makeCustomerId(label),
+            overrides,
+          })
+        );
+        reservationIds.push(id);
+        return id;
+      };
+      const cancelledAt = Temporal.Now.instant();
+      const insertCancelled = (label: string, checkoutSessionKey: string) =>
+        insertReservation(
+          label,
+          {
+            reservation: "cancelled",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          {
+            checkoutSessionKey:
+              checkoutSessionKeySchema.make(checkoutSessionKey),
+            dotyposReservationId: bookingId(label),
+            reservationConfirmedAt: cancelledAt.subtract({ hours: 1 }),
+            cancellationEmailSentAt: cancelledAt,
+          }
+        );
+      const restorable = await insertCancelled(
+        "restorable",
+        `restorable-session-${runId}`
+      );
+      const replacedSession = `replaced-session-${runId}`;
+      const replaced = await insertCancelled("replaced", replacedSession);
+      await insertReservation(
+        "replaced-successor",
+        { reservation: "held" },
+        { checkoutSessionKey: checkoutSessionKeySchema.make(replacedSession) }
+      );
+
+      const [restorableDetail, replacedDetail] = await Promise.all(
+        [
+          [restorable, "restorable"],
+          [replaced, "replaced"],
+        ].map(([reservationId, label]) =>
+          run(
+            (administration) =>
+              administration.loadReservation(
+                workspaceReservationIdSchema.make(reservationId)
+              ),
+            {
+              getReservation: () =>
+                Effect.succeed(
+                  Option.some({
+                    customer: null,
+                    reservation: {
+                      _branchId: "branch",
+                      _cloudId: "cloud",
+                      _customerId: makeCustomerId(label),
+                      id: bookingId(label),
+                      startDate: "2099-08-10T08:00:00Z",
+                      endDate: "2099-08-10T16:00:00Z",
+                      seats: "1",
+                      status: "CANCELLED",
+                    },
+                  } as never)
+                ),
+            }
+          )
+        )
+      );
+
+      expect(restorableDetail?.canRestore).toBe(true);
+      expect(restorableDetail?.restoration).toEqual({
+        cancellationEmailRecorded: true,
+        issuesNewAccess: true,
+        clearsRefundRequirement: false,
+        refundedPayment: null,
+      });
+      expect(replacedDetail?.canRestore).toBe(false);
+      expect(replacedDetail?.restoration).toBeNull();
     });
 
     test("shows the access name stored on the grant, or the reservation-built name of a grant created before names were stored", async () => {

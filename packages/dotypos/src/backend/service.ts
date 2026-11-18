@@ -16,11 +16,14 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { DotyposRuntimeConfig } from "../config";
 import {
   type DotyposConditionalWriteFailure,
+  type DotyposFailure,
   type DotyposOperation,
   type DotyposReadFailure,
   DotyposRejected,
   type DotyposRequest,
+  type DotyposReservationBookingField,
   DotyposReservationCancelledError,
+  DotyposReservationNotRestorable,
   DotyposUnavailable,
   type DotyposUncertain,
   type DotyposWriteFailure,
@@ -43,9 +46,11 @@ import type {
   DotyposDiscountGroupId,
   DotyposProduct,
   DotyposReservation,
+  DotyposReservationBooking,
   DotyposReservationId,
   DotyposReservationInterval,
   DotyposTable,
+  RestoreDotyposReservationInput,
   UpdateDotyposReservationInput,
 } from "../types";
 import {
@@ -142,9 +147,7 @@ const isNotFound = (failure: DotyposAttemptFailure) =>
 /** A replayed PATCH of `request` that met 412 after an uncertain attempt. */
 const isReplayConflict =
   (request: "reservation.patch" | "customer.patch") =>
-  (
-    failure: DotyposConditionalWriteFailure | DotyposReservationCancelledError
-  ): failure is DotyposUncertain =>
+  (failure: DotyposFailure): failure is DotyposUncertain =>
     failure._tag === "DotyposUncertain" &&
     failure.reason === "conflict-after-replay" &&
     failure.request === request;
@@ -599,6 +602,19 @@ export type FindCustomerResult = Data.TaggedEnum<{
 
 export const FindCustomerResult = Data.taggedEnum<FindCustomerResult>();
 
+/**
+ * Restored: this call moved the cancelled reservation to CONFIRMED.
+ * AlreadyConfirmed: Dotypos already held it CONFIRMED with the expected
+ * booking, as after an earlier restore, so nothing was written.
+ */
+export type RestoreCancelledReservationResult = Data.TaggedEnum<{
+  Restored: { readonly reservation: DotyposReservation };
+  AlreadyConfirmed: { readonly reservation: DotyposReservation };
+}>;
+
+export const RestoreCancelledReservationResult =
+  Data.taggedEnum<RestoreCancelledReservationResult>();
+
 const defaultCustomerLookupFields: readonly CustomerLookupField[] = [
   "email",
   "phone",
@@ -634,6 +650,99 @@ const normalizeInputIdentifier = <A>(
       dotyposInvalidRequest(operation, `${label} is required`, cause)
     )
   );
+
+/** The booking with trimmed identifiers, or DotyposRejected{invalid-request} for one Dotypos can't book. */
+export const normalizeReservationBooking = (
+  booking: DotyposReservationBooking,
+  operation: DotyposOperation
+): Effect.Effect<DotyposReservationBooking, DotyposRejected> =>
+  Effect.gen(function* () {
+    const customerId = yield* normalizeInputIdentifier(
+      DotyposCustomerIdSchema,
+      booking.customerId,
+      "Customer ID",
+      operation
+    );
+    const tableId = yield* normalizeInputIdentifier(
+      DotyposTableIdSchema,
+      booking.tableId,
+      "Table ID",
+      operation
+    );
+
+    if (!Number.isInteger(booking.seats) || booking.seats <= 0) {
+      return yield* dotyposInvalidRequest(
+        operation,
+        "Reservation seats must be a positive integer"
+      );
+    }
+
+    yield* validateReservationInterval(booking, operation);
+
+    return {
+      customerId,
+      tableId,
+      seats: booking.seats,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+    };
+  });
+
+/** The facts in which `reservation` books something other than `booking`. */
+const changedBookingFields = (
+  reservation: DotyposReservation,
+  booking: DotyposReservationBooking
+): readonly DotyposReservationBookingField[] =>
+  (
+    [
+      ["customer", reservation._customerId === booking.customerId],
+      ["table", reservation._tableId === booking.tableId],
+      [
+        "start",
+        Date.parse(reservation.startDate) === booking.startDate.getTime(),
+      ],
+      ["end", Date.parse(reservation.endDate) === booking.endDate.getTime()],
+      ["seats", Number(reservation.seats) === booking.seats],
+    ] as const
+  ).flatMap(([field, matches]) => (matches ? [] : [field]));
+
+/**
+ * The status of a reservation restoreCancelledReservation may act on: one
+ * that holds `booking` and is CANCELLED or already CONFIRMED. Any other
+ * reservation fails DotyposReservationNotRestorable.
+ */
+export const restorableReservationStatus = (
+  reservation: DotyposReservation,
+  booking: DotyposReservationBooking
+): Effect.Effect<
+  "CANCELLED" | "CONFIRMED",
+  DotyposReservationNotRestorable
+> => {
+  const changedFields = changedBookingFields(reservation, booking);
+  if (changedFields.length > 0) {
+    return Effect.fail(
+      new DotyposReservationNotRestorable({
+        reservationId: reservation.id,
+        reason: "booking-changed",
+        status: reservation.status,
+        changedFields,
+        message: "Dotypos reservation no longer holds the expected booking.",
+      })
+    );
+  }
+  if (reservation.status === "NEW") {
+    return Effect.fail(
+      new DotyposReservationNotRestorable({
+        reservationId: reservation.id,
+        reason: "not-cancelled",
+        status: reservation.status,
+        changedFields: [],
+        message: "Dotypos reservation is not cancelled.",
+      })
+    );
+  }
+  return Effect.succeed(reservation.status);
+};
 
 /** Decodes an identifier Dotypos returned in the response to `call`. */
 const decodeResponseIdentifier = <A, Request extends DotyposRequest>(
@@ -938,6 +1047,22 @@ export interface IDotyposService {
     DotyposReservation,
     DotyposConditionalWriteFailure | DotyposReservationCancelledError
   >;
+  /**
+   * Revives a cancelled reservation: CANCELLED with the expected booking gets an If-Match PATCH to CONFIRMED (Restored).
+   * CONFIRMED with the expected booking succeeds without a PATCH (AlreadyConfirmed), so a retry after a restore that landed
+   * is safe. A booking that differs fails DotyposReservationNotRestorable{booking-changed}, a matching NEW reservation
+   * DotyposReservationNotRestorable{not-cancelled}, and a vanished reservation DotyposRejected{not-found}. Replays settle
+   * as confirmReservation's do: a CONFIRMED reread on the settling rerun is Restored, a CANCELLED one patches under the
+   * fresh ETag, and a CANCELLED reread under the replayed ETag stays DotyposUncertain. A refusing reread on the settling
+   * rerun stays DotyposUncertain too, since the replayed PATCH may have landed before the change. A plain 412 on the first PATCH is
+   * DotyposVersionConflict.
+   */
+  readonly restoreCancelledReservation: (
+    input: RestoreDotyposReservationInput
+  ) => Effect.Effect<
+    RestoreCancelledReservationResult,
+    DotyposConditionalWriteFailure | DotyposReservationNotRestorable
+  >;
   /** None means the customer does not exist, and nothing was applied. */
   readonly patchCustomer: (
     customerId: DotyposCustomerId,
@@ -1167,27 +1292,10 @@ const makeDotyposService: Effect.Effect<
       yield* Effect.annotateLogsScoped({ input });
       yield* Effect.logInfo("Dotypos reservation request build started");
 
-      const customerId = yield* normalizeInputIdentifier(
-        DotyposCustomerIdSchema,
-        input.customerId,
-        "Customer ID",
+      const { customerId, tableId } = yield* normalizeReservationBooking(
+        input,
         "createReservation"
       );
-      const tableId = yield* normalizeInputIdentifier(
-        DotyposTableIdSchema,
-        input.tableId,
-        "Table ID",
-        "createReservation"
-      );
-
-      if (!Number.isInteger(input.seats) || input.seats <= 0) {
-        return yield* dotyposInvalidRequest(
-          "createReservation",
-          "Reservation seats must be a positive integer"
-        );
-      }
-
-      yield* validateReservationInterval(input, "createReservation");
 
       const note = input.note?.trim();
       const request: CreateReservationRequest = {
@@ -1294,7 +1402,10 @@ const makeDotyposService: Effect.Effect<
   )(
     (
       reservationId: DotyposReservationId,
-      operation: "confirmReservation" | "updateReservation"
+      operation:
+        | "confirmReservation"
+        | "restoreCancelledReservation"
+        | "updateReservation"
     ) => {
       const call = { operation, request: "reservation.version" } as const;
       return runDotyposRequest(
@@ -1332,7 +1443,10 @@ const makeDotyposService: Effect.Effect<
       readonly reservationId: DotyposReservationId;
       readonly etag: string;
       readonly payload: UpdateReservationRequest;
-      readonly operation: "confirmReservation" | "updateReservation";
+      readonly operation:
+        | "confirmReservation"
+        | "restoreCancelledReservation"
+        | "updateReservation";
     }) => {
       const call = {
         operation: input.operation,
@@ -1357,6 +1471,102 @@ const makeDotyposService: Effect.Effect<
     }
   );
 
+  /**
+   * Moves a reservation to CONFIRMED with one ETag read and an If-Match
+   * PATCH. `settle` judges the read reservation: it returns the result, fails,
+   * or asks for the PATCH with none. On the settling rerun it also gets the
+   * uncertainty of the replayed PATCH, which may have landed.
+   *
+   * The If-Match ETag makes `settle`'s check and the PATCH one atomic
+   * transition: a change after the read fails the PATCH instead of being
+   * overwritten. A replayed PATCH that meets 412 has probably already landed:
+   * the replay carries the ETag the landed PATCH replaced. Rerun the read,
+   * `settle` and PATCH once to settle it. A reread that still carries the
+   * replayed ETag can't postdate the version that rejected the replay, so
+   * when `settle` still asks for the PATCH it stays uncertain without
+   * another one. Any failure of the rerun stays uncertain. A plain 412 stays
+   * a version conflict and is not rerun.
+   */
+  const confirmReservationVersion = <A, E extends DotyposFailure>(input: {
+    readonly reservationId: DotyposReservationId;
+    readonly operation: "confirmReservation" | "restoreCancelledReservation";
+    readonly settle: (
+      reservation: DotyposReservation,
+      replayed: Option.Option<DotyposUncertain>
+    ) => Effect.Effect<Option.Option<A>, E>;
+    readonly patched: (reservation: DotyposReservation) => A;
+  }): Effect.Effect<A, E | DotyposConditionalWriteFailure> =>
+    Effect.gen(function* () {
+      // The replay conflict, and the ETag its PATCH replayed, that make the
+      // next attempt a settling rerun.
+      const unsettled = yield* Ref.make(
+        Option.none<{
+          readonly uncertain: DotyposUncertain;
+          readonly replayedEtag: string;
+        }>()
+      );
+
+      const attempt = Effect.gen(function* () {
+        const earlier = yield* Ref.get(unsettled);
+        const stayUncertain = (failure: DotyposConditionalWriteFailure) =>
+          keepUncertainty(
+            failure,
+            Option.map(earlier, ({ uncertain }) => uncertain)
+          );
+
+        const current = yield* readReservationVersion(
+          input.reservationId,
+          input.operation
+        ).pipe(Effect.mapError(stayUncertain));
+        const settled = yield* input.settle(
+          current.reservation,
+          Option.map(earlier, ({ uncertain }) => uncertain)
+        );
+        if (Option.isSome(settled)) return settled.value;
+        if (
+          Option.isSome(earlier) &&
+          earlier.value.replayedEtag === current.etag
+        ) {
+          return yield* earlier.value.uncertain;
+        }
+
+        return yield* patchReservationVersion({
+          reservationId: input.reservationId,
+          etag: current.etag,
+          payload: { status: "CONFIRMED" },
+          operation: input.operation,
+        }).pipe(
+          Effect.map(input.patched),
+          Effect.mapError(stayUncertain),
+          Effect.tapError((failure) =>
+            Option.isNone(earlier) &&
+            isReplayConflict("reservation.patch")(failure)
+              ? Ref.set(
+                  unsettled,
+                  Option.some({
+                    uncertain: failure,
+                    replayedEtag: current.etag,
+                  })
+                ).pipe(
+                  Effect.andThen(
+                    Effect.logWarning(
+                      "Dotypos reservation confirmation replay conflicted; rereading to settle it"
+                    )
+                  )
+                )
+              : Effect.void
+          )
+        );
+      });
+
+      return yield* attempt.pipe(
+        Effect.retry({
+          schedule: Schedule.recurs(1),
+          while: isReplayConflict("reservation.patch"),
+        })
+      );
+    });
+
   const confirmReservation = Effect.fn("confirmReservation")(
     function* (reservationId: DotyposReservationId) {
       const id = yield* normalizeInputIdentifier(
@@ -1368,89 +1578,29 @@ const makeDotyposService: Effect.Effect<
 
       yield* Effect.logInfo("Dotypos reservation confirmation patch started");
 
-      // The replay conflict, and the ETag its PATCH replayed, that make the
-      // next attempt a settling rerun.
-      const unsettled = yield* Ref.make(
-        Option.none<{
-          readonly uncertain: DotyposUncertain;
-          readonly replayedEtag: string;
-        }>()
-      );
-
-      // A replayed PATCH that meets 412 has probably already landed: the
-      // replay carries the ETag the landed PATCH replaced. Rerun the read,
-      // status match and PATCH once to settle it. CONFIRMED means it landed,
-      // CANCELLED keeps the cancellation, and NEW patches under the fresh
-      // ETag. A reread that still carries the replayed ETag can't postdate
-      // the version that rejected the replay, so it stays uncertain without
-      // another PATCH. Any failure of the rerun stays uncertain. A plain 412
-      // stays a version conflict and is not rerun.
-      const attempt = Effect.gen(function* () {
-        const earlier = yield* Ref.get(unsettled);
-        const stayUncertain = (failure: DotyposConditionalWriteFailure) =>
-          keepUncertainty(
-            failure,
-            Option.map(earlier, ({ uncertain }) => uncertain)
-          );
-
-        // The If-Match ETag makes the status check and the PATCH one atomic
-        // transition: a cancellation after this read fails the PATCH instead
-        // of being overwritten, so a cancelled hold is never revived.
-        const current = yield* readReservationVersion(
-          id,
-          "confirmReservation"
-        ).pipe(Effect.mapError(stayUncertain));
-
-        return yield* Match.value(current.reservation.status).pipe(
-          Match.when("CANCELLED", () =>
-            Effect.fail(
-              new DotyposReservationCancelledError({
-                reservationId: id,
-                message: "Dotypos reservation is already cancelled.",
-              })
-            )
-          ),
-          Match.when("CONFIRMED", () => Effect.succeed(current.reservation)),
-          Match.when("NEW", () =>
-            Option.isSome(earlier) &&
-            earlier.value.replayedEtag === current.etag
-              ? Effect.fail(earlier.value.uncertain)
-              : patchReservationVersion({
+      // CONFIRMED means a replay landed, CANCELLED keeps the cancellation, so
+      // a cancelled hold is never revived, and NEW patches.
+      const reservation = yield* confirmReservationVersion({
+        reservationId: id,
+        operation: "confirmReservation",
+        settle: (current) =>
+          Match.value(current.status).pipe(
+            Match.when("CANCELLED", () =>
+              Effect.fail(
+                new DotyposReservationCancelledError({
                   reservationId: id,
-                  etag: current.etag,
-                  payload: { status: "CONFIRMED" },
-                  operation: "confirmReservation",
-                }).pipe(
-                  Effect.mapError(stayUncertain),
-                  Effect.tapError((failure) =>
-                    Option.isNone(earlier) &&
-                    isReplayConflict("reservation.patch")(failure)
-                      ? Ref.set(
-                          unsettled,
-                          Option.some({
-                            uncertain: failure,
-                            replayedEtag: current.etag,
-                          })
-                        ).pipe(
-                          Effect.andThen(
-                            Effect.logWarning(
-                              "Dotypos reservation confirmation replay conflicted; rereading to settle it"
-                            )
-                          )
-                        )
-                      : Effect.void
-                  )
-                )
+                  message: "Dotypos reservation is already cancelled.",
+                })
+              )
+            ),
+            Match.when("CONFIRMED", () => Effect.succeed(Option.some(current))),
+            Match.when("NEW", () =>
+              Effect.succeed(Option.none<DotyposReservation>())
+            ),
+            Match.exhaustive
           ),
-          Match.exhaustive
-        );
-      });
-
-      const reservation = yield* attempt.pipe(
-        Effect.retry({
-          schedule: Schedule.recurs(1),
-          while: isReplayConflict("reservation.patch"),
-        }),
+        patched: (patched) => patched,
+      }).pipe(
         Effect.tapError((error) =>
           Effect.logError("Dotypos reservation confirmation failed", {
             error,
@@ -1464,6 +1614,72 @@ const makeDotyposService: Effect.Effect<
     },
     (effect, reservationId) =>
       effect.pipe(Effect.annotateLogs({ reservationId }))
+  );
+
+  const restoreCancelledReservation = Effect.fn(
+    "DotyposService.restoreCancelledReservation"
+  )(
+    function* (input: RestoreDotyposReservationInput) {
+      const id = yield* normalizeInputIdentifier(
+        DotyposReservationIdSchema,
+        input.reservationId,
+        "Reservation ID",
+        "restoreCancelledReservation"
+      );
+      const expectedBooking = yield* normalizeReservationBooking(
+        input.expectedBooking,
+        "restoreCancelledReservation"
+      );
+
+      yield* Effect.logInfo("Dotypos reservation restore started");
+
+      // Only the expected booking is revived. CANCELLED patches. CONFIRMED is
+      // an earlier restore, or, on the settling rerun, the replayed PATCH that
+      // landed. NEW was never cancelled or was reopened outside Workspace.
+      const restored = yield* confirmReservationVersion({
+        reservationId: id,
+        operation: "restoreCancelledReservation",
+        settle: (current, replayed) =>
+          restorableReservationStatus(current, expectedBooking).pipe(
+            // A refusal on the settling rerun can't show that nothing was
+            // applied: the replayed PATCH may have landed before the change.
+            Effect.mapError((refusal) =>
+              Option.getOrElse(
+                replayed,
+                (): DotyposReservationNotRestorable | DotyposUncertain =>
+                  refusal
+              )
+            ),
+            Effect.map((status) =>
+              status === "CANCELLED"
+                ? Option.none()
+                : Option.some(
+                    Option.isSome(replayed)
+                      ? RestoreCancelledReservationResult.Restored({
+                          reservation: current,
+                        })
+                      : RestoreCancelledReservationResult.AlreadyConfirmed({
+                          reservation: current,
+                        })
+                  )
+            )
+          ),
+        patched: (reservation) =>
+          RestoreCancelledReservationResult.Restored({ reservation }),
+      }).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("Dotypos reservation restore failed", { error })
+        )
+      );
+
+      yield* Effect.logInfo("Dotypos reservation restore succeeded", {
+        outcome: restored._tag,
+      });
+
+      return restored;
+    },
+    (effect, input) =>
+      effect.pipe(Effect.annotateLogs({ reservationId: input.reservationId }))
   );
 
   const updateReservation = Effect.fn("DotyposService.updateReservation")(
@@ -2662,6 +2878,7 @@ const makeDotyposService: Effect.Effect<
     updateReservation,
     cancelReservation,
     confirmReservation,
+    restoreCancelledReservation,
     getReservation,
     getReservationWithoutCustomer,
     getReservationStatus,

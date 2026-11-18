@@ -65,3 +65,7 @@ Read and write `workspace_reservations.reservation_details` and `review_account_
 ## Cowork Reserved Desk assignment
 
 `features/checkout/backend/reservation/workspace-table-assignment.service.ts` builds the ranking occupancy for current `reserved-desk` assignments. Rank each enabled, displayable, assignable `cowork:open-space` table at `max(actual occupancy, seat capacity)`, and never add the two. Ranking is the only use of this value: candidate capacity and public availability use actual occupancy. Don't apply it to Open Space, historical tiers, meeting rooms, or offices.
+
+## Assigned-table checks
+
+`WorkspaceTableAssignmentService.getAssignedTableAvailability` checks whether the exact table a Dotypos reservation holds is still free, for example before a cancelled reservation is restored. It reads the reservation's held span (an early-setup meeting room's setup included), seats and table from the Dotypos record, any of which unreadable makes it unavailable, counts other `NEW` and `CONFIRMED` bookings with the assignment's occupancy rules (half-open overlap, expired local holds ignored, never the reservation itself), and applies the family rule: meeting rooms and offices need an otherwise empty table, cowork shares it up to the table's seat capacity. A missing, disabled or hidden table is unavailable. It never picks another table, and it reads Dotypos, so callers run it outside every transaction.
