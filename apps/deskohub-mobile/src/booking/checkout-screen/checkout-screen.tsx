@@ -28,6 +28,7 @@ import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { bookFamilyHref, bookHref, bookProfileHref } from "../booking-routes";
 import type {
   CheckoutRestartReason,
@@ -193,6 +194,7 @@ function CheckoutFlowScreen({
   }
   return (
     <ScrollScreen>
+      <QuietUpdateOffer backdrop="paper" />
       {title}
       {state === undefined ? (
         <LoadingState label={m.booking_checkout_starting({}, { locale })} />
@@ -380,6 +382,7 @@ function DetailsForAccount({
         if (access._tag === "Unavailable") {
           return (
             <ScrollScreen>
+              <QuietUpdateOffer backdrop="paper" />
               <AccountUnavailableNotice
                 reason={access.reason}
                 locale={locale}

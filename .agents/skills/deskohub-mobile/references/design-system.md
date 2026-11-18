@@ -70,7 +70,9 @@ shows something none of them draws.
   pinned. Everywhere else (tab roots, account pages, reservations) the
   banner shows. A screen that shows the card, or a transient screen that
   should show no offer (auth callback, with `useUpdateOfferHost`), hosts
-  the offer while focused and the banner stays away; never list routes.
+  the offer while focused and the banner stays away; the booking and
+  onboarding stack layouts host it for their whole flow, loading and error
+  states included. Never list routes.
 - Loading: `LoadingIndicator` (the logo die) is the only spinner; never
   `ActivityIndicator`.
 - Keyboard: `useKeyboardShown` and `keyboard-viewport.ts`; the focused field

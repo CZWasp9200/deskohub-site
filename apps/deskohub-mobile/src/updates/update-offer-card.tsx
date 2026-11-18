@@ -116,7 +116,7 @@ export function UpdateOfferCard({
     updateOfferActionPlacement({ cardWidth, actionLabelWidth, fontScale }) ===
       "inline";
   // Centres a 20 dp glyph on the message's first line.
-  const firstLineInset = ((firstLineHeight - 20) * fontScale) / 2;
+  const firstLineInset = (firstLineHeight * fontScale - 20) / 2;
   const action = (
     <Pressable
       role="button"
@@ -155,7 +155,9 @@ export function UpdateOfferCard({
       <View style={!inline && { paddingTop: firstLineInset }}>
         <Icon icon={Download} size={20} color={color.navy} />
       </View>
-      <View style={[styles.body, inline && styles.inlineBody]}>
+      <View
+        style={[styles.body, inline ? styles.inlineBody : styles.stackedBody]}
+      >
         <Text
           variant="bodySmall"
           tone="default"
@@ -187,11 +189,7 @@ const styles = StyleSheet.create({
     gap: updateOfferMetrics.gap,
     paddingLeft: updateOfferMetrics.paddingStart,
   },
-  stackedCard: {
-    alignItems: "flex-start",
-    paddingBottom: actionSlop + space.xs,
-    paddingTop: space.md,
-  },
+  stackedCard: { alignItems: "flex-start", paddingTop: space.md },
   inlineCard: {
     alignItems: "center",
     paddingVertical: space.xs,
@@ -203,6 +201,13 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, minWidth: 0 },
   inlineBody: { justifyContent: "center" },
+  // The action's whole target lies inside the body, which takes touches
+  // only within its bounds: its slop below and to the left are body padding.
+  stackedBody: {
+    marginLeft: -updateOfferMetrics.actionInset,
+    paddingBottom: actionSlop + space.xs,
+    paddingLeft: updateOfferMetrics.actionInset,
+  },
   inlineMessage: { paddingVertical: space.sm },
   stackedAction: { alignSelf: "flex-start", marginTop: 6 },
   inlineAction: { marginLeft: updateOfferMetrics.actionInset },
