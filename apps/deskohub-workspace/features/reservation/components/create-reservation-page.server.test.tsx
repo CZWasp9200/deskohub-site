@@ -32,6 +32,7 @@ import type {
 const testEmailAddressForAda = testEmailAddress("ada");
 
 const nextServer = await import("next/server");
+const nextNavigation = await import("next/navigation");
 
 mock.module("server-only", () => ({}));
 mock.module("next/root-params", () => ({
@@ -40,6 +41,20 @@ mock.module("next/root-params", () => ({
 mock.module("next/server", () => ({
   ...nextServer,
   connection: () => Promise.resolve(),
+}));
+mock.module("next/navigation", () => ({
+  ...nextNavigation,
+  redirect: (url: string) => {
+    throw new Error(`redirect to ${url}`);
+  },
+}));
+
+const draftCookies = new Map<string, string>();
+mock.module("@/shared/backend/utils/request-cookies", () => ({
+  getRequestCookies: Effect.succeed({
+    get: (name: string) =>
+      draftCookies.has(name) ? { value: draftCookies.get(name) } : undefined,
+  }),
 }));
 
 // Office reservations are released unless a test closes the gate.
@@ -57,6 +72,7 @@ mock.module("@/features/office/backend/office-release-gate.server", () => ({
 }));
 beforeEach(() => {
   officePageEnabled = true;
+  draftCookies.clear();
 });
 
 const loadReservationCheckoutAccount = mock(
@@ -72,7 +88,11 @@ const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 const { createReservationPage } = await import(
   "./create-reservation-page.server"
 );
-const { checkoutContactReturnState } = await import(
+const {
+  checkoutContactReturnState,
+  checkoutOfficeSelectionCookieName,
+  sealCheckoutOfficeSelection,
+} = await import(
   "@/features/reservation/backend/checkout-contact-return-state"
 );
 const { checkoutContactQueryParam } = await import(
@@ -446,6 +466,81 @@ test("reopens the contact details sealed into a sign-in's return path", async ()
       initialValues: expected,
     });
   }
+});
+
+test("restores office attendees only for the verified contact and its originating browser", async () => {
+  const contact = {
+    name: "Ada Lovelace",
+    email: testEmailAddressForAda,
+    phone: "+420777777777",
+    billing: { purpose: "personal", invoice: "none" },
+    marketingConsent: false,
+  } as const;
+  const officeSelection = {
+    kind: "people",
+    people: {
+      contactAttends: false,
+      invitees: ["guest-one@example.org", "guest-two@example.org"],
+    },
+  } as const;
+  const id = crypto.randomUUID();
+  const token = await Effect.runPromise(
+    checkoutContactReturnState
+      .seal(contact, "en-US", id)
+      .pipe(Effect.provide(TestSealedStateKeys))
+  );
+  const cookie = await Effect.runPromise(
+    sealCheckoutOfficeSelection({ id, selection: officeSelection }).pipe(
+      Effect.provide(TestSealedStateKeys)
+    )
+  );
+  const cookieName = checkoutOfficeSelectionCookieName(id);
+  draftCookies.set(cookieName, cookie);
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+  };
+  const pageDefinition = createReservationPage(family);
+  const renderReturn = async () =>
+    renderContent(
+      await pageDefinition.Page({
+        searchParams: Promise.resolve({
+          [checkoutContactQueryParam]: token,
+          startsOn: "2026-11-19",
+          step: "contact",
+        }),
+      })
+    );
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: contact.email,
+  });
+  await renderReturn();
+  expect(family.renderForm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      checkoutCustomer: expect.objectContaining({ continuesCheckout: true }),
+      checkoutOfficeSelection: officeSelection,
+    })
+  );
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: testEmailAddress("someone-else"),
+  });
+  await expect(renderReturn()).rejects.toThrow(
+    "redirect to /en-US/reservation/office?startsOn=2026-11-19"
+  );
+  draftCookies.delete(cookieName);
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: contact.email,
+  });
+  await expect(renderReturn()).rejects.toThrow(
+    "redirect to /en-US/reservation/office?startsOn=2026-11-19"
+  );
+  expect(family.renderForm).toHaveBeenCalledTimes(1);
 });
 
 describe("the reservation page recipe", () => {

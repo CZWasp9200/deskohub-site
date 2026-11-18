@@ -19,6 +19,7 @@ import { mockReservationCheckoutStep } from "@/features/reservation/components/r
 import { mockCheckoutEmailVerification } from "@/features/reservation/components/use-checkout-email-verification.test-utils";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
 import { officeReservationDefaultValues } from "@/features/reservation/office-reservation";
+import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import { formatMoney, moneyWithValue } from "@/shared/money/money";
 import {
@@ -52,8 +53,8 @@ mock.module("@/features/reservation/actions/get-advertised-price", () => ({
   getAdvertisedPrices: () => Promise.resolve({ data: [] }),
 }));
 
-mockCheckoutEmailVerification();
-mockReservationCheckoutStep();
+const verifyEmail = mockCheckoutEmailVerification();
+const checkoutStep = mockReservationCheckoutStep();
 
 const { OfficeReservationForm, OfficeReservationFormFallback } = await import(
   "./office-reservation-form"
@@ -108,6 +109,8 @@ describe("OfficeReservationForm", () => {
   });
 
   beforeEach(() => {
+    checkoutStep.initial = "selection";
+    verifyEmail.mockClear();
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     workspaceUseAction.mockReturnValue({
       executeAsync,
@@ -442,6 +445,125 @@ describe("OfficeReservationForm", () => {
       })
     );
     expect(removeYourself().disabled).toBe(false);
+  });
+
+  test("uses Enter to replace the only attendee and keeps focus when switching back", () => {
+    const startsOn = decodePlainDate("2026-08-10");
+    const view = renderOfficeForm({
+      initialAdvertisedPrices: officeAdvertisedPrices(startsOn),
+      initialValues: { ...officeReservationDefaultValues, startsOn },
+      seatCapacity: 1,
+      today: startsOn,
+    });
+    const list = view.getByRole("list", {
+      name: m.officePeopleLabel({}, { locale: "en-US" }),
+    });
+    const field = view.getByRole("textbox", {
+      name: m.officePeopleEmailLabel({}, { locale: "en-US" }),
+    });
+    const count = () =>
+      view.container.querySelector("[data-office-people-count]")?.textContent;
+    const oneSeat = m.officePeopleCount(
+      { count: 1, maximum: 1 },
+      { locale: "en-US" }
+    );
+    expect(count()).toBe(oneSeat);
+    fireEvent.change(field, { target: { value: "incorrect@" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(count()).toBe(oneSeat);
+    expect(list.textContent).toContain(
+      m.officePeopleYou({}, { locale: "en-US" })
+    );
+
+    field.focus();
+    fireEvent.change(field, { target: { value: "guest@example.org" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(list.textContent).toContain("guest@example.org");
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    expect(count()).toBe(oneSeat);
+    expect(document.activeElement).toBe(field);
+
+    const switchToYou = view.getByRole("button", {
+      name: m.officePeopleSwitchToYourself({}, { locale: "en-US" }),
+    });
+    switchToYou.focus();
+    fireEvent.click(switchToYou);
+    expect(document.activeElement).toBe(field);
+    expect(list.textContent).not.toContain("guest@example.org");
+    expect(list.textContent).toContain(
+      m.officePeopleYou({}, { locale: "en-US" })
+    );
+    expect(count()).toBe(oneSeat);
+  });
+
+  test("applies the verified office draft before submitting the advertised two-seat checkout", async () => {
+    checkoutStep.initial = "contact";
+    const today = getCurrentWorkspaceDate();
+    const startsOn = decodePlainDate(today.toString());
+    const contact = {
+      name: "Alex Sample",
+      email: "alex@deskohub.test",
+      phone: "+420777777777",
+    };
+    const people = {
+      contactAttends: false,
+      invitees: ["guest-one@example.org", "guest-two@example.org"],
+    };
+    const officeSelection = { kind: "people", people } as const;
+    globalThis.fetch = Object.assign(
+      mock(async () =>
+        officeAvailabilityResponse({
+          from: startsOn,
+          to: today.add({ days: 30 }).toString(),
+        })
+      ),
+      { preconnect: originalFetch.preconnect }
+    );
+    const props = {
+      initialValues: {
+        ...officeReservationDefaultValues,
+        startsOn,
+        ...contact,
+      },
+      initialAdvertisedPrices: officeAdvertisedPrices(startsOn),
+      today: startsOn,
+    };
+    const signedOut = renderOfficeForm({
+      ...props,
+      initialValues: { ...props.initialValues, people },
+    });
+    const submit = signedOut.container.querySelector<HTMLButtonElement>(
+      "#reservation-submit"
+    );
+    if (!submit) throw new Error("Missing checkout button");
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(verifyEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ email: contact.email, officeSelection })
+      )
+    );
+    expect(executeAsync).not.toHaveBeenCalled();
+    signedOut.unmount();
+
+    renderOfficeForm({
+      ...props,
+      checkoutCustomer: {
+        status: "profile-missing",
+        email: contact.email,
+        continuesCheckout: true,
+      },
+      checkoutOfficeSelection: officeSelection,
+    });
+    await waitFor(() =>
+      expect(executeAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          advertisedPriceToken: "office-2",
+          people,
+          reservation: expect.objectContaining({ kind: "office", seats: 2 }),
+        })
+      )
+    );
   });
 
   test("shows the signed-in contact and refuses their own email as an invitee", () => {

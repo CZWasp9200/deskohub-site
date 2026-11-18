@@ -1670,6 +1670,8 @@
   "officePeopleAddYourself": "ख़ुद को जोड़ें",
   "officePeopleEmailLabel": "email पता",
   "officePeopleAdd": "जोड़ें",
+  "officePeopleReplace": "बदलें",
+  "officePeopleSwitchToYourself": "खुद शामिल हों",
   "officePeopleInvalidEmail": "पूरा email पता दर्ज करें।",
   "officePeopleDuplicateEmail": "यह email पहले से सूची में है।",
   "officePeopleContactEmail": "यह आपका अपना email है। अपने लिए “आप” वाली पंक्ति इस्तेमाल करें।",

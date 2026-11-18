@@ -1655,6 +1655,8 @@
   "officePeopleAddYourself": "Thêm bạn vào danh sách",
   "officePeopleEmailLabel": "Địa chỉ email",
   "officePeopleAdd": "Thêm",
+  "officePeopleReplace": "Thay thế",
+  "officePeopleSwitchToYourself": "Tự tham dự",
   "officePeopleInvalidEmail": "Nhập địa chỉ email đầy đủ.",
   "officePeopleDuplicateEmail": "Email này đã có trong danh sách.",
   "officePeopleContactEmail": "Đây là email của bạn. Hãy dùng dòng Bạn cho chính bạn.",

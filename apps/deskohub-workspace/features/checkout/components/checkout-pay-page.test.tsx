@@ -398,6 +398,20 @@ describe("CheckoutPayPage provider handoff", () => {
     }
   );
 
+  test.each(["de-DE", "sk-SK"] as const)(
+    "uses plain return instructions when the %s provider button label is unverified",
+    async (locale) => {
+      const { CheckoutPayProviderHandoff } = await import(
+        "./checkout-pay-page-card"
+      );
+      const view = render(<CheckoutPayProviderHandoff locale={locale} />);
+      expect(view.container.textContent).toContain(
+        m.checkoutPayNoteBackToShop({}, { locale })
+      );
+      expect(view.container.querySelector('[class*="2D32AA"]')).toBeNull();
+    }
+  );
+
   test("reviews who is coming to an office and prices each person", async () => {
     const { CheckoutPayPage } = await import("./checkout-pay-page");
     const startsOn = "2026-11-18";

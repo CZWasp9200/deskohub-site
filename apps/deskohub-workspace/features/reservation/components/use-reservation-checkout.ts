@@ -11,12 +11,14 @@ import {
 import { visitorConsent } from "@/features/cookie-consent";
 import { captureAnalyticsEvent } from "@/features/cookie-consent/analytics-events";
 import { type Locale, m } from "@/features/i18n";
+import type { OfficePeople } from "@/features/office/office-people";
 import { preparePayState } from "@/features/reservation/actions/prepare-pay-state";
 import {
   getReservationAnalyticsProperties,
   type ReservationPrePaymentOutcome,
 } from "@/features/reservation/reservation-analytics";
 import type { ReservationOrderIssuanceData } from "@/features/reservation/reservation-order";
+import type { Money } from "@/shared/money/money";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 type ReservationCheckoutDetails = {
@@ -25,7 +27,15 @@ type ReservationCheckoutDetails = {
   readonly marketingConsent?: boolean;
   /** Labels a `marketingConsent: true` given through a site tool. */
   readonly marketingConsentSource?: "site_tool";
+  readonly people?: OfficePeople;
   readonly reservation: ReservationOrderIssuanceData;
+};
+
+type PreparedOffice = {
+  readonly seats: number;
+  readonly total: Money;
+  readonly regularPrice: Money;
+  readonly discount: Money;
 };
 
 /** Where a checkout submission led: the prepared Pay page or an error message. */
@@ -35,6 +45,7 @@ export type CheckoutSubmission =
       readonly redirectUrl: string;
       /** When the Pay page stops accepting the prepared state. */
       readonly expiresAt: string;
+      readonly preparedOffice?: PreparedOffice;
     }
   | { readonly status: "error"; readonly message: string };
 
@@ -122,7 +133,10 @@ export function useReservationCheckout({
     hasTrackedSuccessfulSubmission.current = false;
     window.scrollTo({ top: 0, behavior: "instant" });
 
-    const reservationFingerprint = JSON.stringify(details.reservation);
+    const reservationFingerprint = JSON.stringify([
+      details.reservation,
+      details.people,
+    ]);
     const effectiveCheckoutAttemptId =
       lastSubmittedReservationRef.current &&
       lastSubmittedReservationRef.current !== reservationFingerprint
@@ -168,6 +182,7 @@ const getPreparedCheckout = (
         readonly status: string;
         readonly redirectUrl?: string;
         readonly expiresAt?: string;
+        readonly preparedOffice?: PreparedOffice;
       }
     | undefined
 ): CheckoutSubmission | undefined =>
@@ -178,5 +193,6 @@ const getPreparedCheckout = (
         status: data.status,
         redirectUrl: data.redirectUrl,
         expiresAt: data.expiresAt,
+        ...(data.preparedOffice && { preparedOffice: data.preparedOffice }),
       }
     : undefined;

@@ -64,12 +64,14 @@ export function OfficePeopleField({
   const contactEmail = contact?.email.trim().toLowerCase() || undefined;
   const removable = canRemoveOfficePerson(people);
   const hasRoom = canAddOfficePerson(people, seatCapacity);
+  const replacesAttendee = seatCapacity === 1 && !hasRoom;
 
   const add = () => {
-    const added = addOfficeInvitee(people, candidate, {
-      seatCapacity,
-      contactEmail,
-    });
+    const added = addOfficeInvitee(
+      replacesAttendee ? { contactAttends: false, invitees: [] } : people,
+      candidate,
+      { seatCapacity, contactEmail }
+    );
     if (Result.isFailure(added)) {
       setRejection(added.failure);
       return;
@@ -178,7 +180,7 @@ export function OfficePeopleField({
         </ul>
 
         <div className="border-t border-navy-blue/10 p-4 sm:px-6">
-          {hasRoom ? (
+          {hasRoom || replacesAttendee ? (
             <>
               <div className="flex gap-3">
                 <label className="sr-only" htmlFor={inputId}>
@@ -213,8 +215,12 @@ export function OfficePeopleField({
                   type="button"
                   variant="secondary"
                 >
-                  <Plus aria-hidden="true" className="size-4" />
-                  {m.officePeopleAdd({}, { locale })}
+                  {!replacesAttendee && (
+                    <Plus aria-hidden="true" className="size-4" />
+                  )}
+                  {replacesAttendee
+                    ? m.officePeopleReplace({}, { locale })
+                    : m.officePeopleAdd({}, { locale })}
                 </Button>
               </div>
               <p
@@ -230,13 +236,26 @@ export function OfficePeopleField({
               {m.officePeopleFull({ maximum: seatCapacity }, { locale })}
             </p>
           )}
-          {!people.contactAttends && hasRoom && (
+          {!people.contactAttends && (hasRoom || replacesAttendee) && (
             <UnstyledButton
               className="mt-3 inline-flex items-center gap-2 font-semibold text-burned-orange-ink hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-burned-orange"
-              onClick={() => onChange(restoreOfficeContact(people))}
+              onClick={() => {
+                document.getElementById(inputId)?.focus();
+                setCandidate("");
+                setRejection(undefined);
+                onChange(
+                  replacesAttendee
+                    ? { contactAttends: true, invitees: [] }
+                    : restoreOfficeContact(people)
+                );
+              }}
             >
-              <Plus aria-hidden="true" className="size-4" />
-              {m.officePeopleAddYourself({}, { locale })}
+              {!replacesAttendee && (
+                <Plus aria-hidden="true" className="size-4" />
+              )}
+              {replacesAttendee
+                ? m.officePeopleSwitchToYourself({}, { locale })
+                : m.officePeopleAddYourself({}, { locale })}
             </UnstyledButton>
           )}
         </div>

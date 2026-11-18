@@ -10,6 +10,7 @@ import {
   test,
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -17,7 +18,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import type { Schema } from "effect";
+import { Effect, type Schema } from "effect";
 import { StrictMode, useEffect, useState } from "react";
 import {
   type Resolver,
@@ -25,12 +26,21 @@ import {
   useForm,
   useWatch,
 } from "react-hook-form";
+import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
+import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { m } from "@/features/i18n";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
+import type { CheckoutSubmission } from "@/features/reservation/components/use-reservation-checkout";
+import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
+import { officeReservationDefaultValues } from "@/features/reservation/office-reservation";
+import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type {
   ReservationCheckoutCustomerForm,
   ReservationExistingCustomerForm,
 } from "@/features/reservation/reservation-existing-customer";
+import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import { moneyWithValue } from "@/shared/money/money";
 import {
   workspaceRouterPush,
   workspaceUseAction,
@@ -39,6 +49,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import { plainDateStringSchema } from "@/shared/utils/temporal";
+import { toAgentToolMoney } from "../agent-tool-money";
 import { publishQuoteTool } from "./site-tool-catalog";
 import {
   agentToolEventStream,
@@ -86,6 +98,9 @@ mock.module(
 
 const { ReservationCheckoutForm } = await import(
   "@/features/reservation/components/reservation-checkout-form"
+);
+const { OfficeReservationForm } = await import(
+  "@/features/office/components/office-reservation-form"
 );
 
 const toolName = "prepare_reservation";
@@ -277,10 +292,13 @@ const typedContact = {
 
 const quoteFor = (family: string, date: string) => ({
   family,
-  total: { amount: "290.00", currency: "CZK" },
-  regular_price: { amount: "290.00", currency: "CZK" },
+  total: { amount: family === "office" ? 290 : "290.00", currency: "CZK" },
+  regular_price: {
+    amount: family === "office" ? 290 : "290.00",
+    currency: "CZK",
+  },
   quoted_at: "2099-07-29T08:00:00Z",
-  reservation_url: `https://deskohub.test/reservation/${family}?entryTier=open-space&date=${date}&coffee=false`,
+  reservation_url: `https://deskohub.test/reservation/${family}?entryTier=open-space&date=${date}&coffee=false${family === "office" ? "&seats=1" : ""}`,
 });
 
 let modelContext: ReturnType<typeof installFakeModelContext>;
@@ -291,6 +309,10 @@ type PrepareActionResult = {
         readonly status: "ready";
         readonly redirectUrl: string;
         readonly expiresAt: string;
+        readonly preparedOffice?: Extract<
+          CheckoutSubmission,
+          { status: "ready" | "pricing_changed" }
+        >["preparedOffice"];
       }
     | { readonly status: "error"; readonly message: string };
 };
@@ -337,12 +359,20 @@ describe("prepare_reservation site tool", () => {
     modelContext = installFakeModelContext();
     endpoint = quoteEndpoint(quoteFor("cowork", "2099-07-31"));
     verifyEmail.mockClear();
-    executeAsync = mock((_input: PreparePayStateInput) =>
+    executeAsync = mock(({ reservation }: PreparePayStateInput) =>
       Promise.resolve<PrepareActionResult>({
         data: {
           status: "ready",
           redirectUrl: payPath,
           expiresAt: payExpiresAt,
+          ...(reservation.kind === "office" && {
+            preparedOffice: {
+              seats: 1,
+              total: { value: 29000, currency: "CZK", exponent: 2 },
+              regularPrice: { value: 29000, currency: "CZK", exponent: 2 },
+              discount: { value: 0, currency: "CZK", exponent: 2 },
+            },
+          }),
         },
       })
     );
@@ -442,6 +472,128 @@ describe("prepare_reservation site tool", () => {
     });
     expect(workspaceRouterPush).toHaveBeenCalledWith(payPath);
   });
+
+  test.each(["matches", "repriced", "wrong_count"] as const)(
+    "prepares a legacy three-seat office and verifies the prepared quote when it %s",
+    async (outcome) => {
+      const today = getCurrentWorkspaceDate();
+      const startsOn = plainDateStringSchema.make(today.toString());
+      const initialAdvertisedPrices = [1, 2, 3].map((seats) => {
+        const request = getOfficeAdvertisedPriceRequest({
+          locale: "en-US",
+          startsOn,
+          endsOn: startsOn,
+          seats,
+        });
+        const quote = Effect.runSync(
+          buildOfficeReservationQuote(request.reservation.details)
+        );
+        return {
+          request,
+          advertisedPrice: {
+            kind: "office" as const,
+            advertisedPriceToken: `office-${seats}`,
+            quote,
+            summary: getOfficeCheckoutSummary(quote),
+          },
+        };
+      });
+      const quote = initialAdvertisedPrices[2]?.advertisedPrice.quote;
+      if (!quote) throw new Error("Missing three-seat quote");
+      const quotedTotal = quote.payment.expectedPrice;
+      const preparedTotal =
+        outcome === "repriced"
+          ? moneyWithValue(quotedTotal.value + 5000, quotedTotal)
+          : quotedTotal;
+      endpoint.restore();
+      endpoint = quoteEndpoint({
+        family: "office",
+        reservation_url: `https://deskohub.test/reservation/office?startsOn=${startsOn}&dayCount=1&seats=3`,
+        quoted_at: "2099-07-29T08:00:00Z",
+        total: toAgentToolMoney(quotedTotal),
+        regular_price: toAgentToolMoney(quotedTotal),
+      });
+      executeAsync.mockImplementation(async ({ reservation }) => {
+        if (reservation.kind !== "office")
+          throw new Error("Expected an office");
+        const payment = {
+          expectedPrice: preparedTotal,
+          undiscountedPrice: preparedTotal,
+        };
+        return {
+          data: {
+            status: "ready",
+            redirectUrl: payPath,
+            expiresAt: payExpiresAt,
+            preparedOffice: {
+              seats: outcome === "wrong_count" ? 1 : reservation.seats,
+              total: payment.expectedPrice,
+              regularPrice: payment.undiscountedPrice,
+              discount: getReservationQuoteDiscount(payment),
+            },
+          },
+        };
+      });
+      const queryClient = new QueryClient();
+      await renderForm({}, () => (
+        <QueryClientProvider client={queryClient}>
+          <OfficeReservationForm
+            checkoutCustomer={{
+              status: "profile-missing",
+              email: typedContact.email,
+              continuesCheckout: false,
+            }}
+            initialAdvertisedPrices={initialAdvertisedPrices}
+            initialAvailability={[
+              {
+                query: getOfficeAvailabilityQuery(startsOn),
+                loadedAt: Date.now(),
+                availability: {
+                  from: startsOn,
+                  to: today.add({ days: 30 }).toString(),
+                  unavailableDates: [],
+                  reservedDeskWorkstationRequiredDates: [],
+                  unavailableCoworkTiers: [],
+                  meetingRoomUnavailable: false,
+                  officeUnavailable: false,
+                  unavailableMonitorOptions: [],
+                  notices: [],
+                },
+              },
+            ]}
+            initialValues={{
+              ...officeReservationDefaultValues,
+              ...typedContact,
+              startsOn,
+            }}
+            locale="en-US"
+            seatCapacity={3}
+            today={startsOn}
+          />
+        </QueryClientProvider>
+      ));
+      const result = await runTool({
+        family: "office",
+        startsOn,
+        dayCount: 1,
+        seats: 3,
+      });
+      expect(lastPrepareInput()).toMatchObject({
+        advertisedPriceToken: "office-3",
+        reservation: { kind: "office", seats: 3 },
+      });
+      expect(lastPrepareInput()).not.toHaveProperty("people");
+      if (outcome === "wrong_count") {
+        expect(result).toMatchObject({ error: { code: "checkout_failed" } });
+        expect(result).not.toHaveProperty("pay_url");
+        return;
+      }
+      expect(result).toMatchObject({
+        status: outcome === "repriced" ? "pricing_changed" : "ready",
+        summary: { seats: 3, total: toAgentToolMoney(preparedTotal) },
+      });
+    }
+  );
 
   test("asks for missing contact details without calling the action, leaving the form filled", async () => {
     const view = await renderForm({ typed: { name: "Grace Hopper" } });
@@ -547,7 +699,7 @@ describe("prepare_reservation site tool", () => {
 
     expect(workspaceRouterPush.mock.calls).toEqual([
       [
-        "/en-US/reservation/office?entryTier=open-space&date=2099-08-03&coffee=false",
+        "/en-US/reservation/office?entryTier=open-space&date=2099-08-03&coffee=false&seats=1",
       ],
       [payPath],
     ]);

@@ -1685,6 +1685,8 @@
   "officePeopleAddYourself": "Přidat sebe",
   "officePeopleEmailLabel": "E-mailová adresa",
   "officePeopleAdd": "Přidat",
+  "officePeopleReplace": "Nahradit",
+  "officePeopleSwitchToYourself": "Přijdu místo hosta",
   "officePeopleInvalidEmail": "Zadej celou e-mailovou adresu.",
   "officePeopleDuplicateEmail": "Tento e-mail už v seznamu je.",
   "officePeopleContactEmail": "Tohle je tvůj vlastní e-mail. Pro sebe použij řádek Ty.",

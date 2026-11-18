@@ -120,6 +120,10 @@ export function CheckoutPayProviderHandoff({
 }: {
   readonly locale: Locale;
 }) {
+  const returnToShop = m.checkoutPayNoteBackToShop({}, { locale });
+  // Nexi publishes the German and Slovak language settings. The payment
+  // result button labels for those languages have not been verified.
+  const showsProviderLabel = locale !== "de-DE" && locale !== "sk-SK";
   return (
     <p className="flex items-start gap-2 text-sm leading-6 text-navy-blue/66">
       <ShieldCheck
@@ -130,11 +134,13 @@ export function CheckoutPayProviderHandoff({
         <Interpolate
           string={m.checkoutPayNoteNewTab({}, { locale })}
           mapping={{
-            backToShop: (
+            backToShop: showsProviderLabel ? (
               // Nexi's button: indigo, white bold capitals, 4px corners.
               <span className="mx-0.5 inline-block whitespace-nowrap rounded-[4px] bg-[#2D32AA] px-2 align-[0.1em] text-[0.7rem] font-bold uppercase leading-5 tracking-[0.08em] text-white">
-                {m.checkoutPayNoteBackToShop({}, { locale })}
+                {returnToShop}
               </span>
+            ) : (
+              returnToShop
             ),
           }}
         />
@@ -230,7 +236,10 @@ export function CheckoutPaySubmitButton({
                 <RotateCcw aria-hidden="true" className={payIconClassName} />
               ),
             }[variant]}
-          <span className="min-w-0 text-balance @max-[18rem]:text-xs @max-[18rem]:tracking-[0.08em]">
+          <span
+            className="min-w-0 text-balance @max-[18rem]:text-xs @max-[18rem]:tracking-[0.08em]"
+            data-checkout-pay-label=""
+          >
             {label}
           </span>
         </span>

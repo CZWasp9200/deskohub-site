@@ -49,8 +49,10 @@ import {
   officeReservationSchema,
 } from "@/features/reservation/office-reservation";
 import { officeSelectionLink } from "@/features/reservation/office-selection-link";
+import type { CheckoutOfficeSelection } from "@/features/reservation/reservation-checkout-contact";
 import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type { PreloadedWorkspaceAvailability } from "@/features/reservation/workspace-availability";
+import { Button } from "@/shared/components/ui/button";
 import {
   FormControl,
   FormField,
@@ -68,10 +70,13 @@ import { useOfficeDayCountBounds } from "./use-office-day-count-bounds";
 type OfficeReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly checkoutCustomer: ReservationCheckoutCustomerForm;
+  readonly checkoutOfficeSelection?: CheckoutOfficeSelection;
   readonly seatCapacity: number;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
-  readonly initialValues: OfficeReservationInput;
+  readonly initialValues: OfficeReservationInput & {
+    readonly people?: OfficePeople;
+  };
   readonly locale: Locale;
   readonly replacementToken?: string;
   readonly submittedCode?: CanonicalPromotionCode;
@@ -84,7 +89,12 @@ type OfficeReservationFormProps = {
  * server with the submitted reservation, never into the selection link.
  */
 type OfficeReservationFormValues = OfficeReservationInput & {
-  readonly people: OfficePeople;
+  /** A seat-only selection applied by WebMCP has no guest list. */
+  readonly people: OfficePeople | null;
+};
+
+type OfficeCheckoutFormData = OfficeReservationData & {
+  readonly people?: OfficePeople;
 };
 
 /** A people list the server would refuse, as the booking form words it. */
@@ -133,7 +143,7 @@ const withOfficePeopleCheck =
   (
     resolver: Resolver<OfficeReservationInput, unknown, OfficeReservationData>,
     { locale, seatCapacity }: { locale: Locale; seatCapacity: number }
-  ): Resolver<OfficeReservationFormValues, unknown, OfficeReservationData> =>
+  ): Resolver<OfficeReservationFormValues, unknown, OfficeCheckoutFormData> =>
   async (values, context, options) => {
     // The schema checks every field but the people list, which it does not know.
     const result = await resolver(values, context, {
@@ -142,11 +152,30 @@ const withOfficePeopleCheck =
         (name): name is FieldName<OfficeReservationInput> => name !== "people"
       ),
     });
+    if (values.people === null) {
+      return values.seats <= seatCapacity
+        ? result
+        : {
+            values: {},
+            errors: {
+              ...result.errors,
+              people: getOfficePeopleIssueError(
+                { _tag: "OverCapacity", seatCapacity },
+                locale
+              ),
+            },
+          };
+    }
+
     const checked = validateOfficePeople(values.people, {
       seatCapacity,
       contactEmail: values.email.trim() || undefined,
     });
-    if (Result.isSuccess(checked)) return result;
+    if (Result.isSuccess(checked)) {
+      return "seats" in result.values
+        ? { values: { ...result.values, people: checked.success }, errors: {} }
+        : result;
+    }
     return {
       values: {},
       errors: {
@@ -180,6 +209,7 @@ const getSelection = (
 export function OfficeReservationForm({
   checkoutSessionId,
   checkoutCustomer,
+  checkoutOfficeSelection,
   seatCapacity,
   initialAdvertisedPrices = [],
   initialAvailability,
@@ -190,12 +220,15 @@ export function OfficeReservationForm({
   today,
 }: OfficeReservationFormProps) {
   const initialPeople =
-    (initialValues as Partial<OfficeReservationFormValues>).people ??
-    initialOfficePeople;
+    checkoutOfficeSelection?.kind === "seats"
+      ? null
+      : (checkoutOfficeSelection?.people ??
+        initialValues.people ??
+        initialOfficePeople);
   const form = useForm<
     OfficeReservationFormValues,
     unknown,
-    OfficeReservationData
+    OfficeCheckoutFormData
   >({
     resolver: withOfficePeopleCheck(
       effectSchemaResolver(officeReservationSchema(defaultPhoneRegion(locale))),
@@ -204,7 +237,10 @@ export function OfficeReservationForm({
     defaultValues: {
       ...initialValues,
       people: initialPeople,
-      seats: getOfficePeopleSeats(initialPeople),
+      seats:
+        checkoutOfficeSelection?.kind === "seats"
+          ? checkoutOfficeSelection.seats
+          : getOfficePeopleSeats(initialPeople ?? initialOfficePeople),
     },
     mode: "onBlur",
     reValidateMode: "onChange",
@@ -270,12 +306,18 @@ export function OfficeReservationForm({
     : getWorkspaceOfficeProductTitle(locale);
 
   return (
-    <ReservationCheckoutForm<OfficeReservationFormValues, OfficeReservationData>
+    <ReservationCheckoutForm<
+      OfficeReservationFormValues,
+      OfficeCheckoutFormData
+    >
       checkoutCustomer={checkoutCustomer}
       advertisedPrice={advertisedPrices.checkout}
       availability={availability}
       checkoutSessionId={checkoutSessionId}
       form={form}
+      getOfficeSelection={({ people, seats }) =>
+        people ? { kind: "people", people } : { kind: "seats", seats }
+      }
       getReservation={getOfficeReservationOrder}
       locale={locale}
       selectionSummary={getOfficeReservationSelectionSummary(
@@ -284,16 +326,19 @@ export function OfficeReservationForm({
       )}
       selection={{
         kind: officeSelectionLink.kind,
-        // Seats follow the people list, so a link's seat count picks nothing.
+        // Only the site tool applies this selection. Ordinary links start
+        // with You, while the tool books its quoted number of unnamed seats.
         fromSearchParams: (
           searchParams
         ): Partial<OfficeReservationFormValues> => {
-          const { seats: _seats, ...linkedSelection } =
-            officeSelectionLink.readSelection(searchParams, {
+          return {
+            ...officeSelectionLink.readSelection(searchParams, {
               seatCapacity,
               today,
-            });
-          return linkedSelection;
+            }),
+            seats: Number(searchParams.get("seats")),
+            people: null,
+          };
         },
       }}
     >
@@ -354,32 +399,53 @@ export function OfficeReservationForm({
           <FormField
             control={form.control}
             name="people"
-            render={({ field, fieldState }) => (
-              <OfficePeopleField
-                contact={
-                  contactEmail
-                    ? { name: contactName, email: contactEmail }
-                    : undefined
-                }
-                error={
-                  fieldState.error?.type ===
-                  officeInviteeRejectedErrorType.contact
-                    ? undefined
-                    : fieldState.error?.message
-                }
-                inputRef={field.ref}
-                labelId={peopleLabelId}
-                locale={locale}
-                onChange={(people) => {
-                  field.onChange(people);
-                  form.setValue("seats", getOfficePeopleSeats(people), {
-                    shouldDirty: true,
-                  });
-                }}
-                people={field.value}
-                seatCapacity={seatCapacity}
-              />
-            )}
+            render={({ field, fieldState }) =>
+              field.value === null ? (
+                <div className="flex flex-col items-start gap-2">
+                  <p className="text-sm font-semibold text-navy-blue/72">
+                    {m.checkoutStatusSummarySeatsLabel({}, { locale })}: {seats}
+                  </p>
+                  <Button
+                    onClick={() => {
+                      field.onChange(initialOfficePeople);
+                      form.setValue("seats", 1, { shouldDirty: true });
+                    }}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {m.officePeopleLabel({}, { locale })}
+                  </Button>
+                  {fieldState.error && (
+                    <p role="alert">{fieldState.error.message}</p>
+                  )}
+                </div>
+              ) : (
+                <OfficePeopleField
+                  contact={
+                    contactEmail
+                      ? { name: contactName, email: contactEmail }
+                      : undefined
+                  }
+                  error={
+                    fieldState.error?.type ===
+                    officeInviteeRejectedErrorType.contact
+                      ? undefined
+                      : fieldState.error?.message
+                  }
+                  inputRef={field.ref}
+                  labelId={peopleLabelId}
+                  locale={locale}
+                  onChange={(people) => {
+                    field.onChange(people);
+                    form.setValue("seats", getOfficePeopleSeats(people), {
+                      shouldDirty: true,
+                    });
+                  }}
+                  people={field.value}
+                  seatCapacity={seatCapacity}
+                />
+              )
+            }
           />
 
           <div className="flex flex-col gap-2" data-office-price="">

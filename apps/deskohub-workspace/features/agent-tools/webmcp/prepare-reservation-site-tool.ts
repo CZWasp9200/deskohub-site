@@ -1,4 +1,8 @@
 import { Data, Duration, Effect, Option, Schema } from "effect";
+import {
+  agentToolMoneySchema,
+  toAgentToolMoney,
+} from "@/features/agent-tools/agent-tool-money";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationFormSubmission } from "@/features/reservation/components/reservation-checkout-form";
 import { workspaceReservationKindSchema } from "@/features/reservation/reservation-kind";
@@ -358,11 +362,13 @@ const getMarketingConsentOutcome = (
 };
 
 const toPrepareReservationResult = ({
+  link,
   locale,
   marketingConsent,
   quote: { reservation_url: _link, ...summary },
   submission,
 }: {
+  readonly link: URL;
   readonly locale: Locale;
   readonly marketingConsent: MarketingConsentOutcome;
   readonly quote: Quote;
@@ -370,7 +376,40 @@ const toPrepareReservationResult = ({
 }) => {
   switch (submission.status) {
     case "ready":
-    case "pricing_changed":
+    case "pricing_changed": {
+      if (summary.family === "office") {
+        const prepared = submission.preparedOffice;
+        if (
+          !prepared ||
+          prepared.seats !== Number(link.searchParams.get("seats"))
+        ) {
+          return siteToolError(
+            "checkout_failed",
+            m.reservationErrorMessage({}, { locale })
+          );
+        }
+        const total = toAgentToolMoney(prepared.total);
+        const quotedTotal = Schema.decodeUnknownOption(agentToolMoneySchema)(
+          summary.total
+        );
+        const matchesQuote =
+          Option.isSome(quotedTotal) &&
+          quotedTotal.value.amount === total.amount &&
+          quotedTotal.value.currency === total.currency;
+        return {
+          status: matchesQuote ? submission.status : "pricing_changed",
+          pay_url: new URL(submission.redirectUrl, window.location.origin).href,
+          expires_at: submission.expiresAt,
+          summary: {
+            ...summary,
+            seats: prepared.seats,
+            total,
+            regular_price: toAgentToolMoney(prepared.regularPrice),
+            discount: toAgentToolMoney(prepared.discount),
+          },
+          marketingConsent,
+        };
+      }
       return {
         status: submission.status,
         pay_url: new URL(submission.redirectUrl, window.location.origin).href,
@@ -378,6 +417,7 @@ const toPrepareReservationResult = ({
         summary,
         marketingConsent,
       };
+    }
     case "error":
       return siteToolError("checkout_failed", submission.message);
     case "email-verification":

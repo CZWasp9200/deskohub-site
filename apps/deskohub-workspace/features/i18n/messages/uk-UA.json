@@ -1700,6 +1700,8 @@
   "officePeopleAddYourself": "Додати себе",
   "officePeopleEmailLabel": "Електронна адреса",
   "officePeopleAdd": "Додати",
+  "officePeopleReplace": "Замінити",
+  "officePeopleSwitchToYourself": "Прийти замість гостя",
   "officePeopleInvalidEmail": "Введіть повну електронну адресу.",
   "officePeopleDuplicateEmail": "Ця електронна адреса вже є в списку.",
   "officePeopleContactEmail": "Це ваша власна електронна адреса. Для себе використайте рядок «Ви».",

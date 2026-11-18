@@ -1670,6 +1670,8 @@
   "officePeopleAddYourself": "Add yourself",
   "officePeopleEmailLabel": "Email address",
   "officePeopleAdd": "Add",
+  "officePeopleReplace": "Replace",
+  "officePeopleSwitchToYourself": "Switch to yourself",
   "officePeopleInvalidEmail": "Enter a full email address.",
   "officePeopleDuplicateEmail": "This email is already on the list.",
   "officePeopleContactEmail": "This is your own email. Use the You row for yourself.",

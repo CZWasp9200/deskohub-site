@@ -1,22 +1,46 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Effect, Option } from "effect";
 import type { Locale } from "@/features/i18n";
-import type { ReservationCheckoutContact } from "@/features/reservation/reservation-checkout-contact";
+import type {
+  CheckoutOfficeSelection,
+  ReservationCheckoutContact,
+} from "@/features/reservation/reservation-checkout-contact";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 
 mock.module("server-only", () => ({}));
 
+const draftCookies = new Map<string, string>();
+const setCookie = mock(
+  (
+    name: string,
+    value: string,
+    _options: {
+      readonly httpOnly: boolean;
+      readonly sameSite: string;
+      readonly maxAge: number;
+    }
+  ) => draftCookies.set(name, value)
+);
+mock.module("@/shared/backend/utils/request-cookies", () => ({
+  getRequestCookies: Effect.succeed({
+    get: (name: string) =>
+      draftCookies.has(name) ? { value: draftCookies.get(name) } : undefined,
+    set: setCookie,
+  }),
+}));
+
+type SealInput = ReservationCheckoutContact & {
+  readonly officeSelection?: CheckoutOfficeSelection;
+};
 type SealHandler = (
-  input: ReservationCheckoutContact,
+  input: SealInput,
   context: { readonly locale: Locale }
 ) => Effect.Effect<{ readonly token: string }>;
 
 type SealOptions = {
-  readonly schema: (
-    locale: Locale
-  ) => StandardSchemaV1<unknown, ReservationCheckoutContact>;
+  readonly schema: (locale: Locale) => StandardSchemaV1<unknown, SealInput>;
 };
 
 let defined:
@@ -34,7 +58,11 @@ mock.module("@/shared/backend/workspace-action", () => ({
 }));
 
 await import("./seal-checkout-contact");
-const { checkoutContactReturnState } = await import(
+const {
+  checkoutContactReturnState,
+  checkoutOfficeSelectionCookieName,
+  loadCheckoutOfficeSelection,
+} = await import(
   "@/features/reservation/backend/checkout-contact-return-state"
 );
 
@@ -53,7 +81,7 @@ const contactWithPhone = (phone: string): ReservationCheckoutContact => ({
 
 const validate = async (
   locale: Locale,
-  input: ReservationCheckoutContact & { readonly locale?: Locale }
+  input: SealInput & { readonly locale?: Locale }
 ) => await action().options.schema(locale)["~standard"].validate(input);
 
 const sealUnder = async (locale: Locale, phone: string) => {
@@ -73,6 +101,11 @@ const reopen = (token: string, pageLocale: Locale) =>
   ).then(Option.getOrUndefined);
 
 describe("sealing a checkout contact", () => {
+  beforeEach(() => {
+    draftCookies.clear();
+    setCookie.mockClear();
+  });
+
   test.each([
     ["de-DE", "0151 23456789", "cs-CZ"],
     ["uk-UA", "050 123 4567", "cs-CZ"],
@@ -113,5 +146,72 @@ describe("sealing a checkout contact", () => {
     });
 
     expect(result.issues?.length).toBeGreaterThan(0);
+  });
+
+  test("keeps attendees in an isolated HTTP-only cookie, outside the return token", async () => {
+    const contact = contactWithPhone("+420 777 123 456");
+    const first: CheckoutOfficeSelection = {
+      kind: "people",
+      people: { contactAttends: false, invitees: ["guest@example.org"] },
+    };
+    const second = { kind: "seats", seats: 3 } as const;
+    const issue = async (officeSelection: CheckoutOfficeSelection) => {
+      const parsed = await validate("en-US", { ...contact, officeSelection });
+      if (parsed.issues) throw new Error("Expected valid checkout details");
+      const { token } = await Effect.runPromise(
+        action().handler(parsed.value, { locale: "en-US" })
+      );
+      const opened = await reopen(token, "en-US");
+      if (!opened?.officeSelectionId)
+        throw new Error("Missing draft identifier");
+      expect(opened).toEqual({
+        ...contact,
+        officeSelectionId: opened.officeSelectionId,
+      });
+      return opened.officeSelectionId;
+    };
+    const read = (id: string) =>
+      Effect.runPromise(
+        loadCheckoutOfficeSelection(id).pipe(
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+    const firstId = await issue(first);
+    const secondId = await issue(second);
+    expect(firstId).not.toBe(secondId);
+    expect(setCookie.mock.calls[0]?.[2]).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 1800,
+    });
+    expect(await read(firstId)).toEqual(first);
+    expect(await read(secondId)).toEqual(second);
+
+    const firstName = checkoutOfficeSelectionCookieName(firstId);
+    const secondDraft = draftCookies.get(
+      checkoutOfficeSelectionCookieName(secondId)
+    );
+    if (!secondDraft) throw new Error("Missing second checkout draft");
+    draftCookies.set(firstName, secondDraft);
+    expect(await read(firstId)).toBeUndefined();
+    draftCookies.delete(firstName);
+    expect(await read(firstId)).toBeUndefined();
+  });
+
+  test("rejects the contact's address or duplicates as invitees", async () => {
+    const contact = contactWithPhone("+420 777 123 456");
+    for (const invitees of [
+      [contact.email],
+      ["guest@example.org", "GUEST@example.org"],
+    ]) {
+      const parsed = await validate("en-US", {
+        ...contact,
+        officeSelection: {
+          kind: "people",
+          people: { contactAttends: false, invitees },
+        },
+      });
+      expect(parsed.issues).toBeDefined();
+    }
   });
 });
