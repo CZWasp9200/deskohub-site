@@ -29,7 +29,7 @@ export function WorkspaceEmailDetails({
           </Column>
           <Column className="px-4 py-3 align-top">
             <Text
-              className={`m-0 text-[14px] leading-[20px] text-navy ${wrapWords ? "break-words" : "break-all sm:break-words"}`}
+              className={`m-0 text-[14px] leading-[20px] text-navy ${wrapWords ? "[overflow-wrap:anywhere]" : "break-all sm:break-words"}`}
             >
               {detail.href ? (
                 <Link
