@@ -10,7 +10,10 @@ import type {
 import { usePrepareReservationSiteTool } from "@/features/agent-tools/webmcp/use-prepare-reservation-site-tool";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/checkout-status-summary-presentation";
-import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
+import type {
+  CheckoutSummary,
+  CheckoutSummaryDiscount,
+} from "@/features/checkout/checkout-summary";
 import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
 import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
@@ -71,6 +74,12 @@ type ReservationCheckoutFormProps<
   Data extends ReservationFormData,
 > = {
   readonly advertisedPrice: ReservationCheckoutAdvertisedPrice;
+  readonly heldOfficePrice?: Pick<
+    ReservationCheckoutAdvertisedPrice,
+    "sale" | "total"
+  > & {
+    readonly summary: CheckoutSummary;
+  };
   readonly availability: {
     /**
      * Whether availability for the current selection has not settled yet. A
@@ -307,6 +316,7 @@ export function ReservationCheckoutForm<
   form,
   getOfficeSelection,
   getReservation,
+  heldOfficePrice,
   locale,
   selectionSummary,
   selection,
@@ -331,6 +341,7 @@ export function ReservationCheckoutForm<
     form,
     getOfficeSelection,
     getReservation,
+    displayedOfficePrice: heldOfficePrice?.summary,
     locale,
   };
   const submit = (options?: ReservationSubmitOptions) =>
@@ -346,6 +357,7 @@ export function ReservationCheckoutForm<
   });
 
   const isContactStep = checkoutStep.step === "contact";
+  const displayedPrice = heldOfficePrice ?? advertisedPrice;
   const isSubmitDisabled = isReservationSubmitDisabled(
     submission,
     isContactStep
@@ -361,7 +373,7 @@ export function ReservationCheckoutForm<
   }
 
   return (
-    <ReservationFormCard sale={getSaleBanner(advertisedPrice.sale, locale)}>
+    <ReservationFormCard sale={getSaleBanner(displayedPrice.sale, locale)}>
       <Form {...form}>
         <form
           className="space-y-7"
@@ -397,7 +409,7 @@ export function ReservationCheckoutForm<
             locale={locale}
             onChangeSelection={() => checkoutStep.goTo("selection")}
             selectionSummary={selectionSummary}
-            total={advertisedPrice.total}
+            total={displayedPrice.total}
           />
           {/* Support has to sort out the account before it can book, so the
               contact step shows only what was chosen and how to reach

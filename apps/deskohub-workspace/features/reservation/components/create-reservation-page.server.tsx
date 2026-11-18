@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Effect, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
@@ -19,6 +19,10 @@ import {
   findCheckoutOfficeSelectionForVisitor,
 } from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
+import {
+  getOfficeEditPriceSummary,
+  type HeldOfficePrice,
+} from "@/features/checkout/checkout-summary-office";
 import { PublicOfferingsStructuredData } from "@/features/checkout/components/public-offerings-structured-data";
 import type { PublicPriceListOffering } from "@/features/checkout/public-offerings";
 import {
@@ -96,6 +100,7 @@ type ReservationPageRequest<Kind extends ReservationKind, PageData> = {
 
 type RestoredReservation<Kind extends ReservationKind> = {
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly heldOfficePrice?: HeldOfficePrice;
   readonly officeSelection?: CheckoutOfficeSelection;
   readonly reservation: ReservationForKind<Kind>;
   readonly replacementToken: string;
@@ -129,6 +134,7 @@ export type ReservationPageForm<PageData, Values> = {
   readonly checkoutCustomer: ReservationCheckoutCustomerForm;
   readonly checkoutOfficeSelection?: CheckoutOfficeSelection;
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly heldOfficePrice?: HeldOfficePrice;
   readonly initialAdvertisedPrices: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly initialValues: Values;
@@ -262,6 +268,18 @@ export const loadRestoredReservation = Effect.fn(
 
   return {
     checkoutSessionId: payState.checkoutSessionId,
+    heldOfficePrice: Match.value(payState).pipe(
+      Match.when(
+        { reservation: { kind: "office" } },
+        ({ reservation, quote }): HeldOfficePrice => ({
+          startsOn: reservation.startsOn,
+          endsOn: reservation.endsOn,
+          seats: reservation.seats,
+          summary: getOfficeEditPriceSummary(quote),
+        })
+      ),
+      Match.orElse(() => undefined)
+    ),
     officeSelection,
     reservation: payState.reservation as ReservationForKind<Kind>,
     replacementToken: token,
@@ -604,6 +622,10 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
             ? restoredReservation?.officeSelection
             : undefined),
         checkoutSessionId: restoredReservation?.checkoutSessionId,
+        heldOfficePrice:
+          selection.kind === "restored" && !request.checkoutOfficeSelection
+            ? restoredReservation?.heldOfficePrice
+            : undefined,
         initialAdvertisedPrices,
         initialAvailability,
         initialValues,

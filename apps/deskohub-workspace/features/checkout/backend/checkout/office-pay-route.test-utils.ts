@@ -6,7 +6,10 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import { testSessionProfile } from "@/features/account/backend/customer-authentication.test-utils";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
-import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
+import {
+  buildOfficeReservationQuote,
+  type OfficeReservationQuote,
+} from "@/features/checkout/reservation-quote-office";
 import type { Locale } from "@/features/i18n";
 import { InviteeEmail } from "@/features/office/office-people";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -28,6 +31,9 @@ export const makeOfficePayRouteFixture = (
     readonly startsOn?: string;
     readonly endsOn?: string;
     readonly unavailablePeople?: boolean;
+    readonly customizeQuote?: (
+      quote: OfficeReservationQuote
+    ) => OfficeReservationQuote;
   } = {}
 ) => {
   const orderId = workspaceReservationIdSchema.make("office-order");
@@ -104,7 +110,7 @@ export const makeOfficePayRouteFixture = (
       const state = yield* buildSignedPayState({
         locale,
         reservation,
-        quote,
+        quote: options.customizeQuote?.(quote) ?? quote,
         orderId,
         bookedAt: instantStringSchema.make("2026-06-01T09:58:00Z"),
         holdExpiresAt,

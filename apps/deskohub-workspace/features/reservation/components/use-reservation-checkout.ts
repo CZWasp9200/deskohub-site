@@ -8,6 +8,7 @@ import {
   createCheckoutAttemptId,
   createCheckoutSessionId,
 } from "@/features/checkout/checkout-identifiers";
+import type { CheckoutSummary } from "@/features/checkout/checkout-summary";
 import type { PreparedOfficeCheckout } from "@/features/checkout/prepared-office-checkout";
 import { visitorConsent } from "@/features/cookie-consent";
 import { captureAnalyticsEvent } from "@/features/cookie-consent/analytics-events";
@@ -23,6 +24,7 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 type ReservationCheckoutDetails = {
   readonly advertisedPriceToken: string;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly customer?: "account";
   readonly marketingConsent?: boolean;
   /** Labels a `marketingConsent: true` given through a site tool. */

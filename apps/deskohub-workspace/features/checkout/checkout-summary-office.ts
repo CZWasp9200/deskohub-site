@@ -18,7 +18,16 @@ import {
   getOfficeSeatsAmount,
   type OfficeReservationQuote,
 } from "@/features/checkout/reservation-quote-office";
-import { getWorkspaceOfficeProductIdentity } from "@/features/reservation/office-reservation";
+import {
+  getWorkspaceOfficeProductIdentity,
+  type OfficeReservationDetails,
+} from "@/features/reservation/office-reservation";
+
+/** The dates, seats and public price of the office hold reopened from Pay. */
+export type HeldOfficePrice = Pick<
+  OfficeReservationDetails,
+  "startsOn" | "endsOn" | "seats"
+> & { readonly summary: CheckoutSummary };
 
 export const getOfficeCheckoutSummary = (
   quote: OfficeReservationQuote
@@ -71,3 +80,21 @@ export const getOfficeCheckoutSummary = (
     total: quote.payment.expectedPrice,
   });
 };
+
+/** Office edit shows public price details and sends them back for comparison. */
+export const getOfficeEditPriceSummary = (quote: OfficeReservationQuote) =>
+  getOfficeCheckoutSummary({
+    ...quote,
+    payment: {
+      ...quote.payment,
+      discounts: quote.payment.discounts.map(
+        ({
+          discount: { staffLabel: _staffLabel, ...discount },
+          ...applied
+        }) => ({
+          ...applied,
+          discount,
+        })
+      ),
+    },
+  });

@@ -80,6 +80,7 @@ export const officeReservationPage = createReservationPage({
       checkoutCustomer={form.checkoutCustomer}
       checkoutOfficeSelection={form.checkoutOfficeSelection}
       checkoutSessionId={form.checkoutSessionId}
+      heldOfficePrice={form.heldOfficePrice}
       initialAdvertisedPrices={form.initialAdvertisedPrices}
       initialAvailability={form.initialAvailability}
       initialValues={form.initialValues}

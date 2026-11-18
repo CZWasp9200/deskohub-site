@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
+import { checkoutSummarySchema } from "@/features/checkout/checkout-summary";
 import { defaultPhoneRegion, locales } from "@/features/i18n";
 import { officePeopleSchema } from "@/features/office/office-people";
 import { reservationOrderIssuanceSchema } from "@/features/reservation/reservation-order";
@@ -27,6 +28,9 @@ export const preparePayStateInputSchema = Schema.Union(
        * without it books the office's `seats` with no invitations.
        */
       people: Schema.optionalKey(officePeopleSchema),
+      // A Pay edit's displayed price is only a baseline for review.
+      // The current advertisement still proves the price to recheck.
+      displayedOfficePrice: Schema.optionalKey(checkoutSummarySchema),
     })
   )
 ).check(marketingConsentSourceRequiresConsent);

@@ -11,6 +11,7 @@ import {
 } from "react-hook-form";
 import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
+import type { HeldOfficePrice } from "@/features/checkout/checkout-summary-office";
 import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
 import { getOfficeSeatsAmount } from "@/features/checkout/reservation-quote-office";
 import type { CanonicalPromotionCode } from "@/features/discounts";
@@ -19,6 +20,7 @@ import {
   getOfficePeopleSeats,
   type OfficePeople,
   type OfficePeopleIssue,
+  officePeopleSchema,
   validateOfficePeople,
 } from "@/features/office/office-people";
 import { ReservationAdvertisedPrice } from "@/features/reservation/components/reservation-advertised-price";
@@ -69,6 +71,7 @@ import { useOfficeDayCountBounds } from "./use-office-day-count-bounds";
 
 type OfficeReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly heldOfficePrice?: HeldOfficePrice;
   readonly checkoutCustomer: ReservationCheckoutCustomerForm;
   readonly checkoutOfficeSelection?: CheckoutOfficeSelection;
   readonly seatCapacity: number;
@@ -189,6 +192,8 @@ const decodeSelection = Schema.decodeUnknownOption(
   officeReservationDetailsSchema
 );
 
+const officePeopleEqual = Schema.toEquivalence(officePeopleSchema);
+
 const getSelection = (
   startsOn: string | undefined,
   dayCount: number | undefined,
@@ -210,6 +215,7 @@ export function OfficeReservationForm({
   checkoutSessionId,
   checkoutCustomer,
   checkoutOfficeSelection,
+  heldOfficePrice,
   seatCapacity,
   initialAdvertisedPrices = [],
   initialAvailability,
@@ -250,6 +256,7 @@ export function OfficeReservationForm({
     control: form.control,
     name: ["name", "email"],
   });
+  const people = useWatch({ control: form.control, name: "people" });
   const watchedSelection = useWatchedSelection(
     officeSelectionLink,
     form.control
@@ -287,9 +294,44 @@ export function OfficeReservationForm({
       seats
     ),
   });
-  const advertisedOfficeQuoteItem =
-    advertisedPrices.selectedPrice?.quote.items[0];
-  const advertisedTotal = advertisedPrices.checkout.total;
+  const samePeople =
+    people === initialPeople ||
+    (people != null &&
+      initialPeople != null &&
+      officePeopleEqual(people, initialPeople));
+  const heldSummary =
+    heldOfficePrice &&
+    selection?.startsOn === heldOfficePrice.startsOn &&
+    selection.endsOn === heldOfficePrice.endsOn &&
+    selection.seats === heldOfficePrice.seats &&
+    samePeople
+      ? heldOfficePrice.summary
+      : undefined;
+  const heldItem = heldSummary?.sections[0]?.items[0];
+  const heldOfficeProduct =
+    heldItem && "seatAmount" in heldItem ? heldItem : undefined;
+  const heldPrice =
+    heldSummary && heldOfficeProduct
+      ? {
+          summary: heldSummary,
+          total: {
+            amount: heldSummary.total,
+            ...("originalAmount" in heldOfficeProduct && {
+              originalAmount: heldOfficeProduct.originalAmount,
+            }),
+          },
+          sale:
+            "discounts" in heldOfficeProduct
+              ? {
+                  discounts: heldOfficeProduct.discounts,
+                  productLabel: getWorkspaceOfficeProductTitle(locale),
+                }
+              : undefined,
+        }
+      : undefined;
+  const officeQuoteItem =
+    heldOfficeProduct ?? advertisedPrices.selectedPrice?.quote.items[0];
+  const displayedTotal = heldPrice?.total ?? advertisedPrices.checkout.total;
   const { availability, maximumDayCount, unavailableDates } =
     useOfficeDayCountBounds({
       availabilityResult,
@@ -312,6 +354,7 @@ export function OfficeReservationForm({
     >
       checkoutCustomer={checkoutCustomer}
       advertisedPrice={advertisedPrices.checkout}
+      heldOfficePrice={heldPrice}
       availability={availability}
       checkoutSessionId={checkoutSessionId}
       form={form}
@@ -460,9 +503,9 @@ export function OfficeReservationForm({
               >
                 <dt className="font-semibold">{basePriceLabel}</dt>
                 <dd>
-                  {advertisedOfficeQuoteItem ? (
+                  {officeQuoteItem ? (
                     <ReservationAdvertisedPrice
-                      amount={advertisedOfficeQuoteItem.accessAmount}
+                      amount={officeQuoteItem.accessAmount}
                       className="font-semibold"
                       locale={locale}
                     />
@@ -476,12 +519,12 @@ export function OfficeReservationForm({
                 data-office-seats-price=""
               >
                 <dt className="font-semibold">
-                  {advertisedOfficeQuoteItem ? (
+                  {officeQuoteItem ? (
                     m.officePeoplePriceSeatLine(
                       {
                         count: seats,
                         seatPrice: formatMoney(
-                          advertisedOfficeQuoteItem.seatAmount,
+                          officeQuoteItem.seatAmount,
                           locale
                         ),
                       },
@@ -492,10 +535,10 @@ export function OfficeReservationForm({
                   )}
                 </dt>
                 <dd>
-                  {advertisedOfficeQuoteItem && (
+                  {officeQuoteItem && (
                     <ReservationAdvertisedPrice
                       amount={getOfficeSeatsAmount({
-                        seatAmount: advertisedOfficeQuoteItem.seatAmount,
+                        seatAmount: officeQuoteItem.seatAmount,
                         seats,
                       })}
                       className="font-semibold"
@@ -509,9 +552,9 @@ export function OfficeReservationForm({
                   {m.officePeoplePriceTotal({}, { locale })}
                 </dt>
                 <dd>
-                  {advertisedTotal ? (
+                  {displayedTotal ? (
                     <ReservationAdvertisedPrice
-                      {...advertisedTotal}
+                      {...displayedTotal}
                       className="text-xl font-bold"
                       locale={locale}
                     />

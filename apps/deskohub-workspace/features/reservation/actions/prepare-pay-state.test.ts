@@ -57,6 +57,7 @@ import {
 } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
+import { getOfficeEditPriceSummary } from "@/features/checkout/checkout-summary-office";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
 import {
   buildCoworkReservationQuote as buildCoworkReservationQuoteEffect,
@@ -575,6 +576,7 @@ const runReusableReservationScenario = async (input: {
       })
     | OfficeReservationOrderInput;
   readonly people?: PreparePayStateInput["people"];
+  readonly displayedOfficePrice?: PreparePayStateInput["displayedOfficePrice"];
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
   /** The session's account, from which its standing follows. */
@@ -848,6 +850,7 @@ const runReusableReservationScenario = async (input: {
       )),
     reservation: input.reservation ?? reservation,
     people: input.people,
+    displayedOfficePrice: input.displayedOfficePrice,
     marketingConsent: input.marketingConsent,
     marketingConsentSource: input.marketingConsentSource,
     customer: input.customer,
@@ -1555,7 +1558,9 @@ describe("prepareWorkspacePayState", () => {
     );
   });
 
-  test("prepares the ordinary office checkout with the selection and total WebMCP verifies", async () => {
+  const checkPreparedOfficePrice = async (
+    display: "advertised" | "held" | "changed"
+  ) => {
     const firstDay = Temporal.Now.plainDateISO("Europe/Prague").add({
       days: 1,
     });
@@ -1592,6 +1597,22 @@ describe("prepareWorkspacePayState", () => {
       Effect.runPromise
     );
     const total = quote.payment.expectedPrice;
+    const heldTotal = basicMoney(total.value / 2);
+    const displayedOfficePrice =
+      display === "advertised"
+        ? undefined
+        : getOfficeEditPriceSummary(
+            display === "held"
+              ? quote
+              : {
+                  ...quote,
+                  payment: {
+                    ...quote.payment,
+                    expectedPrice: heldTotal,
+                    undiscountedPrice: heldTotal,
+                  },
+                }
+          );
     const holdForAttempt = mock(() =>
       Effect.succeed({
         kind: "created" as const,
@@ -1604,6 +1625,7 @@ describe("prepareWorkspacePayState", () => {
       advertisedPriceToken,
       reservation: officeReservation,
       people,
+      displayedOfficePrice,
       holdForAttempt,
       affirmAdvertisement: mock(
         ({ reservation }: AdvertisementAffirmationCall) =>
@@ -1642,7 +1664,7 @@ describe("prepareWorkspacePayState", () => {
       })
     );
     expect(result).toMatchObject({
-      status: "ready",
+      status: display === "changed" ? "pricing_changed" : "ready",
       preparedOffice: {
         startsOn: officeReservation.startsOn,
         endsOn: officeReservation.endsOn,
@@ -1650,7 +1672,24 @@ describe("prepareWorkspacePayState", () => {
         total,
       },
     });
-  });
+    if (display === "changed") {
+      const { PayState } = await import("@/features/checkout/backend/checkout");
+      if (result?.status !== "pricing_changed")
+        throw new Error("Expected a price review");
+      const state = await Effect.runPromise(
+        PayState.open(result.payStateToken).pipe(
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+      expect(PayState.summary(state).total).toEqual(total);
+      expect(state.changedKeys?.itemKeys).toContain("total:final");
+    }
+  };
+
+  test.each(["advertised", "held", "changed"] as const)(
+    "prepares the current office quote and checks the displayed price (%s)",
+    checkPreparedOfficePrice
+  );
 
   test("returns the sealed Pay state token its URL carries", async () => {
     const { PayState, payStateTokenQueryParam } = await import(

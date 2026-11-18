@@ -41,7 +41,12 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
+import {
+  type CheckoutSummary,
+  type CheckoutSummaryChangedKeys,
+  getCheckoutSummaryChangedKeys,
+} from "@/features/checkout/checkout-summary";
+import { getOfficeEditPriceSummary } from "@/features/checkout/checkout-summary-office";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
 import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
@@ -261,6 +266,7 @@ const quotePreparedReservation = Effect.fn(
   "preparePayState.quotePreparedReservation"
 )(function* (input: {
   readonly advertisement: PreparedAdvertisement;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly referralCodePrefill: CanonicalPromotionCode | undefined;
@@ -279,13 +285,43 @@ const quotePreparedReservation = Effect.fn(
     ...referral,
   });
 
+  const advertisedChanges = getPriceVerdictChangedKeys(verdict);
+  // The displayed snapshot can only require a review. The quote, discount
+  // eligibility and held amount come from the normal current-price checks.
+  const displayedChanges =
+    input.displayedOfficePrice && verdict.priced.kind === "office"
+      ? getCheckoutSummaryChangedKeys(
+          input.displayedOfficePrice,
+          getOfficeEditPriceSummary(verdict.priced.quote)
+        )
+      : undefined;
+  const changedKeys =
+    displayedChanges &&
+    (displayedChanges.sectionKeys.length > 0 ||
+      displayedChanges.itemKeys.length > 0)
+      ? {
+          sectionKeys: [
+            ...new Set([
+              ...(advertisedChanges?.sectionKeys ?? []),
+              ...displayedChanges.sectionKeys,
+            ]),
+          ].sort(),
+          itemKeys: [
+            ...new Set([
+              ...(advertisedChanges?.itemKeys ?? []),
+              ...displayedChanges.itemKeys,
+            ]),
+          ].sort(),
+        }
+      : advertisedChanges;
+
   return {
     ...verdict.priced,
     ...referral,
     requestedDiscountCode:
       input.advertisement.priced.requestedDiscountCode ??
       input.referralCodePrefill,
-    changedKeys: getPriceVerdictChangedKeys(verdict),
+    changedKeys,
   };
 });
 
@@ -806,6 +842,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
 
         const prepared = yield* quotePreparedReservation({
           advertisement,
+          displayedOfficePrice: input.displayedOfficePrice,
           dotyposCustomerId,
           locale: input.locale,
           referralCodePrefill,
@@ -826,6 +863,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           const anchoredAdvertisement = yield* advertiseAt(at);
           return yield* quotePreparedReservation({
             advertisement: anchoredAdvertisement,
+            displayedOfficePrice: input.displayedOfficePrice,
             dotyposCustomerId: customerId,
             locale: input.locale,
             referralCodePrefill,
@@ -926,6 +964,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             ? Effect.succeed(prepared)
             : quotePreparedReservation({
                 advertisement,
+                displayedOfficePrice: input.displayedOfficePrice,
                 dotyposCustomerId: reused.pricedFor,
                 locale: input.locale,
                 referralCodePrefill,

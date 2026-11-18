@@ -11,6 +11,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Effect, Layer, Schema } from "effect";
 import type { ComponentProps } from "react";
+import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
 import { makeOfficePayRouteFixture } from "@/features/checkout/backend/checkout/office-pay-route.test-utils";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
@@ -51,8 +52,13 @@ mock.module("@/features/cookie-consent", () => ({
   visitorConsent: { accepts: () => false },
 }));
 
+const getAdvertisedPrices = mock(
+  async (): Promise<{
+    readonly data: readonly PreloadedAdvertisedPrice[];
+  }> => ({ data: [] })
+);
 mock.module("@/features/reservation/actions/get-advertised-price", () => ({
-  getAdvertisedPrices: () => Promise.resolve({ data: [] }),
+  getAdvertisedPrices,
 }));
 
 const verifyEmail = mockCheckoutEmailVerification();
@@ -115,6 +121,8 @@ describe("OfficeReservationForm", () => {
 
   beforeEach(() => {
     checkoutStep.initial = "selection";
+    getAdvertisedPrices.mockReset();
+    getAdvertisedPrices.mockResolvedValue({ data: [] });
     verifyEmail.mockClear();
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     workspaceUseAction.mockReturnValue({
@@ -267,15 +275,36 @@ describe("OfficeReservationForm", () => {
   const normalizeSpaces = (text: string | null | undefined) =>
     text?.replaceAll(/[\u00a0\u202f]/g, " ");
 
-  test("edits and resubmits the signed three-seat, two-day Pay hold", async () => {
+  const checkHeldOfficePrice = async (seatOnly: boolean) => {
     checkoutStep.initial = "contact";
     const today = getCurrentWorkspaceDate();
     const startsOn = decodePlainDate(today.toString());
     const endsOn = decodePlainDate(today.add({ days: 1 }).toString());
     const held = makeOfficePayRouteFixture({
-      seatOnly: true,
+      seatOnly,
       startsOn,
       endsOn,
+      customizeQuote: (quote) => {
+        const half = (amount: typeof quote.payment.expectedPrice) =>
+          moneyWithValue(amount.value / 2, amount);
+        const [item] = quote.items;
+        return {
+          ...quote,
+          items: [
+            {
+              ...item,
+              accessAmount: half(item.accessAmount),
+              seatAmount: half(item.seatAmount),
+              amount: half(item.amount),
+            },
+          ],
+          payment: {
+            ...quote.payment,
+            expectedPrice: half(quote.payment.expectedPrice),
+            undiscountedPrice: half(quote.payment.undiscountedPrice),
+          },
+        };
+      },
     });
     const checkoutView = await import(
       "@/features/checkout/backend/checkout/pay-state-checkout-view"
@@ -299,7 +328,24 @@ describe("OfficeReservationForm", () => {
       loadRestoredReservation(token, "en-US", "office")
     );
     if (!restored) throw new Error("Expected a restored reservation");
+    const seats = held.reservation.seats;
     const prices = officeAdvertisedPrices(startsOn, endsOn);
+    const fresh = Promise.withResolvers<{
+      readonly data: readonly PreloadedAdvertisedPrice[];
+    }>();
+    const changedEndsOn = decodePlainDate(today.add({ days: 2 }).toString());
+    const changedPrices = officeAdvertisedPrices(startsOn, changedEndsOn).map(
+      (price) => ({
+        ...price,
+        advertisedPrice: {
+          ...price.advertisedPrice,
+          advertisedPriceToken: `updated-${price.advertisedPrice.advertisedPriceToken}`,
+        },
+      })
+    );
+    getAdvertisedPrices
+      .mockImplementationOnce(() => fresh.promise)
+      .mockResolvedValue({ data: changedPrices });
     const content = await Effect.runPromise(
       officeReservationPage
         .loadContent({
@@ -317,15 +363,9 @@ describe("OfficeReservationForm", () => {
           pageData: 3,
           locale: "en-US",
           restoredReservation: restored,
-          searchParams: { payState: token, seats: "1" },
+          searchParams: { payState: token, ...(seatOnly && { seats: "1" }) },
         })
-        .pipe(
-          Effect.provide(
-            recordReservationPagePreloads({
-              advertisedPrices: () => Effect.succeed(prices),
-            }).layer
-          )
-        )
+        .pipe(Effect.provide(recordReservationPagePreloads().layer))
     );
     if (content.kind !== "form") throw new Error("Expected the office form");
     expect(content.form.replacementToken === token).toBe(true);
@@ -342,36 +382,106 @@ describe("OfficeReservationForm", () => {
       ...content.form,
       seatCapacity: content.form.pageData,
     });
+    const freshQuote = prices[seats - 1]!.advertisedPrice.quote;
+    const freshTotal = freshQuote.payment.expectedPrice;
     const total = formatMoney(
-      prices[2]!.advertisedPrice.quote.payment.expectedPrice,
+      moneyWithValue(freshTotal.value / 2, freshTotal),
       "en-US"
     );
     expect(normalizeSpaces(view.container.textContent)).toContain(
       normalizeSpaces(total)
     );
+    expect(view.container.innerHTML.includes(token)).toBe(false);
     const submit = view.container.querySelector<HTMLButtonElement>(
       "#reservation-submit"
     );
     if (!submit) throw new Error("Expected the checkout button");
+    expect(submit.disabled).toBe(true);
+    await waitFor(() => expect(getAdvertisedPrices).toHaveBeenCalledTimes(1));
+    await act(async () => fresh.resolve({ data: prices }));
     await waitFor(() => expect(submit.disabled).toBe(false));
+    expect(normalizeSpaces(view.container.textContent)).toContain(
+      normalizeSpaces(total)
+    );
+    expect(normalizeSpaces(view.container.textContent)).not.toContain(
+      normalizeSpaces(formatMoney(freshTotal, "en-US"))
+    );
+    for (const [selector, amount] of [
+      ["[data-office-base-price]", freshQuote.items[0].accessAmount],
+      ["[data-office-seats-price]", freshQuote.items[0].seatAmount],
+    ] as const) {
+      expect(
+        normalizeSpaces(view.container.querySelector(selector)?.textContent)
+      ).toContain(
+        normalizeSpaces(
+          formatMoney(moneyWithValue(amount.value / 2, amount), "en-US")
+        )
+      );
+    }
     fireEvent.click(submit);
     await waitFor(() =>
       expect(executeAsync).toHaveBeenCalledWith(
         expect.objectContaining({
-          advertisedPriceToken: "office-3",
+          advertisedPriceToken: `office-${seats}`,
           checkoutSessionId: "office-session",
+          displayedOfficePrice: expect.objectContaining({
+            total: moneyWithValue(freshTotal.value / 2, freshTotal),
+          }),
           reservation: expect.objectContaining({
             kind: "office",
-            seats: 3,
+            seats,
             startsOn,
             endsOn,
           }),
         })
       )
     );
+    const storedPeopleCall = expect.objectContaining({
+      people: { contactAttends: true, invitees: [held.inviteeEmail] },
+    });
+    if (seatOnly)
+      expect(executeAsync).not.toHaveBeenCalledWith(storedPeopleCall);
+    else expect(executeAsync).toHaveBeenCalledWith(storedPeopleCall);
+
+    fireEvent.click(view.getByRole("button", { name: "Change" }));
+    const dayCount = view.getByRole("spinbutton", { name: "Number of days" });
+    fireEvent.change(dayCount, { target: { value: "3" } });
+    const changedTotal =
+      changedPrices[seats - 1]!.advertisedPrice.quote.payment.expectedPrice;
+    await waitFor(() =>
+      expect(normalizeSpaces(view.container.textContent)).toContain(
+        normalizeSpaces(formatMoney(changedTotal, "en-US"))
+      )
+    );
+    fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await waitFor(() =>
+      expect(
+        view.container.querySelector<HTMLButtonElement>("#reservation-submit")
+          ?.disabled
+      ).toBe(false)
+    );
+    fireEvent.click(
+      view.container.querySelector<HTMLButtonElement>("#reservation-submit")!
+    );
+    await waitFor(() =>
+      expect(executeAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          advertisedPriceToken: `updated-office-${seats}`,
+          reservation: expect.objectContaining({
+            seats,
+            startsOn,
+            endsOn: changedEndsOn,
+          }),
+        })
+      )
+    );
     expect(executeAsync).not.toHaveBeenCalledWith(
       expect.objectContaining({
-        people: expect.anything(),
+        displayedOfficePrice: expect.anything(),
+        reservation: expect.objectContaining({
+          startsOn,
+          endsOn: changedEndsOn,
+        }),
       })
     );
 
@@ -392,7 +502,12 @@ describe("OfficeReservationForm", () => {
         loadRestoredReservation(unreadableToken, "en-US", "office")
       )
     ).toBeUndefined();
-  });
+  };
+
+  test("keeps the held price for a seat-only Pay edit", () =>
+    checkHeldOfficePrice(true));
+  test("keeps the held price for a named office Pay edit", () =>
+    checkHeldOfficePrice(false));
 
   test("prices the office and each person beside the people list", () => {
     const startsOn = decodePlainDate("2026-08-10");
