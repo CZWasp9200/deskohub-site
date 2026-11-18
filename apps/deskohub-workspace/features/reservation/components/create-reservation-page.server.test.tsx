@@ -468,6 +468,69 @@ test("reopens the contact details sealed into a sign-in's return path", async ()
   }
 });
 
+test("reopens attendee selection for a verified three-seat office return issued before attendee drafts", async () => {
+  const contact = {
+    name: "Ada Lovelace",
+    email: testEmailAddressForAda,
+    phone: "+420777777777",
+    billing: { purpose: "personal", invoice: "none" },
+    marketingConsent: false,
+  } as const;
+  const token = await Effect.runPromise(
+    checkoutContactReturnState
+      .seal(contact, "en-US")
+      .pipe(Effect.provide(TestSealedStateKeys))
+  );
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+  };
+  const pageDefinition = createReservationPage(family);
+  const verifiedAccount = {
+    status: "profile-missing",
+    email: contact.email,
+  } as const;
+  const query = {
+    [checkoutContactQueryParam]: token,
+    startsOn: "2026-11-19",
+    seats: "3",
+  };
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce(verifiedAccount);
+  const contactStep = await pageDefinition.Page({
+    searchParams: Promise.resolve({ ...query, step: "contact" }),
+  });
+  const redirectPath = await renderContent(contactStep).then(
+    () => undefined,
+    (error: Error) => error.message.replace(/^redirect to /, "")
+  );
+  if (!redirectPath) throw new Error("Expected to reopen attendee selection");
+  const returnLocation = new URL(redirectPath, "https://deskohub.test");
+  expect(returnLocation.pathname).toBe("/en-US/reservation/office");
+  expect(returnLocation.searchParams.has("step")).toBe(false);
+  expect(returnLocation.searchParams.get("seats")).toBe("3");
+  expect(
+    returnLocation.searchParams.get(checkoutContactQueryParam) === token
+  ).toBe(true);
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce(verifiedAccount);
+  await renderContent(
+    await pageDefinition.Page({ searchParams: Promise.resolve(query) })
+  );
+  expect(family.renderForm).toHaveBeenCalledTimes(1);
+  expect(family.renderForm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      initialValues: expect.objectContaining(contact),
+      checkoutCustomer: expect.objectContaining({
+        status: "profile-missing",
+        continuesCheckout: false,
+      }),
+      checkoutOfficeSelection: undefined,
+    })
+  );
+});
+
 test("restores office attendees only for the verified contact and its originating browser", async () => {
   const contact = {
     name: "Ada Lovelace",

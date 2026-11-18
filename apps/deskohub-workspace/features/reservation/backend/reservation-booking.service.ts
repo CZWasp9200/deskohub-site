@@ -338,6 +338,8 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
       expiresAt: payState.expiresAt,
       ...(input.prepared.reservation.kind === "office" && {
         preparedOffice: {
+          startsOn: input.prepared.reservation.startsOn,
+          endsOn: input.prepared.reservation.endsOn,
           seats: input.prepared.reservation.seats,
           total: input.prepared.quote.payment.expectedPrice,
           regularPrice: input.prepared.quote.payment.undiscountedPrice,

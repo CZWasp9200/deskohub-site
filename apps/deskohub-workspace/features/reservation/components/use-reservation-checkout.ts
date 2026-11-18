@@ -8,6 +8,7 @@ import {
   createCheckoutAttemptId,
   createCheckoutSessionId,
 } from "@/features/checkout/checkout-identifiers";
+import type { PreparedOfficeCheckout } from "@/features/checkout/prepared-office-checkout";
 import { visitorConsent } from "@/features/cookie-consent";
 import { captureAnalyticsEvent } from "@/features/cookie-consent/analytics-events";
 import { type Locale, m } from "@/features/i18n";
@@ -18,7 +19,6 @@ import {
   type ReservationPrePaymentOutcome,
 } from "@/features/reservation/reservation-analytics";
 import type { ReservationOrderIssuanceData } from "@/features/reservation/reservation-order";
-import type { Money } from "@/shared/money/money";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 type ReservationCheckoutDetails = {
@@ -31,13 +31,6 @@ type ReservationCheckoutDetails = {
   readonly reservation: ReservationOrderIssuanceData;
 };
 
-type PreparedOffice = {
-  readonly seats: number;
-  readonly total: Money;
-  readonly regularPrice: Money;
-  readonly discount: Money;
-};
-
 /** Where a checkout submission led: the prepared Pay page or an error message. */
 export type CheckoutSubmission =
   | {
@@ -45,7 +38,7 @@ export type CheckoutSubmission =
       readonly redirectUrl: string;
       /** When the Pay page stops accepting the prepared state. */
       readonly expiresAt: string;
-      readonly preparedOffice?: PreparedOffice;
+      readonly preparedOffice?: PreparedOfficeCheckout;
     }
   | { readonly status: "error"; readonly message: string };
 
@@ -182,7 +175,7 @@ const getPreparedCheckout = (
         readonly status: string;
         readonly redirectUrl?: string;
         readonly expiresAt?: string;
-        readonly preparedOffice?: PreparedOffice;
+        readonly preparedOffice?: PreparedOfficeCheckout;
       }
     | undefined
 ): CheckoutSubmission | undefined =>

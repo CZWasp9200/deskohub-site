@@ -43,7 +43,10 @@ import {
   type ReservationCheckoutContact,
 } from "@/features/reservation/reservation-checkout-contact";
 import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
-import { reservationCheckoutStepQueryParam } from "@/features/reservation/reservation-checkout-step";
+import {
+  getReservationCheckoutStep,
+  reservationCheckoutStepQueryParam,
+} from "@/features/reservation/reservation-checkout-step";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   type CustomerLastReservationForKind,
@@ -276,10 +279,11 @@ const getCheckoutAccountEmail = (account: ReservationCheckoutAccount) => {
 const getCheckoutSelectionPath = (
   locale: Locale,
   pathname: PublicPagePathname,
-  searchParams: SearchParamsRecord
+  searchParams: SearchParamsRecord,
+  keepCheckoutContact = false
 ) => {
   const params = toURLSearchParams(searchParams);
-  params.delete(checkoutContactQueryParam);
+  if (!keepCheckoutContact) params.delete(checkoutContactQueryParam);
   params.delete(reservationCheckoutStepQueryParam);
   const search = params.toString();
   return `/${locale}${pathname}${search ? `?${search}` : ""}`;
@@ -382,26 +386,13 @@ async function ReservationPageRequestContent<
         definition.loadPageData?.(),
       ]);
 
-    if (
-      definition.kind === "office" &&
-      checkoutContactToken &&
-      !checkoutContact
-    ) {
-      redirect(
-        getCheckoutSelectionPath(
-          locale,
-          definition.pathname,
-          resolvedSearchParams
-        )
-      );
-    }
+    const contactMatchesAccount =
+      checkoutContact !== undefined &&
+      getCheckoutAccountEmail(checkoutAccount)?.toLowerCase() ===
+        checkoutContact.email.toLowerCase();
     let checkoutOfficeSelection: CheckoutOfficeSelection | undefined;
     if (checkoutContact?.officeSelectionId) {
-      if (
-        definition.kind === "office" &&
-        getCheckoutAccountEmail(checkoutAccount)?.toLowerCase() ===
-          checkoutContact.email.toLowerCase()
-      ) {
+      if (definition.kind === "office" && contactMatchesAccount) {
         checkoutOfficeSelection = await loadCheckoutOfficeSelection(
           checkoutContact.officeSelectionId
         ).pipe(
@@ -419,6 +410,26 @@ async function ReservationPageRequestContent<
           )
         );
       }
+    } else if (
+      definition.kind === "office" &&
+      checkoutContactToken &&
+      (!contactMatchesAccount ||
+        getReservationCheckoutStep(
+          getSearchParam(
+            resolvedSearchParams,
+            reservationCheckoutStepQueryParam
+          )
+        ) === "contact")
+    ) {
+      // An older return can prefill the verified contact but cannot confirm attendees.
+      redirect(
+        getCheckoutSelectionPath(
+          locale,
+          definition.pathname,
+          resolvedSearchParams,
+          contactMatchesAccount
+        )
+      );
     }
 
     const content = await loadReservationPageContent(definition, {
@@ -527,7 +538,7 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
       } satisfies ReservationPageContent<PageData, Values>;
     }
 
-    const { checkoutCustomer, initialValues } =
+    const { checkoutCustomer: seededCustomer, initialValues } =
       getReservationCheckoutCustomerForm({
         account: checkoutAccount,
         checkoutContact: request.checkoutContact,
@@ -539,6 +550,12 @@ const loadReservationPageContent = Effect.fn("reservationPage.loadContent")(
         restored: selection.kind === "restored",
         values: selection.values,
       });
+    const checkoutCustomer =
+      seededCustomer.status === "profile-missing" &&
+      definition.kind === "office" &&
+      !request.checkoutOfficeSelection
+        ? { ...seededCustomer, continuesCheckout: false }
+        : seededCustomer;
 
     const replacementToken = restoredReservation?.replacementToken;
     const preload = definition.preload(initialValues, scope);

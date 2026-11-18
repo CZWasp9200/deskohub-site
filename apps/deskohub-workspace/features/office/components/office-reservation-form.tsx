@@ -326,6 +326,7 @@ export function OfficeReservationForm({
       )}
       selection={{
         kind: officeSelectionLink.kind,
+        officeSelection: selection,
         // Only the site tool applies this selection. Ordinary links start
         // with You, while the tool books its quoted number of unnamed seats.
         fromSearchParams: (
