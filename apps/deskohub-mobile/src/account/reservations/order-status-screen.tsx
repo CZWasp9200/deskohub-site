@@ -154,7 +154,7 @@ function MoreActions({
               kind="action"
               destructive
               icon={Undo2}
-              label={m.reservations_withdraw({}, { locale })}
+              label={m.reservationWithdrawalAction({}, { locale })}
               trailing={
                 <Icon icon={ChevronRight} size={20} color={color.ink3} />
               }

@@ -269,7 +269,7 @@ function WithdrawalNotice({
           type="button"
           variant={onRetry ? "secondary" : "primary"}
         >
-          {m.withdrawalDialogClose({}, { locale })}
+          {m.withdrawalClose({}, { locale })}
         </Button>
       </div>
     </div>
@@ -329,19 +329,15 @@ function WithdrawalStatementForm({
         <div className="grid gap-3">
           <dl className="m-0 grid gap-3">
             <ContractRow
-              label={m.withdrawalConfirmReferenceLabel({}, { locale })}
+              label={m.withdrawalReservationReference({}, { locale })}
             >
               <span className="font-mono text-sm">{reference}</span>
             </ContractRow>
-            <ContractRow
-              label={m.withdrawalConfirmContractLabel({}, { locale })}
-            >
+            <ContractRow label={m.withdrawalReservationLabel({}, { locale })}>
               {quote.contractLabel}
             </ContractRow>
             {knownName !== null && (
-              <ContractRow
-                label={m.withdrawalConfirmNameShownLabel({}, { locale })}
-              >
+              <ContractRow label={m.withdrawalCustomerName({}, { locale })}>
                 {knownName}
               </ContractRow>
             )}
@@ -387,7 +383,7 @@ function WithdrawalStatementForm({
         <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
           <dl className="m-0 grid gap-2 text-sm tabular-nums">
             <div className="flex items-baseline justify-between gap-4">
-              <dt>{m.withdrawalConfirmPaidLabel({}, { locale })}</dt>
+              <dt>{m.withdrawalPaidAmount({}, { locale })}</dt>
               <dd className="m-0 shrink-0 text-right">
                 {formatMoney(quote.paidAmount, locale)}
               </dd>
@@ -396,8 +392,8 @@ function WithdrawalStatementForm({
               <div className="flex items-baseline justify-between gap-4 text-navy-blue/60">
                 <dt>
                   {{
-                    hour: m.withdrawalConfirmStartedHours,
-                    day: m.withdrawalConfirmStartedDays,
+                    hour: m.withdrawalStartedHours,
+                    day: m.withdrawalStartedDays,
                   }[basis.unit](
                     {
                       started: basis.total - basis.unstarted,
@@ -412,7 +408,7 @@ function WithdrawalStatementForm({
               </div>
             )}
             <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-navy-blue/10 pt-3 text-base font-semibold">
-              <dt>{m.withdrawalConfirmRefundLabel({}, { locale })}</dt>
+              <dt>{m.withdrawalRefundAmount({}, { locale })}</dt>
               <dd className="m-0 shrink-0 text-right">
                 {formatMoney(quote.refundAmount, locale)}
               </dd>
@@ -488,19 +484,19 @@ function WithdrawalReceived({
         </DialogDescription>
       </DialogHeader>
       <dl className="m-0 grid gap-3">
-        <ContractRow label={m.withdrawalConfirmReferenceLabel({}, { locale })}>
+        <ContractRow label={m.withdrawalReservationReference({}, { locale })}>
           <span className="font-mono text-sm">{reference}</span>
         </ContractRow>
-        <ContractRow label={m.withdrawalConfirmContractLabel({}, { locale })}>
+        <ContractRow label={m.withdrawalReservationLabel({}, { locale })}>
           {quote.contractLabel}
         </ContractRow>
-        <ContractRow label={m.withdrawalReceivedSubmittedLabel({}, { locale })}>
+        <ContractRow label={m.withdrawalSubmittedAt({}, { locale })}>
           {formatReservationDisplayDateTime(
             Temporal.Instant.from(receipt.submittedAt),
             locale
           )}
         </ContractRow>
-        <ContractRow label={m.withdrawalConfirmRefundLabel({}, { locale })}>
+        <ContractRow label={m.withdrawalRefundAmount({}, { locale })}>
           <span className="tabular-nums">
             {formatMoney(receipt.refundAmount, locale)}
           </span>
@@ -520,7 +516,7 @@ function WithdrawalReceived({
           size="lg"
           type="button"
         >
-          {m.withdrawalDialogClose({}, { locale })}
+          {m.withdrawalClose({}, { locale })}
         </Button>
       </div>
     </div>

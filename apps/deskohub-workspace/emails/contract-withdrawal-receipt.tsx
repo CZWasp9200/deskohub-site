@@ -3,11 +3,11 @@ import { formatReservationDisplayDateTime } from "@/features/reservation/reserva
 import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import { formatMoney, type Money } from "@/shared/money/money";
 import { emailWithBreak } from "@/shared/utils/email-with-break";
+import { WithdrawalRefundBreakdown } from "./_components/withdrawal-refund-breakdown";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
 } from "./_components/workspace-email-content";
-import { WithdrawalRefundBreakdown } from "./_components/withdrawal-refund-breakdown";
 import { WorkspaceEmailDetails } from "./_components/workspace-email-details";
 import { WorkspaceEmailLayout } from "./_components/workspace-email-layout";
 import { contractWithdrawalReceiptPreviewProps } from "./_fixtures/preview-props";
@@ -32,7 +32,7 @@ export type ContractWithdrawalReceiptEmailProps = {
 export const contractWithdrawalReceiptEmailSubject = ({
   locale,
 }: Pick<ContractWithdrawalReceiptEmailProps, "locale">) =>
-  m.withdrawalReceiptEmailSubject({}, { locale });
+  m.withdrawalReceivedTitle({}, { locale });
 
 /**
  * Confirms receipt of the customer's withdrawal statement in text form
@@ -49,7 +49,7 @@ export function ContractWithdrawalReceiptEmail(
       preview={contractWithdrawalReceiptEmailSubject(props)}
     >
       <WorkspaceEmailHeading>
-        {m.withdrawalReceiptEmailHeading({}, { locale })}
+        {m.withdrawalReceivedTitle({}, { locale })}
       </WorkspaceEmailHeading>
       <WorkspaceEmailBody>
         {m.withdrawalReceiptEmailBody({}, { locale })}
@@ -64,7 +64,7 @@ export function ContractWithdrawalReceiptEmail(
           paidAmount={props.paidAmount}
           refundAmount={props.refundAmount}
           refundBasis={refundBasis}
-          refundLabel={m.withdrawalReceiptRefundLabel({}, { locale })}
+          refundLabel={m.withdrawalRefundAmount({}, { locale })}
         />
       )}
     </WorkspaceEmailLayout>
@@ -86,17 +86,17 @@ export const contractWithdrawalReceiptDetails = ({
   refundBasis,
 }: ContractWithdrawalReceiptEmailProps): readonly WorkspaceEmailDetail[] => [
   {
-    label: m.withdrawalEmailReferenceLabel({}, { locale }),
+    label: m.withdrawalReservationReference({}, { locale }),
     value: reference,
   },
   {
-    label: m.withdrawalReceiptContractLabel({}, { locale }),
+    label: m.withdrawalReservationLabel({}, { locale }),
     value: contractLabel,
   },
   ...(customerName
     ? [
         {
-          label: m.withdrawalEmailNameLabel({}, { locale }),
+          label: m.withdrawalCustomerName({}, { locale }),
           value: customerName,
         },
       ]
@@ -106,7 +106,7 @@ export const contractWithdrawalReceiptDetails = ({
     value: emailWithBreak(receiptEmail),
   },
   {
-    label: m.withdrawalEmailSubmittedAtLabel({}, { locale }),
+    label: m.withdrawalSubmittedAt({}, { locale }),
     value: m.withdrawalEmailPragueTime(
       { time: formatReservationDisplayDateTime(submittedAt, locale) },
       { locale }
@@ -115,7 +115,7 @@ export const contractWithdrawalReceiptDetails = ({
   ...(refundBasis.kind === "full"
     ? [
         {
-          label: m.withdrawalReceiptRefundLabel({}, { locale }),
+          label: m.withdrawalRefundAmount({}, { locale }),
           value: formatMoney(refundAmount, locale),
         },
       ]

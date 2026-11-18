@@ -40,7 +40,10 @@ export type ContractWithdrawalNoticeEmailProps = {
 export const contractWithdrawalNoticeEmailSubject = ({
   contractLabel,
   refundAmount,
-}: Pick<ContractWithdrawalNoticeEmailProps, "contractLabel" | "refundAmount">) =>
+}: Pick<
+  ContractWithdrawalNoticeEmailProps,
+  "contractLabel" | "refundAmount"
+>) =>
   refundAmount.value > 0
     ? m.withdrawalNoticeEmailSubject(
         {
@@ -67,75 +70,76 @@ const pragueTime = (instant: Temporal.Instant) =>
 export function ContractWithdrawalNoticeEmail(
   props: ContractWithdrawalNoticeEmailProps
 ) {
-  const locale = staffLocale;
+  const messageOptions = { locale: staffLocale };
   const refunds = props.refundAmount.value > 0;
   const details: readonly WorkspaceEmailDetail[] = [
     {
-      label: m.withdrawalNoticeCustomerLabel({}, { locale }),
-      value: props.customerName ?? m.withdrawalNoticeNameMissing({}, { locale }),
+      label: m.withdrawalNoticeCustomerLabel({}, messageOptions),
+      value:
+        props.customerName ?? m.withdrawalNoticeNameMissing({}, messageOptions),
     },
     {
-      label: m.withdrawalEmailEmailLabel({}, { locale }),
+      label: m.withdrawalEmailEmailLabel({}, messageOptions),
       value: emailWithBreak(props.customerEmail),
     },
     {
-      label: m.withdrawalEmailReferenceLabel({}, { locale }),
+      label: m.withdrawalReservationReference({}, messageOptions),
       value: props.contractId,
     },
     {
-      label: m.withdrawalReceiptContractLabel({}, { locale }),
+      label: m.withdrawalReservationLabel({}, messageOptions),
       value: props.contractLabel,
     },
     {
-      label: m.withdrawalEmailSubmittedAtLabel({}, { locale }),
+      label: m.withdrawalSubmittedAt({}, messageOptions),
       value: pragueTime(props.submittedAt),
     },
     ...(props.refundBasis.kind === "full"
       ? [
           {
-            label: m.withdrawalEmailPaidLabel({}, { locale }),
-            value: formatMoney(props.paidAmount, locale),
+            label: m.withdrawalPaidAmount({}, messageOptions),
+            value: formatMoney(props.paidAmount, staffLocale),
           },
           {
-            label: m.withdrawalNoticeRefundLabel({}, { locale }),
-            value: formatMoney(props.refundAmount, locale),
+            label: m.withdrawalNoticeRefundLabel({}, messageOptions),
+            value: formatMoney(props.refundAmount, staffLocale),
           },
         ]
       : []),
     {
-      label: m.withdrawalNoticeCancellationLabel({}, { locale }),
+      label: m.withdrawalNoticeCancellationLabel({}, messageOptions),
       value: props.cancelledAt
         ? m.withdrawalNoticeCancelledAt(
             { time: pragueTime(props.cancelledAt) },
-            { locale }
+            messageOptions
           )
-        : m.withdrawalNoticeCancellationPending({}, { locale }),
+        : m.withdrawalNoticeCancellationPending({}, messageOptions),
     },
   ];
 
   return (
     <WorkspaceEmailLayout
-      locale={locale}
+      locale={staffLocale}
       preview={contractWithdrawalNoticeEmailSubject(props)}
     >
       <WorkspaceEmailHeading>
-        {m.withdrawalNoticeEmailHeading({}, { locale })}
+        {m.withdrawalNoticeEmailHeading({}, messageOptions)}
       </WorkspaceEmailHeading>
       <Section className="mt-5 rounded-2xl bg-cream px-5 py-5">
         <WorkspaceEmailLabel>
-          {m.withdrawalNoticeActionLabel({}, { locale })}
+          {m.withdrawalNoticeActionLabel({}, messageOptions)}
         </WorkspaceEmailLabel>
         <Text className="m-0 mt-2 text-[22px] font-bold leading-[28px] text-navy">
           {refunds
             ? m.withdrawalNoticeActionRefund(
-                { amount: formatMoney(props.refundAmount, locale) },
-                { locale }
+                { amount: formatMoney(props.refundAmount, staffLocale) },
+                messageOptions
               )
-            : m.withdrawalNoticeActionNoRefund({}, { locale })}
+            : m.withdrawalNoticeActionNoRefund({}, messageOptions)}
         </Text>
         {refunds && (
           <Text className="m-0 mt-2 text-[14px] leading-[22px] text-[#565975]">
-            {m.withdrawalNoticeActionHint({}, { locale })}
+            {m.withdrawalNoticeActionHint({}, messageOptions)}
           </Text>
         )}
         <Link
@@ -143,16 +147,16 @@ export function ContractWithdrawalNoticeEmail(
           href={props.adminUrl}
           style={{ backgroundColor: "#00024f", color: "#ffffff" }}
         >
-          {m.withdrawalNoticeOpenAdmin({}, { locale })}
+          {m.withdrawalNoticeOpenAdmin({}, messageOptions)}
         </Link>
       </Section>
       <WorkspaceEmailDetails details={details} wrapWords />
       <WithdrawalRefundBreakdown
-        locale={locale}
+        locale={staffLocale}
         paidAmount={props.paidAmount}
         refundAmount={props.refundAmount}
         refundBasis={props.refundBasis}
-        refundLabel={m.withdrawalNoticeRefundLabel({}, { locale })}
+        refundLabel={m.withdrawalNoticeRefundLabel({}, messageOptions)}
       />
     </WorkspaceEmailLayout>
   );

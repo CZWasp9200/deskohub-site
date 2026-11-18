@@ -236,7 +236,7 @@ function SampleWithdrawalView() {
     >
       <FocusedStatusBar style="dark" />
       <AppBar
-        title={m.reservations_withdraw_title({}, { locale })}
+        title={m.withdrawalConfirmTitle({}, { locale })}
         back="back"
         onBack={() => undefined}
       />

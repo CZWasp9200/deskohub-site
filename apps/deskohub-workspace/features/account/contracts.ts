@@ -7,8 +7,8 @@ import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invo
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationOnSiteDetails } from "@/features/reservation/backend/reservation-on-site-details";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 
 /*

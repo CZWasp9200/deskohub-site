@@ -607,12 +607,11 @@ function CheckoutStatusActions({
       )}
       {reservationAccessHref && (
         <ReservationAccessButton
-          className={cn("sm:w-auto", showPageActions && "sm:ml-auto")}
           href={reservationAccessHref}
           id="checkout-status-access"
+          layout={showPageActions ? "status-end" : "status"}
           locale={locale}
           navigation={presentation === "modal" ? "client" : "document"}
-          size="lg"
         />
       )}
     </>

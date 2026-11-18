@@ -18,26 +18,24 @@ export type ReservationAccessNavigation = "guarded" | "client" | "document";
  * `href` it renders disabled with `unavailableNote` under it.
  */
 export function ReservationAccessButton({
-  className,
   href,
   id,
+  layout,
   locale,
   navigation = "guarded",
-  size = "sm",
   unavailableNote,
 }: {
-  readonly className?: string;
   readonly href: string | undefined;
   readonly id?: string;
+  readonly layout: "account" | "status" | "status-end";
   readonly locale: Locale;
   readonly navigation?: ReservationAccessNavigation;
-  readonly size?: "sm" | "lg";
   readonly unavailableNote?: ReactNode;
 }) {
   const label = (
     <>
       <KeyRound aria-hidden="true" className="size-4 shrink-0" />
-      {m.accountReservationShowPinCode({}, { locale })}
+      {m.reservationShowPinCode({}, { locale })}
     </>
   );
 
@@ -45,10 +43,10 @@ export function ReservationAccessButton({
     return (
       <div className="min-w-0">
         <Button
-          className={className}
+          className={layout === "account" ? "@3xl:w-auto" : "sm:w-auto"}
           disabled
           fullWidth
-          size={size}
+          size={layout === "account" ? "sm" : "lg"}
           type="button"
           variant="primary"
           wrap
@@ -64,12 +62,26 @@ export function ReservationAccessButton({
     );
   }
 
+  const appLink =
+    navigation === "client" ? (
+      <Link href={href} id={id} prefetch={false}>
+        {label}
+      </Link>
+    ) : (
+      <GuardedLink href={href} id={id}>
+        {label}
+      </GuardedLink>
+    );
+
   return (
     <Button
       asChild
-      className={cn(className)}
+      className={cn(
+        layout === "account" ? "@3xl:w-auto" : "sm:w-auto",
+        layout === "status-end" && "sm:ml-auto"
+      )}
       fullWidth
-      size={size}
+      size={layout === "account" ? "sm" : "lg"}
       variant="primary"
       wrap
     >
@@ -77,14 +89,8 @@ export function ReservationAccessButton({
         <a href={href} id={id}>
           {label}
         </a>
-      ) : navigation === "client" ? (
-        <Link href={href} id={id} prefetch={false}>
-          {label}
-        </Link>
       ) : (
-        <GuardedLink href={href} id={id}>
-          {label}
-        </GuardedLink>
+        appLink
       )}
     </Button>
   );

@@ -4,11 +4,19 @@ import inlangSettings from "../../project.inlang/settings.json" with {
   type: "json",
 };
 
+const projectRoot = new URL("../../", import.meta.url);
+const catalogPaths = inlangSettings["plugin.inlang.messageFormat"].pathPattern;
+
 const readCatalog = (locale: string): Record<string, unknown> =>
-  JSON.parse(
-    readFileSync(
-      new URL(`../../messages/${locale}.json`, import.meta.url),
-      "utf8"
+  Object.assign(
+    {},
+    ...catalogPaths.map((pattern) =>
+      JSON.parse(
+        readFileSync(
+          new URL(pattern.replace("{languageTag}", locale), projectRoot),
+          "utf8"
+        )
+      )
     )
   );
 

@@ -25,8 +25,8 @@ export function WithdrawalRefundBreakdown({
   const kept = { ...paidAmount, value: paidAmount.value - refundAmount.value };
   const started = (
     refundBasis.unit === "hour"
-      ? m.withdrawalEmailStartedHours
-      : m.withdrawalEmailStartedDays
+      ? m.withdrawalStartedHours
+      : m.withdrawalStartedDays
   )(
     {
       started: refundBasis.total - refundBasis.unstarted,
@@ -56,7 +56,7 @@ export function WithdrawalRefundBreakdown({
   return (
     <Section className="mt-4 rounded-2xl border border-[#e6e9f3] px-4 py-3">
       {line(
-        m.withdrawalEmailPaidLabel({}, { locale }),
+        m.withdrawalPaidAmount({}, { locale }),
         formatMoney(paidAmount, locale),
         false
       )}

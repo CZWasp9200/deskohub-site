@@ -25,7 +25,7 @@ export default function ReservationScreensLayout() {
       />
       <Stack.Screen
         name="[orderId]/withdraw"
-        options={{ title: m.reservations_withdraw_title({}, { locale }) }}
+        options={{ title: m.withdrawalConfirmTitle({}, { locale }) }}
       />
     </Stack>
   );

@@ -43,7 +43,7 @@ export function WithdrawalLink({
         variant="hint"
         style={[styles.link, underlined && styles.underlined]}
       >
-        {m.reservations_withdraw({}, { locale })}
+        {m.reservationWithdrawalAction({}, { locale })}
       </Text>
     </Pressable>
   );

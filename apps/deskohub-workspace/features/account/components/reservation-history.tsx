@@ -33,13 +33,13 @@ import { isMidnight } from "@/shared/utils/temporal";
 const getStatusLabel = (status: CustomerReservationStatus, locale: Locale) => {
   switch (status) {
     case "cancelled":
-      return m.accountReservationStatusCancelled({}, { locale });
+      return m.reservationStatusCancelled({}, { locale });
     case "confirmed":
-      return m.accountReservationStatusConfirmed({}, { locale });
+      return m.reservationStatusConfirmed({}, { locale });
     case "pending":
-      return m.accountReservationStatusPending({}, { locale });
+      return m.reservationStatusPending({}, { locale });
     case "requires-attention":
-      return m.accountReservationStatusAttention({}, { locale });
+      return m.reservationStatusAttention({}, { locale });
   }
 };
 
@@ -367,12 +367,12 @@ function FeaturedReservationItem({
             </div>
           )}
           <ReservationAccessButton
-            className="@3xl:w-auto"
             href={
               reservation.workspaceReservationId && !reservation.reviewSandbox
                 ? `/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`
                 : undefined
             }
+            layout="account"
             locale={locale}
             unavailableNote={
               reservation.reviewSandbox
@@ -643,7 +643,7 @@ function PastReservationTable({
             </th>
             <th className="px-3 py-3 text-right" scope="col">
               <span className="sr-only">
-                {m.accountReservationView({}, { locale })}
+                {m.reservationView({}, { locale })}
               </span>
             </th>
           </tr>
@@ -821,7 +821,7 @@ function ReservationDetailLink({
     return (
       <Button asChild variant="link" wrap>
         <GuardedLink href={href}>
-          {m.accountReservationView({}, { locale })}
+          {m.reservationView({}, { locale })}
         </GuardedLink>
       </Button>
     );
@@ -829,9 +829,7 @@ function ReservationDetailLink({
 
   return (
     <Button asChild size="sm" variant="secondary" wrap>
-      <GuardedLink href={href}>
-        {m.accountReservationView({}, { locale })}
-      </GuardedLink>
+      <GuardedLink href={href}>{m.reservationView({}, { locale })}</GuardedLink>
     </Button>
   );
 }

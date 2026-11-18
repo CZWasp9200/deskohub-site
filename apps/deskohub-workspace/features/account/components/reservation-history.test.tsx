@@ -263,12 +263,12 @@ describe("ReservationHistory", () => {
     expect(view.queryByRole("button", { name: /nfc/i })).toBeNull();
     expect(
       view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeTruthy();
     expect(
       view.queryByRole("button", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeNull();
 
@@ -305,7 +305,7 @@ describe("ReservationHistory", () => {
     expect(row?.textContent).toContain("Aug 21, 2026");
 
     const link = view.getByRole("link", {
-      name: m.accountReservationView({}, { locale: "en-US" }),
+      name: m.reservationView({}, { locale: "en-US" }),
     });
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe(
@@ -481,11 +481,11 @@ describe("ReservationHistory", () => {
     (locale) => {
       const view = renderHistory(locale, linkedHistory);
       const pinLink = view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale }),
+        name: m.reservationShowPinCode({}, { locale }),
       });
       const pinHref = pinLink.getAttribute("href");
       const detailLink = view.getByRole("link", {
-        name: m.accountReservationView({}, { locale }),
+        name: m.reservationView({}, { locale }),
       });
 
       expect(pinLink.tagName).toBe("A");
@@ -512,13 +512,13 @@ describe("ReservationHistory", () => {
       },
     });
     const pinButton = view.getByRole("button", {
-      name: m.accountReservationShowPinCode({}, { locale }),
+      name: m.reservationShowPinCode({}, { locale }),
     });
 
     expect(pinButton.hasAttribute("disabled")).toBe(true);
     expect(
       view.queryByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale }),
+        name: m.reservationShowPinCode({}, { locale }),
       })
     ).toBeNull();
     expect(pinButton.nextElementSibling?.tagName).toBe("P");
@@ -546,7 +546,7 @@ describe("ReservationHistory", () => {
     expect(
       view
         .getByRole("button", {
-          name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
         })
         .hasAttribute("disabled")
     ).toBe(true);
@@ -570,7 +570,7 @@ describe("ReservationHistory", () => {
 
     expect(
       view.queryByRole("link", {
-        name: m.accountReservationView({}, { locale: "en-US" }),
+        name: m.reservationView({}, { locale: "en-US" }),
       })
     ).toBeNull();
     expect(view.container.querySelector("li a")).toBeNull();
@@ -589,7 +589,7 @@ describe("ReservationHistory", () => {
         </UnsavedChangesProvider>
       );
       const link = view.getByRole("link", {
-        name: m.accountReservationView({}, { locale: "en-US" }),
+        name: m.reservationView({}, { locale: "en-US" }),
       });
       const event = new MouseEvent("click", {
         bubbles: true,
@@ -619,7 +619,7 @@ describe("ReservationHistory", () => {
         </UnsavedChangesProvider>
       );
       const pinLink = view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       });
       const event = new MouseEvent("click", {
         bubbles: true,

@@ -134,7 +134,7 @@ describe("ReservationWithdrawalLink", () => {
     await act(async () => {
       fireEvent.click(
         view.getAllByRole("button", {
-          name: m.withdrawalDialogClose({}, { locale }),
+          name: m.withdrawalClose({}, { locale }),
         })[0] as HTMLElement
       );
     });

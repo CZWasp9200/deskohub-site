@@ -760,7 +760,7 @@ describe("sendPaidReservationEmails internal notification failure", () => {
         { locale }
       );
       const accessLink = emailView.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale }),
+        name: m.reservationShowPinCode({}, { locale }),
       });
       const invoiceLink = emailView.getByRole("link", {
         name: m.checkoutEmailCustomerInvoiceDownload({}, { locale }),
@@ -1038,7 +1038,7 @@ describe("sendPaidReservationEmails author confirmation", () => {
         )
       ).toBeDefined();
       const statusLink = emailView.getByRole("link", {
-        name: m.checkoutEmailAuthorStatusButton({}, { locale: "cs-CZ" }),
+        name: m.reservationView({}, { locale: "cs-CZ" }),
       });
       const statusUrl = new URL(statusLink.getAttribute("href") ?? "");
       expect(statusUrl.pathname).toBe(
@@ -1111,7 +1111,7 @@ describe("sendPaidReservationEmails author confirmation", () => {
         )
       );
       expect(html).toContain(`href="${statusUrl}"`);
-      expect(html).toContain(m.checkoutEmailAuthorStatusButton({}, { locale }));
+      expect(html).toContain(m.reservationView({}, { locale }));
     }
   });
 

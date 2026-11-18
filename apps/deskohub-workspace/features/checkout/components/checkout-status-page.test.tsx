@@ -271,7 +271,7 @@ describe("CheckoutStatusPage", () => {
     expect(withdrawalLinks(withdrawn)).toEqual([]);
     expect(
       withdrawn.queryByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeNull();
   });
@@ -292,7 +292,7 @@ describe("CheckoutStatusPage", () => {
     expect(view.getByText("Profi Workstation")).toBeDefined();
     expect(
       view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeDefined();
     expect(
@@ -464,7 +464,7 @@ describe("CheckoutStatusPage", () => {
     expect(
       modalView
         .getByRole("link", {
-          name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
         })
         .getAttribute("href")
     ).toBe(accessHref);
@@ -482,7 +482,7 @@ describe("CheckoutStatusPage", () => {
     expect(
       canonicalView
         .getByRole("link", {
-          name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
         })
         .getAttribute("href")
     ).toBe(accessHref);
@@ -490,7 +490,7 @@ describe("CheckoutStatusPage", () => {
     expect(
       canonicalView
         .getByRole("link", {
-          name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
         })
         .getAttribute("data-next-link")
     ).toBeNull();

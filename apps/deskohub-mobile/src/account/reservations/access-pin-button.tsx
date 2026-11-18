@@ -19,7 +19,7 @@ export function AccessPinButton({
   return (
     <Button
       icon={KeyRound}
-      label={m.reservations_show_pin({}, { locale })}
+      label={m.reservationShowPinCode({}, { locale })}
       onPress={() =>
         router.push({
           pathname: "/reservations/[orderId]/access",

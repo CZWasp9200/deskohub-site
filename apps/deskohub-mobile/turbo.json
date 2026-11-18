@@ -18,6 +18,7 @@
     "i18n:compile": {
       "inputs": [
         "messages/*.json",
+        "$TURBO_ROOT$/packages/i18n/messages/reservations/*.json",
         "project.inlang/settings.json",
         "package.json"
       ],

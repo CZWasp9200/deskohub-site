@@ -147,42 +147,53 @@ function WithdrawalStatement({
             })}
           />
           <Card padding="none">
-            <DetailRow label={m.withdrawal_reference({}, { locale })}>
+            <DetailRow label={m.withdrawalReservationReference({}, { locale })}>
               <Text numeric variant="bodyStrong">
                 {reference}
               </Text>
             </DetailRow>
-            <DetailRow divided label={m.withdrawal_contract({}, { locale })}>
+            <DetailRow
+              divided
+              label={m.withdrawalReservationLabel({}, { locale })}
+            >
               <Text variant="bodyStrong">{quote.contractLabel}</Text>
             </DetailRow>
             {name.kind === "known" ? (
-              <DetailRow divided label={m.withdrawal_name({}, { locale })}>
+              <DetailRow
+                divided
+                label={m.withdrawalCustomerName({}, { locale })}
+              >
                 <Text variant="bodyStrong">{name.name}</Text>
               </DetailRow>
             ) : (
               <View style={[styles.detail, styles.divided]}>
                 <TextField
-                  label={m.withdrawal_name_input({}, { locale })}
+                  label={m.withdrawalConfirmNameLabel({}, { locale })}
                   value={typedName}
                   onChangeText={onNameChange}
                   autoComplete="name"
                   disabled={pending}
                   error={
                     name.missing
-                      ? m.withdrawal_name_required({}, { locale })
+                      ? m.withdrawalConfirmNameRequired({}, { locale })
                       : undefined
                   }
                 />
               </View>
             )}
-            <DetailRow divided label={m.withdrawal_receipt_to({}, { locale })}>
+            <DetailRow
+              divided
+              label={m.withdrawalConfirmReceiptLabel({}, { locale })}
+            >
               <Text variant="bodyStrong">{quote.receiptEmail}</Text>
             </DetailRow>
           </Card>
 
           <Card>
             <View style={styles.amountRow}>
-              <Text variant="body">{m.withdrawal_paid({}, { locale })}</Text>
+              <Text variant="body">
+                {m.withdrawalPaidAmount({}, { locale })}
+              </Text>
               <Text numeric variant="body" style={styles.amount}>
                 {formatMoney(quote.paidAmount, locale)}
               </Text>
@@ -191,8 +202,8 @@ function WithdrawalStatement({
               <View style={styles.amountRow}>
                 <Text variant="bodySmall" style={styles.muted}>
                   {(basis.unit === "hour"
-                    ? m.withdrawal_started_hours
-                    : m.withdrawal_started_days)(
+                    ? m.withdrawalStartedHours
+                    : m.withdrawalStartedDays)(
                     {
                       started: basis.total - basis.unstarted,
                       total: basis.total,
@@ -217,14 +228,14 @@ function WithdrawalStatement({
             )}
             <View style={[styles.amountRow, styles.totalRow]}>
               <Text variant="bodyStrong">
-                {m.withdrawal_refund({}, { locale })}
+                {m.withdrawalRefundAmount({}, { locale })}
               </Text>
               <Text numeric variant="bodyStrong" style={styles.amount}>
                 {formatMoney(quote.refundAmount, locale)}
               </Text>
             </View>
             <Text variant="hint" style={styles.note}>
-              {m.withdrawal_refund_note({}, { locale })}
+              {m.withdrawalConfirmRefundNote({}, { locale })}
             </Text>
           </Card>
         </View>
@@ -232,14 +243,14 @@ function WithdrawalStatement({
       <ActionFooter>
         <Button
           variant="danger"
-          label={m.withdrawal_confirm({}, { locale })}
+          label={m.withdrawalConfirmSubmit({}, { locale })}
           busy={pending}
           disabled={pending}
           onPress={onConfirm}
         />
         <Button
           variant="positive"
-          label={m.withdrawal_decline({}, { locale })}
+          label={m.withdrawalConfirmDecline({}, { locale })}
           disabled={pending}
           onPress={() => router.back()}
         />
@@ -406,24 +417,27 @@ function WithdrawalReceived({
               role="heading"
               style={styles.receivedTitle}
             >
-              {m.withdrawal_received_title({}, { locale })}
+              {m.withdrawalReceivedTitle({}, { locale })}
             </Text>
           </View>
           <Card padding="none">
-            <DetailRow label={m.withdrawal_reference({}, { locale })}>
+            <DetailRow label={m.withdrawalReservationReference({}, { locale })}>
               <Text numeric variant="bodyStrong">
                 {reference}
               </Text>
             </DetailRow>
-            <DetailRow divided label={m.withdrawal_contract({}, { locale })}>
+            <DetailRow
+              divided
+              label={m.withdrawalReservationLabel({}, { locale })}
+            >
               <Text variant="bodyStrong">{quote.contractLabel}</Text>
             </DetailRow>
-            <DetailRow divided label={m.withdrawal_submitted({}, { locale })}>
+            <DetailRow divided label={m.withdrawalSubmittedAt({}, { locale })}>
               <Text numeric variant="bodyStrong">
                 {submitted}
               </Text>
             </DetailRow>
-            <DetailRow divided label={m.withdrawal_refund({}, { locale })}>
+            <DetailRow divided label={m.withdrawalRefundAmount({}, { locale })}>
               <Text numeric variant="bodyStrong">
                 {formatMoney(receipt.refundAmount, locale)}
               </Text>
@@ -432,7 +446,7 @@ function WithdrawalReceived({
           {/* Simple breaking keeps the address whole; Android's default
               strategy breaks it at a dot. */}
           <Text variant="bodySmall" textBreakStrategy="simple">
-            {m.withdrawal_received_emailed(
+            {m.withdrawalReceivedEmailed(
               {
                 email: emailWithBreak(receipt.receiptEmail),
               },
@@ -444,7 +458,7 @@ function WithdrawalReceived({
       <ActionFooter>
         <Button
           variant="primary"
-          label={m.withdrawal_close({}, { locale })}
+          label={m.withdrawalClose({}, { locale })}
           onPress={close}
         />
       </ActionFooter>

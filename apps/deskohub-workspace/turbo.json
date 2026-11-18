@@ -57,6 +57,7 @@
       "env": ["!NEXT_PUBLIC_VERCEL_*"],
       "inputs": [
         "features/i18n/messages/*.json",
+        "$TURBO_ROOT$/packages/i18n/messages/reservations/*.json",
         "project.inlang/settings.json",
         "project.inlang/project_id",
         "package.json"

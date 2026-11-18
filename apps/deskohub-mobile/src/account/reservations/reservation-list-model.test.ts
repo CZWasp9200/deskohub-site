@@ -84,7 +84,7 @@ describe("reservationRowView", () => {
     );
     const done = reservationRowView(row("d"), "past", "en-US");
     expect(cancelled.detail).toBe(
-      m.reservations_status_cancelled({}, { locale: "en-US" })
+      m.reservationStatusCancelled({}, { locale: "en-US" })
     );
     expect(done.detail).not.toBe(cancelled.detail);
     expect(Option.isNone(cancelled.badge)).toBe(true);

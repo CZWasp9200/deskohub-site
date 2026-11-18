@@ -17,16 +17,16 @@ import {
   decodeBookedReservation,
 } from "@/features/reservation/backend/booked-reservation";
 import { getStoredRebookingSelection } from "@/features/reservation/backend/booking-selection";
-import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
-import {
-  ReservationRecords,
-  type ReservationRecordsError,
-} from "@/features/reservation/backend/reservation-records";
 import {
   type OnSiteReservation,
   ReservationOnSite,
   type ReservationOnSiteDetails,
 } from "@/features/reservation/backend/reservation-on-site-details";
+import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
+import {
+  ReservationRecords,
+  type ReservationRecordsError,
+} from "@/features/reservation/backend/reservation-records";
 import {
   type ListedReservation,
   ReservationWithdrawalAvailability,
@@ -353,7 +353,10 @@ const toReservationHistory = ({
     WorkspaceReservationId,
     WithdrawalAvailability
   >;
-  readonly onSite: ReadonlyMap<WorkspaceReservationId, ReservationOnSiteDetails>;
+  readonly onSite: ReadonlyMap<
+    WorkspaceReservationId,
+    ReservationOnSiteDetails
+  >;
 }): CustomerReservationHistory => ({
   kind: "available",
   groups: groupCustomerReservations(
@@ -377,7 +380,8 @@ const toOnSiteReservation = ({
   reservation,
   row,
 }: HistoryEntry): readonly OnSiteReservation[] =>
-  row?.reservationDetails && getReservationStatus(reservation, row) === "confirmed"
+  row?.reservationDetails &&
+  getReservationStatus(reservation, row) === "confirmed"
     ? [
         {
           id: row.id,

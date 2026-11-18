@@ -141,7 +141,7 @@ export const reservationRowView = (
     // the history can't tell whether a payment was taken.
     detail:
       place === "past" && cancelled
-        ? m.reservations_status_cancelled({}, { locale })
+        ? m.reservationStatusCancelled({}, { locale })
         : rowTimeLineOf(row, locale),
     badge:
       place === "later" && (badge === "pending" || badge === "attention")
