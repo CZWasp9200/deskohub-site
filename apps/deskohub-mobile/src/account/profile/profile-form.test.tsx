@@ -185,8 +185,10 @@ describe("useUnsavedChangesGuard", () => {
  * routes is blocked when any of them prevents removal, and the blocked
  * screen gets the action back as `repeat`.
  */
-const editorStack = () => {
-  const draft: { edits: string | undefined } = { edits: "Othertown" };
+const editorStack = (dirty = true) => {
+  const draft: { edits: string | undefined } = {
+    edits: dirty ? "Othertown" : undefined,
+  };
   const guards = new Map<string, Guard>();
   let rerender: () => void = () => undefined;
   const editors: Record<string, ReadonlyArray<string>> = {
@@ -255,13 +257,13 @@ const editorStack = () => {
 };
 
 describe("profile editors in the account stack", () => {
-  const openBoth = async () => {
+  const openBoth = async (dirty = true) => {
     navigator.routes = [
       { key: "si", name: "index" },
       { key: "sb", name: "billing" },
       { key: "sp", name: "profile" },
     ];
-    const stack = editorStack();
+    const stack = editorStack(dirty);
     await render(createElement(stack.Stack));
     return stack;
   };
@@ -305,8 +307,7 @@ describe("profile editors in the account stack", () => {
     expect(navigator.routes.map(({ name }) => name)).toEqual(["index"]);
   });
 
-  test("a menu switch removes both editors in one guarded action and keeps the Account anchor", async () => {
-    const mounted = await openBoth();
+  const accountMenuSwitch = () => {
     const routeNames = ["index", "billing", "profile", "language"];
     const options = { routeNames, routeParamList: {}, routeGetIdList: {} };
     const stack: NavigationState = {
@@ -330,9 +331,13 @@ describe("profile editors in the account stack", () => {
       routes: [{ key: name, name, state }],
     });
     const root = wrap(
-      "root",
-      "(account)",
-      wrap("signed-in", "(tabs)", wrap("tabs", "account", stack))
+      "container",
+      "__root",
+      wrap(
+        "root",
+        "(account)",
+        wrap("signed-in", "(tabs)", wrap("tabs", "account", stack))
+      )
     );
     const selection = accountSectionReset(root, "language");
     if (selection === undefined)
@@ -353,12 +358,29 @@ describe("profile editors in the account stack", () => {
       .reverse();
     expect(remaining.map(({ name }) => name)).toEqual(["index", "language"]);
     expect(remaining[0]?.key).toBe("si");
+    return { removed, remaining };
+  };
+
+  test("the expanded menu opens Language from a clean Profile", async () => {
+    const mounted = await openBoth(false);
+    const { removed, remaining } = accountMenuSwitch();
+    const switching = await mounted.remove(removed, remaining);
+
+    expect(switching.removals()).toBe(1);
+    expect(navigator.routes[0]?.key).toBe("si");
+    expect(navigator.routes.at(-1)?.name).toBe("language");
+  });
+
+  test("a menu switch removes both editors in one guarded action and keeps the Account anchor", async () => {
+    const mounted = await openBoth();
+    const { removed, remaining } = accountMenuSwitch();
 
     const first = await mounted.remove(removed, remaining);
     expect(mounted.guards.get("sb")?.asking).toBe(true);
     await act(async () => mounted.guards.get("sb")?.keepEditing());
     expect(first.removals()).toBe(0);
     expect(mounted.draft.edits).toBe("Othertown");
+    expect(navigator.routes.at(-1)?.name).toBe("profile");
 
     const second = await mounted.remove(removed, remaining);
     await act(async () => mounted.guards.get("sb")?.discard());
@@ -368,6 +390,7 @@ describe("profile editors in the account stack", () => {
       "index",
       "language",
     ]);
+    expect(navigator.routes[0]?.key).toBe("si");
   });
 
   test("back from Billing alone, once Profile is gone, asks", async () => {

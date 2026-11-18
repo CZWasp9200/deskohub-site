@@ -78,10 +78,21 @@ export function accountSectionReset(
   root: NavigationState | undefined,
   section: AccountDetailSection
 ) {
-  const account = root?.routes.find(({ name }) => name === "(account)")?.state;
-  const tabs = account?.routes.find(({ name }) => name === "(tabs)")?.state;
-  const stack = tabs?.routes.find(({ name }) => name === "account")?.state;
-  if (stack?.stale !== false) return undefined;
+  const slot = root?.routes[root.index];
+  // Expo Router hosts the app's Stack under its container route.
+  const app = slot?.name === "__root" ? slot.state : root;
+  if (app?.stale !== false) return undefined;
+  const signedIn = app.routes[app.index];
+  if (signedIn?.name !== "(account)" || signedIn.state?.stale !== false) {
+    return undefined;
+  }
+  const tabs = signedIn.state.routes[signedIn.state.index];
+  if (tabs?.name !== "(tabs)" || tabs.state?.stale !== false) {
+    return undefined;
+  }
+  const account = tabs.state.routes[tabs.state.index];
+  const stack = account?.state;
+  if (account?.name !== "account" || stack?.stale !== false) return undefined;
 
   const anchor = stack.routes.find(({ name }) => name === accountStackAnchor);
   const detail = stack.routes.findLast(({ name }) => name === section);
