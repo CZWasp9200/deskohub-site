@@ -21,7 +21,7 @@ export function WithdrawalConfirmPreview({
   const [open, setOpen] = useState(true);
   return (
     <WithdrawalConfirmDialog
-      initialErrors={state === "empty"}
+      initialErrors={false}
       locale={locale}
       onConfirm={() => undefined}
       onOpenChange={setOpen}

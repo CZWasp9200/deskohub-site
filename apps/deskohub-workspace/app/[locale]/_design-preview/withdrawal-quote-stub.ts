@@ -14,7 +14,7 @@ const czk = (value: number) =>
 
 /**
  * `full`: a Profi day not started yet. `partial`: a four-day office with three
- * days started. `empty`: `full` for an account without a name.
+ * days started. `fallback`: `full` for an account without a name.
  */
 export const withdrawalQuoteStub = (
   state: string,
@@ -41,7 +41,7 @@ export const withdrawalQuoteStub = (
           Temporal.Instant.from("2026-12-06T23:00:00Z"),
           locale
         )}`,
-        customerName: state === "empty" ? null : "Jana Nováková",
+        customerName: state === "fallback" ? null : "Jana Nováková",
         receiptEmail: "jana.novakova@deskohub.test",
         paidAmount: czk(550),
         refundAmount: czk(550),

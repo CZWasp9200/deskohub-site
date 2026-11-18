@@ -21,7 +21,6 @@ export type WithdrawalStatement = {
   readonly receiptEmail: string;
 };
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ContractRow({
   label,
@@ -68,19 +67,25 @@ export function WithdrawalConfirmDialog({
   /** The reservation number as the account shows it. */
   readonly reference: string;
 }) {
-  const [name, setName] = useState(quote.customerName ?? "");
-  const [receiptEmail, setReceiptEmail] = useState(quote.receiptEmail);
+  // The name comes from the account; an input stands in only when the
+  // account has none to show (its contact details couldn't be read).
+  const knownName = quote.customerName;
+  const [name, setName] = useState("");
   const [submitted, setSubmitted] = useState(initialErrors);
 
-  const nameError = submitted && name.trim() === "";
-  const emailError = submitted && !emailPattern.test(receiptEmail.trim());
+  const nameError = knownName === null && submitted && name.trim() === "";
   const basis = quote.refundBasis;
+  const deduction = {
+    ...quote.paidAmount,
+    value: quote.paidAmount.value - quote.refundAmount.value,
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(true);
-    if (name.trim() === "" || !emailPattern.test(receiptEmail.trim())) return;
-    onConfirm({ name: name.trim(), receiptEmail: receiptEmail.trim() });
+    const confirmedName = knownName ?? name.trim();
+    if (confirmedName === "") return;
+    onConfirm({ name: confirmedName, receiptEmail: quote.receiptEmail });
   };
 
   return (
@@ -123,12 +128,19 @@ export function WithdrawalConfirmDialog({
             <ContractRow label={m.withdrawalConfirmContractLabel({}, { locale })}>
               {quote.contractLabel}
             </ContractRow>
-            <ContractRow label={m.withdrawalConfirmPaidLabel({}, { locale })}>
-              {formatMoney(quote.paidAmount, locale)}
+            {knownName !== null && (
+              <ContractRow
+                label={m.withdrawalConfirmNameShownLabel({}, { locale })}
+              >
+                {knownName}
+              </ContractRow>
+            )}
+            <ContractRow label={m.withdrawalConfirmReceiptLabel({}, { locale })}>
+              {quote.receiptEmail}
             </ContractRow>
           </dl>
 
-          <div className="grid gap-4">
+          {knownName === null && (
             <div className="grid gap-2">
               <Label htmlFor="withdrawal-name">
                 {m.withdrawalConfirmNameLabel({}, { locale })}
@@ -152,53 +164,44 @@ export function WithdrawalConfirmDialog({
                 </p>
               )}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="withdrawal-email">
-                {m.withdrawalConfirmEmailLabel({}, { locale })}
-              </Label>
-              <Input
-                aria-describedby={
-                  emailError ? "withdrawal-email-error" : undefined
-                }
-                aria-invalid={emailError || undefined}
-                autoComplete="email"
-                className="aria-invalid:border-red-700"
-                disabled={pending}
-                id="withdrawal-email"
-                inputMode="email"
-                onChange={(event) => setReceiptEmail(event.target.value)}
-                type="email"
-                value={receiptEmail}
-              />
-              {emailError && (
-                <p
-                  className="text-sm font-medium text-red-700"
-                  id="withdrawal-email-error"
-                >
-                  {m.withdrawalConfirmEmailInvalid({}, { locale })}
-                </p>
-              )}
-            </div>
-          </div>
+          )}
 
-          <div className="rounded-2xl bg-[#f6f8fa] p-4 text-sm leading-6 text-[#475569]">
-            <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <span>{m.withdrawalConfirmRefundLabel({}, { locale })}</span>
-              <span className="text-2xl font-semibold text-navy-blue">
-                {formatMoney(quote.refundAmount, locale)}
-              </span>
-            </div>
-            {basis.kind === "partial" && (
-              <p className="mt-2">
-                {(basis.unit === "hour"
-                  ? m.withdrawalConfirmRefundPartialHours
-                  : m.withdrawalConfirmRefundPartialDays)(
-                  { unstarted: basis.unstarted, total: basis.total },
-                  { locale }
-                )}
-              </p>
-            )}
-            <p className="mt-2">{m.withdrawalConfirmRefundWhen({}, { locale })}</p>
+          <div className="rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 text-navy-blue">
+            <dl className="m-0 grid gap-2 text-sm tabular-nums">
+              <div className="flex items-baseline justify-between gap-4">
+                <dt>{m.withdrawalConfirmPaidLabel({}, { locale })}</dt>
+                <dd className="m-0 shrink-0 text-right">
+                  {formatMoney(quote.paidAmount, locale)}
+                </dd>
+              </div>
+              {basis.kind === "partial" && (
+                <div className="flex items-baseline justify-between gap-4 text-navy-blue/60">
+                  <dt>
+                    {(basis.unit === "hour"
+                      ? m.withdrawalConfirmStartedHours
+                      : m.withdrawalConfirmStartedDays)(
+                      {
+                        started: basis.total - basis.unstarted,
+                        total: basis.total,
+                      },
+                      { locale }
+                    )}
+                  </dt>
+                  <dd className="m-0 shrink-0 text-right">
+                    −{formatMoney(deduction, locale)}
+                  </dd>
+                </div>
+              )}
+              <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-navy-blue/10 pt-3 text-base font-semibold">
+                <dt>{m.withdrawalConfirmRefundLabel({}, { locale })}</dt>
+                <dd className="m-0 shrink-0 text-right">
+                  {formatMoney(quote.refundAmount, locale)}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-1 text-xs leading-5 text-navy-blue/60">
+              {m.withdrawalConfirmRefundNote({}, { locale })}
+            </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
