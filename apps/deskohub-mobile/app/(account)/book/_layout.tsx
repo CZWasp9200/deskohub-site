@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
 import { stackScreenOptions } from "../../../src/ui/navigation";
+import { useUpdateOfferHost } from "../../../src/updates/update-offer";
 
 /**
  * Booking a space and its checkout, above the tabs so the tab bar is
@@ -9,6 +10,9 @@ import { stackScreenOptions } from "../../../src/ui/navigation";
  */
 export default function BookLayout() {
   const locale = useAppLocale();
+  // The whole flow is critical: its screens show the quiet update card, and
+  // the banner stays away even while one loads or fails.
+  useUpdateOfferHost();
   return (
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen

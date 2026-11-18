@@ -33,6 +33,7 @@ export const PayableCheckoutMock = (
       const reconfirm = (state: SignedPayState) =>
         confirm(state).pipe(
           Effect.map((reservation) => ({
+            kind: "reservation" as const,
             state: withPayStateHoldExpiry(state, reservation),
             reservation,
           }))

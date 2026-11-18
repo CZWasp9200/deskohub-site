@@ -24,6 +24,7 @@ import {
   type HttpApiEndpoint,
   type HttpApiGroup,
 } from "effect/http-api";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import { AdministratorAgentAuthorization } from "@/features/administrators/backend/administrator-agent-authorization.service";
 import {
   type AgentTool,
@@ -38,6 +39,10 @@ import {
 import type { CustomerAgentCaller } from "@/features/agent-tools/customer-agent-caller";
 import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 import { getFirstInvalidFieldPath } from "@/shared/utils/schema-issue";
+import {
+  AdministrationAgentDocuments,
+  type AdministrationDocumentLink,
+} from "./administration-agent-documents";
 import {
   AdministrationAgentAccessToken,
   AdministrationApiClient,
@@ -291,9 +296,16 @@ const successResultSchema = ({
       uri: Schema.String,
       mimeType: Schema.String,
       byteLength: Schema.Number,
+      downloadUrl: Schema.optionalKey(Schema.String).annotate({
+        description:
+          "An Admin UI address where the administrator, signed in, can open the document. Only some documents have one.",
+      }),
+      expiresAt: Schema.optionalKey(Schema.String).annotate({
+        description: "When downloadUrl stops working, as an ISO 8601 instant.",
+      }),
     }).annotate({
       description:
-        "The document, attached to the result as an embedded resource.",
+        "The document, attached to the result as an embedded resource, and linked as a resource link when it has a downloadUrl.",
     });
   }
   const json = Schema.toCodecJson(success as Schema.Codec<unknown>);
@@ -716,7 +728,11 @@ interface OperationOutcome {
 }
 
 /** Runs the operation and encodes its success as the tool's result. */
-const runOperation = (tool: AdministrationOperationTool, args: Arguments) =>
+const runOperation = (
+  tool: AdministrationOperationTool,
+  args: Arguments,
+  owner: CustomerAccountId
+) =>
   tool.toRequest(args).pipe(
     Effect.flatMap((request) =>
       Effect.flatMap(AdministrationApiClient, (client) =>
@@ -735,18 +751,32 @@ const runOperation = (tool: AdministrationOperationTool, args: Arguments) =>
       ({
         value,
         contentType,
-      }): Effect.Effect<OperationOutcome, AgentToolError> =>
+      }): Effect.Effect<
+        OperationOutcome,
+        AgentToolError,
+        AdministrationAgentDocuments
+      > =>
         value instanceof Uint8Array
-          ? Effect.succeed(
-              toAttachmentOutcome({
-                tool,
+          ? Effect.flatMap(AdministrationAgentDocuments, (documents) =>
+              documents.link({
+                reference: tool.reference,
                 args,
                 bytes: value,
-                mimeType: Option.getOrElse(
-                  contentType,
-                  () => "application/octet-stream"
-                ),
+                administratorAccountId: owner,
               })
+            ).pipe(
+              Effect.map((link) =>
+                toAttachmentOutcome({
+                  tool,
+                  args,
+                  bytes: value,
+                  mimeType: Option.getOrElse(
+                    contentType,
+                    () => "application/octet-stream"
+                  ),
+                  link,
+                })
+              )
             )
           : toJson(tool.success, value).pipe(
               Effect.flatMap((json) =>
@@ -765,19 +795,43 @@ const toAttachmentOutcome = ({
   args,
   bytes,
   mimeType,
+  link,
 }: {
   readonly tool: AdministrationOperationTool;
   readonly args: Arguments;
   readonly bytes: Uint8Array;
   readonly mimeType: string;
+  readonly link: Option.Option<AdministrationDocumentLink>;
 }): OperationOutcome => {
   const subject = Object.values(args).filter(Predicate.isString).slice(0, 1);
   const uri = ["urn:deskohub:administration", tool.reference, ...subject].join(
     ":"
   );
+  const download = Option.map(link, ({ url, expiresAt }) => ({
+    url,
+    expiresAt: expiresAt.toString(),
+  }));
   return {
-    result: { uri, mimeType, byteLength: bytes.byteLength },
-    attachments: [{ uri, mimeType, blob: Base64.encode(bytes) }],
+    result: {
+      uri,
+      mimeType,
+      byteLength: bytes.byteLength,
+      ...Option.match(download, {
+        onNone: () => ({}),
+        onSome: ({ url, expiresAt }) => ({ downloadUrl: url, expiresAt }),
+      }),
+    },
+    attachments: [
+      {
+        uri,
+        mimeType,
+        blob: Base64.encode(bytes),
+        ...Option.match(download, {
+          onNone: () => ({}),
+          onSome: (download) => ({ download }),
+        }),
+      },
+    ],
   };
 };
 
@@ -791,10 +845,12 @@ const previewOperation = ({
   tool,
   args,
   tools,
+  owner,
 }: {
   readonly tool: AdministrationOperationTool;
   readonly args: Arguments;
   readonly tools: ReadonlyMap<string, AdministrationOperationTool>;
+  readonly owner: CustomerAccountId;
 }) => {
   const input = Object.fromEntries(
     Object.entries(args).filter(([name]) => name !== confirmArgument)
@@ -813,7 +869,7 @@ const previewOperation = ({
   }
   return Match.value(preview).pipe(
     Match.tag("DryRun", () =>
-      runOperation(tool, { ...input, dryRun: true }).pipe(
+      runOperation(tool, { ...input, dryRun: true }, owner).pipe(
         Effect.map(
           ({ result, attachments }): OperationOutcome => ({
             result: { ...confirmation, dryRun: result },
@@ -830,7 +886,8 @@ const previewOperation = ({
           onSome: (previewTool) =>
             runOperation(
               previewTool,
-              previewArguments({ preview: read, previewTool, args: input })
+              previewArguments({ preview: read, previewTool, args: input }),
+              owner
             ).pipe(Effect.map((outcome) => [reference, outcome] as const)),
         })
       ).pipe(
@@ -864,10 +921,13 @@ const callAdministrationTool = Effect.fn("administrationAgentTools.call")(
     tool,
     tools,
     args,
+    owner,
   }: {
     readonly tool: AdministrationOperationTool;
     readonly tools: ReadonlyMap<string, AdministrationOperationTool>;
     readonly args: Schema.Json;
+    /** The administrator account the agent's token acts for. */
+    readonly owner: CustomerAccountId;
   }) {
     const object = yield* Schema.decodeUnknownEffect(argumentsSchema)(
       args
@@ -888,10 +948,10 @@ const callAdministrationTool = Effect.fn("administrationAgentTools.call")(
     // Validates every argument before anything runs, previews included.
     yield* tool.toRequest(object);
     if (tool.behavior.kind !== "destructive") {
-      return yield* runOperation(tool, object);
+      return yield* runOperation(tool, object, owner);
     }
     if (tool.behavior.preview?._tag === "DryRun" && dryRun === true) {
-      return yield* runOperation(tool, object).pipe(
+      return yield* runOperation(tool, object, owner).pipe(
         Effect.map(
           ({ result, attachments }): OperationOutcome => ({
             result: { outcome: "dry-run", result },
@@ -901,13 +961,14 @@ const callAdministrationTool = Effect.fn("administrationAgentTools.call")(
       );
     }
     if (confirm !== true) {
-      return yield* previewOperation({ tool, args: object, tools });
+      return yield* previewOperation({ tool, args: object, tools, owner });
     }
     return yield* runOperation(
       tool,
       Object.fromEntries(
         Object.entries(object).filter(([name]) => name !== confirmArgument)
-      )
+      ),
+      owner
     ).pipe(
       Effect.map(
         ({ result, attachments }): OperationOutcome => ({
@@ -947,7 +1008,11 @@ const authorizeCaller = (caller: CustomerAgentCaller) =>
 export const makeAdministrationAgentTools = (
   operationTools: ReadonlyArray<AdministrationOperationTool>
 ): ReadonlyArray<
-  AgentTool<AdministrationApiClient | AdministratorAgentAuthorization>
+  AgentTool<
+    | AdministrationApiClient
+    | AdministrationAgentDocuments
+    | AdministratorAgentAuthorization
+  >
 > => {
   const byReference = new Map(
     operationTools.map((tool) => [tool.reference, tool])
@@ -970,7 +1035,12 @@ export const makeAdministrationAgentTools = (
         onSome: (agentCaller) =>
           authorizeCaller(agentCaller).pipe(
             Effect.andThen(
-              callAdministrationTool({ tool, tools: byReference, args })
+              callAdministrationTool({
+                tool,
+                tools: byReference,
+                args,
+                owner: agentCaller.grant.accountId,
+              })
             ),
             Effect.map(
               ({ result, attachments }) =>

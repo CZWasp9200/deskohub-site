@@ -10,6 +10,7 @@ import {
 } from "./booking-draft";
 import {
   availabilityResult,
+  bookingOfficeSeats,
   bookingStart,
   bookingToday,
 } from "./booking-widget.test-utils";
@@ -177,14 +178,23 @@ describe("makeBookingDraftSchema", () => {
       (await resolve({ ...office, dayCount: "1", seats: "1" })).values
     ).toEqual({ family: "office", date: bookingToday, seats: 1 });
     expect(
-      await messages({ ...office, dayCount: "29", seats: "7" }, "cs-CZ")
+      await messages(
+        { ...office, dayCount: "29", seats: String(bookingOfficeSeats + 1) },
+        "cs-CZ"
+      )
     ).toEqual({
       dayCount: m.bookingWidgetDayCountRange({ max: 28 }, { locale: "cs-CZ" }),
-      seats: m.bookingWidgetSeatCountRange({ max: 6 }, { locale: "cs-CZ" }),
+      seats: m.bookingWidgetSeatCountRange(
+        { max: bookingOfficeSeats },
+        { locale: "cs-CZ" }
+      ),
     });
     expect(await messages({ ...office, dayCount: "1.5", seats: "" })).toEqual({
       dayCount: m.bookingWidgetDayCountRange({ max: 28 }, { locale: "en-US" }),
-      seats: m.bookingWidgetSeatCountRange({ max: 6 }, { locale: "en-US" }),
+      seats: m.bookingWidgetSeatCountRange(
+        { max: bookingOfficeSeats },
+        { locale: "en-US" }
+      ),
     });
   });
 });

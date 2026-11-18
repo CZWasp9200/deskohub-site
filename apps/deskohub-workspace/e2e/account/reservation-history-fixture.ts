@@ -23,6 +23,7 @@ import {
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import {
+  reservationOrderId,
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
@@ -316,6 +317,7 @@ export function seedWorkspaceE2EReservationHistory(
         paymentAttempt: {
           id: ids.paymentAttemptId,
           workspaceReservationId: ids.reservationId,
+          orderId: reservationOrderId(ids.reservationId),
           provider: "internal",
           state: "paid",
           amountValue: fixtureAmount.value,

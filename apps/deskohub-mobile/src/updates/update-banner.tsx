@@ -1,27 +1,24 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAnalyticsConsent } from "../consent/use-analytics-consent";
 import { useAppLocale } from "../i18n/locale-context";
-import { m } from "../i18n/messages";
 import { Text } from "../ui/text";
+import { useFloatingBottomOffset } from "../ui/toast";
 import { color, radius, space, typeScale } from "../ui/tokens";
-import { updatePromptWaitsForConsent } from "./update-prompt";
-import { useUpdatePrompt } from "./use-update-prompt";
+import { useUpdateOffer } from "./update-offer";
+import { updateOfferCopy } from "./update-offer-copy";
 
 /**
- * The update offer, laid over the bottom of every screen without blocking
- * it. The live region stays mounted so screen readers announce a prompt
- * when it appears. It stays empty while the analytics consent prompt, which
- * sits in the same place, waits for an answer.
+ * The prominent update offer, laid over the bottom of every screen outside
+ * the critical flows without blocking it. It sits where toasts do, above the
+ * tab bar and any bottom chrome a focused layout registers, and stays away
+ * while a focused screen shows the offer in its own content. The live region
+ * stays mounted so screen readers announce a prompt when it appears.
  */
 export function UpdateBanner() {
   const locale = useAppLocale();
   const insets = useSafeAreaInsets();
-  const { prompt: offered, accept, dismiss } = useUpdatePrompt();
-  const consent = useAnalyticsConsent();
-  const prompt = updatePromptWaitsForConsent(consent.status)
-    ? undefined
-    : offered;
+  const bottom = useFloatingBottomOffset();
+  const { prompt, accept, dismiss, hostedByScreen } = useUpdateOffer();
 
   return (
     <View
@@ -29,29 +26,15 @@ export function UpdateBanner() {
       style={[
         styles.overlay,
         {
-          paddingBottom: insets.bottom + space.lg,
+          paddingBottom: bottom,
           paddingLeft: insets.left + space.lg,
           paddingRight: insets.right + space.lg,
         },
       ]}
     >
-      {prompt?.kind === "native-release" && (
+      {prompt && !hostedByScreen && (
         <UpdateBannerCard
-          acceptLabel={m.native_update_download({}, { locale })}
-          dismissLabel={m.update_prompt_dismiss({}, { locale })}
-          message={m.native_update_available(
-            { versionName: prompt.versionName },
-            { locale }
-          )}
-          onAccept={accept}
-          onDismiss={dismiss}
-        />
-      )}
-      {(prompt?.kind === "ota-update" || prompt?.kind === "roll-back") && (
-        <UpdateBannerCard
-          acceptLabel={m.update_ready_restart({}, { locale })}
-          dismissLabel={m.update_prompt_dismiss({}, { locale })}
-          message={m.update_ready({}, { locale })}
+          {...updateOfferCopy(prompt, locale)}
           onAccept={accept}
           onDismiss={dismiss}
         />
@@ -60,7 +43,8 @@ export function UpdateBanner() {
   );
 }
 
-function UpdateBannerCard({
+/** The banner's navy card: the message over its dismiss and accept buttons. */
+export function UpdateBannerCard({
   message,
   acceptLabel,
   dismissLabel,
