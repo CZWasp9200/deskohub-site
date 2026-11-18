@@ -13,7 +13,7 @@ import {
   type AdministrationCampaignUpdateInputType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect, FileSystem, Option, Path } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   confirmationFlag,
   confirmChange,
@@ -34,7 +34,7 @@ import {
 } from "./campaign-input";
 import { campaignTemplatesCommand } from "./campaign-templates.command";
 
-const campaignIdArgument = Argument.string("campaign-id").pipe(
+const campaignIdArgument = Argument.String("campaign-id").pipe(
   Argument.withSchema(AdministrationCampaignId)
 );
 
@@ -90,7 +90,7 @@ const campaignsShowCommand = Command.make(
   "show",
   {
     campaignId: campaignIdArgument,
-    exportDir: Flag.string("export-dir").pipe(
+    exportDir: Flag.String("export-dir").pipe(
       Flag.optional,
       Flag.withDescription(
         "Write each locale's Markdown body to cs.md or en.md in this directory"
@@ -181,8 +181,8 @@ const formatCampaignDetail = (
 const campaignsCreateCommand = Command.make(
   "create",
   {
-    title: Flag.string("title").pipe(Flag.withDescription("Campaign title")),
-    purpose: Flag.choice(
+    title: Flag.String("title").pipe(Flag.withDescription("Campaign title")),
+    purpose: Flag.Literals(
       "purpose",
       AdministrationCampaignPurpose.literals
     ).pipe(
@@ -190,19 +190,19 @@ const campaignsCreateCommand = Command.make(
         "marketing needs consent; operational goes to every recipient"
       )
     ),
-    template: Flag.choice(
+    template: Flag.Literals(
       "template",
       AdministrationCampaignTemplateKey.literals
     ).pipe(
       Flag.withDefault("workspace" as const),
       Flag.withDescription("Email template")
     ),
-    audience: Flag.string("audience").pipe(
+    audience: Flag.String("audience").pipe(
       Flag.withSchema(AdministrationCampaignAudienceId),
       Flag.optional,
       Flag.withDescription("Saved audience ID")
     ),
-    delivery: Flag.choice(
+    delivery: Flag.Literals(
       "delivery",
       AdministrationCampaignDelivery.literals
     ).pipe(
@@ -269,24 +269,25 @@ const campaignsUpdateCommand = Command.make(
   "update",
   {
     campaignId: campaignIdArgument,
-    title: Flag.string("title").pipe(
+    title: Flag.String("title").pipe(
       Flag.optional,
       Flag.withDescription("New campaign title")
     ),
-    purpose: Flag.choice(
+    purpose: Flag.Literals(
       "purpose",
       AdministrationCampaignPurpose.literals
     ).pipe(Flag.optional, Flag.withDescription("New purpose")),
-    template: Flag.choice(
+    template: Flag.Literals(
       "template",
       AdministrationCampaignTemplateKey.literals
     ).pipe(Flag.optional, Flag.withDescription("New email template")),
-    audience: Flag.string("audience").pipe(
+    audience: Flag.String("audience").pipe(
       Flag.withSchema(AdministrationCampaignAudienceId),
       Flag.optional,
       Flag.withDescription("New saved audience ID")
     ),
-    clearAudience: Flag.boolean("clear-audience").pipe(
+    clearAudience: Flag.Boolean("clear-audience").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Unassign the audience")
     ),
     ...localizedContentFlags,
@@ -447,7 +448,7 @@ const campaignsTestSendCommand = Command.make(
   "test-send",
   {
     campaignId: campaignIdArgument,
-    to: Flag.string("to").pipe(
+    to: Flag.String("to").pipe(
       Flag.atLeast(0),
       Flag.withDescription(
         "Extra test recipient email; the admin inbox always gets one; repeat for more"
@@ -486,7 +487,7 @@ const campaignsSendCommand = Command.make(
   "send",
   {
     campaignId: campaignIdArgument,
-    code: Flag.string("code").pipe(
+    code: Flag.String("code").pipe(
       Flag.withDescription("Confirmation code from the latest test email")
     ),
     yes: confirmationFlag,
@@ -527,7 +528,8 @@ const campaignsRetryCommand = Command.make(
   "retry",
   {
     campaignId: campaignIdArgument,
-    includeUnconfirmed: Flag.boolean("include-unconfirmed").pipe(
+    includeUnconfirmed: Flag.Boolean("include-unconfirmed").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Also mail unconfirmed recipients, who may already have the email"
       )

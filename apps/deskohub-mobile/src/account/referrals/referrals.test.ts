@@ -4,11 +4,7 @@ import {
   ReferralCode,
 } from "@deskohub/workspace-customer-api";
 import { Effect } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   makeFakeCustomerData,

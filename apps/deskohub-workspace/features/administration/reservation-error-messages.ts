@@ -30,6 +30,10 @@ const cancellationErrorMessages = {
   claim_failed: m.administrationReservationCancellationErrorClaimFailed,
   dotypos_failed: m.administrationReservationCancellationErrorDotyposFailed,
   record_failed: m.administrationReservationCancellationErrorRecordFailed,
+  invoice_unavailable:
+    m.administrationReservationCancellationErrorInvoiceUnavailable,
+  confirmation_stale:
+    m.administrationReservationCancellationErrorConfirmationStale,
 } satisfies Record<ReservationCancellationFailureReason, AdministrationMessage>;
 
 const isCancellationFailureReason = (

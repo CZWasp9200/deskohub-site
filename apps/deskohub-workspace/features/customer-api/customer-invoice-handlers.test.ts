@@ -14,7 +14,9 @@ import {
   type Invoice,
   InvoiceRepository,
 } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
+import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
 import { getInvoicedReservation } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -54,6 +56,10 @@ const reservationInvoice: Invoice = {
   // 22:30 UTC is already the next day in Prague.
   issuedAt: Temporal.Instant.from("2026-08-09T22:30:00Z"),
   document: coworkDocument,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
 /** The account's customer's manual invoice, which invoices no order. */
 const manualInvoice: Invoice = {
@@ -64,6 +70,10 @@ const manualInvoice: Invoice = {
   invoiceNumber: manualDocument.invoiceNumber,
   issuedAt: Temporal.Instant.from("2026-08-01T10:00:00Z"),
   document: manualDocument,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
 /** Another customer's invoice. */
 const foreignInvoice: Invoice = {
@@ -124,7 +134,9 @@ const invoiceStore = (
                     ) ?? null
                   );
             }),
-        })
+        }),
+        // The listing and the invoice PDF never read a corrective document.
+        Layer.mock(InvoiceCancellationRepository, {})
       )
     )
   ),
@@ -181,6 +193,38 @@ describe("listInvoices", () => {
       ],
     });
     expect(reads).toEqual([`list:${testLinkedAccount.dotyposCustomerId}`]);
+  });
+
+  test("lists a cancelled invoice, hidden or not, with its cancellation", async () => {
+    const correctiveDocumentNumber =
+      correctiveDocumentNumberSchema.make("WS-OD-2026-000004");
+    stored = [
+      {
+        ...manualInvoice,
+        cancellation: {
+          cancelledAt: Temporal.Instant.from("2026-08-02T10:00:00Z"),
+          cause: "invoice_cancellation",
+          correctiveDocumentNumber,
+        },
+        archivedAt: Temporal.Instant.from("2026-08-03T10:00:00Z"),
+      },
+    ];
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(customerApiRequest(listInvoices));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      invoices: [
+        {
+          id: manualInvoice.id,
+          invoiceNumber: manualDocument.invoiceNumber,
+          issuedOn: "2026-08-01",
+          total: getInvoiceTotal(manualDocument),
+          cancellation: { correctiveDocumentNumber },
+        },
+      ],
+    });
   });
 
   test("names what each order booked in the asked locale, with an office's seats", async () => {

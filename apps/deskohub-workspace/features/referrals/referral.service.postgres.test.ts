@@ -147,7 +147,9 @@ const makeReferralLayer = (
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );
@@ -2188,7 +2190,7 @@ describe.skipIf(!testDatabase)(
           "eligible"
         );
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });
@@ -2266,7 +2268,9 @@ const makeAccountPrerequisiteLayer = (input: {
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const healthyLinks = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );
@@ -2397,7 +2401,7 @@ describe.skipIf(!testDatabase)(
             outcomeOf(await acceptAtAccount(context, context.referrer.code))
           ).toBe("accepted");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2443,7 +2447,7 @@ describe.skipIf(!testDatabase)(
             )._tag
           ).toBe("Success");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2481,7 +2485,7 @@ describe.skipIf(!testDatabase)(
           outcomeOf(await acceptAtAccount(context, context.referrer.code))
         ).toBe("accepted");
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });

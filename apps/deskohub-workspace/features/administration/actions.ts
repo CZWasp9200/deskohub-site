@@ -2,6 +2,7 @@
 
 import { AdministrationWorkspaceReservationId } from "@deskohub/workspace-admin-api";
 import { DateTime, Effect, Schema } from "effect";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { AdministrationService } from "./administration.service";
@@ -112,8 +113,12 @@ const cancelAdministrationReservationAction = defineAdministrationAction(
     revalidates: reservationPath,
   },
   Effect.fn(function* (input: ReservationCancellationInput) {
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* ReservationAdministrationService;
-    return yield* administration.cancel(input);
+    return yield* administration.cancel({
+      ...input,
+      actor: { source, administrator: actor },
+    });
   })
 );
 

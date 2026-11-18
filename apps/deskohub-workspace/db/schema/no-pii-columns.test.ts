@@ -99,6 +99,14 @@ const allowedColumns = new Map([
     "administrator login-email snapshot",
   ],
   [
+    "public.invoice_archives.actor_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
+    "public.invoice_cancellations.actor_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
     "public.manual_invoice_actors.actor_account_email",
     "administrator login-email snapshot",
   ],
@@ -162,6 +170,7 @@ describe("database schema no-PII persistence", () => {
 
     expect(binaryColumns).toEqual([
       "public.accounting_document_snapshots.encrypted_snapshot",
+      "public.corrective_documents.encrypted_document",
       "public.invoices.encrypted_document",
     ]);
   });

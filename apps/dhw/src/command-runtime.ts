@@ -5,8 +5,9 @@ import {
   CliSessionUnauthorized,
   type WorkspaceAdminOperationReference,
 } from "@deskohub/workspace-admin-api";
-import { Console, Crypto, Data, Effect, Option, type Redacted } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Console, Data, Effect, Option, type Redacted } from "effect";
+import { Command, Flag, Prompt } from "effect/cli";
+import { SecureRandom } from "effect/crypto";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { DHW_VERSION } from "./build-info";
@@ -16,20 +17,22 @@ import type { AvailableUpdate } from "./update/update-state-store.service";
 
 export const rootCommand = Command.make("dhw").pipe(
   Command.withSharedFlags({
-    json: Flag.boolean("json").pipe(
+    json: Flag.Boolean("json").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Print machine-readable JSON output")
     ),
   }),
   Command.withDescription("Deskohub Workspace administration")
 );
 
-export const confirmationFlag = Flag.boolean("yes").pipe(
+export const confirmationFlag = Flag.Boolean("yes").pipe(
+  Flag.withDefault(false),
   Flag.withDescription("Apply the change without prompting for confirmation")
 );
 
 /** A fresh ID for one mutation; the client retries it under the same ID. */
-export const makeMutationRequestId = Crypto.Crypto.pipe(
-  Effect.flatMap((crypto) => crypto.randomUUIDv7),
+export const makeMutationRequestId = SecureRandom.SecureRandom.pipe(
+  Effect.flatMap((secureRandom) => secureRandom.uuidV7()),
   Effect.map(CliMutationRequestId.make)
 );
 
@@ -109,8 +112,23 @@ export const confirmChange = (
       operation,
     });
   }
-  return Prompt.confirm({ message, initial: false }).pipe(Prompt.run);
+  return Prompt.Confirm({ message, initial: false }).pipe(Prompt.run);
 };
+
+/**
+ * Confirms a change whose consequences the request confirms back to the
+ * server. With `--yes` nothing asks, so the consequences are still written to
+ * stderr, and the request confirms only what the operator was shown.
+ */
+export const confirmChangeShowingConsequences = (
+  operation: WorkspaceAdminOperationReference,
+  yes: boolean,
+  json: boolean,
+  message: string
+) =>
+  yes
+    ? Console.error(message).pipe(Effect.as(true))
+    : confirmChange(operation, yes, json, message);
 
 export const reportCancellation = (json: boolean) =>
   Console.log(json ? JSON.stringify({ status: "cancelled" }) : "Cancelled.");
@@ -142,7 +160,7 @@ const offerAutomaticUpdate = (json: boolean) =>
   });
 
 export const confirmUpdate = (update: AvailableUpdate) =>
-  Prompt.confirm({
+  Prompt.Confirm({
     message: `Update dhw ${DHW_VERSION} to ${update.version}?`,
     initial: true,
   }).pipe(Prompt.run);

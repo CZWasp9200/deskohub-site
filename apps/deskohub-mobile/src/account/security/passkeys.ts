@@ -1,6 +1,6 @@
 import type { AccountPasskey } from "@deskohub/workspace-customer-api";
 import { type DateTime, Effect, Exit, Match, Option, Predicate } from "effect";
-import type { AsyncResult, Atom } from "effect/unstable/reactivity";
+import type { AsyncResult, Atom } from "effect/reactivity";
 import { isReauthenticationRequired } from "../../auth/auth-session-state";
 import {
   CustomerApi,

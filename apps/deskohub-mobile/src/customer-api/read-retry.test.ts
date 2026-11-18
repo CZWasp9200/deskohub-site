@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber } from "effect";
-import { TestClock } from "effect/testing";
 import {
   HttpClient,
   HttpClientError,
   type HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
+import { TestClock } from "effect/testing";
 import { retryTransientReads } from "./read-retry";
 
 const url = "https://workspace.deskohub.test/api/customer/account";

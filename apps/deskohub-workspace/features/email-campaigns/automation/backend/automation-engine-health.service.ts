@@ -25,6 +25,7 @@ import { Array as Arr, Context, Effect, Layer, Option, Schema } from "effect";
 import {
   WorkspaceDatabase,
   type WorkspaceDatabaseClient,
+  workspaceStatementConcurrency,
 } from "@/db/database.service";
 import {
   emailCampaignAutomations as automations,
@@ -110,70 +111,72 @@ export class AutomationEngineHealth extends Context.Service<
 }
 
 const readHealth = (db: WorkspaceDatabaseClient, now: Temporal.Instant) =>
-  Effect.all(
-    {
-      lastPlannedAt: db
-        .select({ lastPlannedAt: engine.lastPlannedAt })
-        .from(engine)
-        .where(eq(engine.id, 1))
-        .pipe(Effect.map(([row]) => row?.lastPlannedAt ?? null)),
-      // Only the clock sweep trails now: the hourly reconcile's cursor is
-      // the instant its last window opened, up to an hour old when healthy.
-      sweptUntil: sweptUntil(db, "reservation-activity"),
-      reconciledUntil: sweptUntil(db, "reservation-activity-reconcile"),
-      oldestUnprocessedEventAt: db
-        .select({ recordedAt: min(customerEvents.recordedAt) })
-        .from(customerEvents)
-        .where(isNull(customerEvents.automationProcessedAt))
-        .pipe(Effect.map(([row]) => row?.recordedAt ?? null)),
-      schedules: readSchedules(db),
-      unitDurations: db
-        .select({
-          kind: units.kind,
-          samples: count(),
-          meanSeconds: sql<number>`avg(${unitSeconds})`.mapWith(Number),
-          maxSeconds: sql<number>`max(${unitSeconds})`.mapWith(Number),
-        })
-        .from(units)
-        .where(
-          and(
-            eq(units.status, "done"),
-            eq(units.attempts, 1),
-            isNotNull(units.firstAttemptAt),
-            gte(units.settledAt, now.subtract(unitDurationWindow))
+  Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+    Effect.all(
+      {
+        lastPlannedAt: db
+          .select({ lastPlannedAt: engine.lastPlannedAt })
+          .from(engine)
+          .where(eq(engine.id, 1))
+          .pipe(Effect.map(([row]) => row?.lastPlannedAt ?? null)),
+        // Only the clock sweep trails now: the hourly reconcile's cursor is
+        // the instant its last window opened, up to an hour old when healthy.
+        sweptUntil: sweptUntil(db, "reservation-activity"),
+        reconciledUntil: sweptUntil(db, "reservation-activity-reconcile"),
+        oldestUnprocessedEventAt: db
+          .select({ recordedAt: min(customerEvents.recordedAt) })
+          .from(customerEvents)
+          .where(isNull(customerEvents.automationProcessedAt))
+          .pipe(Effect.map(([row]) => row?.recordedAt ?? null)),
+        schedules: readSchedules(db),
+        unitDurations: db
+          .select({
+            kind: units.kind,
+            samples: count(),
+            meanSeconds: sql<number>`avg(${unitSeconds})`.mapWith(Number),
+            maxSeconds: sql<number>`max(${unitSeconds})`.mapWith(Number),
+          })
+          .from(units)
+          .where(
+            and(
+              eq(units.status, "done"),
+              eq(units.attempts, 1),
+              isNotNull(units.firstAttemptAt),
+              gte(units.settledAt, now.subtract(unitDurationWindow))
+            )
           )
-        )
-        .groupBy(units.kind)
-        .orderBy(units.kind),
-      units: db
-        .select({ kind: units.kind, status: units.status, count: count() })
-        .from(units)
-        .groupBy(units.kind, units.status)
-        .orderBy(units.kind, units.status),
-      oldestPlannedUnitAt: db
-        .select({ createdAt: min(units.createdAt) })
-        .from(units)
-        .where(eq(units.status, "planned"))
-        .pipe(Effect.map(([row]) => row?.createdAt ?? null)),
-      retryingUnits: db
-        .select({
-          kind: units.kind,
-          errorCode: units.lastErrorCode,
-          count: count(),
-        })
-        .from(units)
-        .where(
-          and(eq(units.status, "enqueued"), isNotNull(units.lastErrorCode))
-        )
-        .groupBy(units.kind, units.lastErrorCode)
-        .orderBy(units.kind, units.lastErrorCode),
-      deadlineMisses: db
-        .select({ misses: sum(units.deadlineMisses).mapWith(Number) })
-        .from(units)
-        .pipe(Effect.map(([row]) => row?.misses ?? 0)),
-      largestCustomerBookedCount: largestCustomerBookedCount(db),
-    },
-    { concurrency: "inherit" }
+          .groupBy(units.kind)
+          .orderBy(units.kind),
+        units: db
+          .select({ kind: units.kind, status: units.status, count: count() })
+          .from(units)
+          .groupBy(units.kind, units.status)
+          .orderBy(units.kind, units.status),
+        oldestPlannedUnitAt: db
+          .select({ createdAt: min(units.createdAt) })
+          .from(units)
+          .where(eq(units.status, "planned"))
+          .pipe(Effect.map(([row]) => row?.createdAt ?? null)),
+        retryingUnits: db
+          .select({
+            kind: units.kind,
+            errorCode: units.lastErrorCode,
+            count: count(),
+          })
+          .from(units)
+          .where(
+            and(eq(units.status, "enqueued"), isNotNull(units.lastErrorCode))
+          )
+          .groupBy(units.kind, units.lastErrorCode)
+          .orderBy(units.kind, units.lastErrorCode),
+        deadlineMisses: db
+          .select({ misses: sum(units.deadlineMisses).mapWith(Number) })
+          .from(units)
+          .pipe(Effect.map(([row]) => row?.misses ?? 0)),
+        largestCustomerBookedCount: largestCustomerBookedCount(db),
+      },
+      { concurrency }
+    )
   );
 
 type HealthReads = Effect.Success<ReturnType<typeof readHealth>>;

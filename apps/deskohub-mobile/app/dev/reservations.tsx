@@ -1,6 +1,6 @@
 import { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { type ReactNode, useState } from "react";
 import { View } from "react-native";

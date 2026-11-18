@@ -1,6 +1,6 @@
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { Locale } from "@/features/i18n";
 import type { CustomerAccountId } from "../../customer-account";

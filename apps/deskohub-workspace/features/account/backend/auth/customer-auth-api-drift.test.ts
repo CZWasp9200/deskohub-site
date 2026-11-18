@@ -9,7 +9,7 @@ import {
   HttpApi,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   disabledCustomerAgentClientPaths,
   makeCustomerAgentAuthorizationPlugins,
@@ -35,7 +35,7 @@ const [agentAuthorizationServer] = makeCustomerAgentAuthorizationPlugins({
 });
 const passkeyPlugin = passkey();
 
-type CustomerAuthEndpointName = HttpApiEndpoint.Name<
+type CustomerAuthEndpointName = HttpApiEndpoint.Identifier<
   HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -58,7 +58,7 @@ const contractEndpoints = () => {
     onGroup: () => {},
     onEndpoint: ({ endpoint }) => {
       endpoints.push({
-        name: endpoint.name,
+        name: endpoint.identifier,
         method: endpoint.method,
         path: endpoint.path,
       });

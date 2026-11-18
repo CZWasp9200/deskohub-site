@@ -6,7 +6,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { customerAvailabilityReplacementHeader } from "@deskohub/workspace-customer-api";
 import { Clock, Duration, Effect, Equal, Hash } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";

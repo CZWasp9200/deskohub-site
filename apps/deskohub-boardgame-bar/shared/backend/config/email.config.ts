@@ -25,18 +25,18 @@ import { siteConstants } from "@/shared/utils/constants";
  */
 const emailConfig = Config.all({
   provider: Config.option(
-    Config.literals(["resend", "console"], "EMAIL_PROVIDER")
+    Config.Literals(["resend", "console"], "EMAIL_PROVIDER")
   ),
   defaultFromEmail: Config.withDefault(
-    Config.string("EMAIL_FROM_ADDRESS"),
+    Config.String("EMAIL_FROM_ADDRESS"),
     siteConstants.contact.fromEmail
   ),
   defaultFromName: Config.withDefault(
-    Config.string("EMAIL_FROM_NAME"),
+    Config.String("EMAIL_FROM_NAME"),
     siteConstants.brand.name
   ),
-  apiKey: Config.option(Config.string("EMAIL_API_KEY")),
-  testMode: Config.withDefault(Config.boolean("EMAIL_TEST_MODE"), false),
+  apiKey: Config.option(Config.String("EMAIL_API_KEY")),
+  testMode: Config.withDefault(Config.Boolean("EMAIL_TEST_MODE"), false),
 });
 
 /**
@@ -101,8 +101,8 @@ const boardgameProviderChain = Effect.fnUntraced(function* (
   }
 
   const stage = yield* Config.all({
-    nodeEnv: Config.option(Config.string("NODE_ENV")),
-    vercelEnv: Config.option(Config.string("VERCEL_ENV")),
+    nodeEnv: Config.option(Config.String("NODE_ENV")),
+    vercelEnv: Config.option(Config.String("VERCEL_ENV")),
   });
   const consoleProviderAllowed =
     !Option.contains(stage.nodeEnv, "production") ||

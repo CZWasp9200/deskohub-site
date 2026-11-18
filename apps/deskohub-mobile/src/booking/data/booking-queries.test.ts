@@ -4,12 +4,8 @@ import {
   CustomerBookingSelectionInvalid,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Layer } from "effect";
+import { AsyncResult, type Atom, type AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import {
-  AsyncResult,
-  type Atom,
-  type AtomRegistry,
-} from "effect/unstable/reactivity";
 import {
   AccountReadBudget,
   accountReadAllowance,
@@ -633,6 +629,11 @@ describe("catalog idle TTL", () => {
     unmount();
     await elapse("100 millis");
     const unmountReturn = registry.mount(atom);
+    // `Atom.swr` revalidates a stale value on the registry's next task, not
+    // in the read the screen mounts with, which still holds the failed
+    // refresh and so no token to redeem.
+    const onArrival = registry.get(atom);
+    await drain();
     const onReturn = registry.get(atom);
     const returned = await settle(registry, atom);
     unmountReturn();
@@ -641,6 +642,7 @@ describe("catalog idle TTL", () => {
       shown._tag === "Failure" && toBookingQueryError(shown.failure)
     ).toMatchObject({ _tag: "RateLimited" });
     expect(readsWhileShown).toBe(1);
+    expect(onArrival).toMatchObject({ _tag: "Failure", waiting: false });
     expect(
       onReturn._tag === "Success" &&
         !onReturn.waiting &&

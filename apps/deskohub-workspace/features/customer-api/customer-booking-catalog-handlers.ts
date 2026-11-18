@@ -10,7 +10,6 @@ import {
   customerAvailabilityReplacementHeader,
 } from "@deskohub/workspace-customer-api";
 import { Data, Effect, Layer, Match, Option, Struct } from "effect";
-import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { loadPublicOfferings } from "@/features/checkout/backend/checkout/public-offerings";
 import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
@@ -52,7 +51,10 @@ import {
   type CustomerSessionApiFailure,
 } from "./customer-api-failure";
 import { CustomerBookingCatalogLayers } from "./customer-booking-catalog-layers";
-import type { CustomerBookingEndpoint } from "./customer-booking-endpoint";
+import type {
+  CustomerBookingEndpointName,
+  CustomerBookingHandlers,
+} from "./customer-booking-endpoint";
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
@@ -90,9 +92,9 @@ export type CustomerBookingCatalogEndpointName =
  * books it while the gate hides it.
  */
 export const handleCustomerBookingCatalog = <R>(
-  handlers: HttpApiBuilder.Handlers<
+  handlers: CustomerBookingHandlers<
     R,
-    CustomerBookingEndpoint<CustomerBookingCatalogEndpointName>
+    Exclude<CustomerBookingEndpointName, CustomerBookingCatalogEndpointName>
   >
 ) =>
   Effect.gen(function* () {

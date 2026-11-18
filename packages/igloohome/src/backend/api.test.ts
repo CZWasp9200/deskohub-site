@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { IgloohomeRuntimeConfig } from "../config";
 import { IgloohomeRequestError } from "../errors";
 import type { IssueHourlyAlgoPinInput } from "../types";

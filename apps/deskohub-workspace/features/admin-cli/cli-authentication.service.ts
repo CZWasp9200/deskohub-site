@@ -22,17 +22,9 @@ import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-tim
 import { NodeCrypto } from "@effect/platform-node";
 import { and, desc, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Crypto,
-  Data,
-  Effect,
-  Layer,
-  Option,
-  type PlatformError,
-  Schema,
-} from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CliAuthenticationRequestRow,
@@ -77,23 +69,17 @@ interface ICliAuthentication {
       readonly approvalPath: string;
       readonly expiresAt: string;
     },
-    EffectDrizzleQueryError | PlatformError.PlatformError
+    EffectDrizzleQueryError
   >;
   readonly status: (
     code: CliAuthenticationCodeType
-  ) => Effect.Effect<
-    CliAuthenticationStatusType,
-    EffectDrizzleQueryError | PlatformError.PlatformError
-  >;
+  ) => Effect.Effect<CliAuthenticationStatusType, EffectDrizzleQueryError>;
   readonly exchange: (input: ExchangeCliGrantType) => Effect.Effect<
     {
       readonly accessToken: CliAccessTokenType;
       readonly session: CliSessionType;
     },
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | SqlError
-    | CliGrantRejected
+    EffectDrizzleQueryError | SqlError | CliGrantRejected
   >;
   /**
    * Accepts a bearer only while its session is unrevoked and unexpired and
@@ -104,9 +90,7 @@ interface ICliAuthentication {
     authorization: string
   ) => Effect.Effect<
     CliSessionType,
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | CliSessionUnauthorized
+    EffectDrizzleQueryError | CliSessionUnauthorized
   >;
   /** The administrator account that approved an authenticated session. */
   readonly sessionAdministrator: (
@@ -117,20 +101,14 @@ interface ICliAuthentication {
   >;
   readonly inspectApproval: (
     code: CliAuthenticationCodeType
-  ) => Effect.Effect<
-    CliApprovalRequest | null,
-    EffectDrizzleQueryError | PlatformError.PlatformError
-  >;
+  ) => Effect.Effect<CliApprovalRequest | null, EffectDrizzleQueryError>;
   readonly approve: (input: {
     readonly code: CliAuthenticationCodeType;
     readonly approvedBy: AdministratorAccountActor;
     readonly sessionLifetime: CliSessionLifetime;
   }) => Effect.Effect<
     CliApprovalRequest,
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | SqlError
-    | CliApprovalUnavailableError
+    EffectDrizzleQueryError | SqlError | CliApprovalUnavailableError
   >;
   readonly listSessions: (
     owner: CustomerAccountId
@@ -158,17 +136,18 @@ export class CliAuthentication extends Context.Service<
     Effect.gen(function* () {
       const database = yield* WorkspaceDatabase;
       const { db, transaction } = yield* WorkspaceDatabase;
-      const crypto = yield* Crypto.Crypto;
+      const random = yield* SecureRandom.SecureRandom;
+      const digest = yield* Digest.Digest;
       const roleGrants = yield* AccountRoleGrants;
       const holdsAdministratorRole = (accountId: CustomerAccountId) =>
         roleGrants.has({ accountId, role: "administrator" });
       const makeSecret = () =>
         makeCliAuthenticationSecret().pipe(
-          Effect.provideService(Crypto.Crypto, crypto)
+          Effect.provideService(SecureRandom.SecureRandom, random)
         );
       const digestSecret = (secret: string) =>
         digestCliAuthenticationSecret(secret).pipe(
-          Effect.provideService(Crypto.Crypto, crypto)
+          Effect.provideService(Digest.Digest, digest)
         );
 
       const loadRequest = Effect.fn("CliAuthentication.loadRequest")(function* (
@@ -370,7 +349,7 @@ export class CliAuthentication extends Context.Service<
 
         const accessToken = CliAccessToken.make(yield* makeSecret());
         const tokenHash = yield* digestSecret(accessToken);
-        const sessionId = CliSessionId.make(yield* crypto.randomUUIDv7);
+        const sessionId = CliSessionId.make(yield* random.uuidV7());
 
         const session = yield* transaction(
           Effect.gen(function* () {

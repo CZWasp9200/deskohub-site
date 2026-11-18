@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Exit } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import Check from "lucide-react-native/icons/check";
 import Copy from "lucide-react-native/icons/copy";
 import Info from "lucide-react-native/icons/info";

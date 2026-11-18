@@ -9,7 +9,6 @@ import {
   WorkspaceAdminApi,
   type WorkspaceAdminOperationReference,
 } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import {
   type Cause,
   Console,
@@ -21,13 +20,18 @@ import {
   Schema,
   Terminal,
 } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { dhwCommand } from "./command";
 import { rootCommand, runCommand } from "./command-runtime";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedClientIdentity,
+  UnreachedUpdateService,
+} from "./testing/unreached-command-services";
 import { UpdateError, UpdateService } from "./update/update.service";
 import type { AvailableUpdate } from "./update/update-state-store.service";
 
@@ -92,10 +96,17 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
   {
     args: ["reservations", "cancel", reservationId],
     operation: "administration.cancelReservation",
+    reads: {
+      getReservation: () =>
+        Effect.succeed({ accessGrant: null, invoice: null } as never),
+    },
   },
   {
     args: ["reservations", "restore", reservationId],
     operation: "administration.restoreReservation",
+    reads: {
+      getReservation: () => Effect.succeed({ restoration: null } as never),
+    },
   },
   {
     args: ["reservations", "backfill-product-details"],
@@ -123,6 +134,27 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
   {
     args: ["invoices", "resend", "01980000-0000-7000-8000-000000000003"],
     operation: "administration.resendInvoice",
+  },
+  {
+    args: ["invoices", "cancel", "01980000-0000-7000-8000-000000000003"],
+    operation: "administration.cancelInvoice",
+    reads: {
+      getInvoice: () =>
+        Effect.succeed({
+          invoiceNumber: "WS-FV-2026-000003",
+          reservationId: null,
+          cancellation: null,
+          cancellationPlan: { customerNotice: "owed", reservation: "none" },
+        } as never),
+    },
+  },
+  {
+    args: ["invoices", "archive", "01980000-0000-7000-8000-000000000003"],
+    operation: "administration.archiveInvoice",
+    reads: {
+      getInvoice: () =>
+        Effect.succeed({ invoiceNumber: "WS-FV-2026-000003" } as never),
+    },
   },
   {
     args: [
@@ -290,6 +322,8 @@ const runUnconfirmed = ({ args, reads = {} }: ConfirmedCommand) => {
     },
   });
   const layer = Layer.mergeAll(
+    UnreachedClientIdentity,
+    UnreachedUpdateService,
     Layer.succeed(WorkspaceAdminApiClient, api),
     Layer.succeed(AuthenticationService, {
       current: Effect.succeed(
@@ -324,7 +358,7 @@ const runUnconfirmed = ({ args, reads = {} }: ConfirmedCommand) => {
         updateChecksDisabled: true,
       })
     ),
-    Layer.provideMerge(BunServices.layer)
+    Layer.provideMerge(PlatformLive)
   );
 
   return Command.runWith(dhwCommand, { version: "1.3.0" })([
@@ -469,6 +503,7 @@ describe("automatic update offer after a command", () => {
         Terminal.make({
           columns: Effect.succeed(80),
           rows: Effect.succeed(24),
+          size: Queue.unbounded<Terminal.Size, Cause.Done>(),
           readInput: Effect.gen(function* () {
             events.push("prompt");
             const input = yield* Queue.unbounded<
@@ -488,7 +523,7 @@ describe("automatic update offer after a command", () => {
           events.push(`log ${values.join(" ")}`);
         },
       } satisfies Console.Console)
-    ).pipe(Layer.provideMerge(BunServices.layer));
+    ).pipe(Layer.provideMerge(PlatformLive));
 
     return withTerminal(terminal, () =>
       Command.runWith(probeCommand, { version: "1.3.0" })([

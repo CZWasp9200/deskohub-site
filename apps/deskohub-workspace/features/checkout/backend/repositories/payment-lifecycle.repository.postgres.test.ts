@@ -10,11 +10,11 @@ import {
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
+import * as PgClient from "@effect/sql-pg/PgClient";
 import { eq, sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import { type DatabasePool, makeDatabaseClient } from "@/db/database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import {
   accountingDocumentSnapshots,
@@ -82,6 +82,7 @@ import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { Money } from "@/shared/money/money";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   holdPostgresTransaction,
@@ -162,12 +163,14 @@ const inAccountGuard = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   WorkspaceLockSections.customerAccount(
     customerAccountIdSchema.make(`account-${uniqueId()}`)
   )(effect).pipe(
-    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
+    Effect.provide(
+      WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
+    )
   );
 
 const makeReferralService = async (input?: {
   readonly databaseLayer?: Layer.Layer<WorkspaceDatabase>;
-  readonly pool?: ReturnType<typeof makeDatabasePool>;
+  readonly pool?: DatabasePool;
   readonly identity?: {
     readonly accountId: ReturnType<typeof customerAccountIdSchema.make>;
     readonly dotyposCustomerId: DotyposCustomerId;
@@ -176,7 +179,7 @@ const makeReferralService = async (input?: {
 }) => {
   const databaseLayer = input?.databaseLayer ?? testDatabase!.layer;
   const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
-    input?.pool ?? testDatabase!.pool
+    input?.pool ?? testDatabase!.databasePool
   );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
@@ -2412,12 +2415,11 @@ describe.skipIf(!testDatabase)(
           `referral-pool-referrer-${uniqueId()}`
         );
         const applicationName = `referral-pool-${max}-${uniqueId().slice(0, 8)}`;
-        const pool = makeDatabasePool({
+        const pool = await openDatabasePool({
           connectionString: process.env.WORKSPACE_TEST_DATABASE_URL!,
-          ...databasePoolTimeouts,
-          connectionTimeoutMillis: 1_500,
-          application_name: applicationName,
-          max,
+          connectTimeout: "1500 millis",
+          applicationName,
+          maxConnections: max,
         });
         let releaseHistory!: () => void;
         let notifyHistoryStarted!: () => void;
@@ -2540,8 +2542,11 @@ describe.skipIf(!testDatabase)(
           expect(
             admissionOutcomes.filter(({ _tag }) => _tag === "Success")
           ).toHaveLength(1);
-          expect(pool.waitingCount).toBe(0);
-          expect(pool.idleCount).toBe(pool.totalCount);
+          const stats = await Effect.runPromise(
+            Context.get(pool.postgres, PgClient.PgClient).poolStats
+          );
+          expect(stats.pending).toBe(0);
+          expect(stats.used).toBe(0);
         } finally {
           releaseHistory();
           if (acceptancePromise) {
@@ -2557,7 +2562,7 @@ describe.skipIf(!testDatabase)(
             "delete from customer_accounts where id = any($1)",
             [[inviteeAccountId, referrerAccountId]]
           );
-          await pool.end();
+          await pool.close();
         }
       });
     }

@@ -703,6 +703,7 @@
   "invoices_download_label": "Tải hóa đơn {number}",
   "invoices_downloading": "Đang tải hóa đơn {number}…",
   "invoices_download_not_found": "Không tìm thấy hóa đơn này. Hãy làm mới danh sách và thử lại.",
+  "invoices_status_cancelled": "Đã hủy",
   "booking_review_title": "Xem lại và thanh toán",
   "booking_review_booking_heading": "Đặt chỗ của bạn",
   "booking_review_change": "Thay đổi",

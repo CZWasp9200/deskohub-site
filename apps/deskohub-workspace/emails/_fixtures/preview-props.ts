@@ -9,6 +9,7 @@ import { WorkspaceCampaignFooter } from "../_components/workspace-campaign-foote
 import type { ContactBusinessEmailProps } from "../contact-business";
 import type { ContactConfirmationEmailProps } from "../contact-confirmation";
 import type { CustomerReservationEmailProps } from "../customer-reservation";
+import type { InvoiceCancellationNoticeEmailProps } from "../invoice-cancellation-notice";
 import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationAuthorEmailProps } from "../reservation-author";
 import type { ReservationCancellationEmailProps } from "../reservation-cancellation";
@@ -101,6 +102,14 @@ export const invoiceDeliveryPreviewProps = {
   invoice: { source: "reservation", orderId: "reservation-3" },
   recipient: { audience: "customer", locale: "en-US" },
 } satisfies InvoiceDeliveryEmailProps;
+
+export const invoiceCancellationNoticePreviewProps = {
+  invoiceNumber: "WS-FV-2026-000003",
+  documentNumber: "WS-OD-2026-000001",
+  invoice: { source: "reservation", orderId: "reservation-3" },
+  settlement: { settlement: "refund_due", total: "-450.00", currency: "CZK" },
+  recipient: { audience: "customer", locale: "en-US" },
+} satisfies InvoiceCancellationNoticeEmailProps;
 
 const text = (value: string) => ({ type: "text", text: value });
 

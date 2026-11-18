@@ -38,9 +38,11 @@ Nothing else is included.
    late-payment recovery outcome.
 6. **Discount applications**: discounts applied to the customer's payments:
    label, the amounts before and after, and when each was applied.
-7. **Invoices**: metadata of invoices issued to the customer and the delivery
-   status of each customer invoice email. The invoice documents themselves are
-   **not** included.
+7. **Invoices**: metadata of invoices issued to the customer, whether and when
+   each was cancelled with the number of the credit note that cancelled it,
+   whether the administration hid it from its own invoice list, and the
+   delivery status of each customer invoice email. The invoice and credit note
+   documents themselves are **not** included.
 8. **Consents**: the customer's marketing communication consent record and the
    legal-acceptance evidence recorded for the customer's own reservations,
    with the document version each acceptance was given under.
@@ -58,8 +60,8 @@ through the full data-protection request described below.
 - **Credentials and secrets**: session and sign-in tokens, payment security
   tokens and payment-page links, access codes and PINs, and provider
   credentials. Session records are not exported at all.
-- **Invoice documents**: the invoice PDFs are not included; only their
-  metadata is.
+- **Invoice documents**: the invoice and credit note PDFs are not included;
+  only their metadata is.
 - **Other customers' and third-party records**: every section covers only
   records attributed to the customer through the verified account link. A
   record that cannot be attributed that way is never exported.

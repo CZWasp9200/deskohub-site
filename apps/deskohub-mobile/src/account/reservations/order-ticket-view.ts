@@ -4,7 +4,7 @@ import type {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, type DateTime, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import Armchair from "lucide-react-native/icons/armchair";
 import Clock from "lucide-react-native/icons/clock";
 import MapPin from "lucide-react-native/icons/map-pin";

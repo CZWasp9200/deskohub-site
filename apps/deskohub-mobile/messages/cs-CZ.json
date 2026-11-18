@@ -707,6 +707,7 @@
   "invoices_download_label": "Stáhnout fakturu {number}",
   "invoices_downloading": "Stahujeme fakturu {number}…",
   "invoices_download_not_found": "Tuhle fakturu jsme nenašli. Obnov seznam a zkus to znovu.",
+  "invoices_status_cancelled": "Zrušeno",
   "booking_review_title": "Shrnutí a platba",
   "booking_review_booking_heading": "Tvoje rezervace",
   "booking_review_change": "Změnit",

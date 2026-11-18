@@ -196,10 +196,10 @@ const retrySchedule = <Failure>(
     Schedule.while<Failure, Duration.Duration>(({ input }) =>
       isRetryable(input)
     ),
-    Schedule.both(Schedule.recurs(maxRetries)),
-    Schedule.tapOutput(([delay, attempt]) =>
-      Effect.logWarning(`${label} retry attempt #${attempt + 1}`, {
-        attemptNumber: attempt + 1,
+    Schedule.upTo({ times: maxRetries }),
+    Schedule.tap(({ output: delay, attempt }) =>
+      Effect.logWarning(`${label} retry attempt #${attempt}`, {
+        attemptNumber: attempt,
         delayMs: Duration.toMillis(delay),
         maxRetries,
       })
@@ -218,29 +218,24 @@ const retryScheduleHonoringDelay = <Failure>(
   const maxDelay = Duration.fromInputUnsafe(maxRequestedDelay);
   return Schedule.exponential(declaration.baseDelay, backoffFactor).pipe(
     Schedule.jittered,
-    Schedule.both(
-      Schedule.passthrough<number, Failure, never, never>(Schedule.forever)
-    ),
-    Schedule.while<Failure, readonly [Duration.Duration, Failure]>(
-      ({ input }) => {
-        const delay = requestedDelay(input);
-        return (
-          isRetryable(input) &&
-          (delay === undefined || Duration.isLessThanOrEqualTo(delay, maxDelay))
-        );
-      }
-    ),
-    Schedule.modifyDelay(([, failure], delay) =>
+    Schedule.while<Failure, Duration.Duration>(({ input }) => {
+      const delay = requestedDelay(input);
+      return (
+        isRetryable(input) &&
+        (delay === undefined || Duration.isLessThanOrEqualTo(delay, maxDelay))
+      );
+    }),
+    Schedule.modifyDelay(({ input, duration }) =>
       Effect.succeed(
-        Duration.max(delay, requestedDelay(failure) ?? Duration.zero)
+        Duration.max(duration, requestedDelay(input) ?? Duration.zero)
       )
     ),
-    Schedule.both(Schedule.recurs(declaration.maxRetries)),
-    Schedule.tapOutput(([[backoff, failure], attempt]) =>
-      Effect.logWarning(`${declaration.label} retry attempt #${attempt + 1}`, {
-        attemptNumber: attempt + 1,
+    Schedule.upTo({ times: declaration.maxRetries }),
+    Schedule.tap(({ output: backoff, input, attempt }) =>
+      Effect.logWarning(`${declaration.label} retry attempt #${attempt}`, {
+        attemptNumber: attempt,
         delayMs: Duration.toMillis(
-          Duration.max(backoff, requestedDelay(failure) ?? Duration.zero)
+          Duration.max(backoff, requestedDelay(input) ?? Duration.zero)
         ),
         maxRetries: declaration.maxRetries,
       })

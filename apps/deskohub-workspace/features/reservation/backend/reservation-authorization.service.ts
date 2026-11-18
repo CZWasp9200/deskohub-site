@@ -1,7 +1,7 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Option, Result } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import {
   type CustomerAccountAccessError,
   CustomerAccountReservationOwnership,

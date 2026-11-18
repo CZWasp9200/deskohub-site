@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { CliAccessToken, CliSessionId } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { ClientIdentity } from "./authentication/client-identity.service";
 import { DHW_BUILD_TARGET, DHW_VERSION } from "./build-info";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedAccessCodeAttemptStore,
+  UnreachedUpdateService,
+} from "./testing/unreached-command-services";
 
 const accessToken = Schema.decodeUnknownSync(CliAccessToken)("a".repeat(43));
 const session = {
@@ -63,6 +67,8 @@ const runAuthentication = async (
     }),
   };
   const layer = Layer.mergeAll(
+    UnreachedAccessCodeAttemptStore,
+    UnreachedUpdateService,
     Layer.succeed(
       WorkspaceAdminApiClient,
       api as unknown as WorkspaceAdminApiClient["Service"]
@@ -97,7 +103,7 @@ const runAuthentication = async (
         updateChecksDisabled: true,
       })
     ),
-    Layer.provideMerge(BunServices.layer)
+    Layer.provideMerge(PlatformLive)
   );
 
   const exit = await Command.runWith(dhwCommand, { version: "1.3.0" })(

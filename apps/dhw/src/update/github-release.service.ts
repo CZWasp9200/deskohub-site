@@ -1,9 +1,5 @@
 import { Context, Data, Effect, Layer, Schema } from "effect";
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 const githubReleasesUrl = new URL(
   "https://api.github.com/repos/totalolage/deskohub-site/releases?per_page=100"

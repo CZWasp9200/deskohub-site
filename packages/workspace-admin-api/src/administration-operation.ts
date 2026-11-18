@@ -6,7 +6,7 @@ import {
   type Schema,
   SchemaAST,
 } from "effect";
-import { HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, type HttpApiGroup } from "effect/http-api";
 
 declare module "effect/Schema" {
   namespace Annotations {
@@ -362,7 +362,7 @@ const ownProperty = (value: unknown, key: string): unknown =>
  */
 export const administrationOperations = <
   Id extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
 >(
   api: HttpApi.HttpApi<Id, Groups>
 ): ReadonlyArray<AdministrationOperationEntry> => {
@@ -370,7 +370,7 @@ export const administrationOperations = <
   HttpApi.reflect(api, {
     onGroup: () => undefined,
     onEndpoint: ({ group, endpoint, mergedAnnotations }) => {
-      const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.name}`;
+      const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
       const declaration = administrationOperationDeclaration(mergedAnnotations);
       if (Option.isNone(declaration)) {
         throw new Error(
@@ -379,7 +379,7 @@ export const administrationOperations = <
       }
       const base = {
         group: group.identifier,
-        endpoint: endpoint.name,
+        endpoint: endpoint.identifier,
       };
       Match.value(declaration.value).pipe(
         Match.tagsExhaustive({

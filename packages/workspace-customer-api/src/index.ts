@@ -117,6 +117,7 @@ export {
 } from "./customer-companies-api";
 export {
   CustomerInvoice,
+  CustomerInvoiceCancellation,
   CustomerInvoicedReservation,
   CustomerInvoiceId,
   CustomerInvoiceList,

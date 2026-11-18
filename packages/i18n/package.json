@@ -22,7 +22,7 @@
     "./locale-registry": "./src/locale-registry.ts"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.85"
+    "effect": "4.1.4"
   },
   "peerDependencies": {
     "next": "^16.4.3",

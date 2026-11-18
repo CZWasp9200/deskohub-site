@@ -1,9 +1,10 @@
 import { Schema } from "effect";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
 import {
   CustomerCheckout,
@@ -24,7 +25,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No order with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerReservationNotFound extends Schema.TaggedErrorClass<CustomerReservationNotFound>()(
+export class CustomerReservationNotFound extends Schema.TaggedError<CustomerReservationNotFound>()(
   "CustomerReservationNotFound",
   {}
 ) {
@@ -35,7 +36,7 @@ export class CustomerReservationNotFound extends Schema.TaggedErrorClass<Custome
  * The order has no door code to show: it isn't paid and confirmed yet, or
  * it has ended. Asking again later can succeed only once its status changes.
  */
-export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<CustomerAccessCodeUnavailable>()(
+export class CustomerAccessCodeUnavailable extends Schema.TaggedError<CustomerAccessCodeUnavailable>()(
   "CustomerAccessCodeUnavailable",
   {}
 ) {
@@ -46,7 +47,7 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
  * The order has no issued invoice: it isn't paid and confirmed yet, or it
  * needs none. Asking again can succeed only once its status changes.
  */
-export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
+export class CustomerInvoiceNotIssued extends Schema.TaggedError<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
 ) {
@@ -74,7 +75,7 @@ export type CustomerPaymentPageClosedReason =
  * The order's payment page can't be opened again, for `reason`. Asking again
  * can succeed only once a new payment opens a page.
  */
-export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerPaymentPageClosed>()(
+export class CustomerPaymentPageClosed extends Schema.TaggedError<CustomerPaymentPageClosed>()(
   "CustomerPaymentPageClosed",
   { reason: CustomerPaymentPageClosedReason }
 ) {
@@ -109,7 +110,7 @@ export type CustomerPaymentRetryRefusedReason =
   typeof CustomerPaymentRetryRefusedReason.Type;
 
 /** The order's payment can't be tried again in place, for `reason`. */
-export class CustomerPaymentRetryRefused extends Schema.TaggedErrorClass<CustomerPaymentRetryRefused>()(
+export class CustomerPaymentRetryRefused extends Schema.TaggedError<CustomerPaymentRetryRefused>()(
   "CustomerPaymentRetryRefused",
   { reason: CustomerPaymentRetryRefusedReason }
 ) {
@@ -408,7 +409,6 @@ export const ReopenCustomerPaymentPage = Schema.Struct({
   returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
 }).annotate({
   identifier: "ReopenCustomerPaymentPage",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -419,7 +419,6 @@ export const RetryCustomerPayment = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "RetryCustomerPayment",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -525,7 +524,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerPaymentPageClosed.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     /**
@@ -544,7 +543,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerPaymentRetryRefused.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getReservationAccess", "/:orderId/access", {

@@ -106,9 +106,7 @@ describe("Workspace E2E run superseded before its test job", () => {
     const { calls, result } = await checkHead(shaA);
     expect(result.exitCode).not.toBe(0);
     expect(calls).toEqual([expect.stringContaining(`pulls/${prNumber}`)]);
-    expect(
-      (testJob?.steps ?? []).findIndex((step) => step === headCheckStep)
-    ).toBe(0);
+    expect((testJob?.steps ?? []).indexOf(headCheckStep)).toBe(0);
   });
 
   test("lets run B, the current head, through", async () => {

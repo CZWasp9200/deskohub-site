@@ -3,7 +3,7 @@ import type {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Duration, Effect, Option, Stream } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";

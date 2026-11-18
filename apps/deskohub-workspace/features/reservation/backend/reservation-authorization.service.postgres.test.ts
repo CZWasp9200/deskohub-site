@@ -139,7 +139,7 @@ const makeAuthorization = (
 ) => {
   const databaseLayer = Layer.mergeAll(
     postgres.layer,
-    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres.pool)
+    WorkspaceDatabaseAdvisoryLock.makeLayer(postgres.databasePool)
   );
   const linksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)

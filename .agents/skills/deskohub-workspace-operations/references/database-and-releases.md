@@ -4,6 +4,15 @@
 
 Generate Drizzle migrations, journals, and snapshots with Drizzle tooling. Never hand-write migration metadata or journal entries.
 
+## Database connections
+
+Each function instance opens at most 10 Postgres connections, as before the Effect 4.1 upgrade when one `pg.Pool` served everything:
+
+- The Workspace's native Effect pool (`@effect/sql-pg`, built once per process with `shareAcrossRequests` in `apps/deskohub-workspace/db/database-provider.server.ts`): 8 connections for Effect SQL, Drizzle and advisory-lock sections, which take at most half of them. Better Auth's own `pg.Pool` (drizzle node-postgres): 2. They share no connection, so nothing joins a transaction across them.
+- Opening a connection and waiting for a free one are bounded at 15 s. Each statement is bounded at 10 s on the client, from when it gets its connection, and fails with a retryable `StatementTimeoutError`; interrupting it sends a CancelRequest. `statement_timeout=10s` is also sent at startup, but Neon's pooled endpoint accepts and ignores it (`show statement_timeout` is 0 there), so in production only the client bound holds. BEGIN and COMMIT are not bounded on the client.
+- Named prepared statements are off (`prepare: false`). Neon's pooler tracks them, but a transaction-mode pooler that doesn't fails them inside transactions, and a cached plan whose result type a migration changed fails the transaction it runs in.
+- Released connections close after 5 s idle (the native pool's reaper takes up to 10 s). Both pools report each release to Vercel's `attachDatabasePool` through one emitter (`db/database-release-reporter.ts`), which keeps the instance awake 10.1 s after the last release, so idle connections close before it suspends. A connection whose backend went away while the instance was frozen is retired on its socket's close, and the next caller gets a new one.
+
 ## Release Workspace production
 
 Every push to `main` that touches Workspace inputs deploys production, so merging is the release. `.github/workflows/deploy-workspace-production.yml` runs this sequence; keep it:

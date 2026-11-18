@@ -57,12 +57,12 @@ import {
   HttpServerRequest,
   HttpServerResponse,
   Multipart,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
@@ -96,7 +96,7 @@ export type FakeRequestOutcome =
    */
   | "session-not-fresh";
 
-type EndpointName = HttpApiEndpoint.Name<
+type EndpointName = HttpApiEndpoint.Identifier<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
@@ -903,7 +903,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
     // Injected outcomes are answered as the Workspace's own middleware would.
     Layer.succeed(CustomerSessionAuthentication, (httpEffect, { endpoint }) =>
       Effect.gen(function* () {
-        const name = endpoint.name as EndpointName;
+        const name = endpoint.identifier as EndpointName;
         workspace.calls.push(name);
         const outcome = workspace.nextOutcome(name);
         if (outcome === "session-required" || !workspace.signedIn) {

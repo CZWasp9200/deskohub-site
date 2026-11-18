@@ -8,7 +8,7 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
-import { KeyValueStore } from "effect/unstable/persistence";
+import { KeyValueStore } from "effect/persistence";
 import { ReleaseBuildTarget } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
 

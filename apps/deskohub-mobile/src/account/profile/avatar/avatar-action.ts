@@ -3,7 +3,7 @@ import type {
   CustomerAvatarRejectionReason,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Effect, Match, Option, Predicate, Stream } from "effect";
-import { AsyncResult, type Atom } from "effect/unstable/reactivity";
+import { AsyncResult, type Atom } from "effect/reactivity";
 import { CustomerApi } from "../../../customer-api/customer-api.service";
 import {
   accountAtom,

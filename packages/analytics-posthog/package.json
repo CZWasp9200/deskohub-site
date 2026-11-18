@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@deskohub/provider-request": "workspace:*",
-    "effect": "4.0.0-beta.85",
+    "effect": "4.1.4",
     "mustache": "^4.2.0",
     "posthog-node": "^5.63.1"
   },
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@deskohub/test-email": "workspace:*",
-    "@effect/openapi-generator": "4.0.0-beta.85",
+    "@effect/openapi-generator": "4.1.4",
     "@types/mustache": "^4.2.6",
     "@types/react": "^19.3.0",
     "posthog-js": "1.438.1",

@@ -1,5 +1,5 @@
 import { Clock, Duration, Effect, Option, Schema } from "effect";
-import type { HttpClientResponse } from "effect/unstable/http";
+import type { HttpClientResponse } from "effect/http";
 
 /** PostHog error codes are lowercase words joined by underscores. */
 const postHogCodePattern = /^[a-z][a-z0-9_]{0,63}$/;

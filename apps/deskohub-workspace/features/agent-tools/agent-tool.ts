@@ -6,6 +6,7 @@ import type {
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import type { CustomerAgentScope } from "@/features/account";
 import type { Locale } from "@/features/i18n";
+import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 import { getFirstInvalidFieldPath } from "@/shared/utils/schema-issue";
 import type { AgentToolAccountBudget } from "./agent-tool-call-budget";
 import {
@@ -255,8 +256,8 @@ const makeAgentTool = <
     }),
     unavailableCode: definition.unavailableCode,
     ...(definition.view && { view: definition.view }),
-    input: Schema.toStandardJSONSchemaV1(definition.input),
-    output: Schema.toStandardJSONSchemaV1(
+    input: toClosedStandardJSONSchemaV1(definition.input),
+    output: toClosedStandardJSONSchemaV1(
       Schema.toStandardSchemaV1(
         Schema.Union([
           definition.output,

@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint } from "effect/unstable/httpapi";
+import { HttpApiEndpoint } from "effect/http-api";
 import { Money } from "./customer-account-api";
 import {
   CustomerBookableCoworkTier,

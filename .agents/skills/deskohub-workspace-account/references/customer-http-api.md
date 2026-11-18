@@ -183,8 +183,11 @@ another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
 exact decimal text, as issued. An order's invoice carries `reservation`:
 the product's catalog name in the optional `?locale` (as `listReservations`
 names it), an office's seats, and the start and exclusive end, all from the
-service's summary; a manual invoice has none. An order's own invoice stays
-`getReservationInvoice`, authorized by the order.
+service's summary; a manual invoice has none. A cancelled invoice stays listed
+and downloadable with its `cancellation` (the credit note's number), as on the
+account page; hiding it in the Admin UI changes nothing here. An order's own
+invoice stays `getReservationInvoice`, authorized by the order, which serves
+only the live invoice.
 
 ## Company lookup
 

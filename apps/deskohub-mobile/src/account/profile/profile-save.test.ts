@@ -5,11 +5,7 @@ import {
   type CustomerProfile,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Option } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {
   makeFakeCustomerData,

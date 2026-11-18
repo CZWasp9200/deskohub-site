@@ -2,12 +2,12 @@ import "server-only";
 
 import { v2 as cloudinary } from "cloudinary";
 import { Duration, Effect, Order, pipe } from "effect";
-import * as Schema from "effect/Schema";
 import {
   HttpClient,
   type HttpClientError,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
+import * as Schema from "effect/Schema";
 import type { CloudinaryConfig } from "./config";
 import { CloudinarySearchError } from "./errors";
 import type { CnfExpression } from "./expression";
@@ -200,7 +200,7 @@ export function makeTaggedAssetLister(
           fetchTagList(tag).pipe(
             Effect.map((entries) => [tag, entries] as const)
           ),
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       )
     );
     const entries = selectEntries(groups, lists).sort(

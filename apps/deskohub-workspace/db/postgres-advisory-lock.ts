@@ -1,18 +1,16 @@
 import { sql } from "drizzle-orm";
-import { Context, Effect, Layer, Result, Semaphore } from "effect";
-import { SqlError } from "effect/unstable/sql";
-import type { Pool } from "pg";
+import { Context, Effect, Layer, Scope, Semaphore } from "effect";
+import { SqlClient, SqlError } from "effect/sql";
+import type { DatabasePool } from "./database-client";
+import { boundStatement, statementTimeoutOf } from "./statement-timeout";
 
 export type PostgresAdvisoryLockKey = readonly [string, string];
 
-export type PostgresAdvisoryLockClient = {
-  readonly query: (sql: string, values?: unknown[]) => Promise<unknown>;
-  readonly release: (error?: Error | boolean) => void;
-};
-
-export type PostgresAdvisoryLockPool = {
-  readonly connect: () => Promise<PostgresAdvisoryLockClient>;
-};
+/**
+ * Where a lock section gets its dedicated connection: `SqlClient.reserve`,
+ * which pins one pooled connection to the section's scope.
+ */
+export type PostgresAdvisoryLockConnections = Pick<SqlClient.Base, "reserve">;
 
 /**
  * Takes a transaction-scoped advisory lock inside the caller's own
@@ -29,47 +27,70 @@ const beginSql = "begin";
 const lockSql = "select pg_advisory_xact_lock(hashtext($1), hashtext($2))";
 const rollbackSql = "rollback";
 
-const toSqlError = (cause: unknown) =>
-  new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) });
-
-const acquireTransactionLocks = Effect.fn(function* (
-  pool: PostgresAdvisoryLockPool,
+/**
+ * Opens the section's transaction and takes its locks on a reserved
+ * connection, and rolls it back when the scope closes. The driver retires a
+ * reserved connection that it gets back in a failed transaction, with a
+ * statement still in flight, or dead, but not one with its transaction still
+ * open, so the rollback is registered before BEGIN: an interrupted BEGIN can
+ * still finish while the driver drains it. A rollback without a transaction
+ * only draws a warning. No lock outlives the scope.
+ */
+const holdTransactionLocks = Effect.fnUntraced(function* (
+  connections: PostgresAdvisoryLockConnections,
   keys: readonly PostgresAdvisoryLockKey[]
 ) {
-  const client = yield* Effect.tryPromise({
-    try: () => pool.connect(),
-    catch: toSqlError,
-  });
-  yield* Effect.tryPromise({
-    try: async () => {
-      await client.query(beginSql);
-      for (const key of keys) {
-        await client.query(lockSql, [...key]);
-      }
-    },
-    catch: toSqlError,
-  }).pipe(
-    // A client whose transaction did not open cleanly is evicted, not reused.
-    Effect.tapError((error) => Effect.sync(() => client.release(error)))
-  );
-  return client;
+  const connection = yield* connections.reserve;
+  const bounded = boundStatement(statementTimeoutOf(connections));
+  const run = (statement: string, params: ReadonlyArray<unknown> = []) =>
+    bounded(connection.executeUnprepared(statement, params, undefined));
+  yield* Effect.addFinalizer(() => Effect.ignore(run(rollbackSql)));
+  yield* run(beginSql);
+  for (const key of keys) {
+    yield* run(lockSql, key);
+  }
 });
 
-const releaseTransactionLock = Effect.fn(function* (
-  client: PostgresAdvisoryLockClient
-) {
-  const rollback = yield* Effect.result(
-    Effect.tryPromise({
-      try: () => client.query(rollbackSql),
-      catch: toSqlError,
-    })
-  );
-  yield* Effect.sync(() =>
-    client.release(Result.isFailure(rollback) ? rollback.failure : undefined)
-  );
-});
+/**
+ * Holds a transaction-scoped PostgreSQL advisory lock inside one explicit
+ * write-free transaction on one dedicated pool connection while `effect`
+ * runs. The open transaction pins the pooled server session to this
+ * connection, so the lock serializes a durable marker write and a provider
+ * call together, and the rollback always ends the transaction, which releases
+ * the lock.
+ */
+export const withPostgresAdvisoryLock = <A, E, R>(
+  connections: PostgresAdvisoryLockConnections,
+  key: PostgresAdvisoryLockKey,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError.SqlError, R> =>
+  withPostgresAdvisoryLocks(connections, [key], effect);
 
-const advisoryLockSemaphores = new WeakMap<Pool, Semaphore.Semaphore>();
+/**
+ * Acquires multiple transaction-scoped advisory locks on one pinned
+ * connection and under one pool permit. Callers provide a deterministic
+ * global order.
+ */
+export const withPostgresAdvisoryLocks = <A, E, R>(
+  connections: PostgresAdvisoryLockConnections,
+  keys: readonly PostgresAdvisoryLockKey[],
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError.SqlError, R> =>
+  // A scope of its own rather than `Effect.scoped`, which would also hand it
+  // to an `effect` that needs a scope. Waiting for the connection and the
+  // locks stays interruptible; the scope closes on every exit.
+  Effect.uninterruptibleMask((restore) =>
+    Effect.flatMap(Scope.make(), (scope) =>
+      restore(
+        Scope.provide(holdTransactionLocks(connections, keys), scope)
+      ).pipe(
+        Effect.andThen(restore(effect)),
+        Effect.onExit((exit) => Scope.close(scope, exit))
+      )
+    )
+  );
+
+const advisoryLockSemaphores = new WeakMap<object, Semaphore.Semaphore>();
 const advisoryLockPoolCapacityError = new SqlError.SqlError({
   reason: new SqlError.UnknownError({
     cause: new Error(
@@ -80,45 +101,24 @@ const advisoryLockPoolCapacityError = new SqlError.SqlError({
   }),
 });
 
-const makeAdvisoryLockSemaphore = (pool: Pool) => {
-  if (pool.options.max < 2) return undefined;
+/**
+ * One semaphore per client, so every layer over the same pool shares it:
+ * sections never hold more than half of the pool's connections, which leaves
+ * the rest for the queries they wait on.
+ */
+const makeAdvisoryLockSemaphore = (
+  client: PostgresAdvisoryLockConnections,
+  maxConnections: number
+) => {
+  if (maxConnections < 2) return undefined;
 
-  const existing = advisoryLockSemaphores.get(pool);
+  const existing = advisoryLockSemaphores.get(client);
   if (existing) return existing;
 
-  const semaphore = Semaphore.makeUnsafe(Math.floor(pool.options.max / 2));
-  advisoryLockSemaphores.set(pool, semaphore);
+  const semaphore = Semaphore.makeUnsafe(Math.floor(maxConnections / 2));
+  advisoryLockSemaphores.set(client, semaphore);
   return semaphore;
 };
-
-/**
- * Holds a transaction-scoped PostgreSQL advisory lock inside one explicit
- * write-free transaction on one dedicated pool client while `effect` runs.
- * The open transaction pins the pooled server session to this client, so the
- * lock serializes a durable marker write and a provider call together, and
- * the rollback always ends the transaction, which releases the lock.
- */
-export const withPostgresAdvisoryLock = <A, E, R>(
-  pool: PostgresAdvisoryLockPool,
-  key: PostgresAdvisoryLockKey,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | SqlError.SqlError, R> =>
-  withPostgresAdvisoryLocks(pool, [key], effect);
-
-/**
- * Acquires multiple transaction-scoped advisory locks on one pinned client
- * and under one pool permit. Callers provide a deterministic global order.
- */
-export const withPostgresAdvisoryLocks = <A, E, R>(
-  pool: PostgresAdvisoryLockPool,
-  keys: readonly PostgresAdvisoryLockKey[],
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | SqlError.SqlError, R> =>
-  Effect.acquireUseRelease(
-    acquireTransactionLocks(pool, keys),
-    () => effect,
-    releaseTransactionLock
-  );
 
 interface IWorkspaceDatabaseAdvisoryLock {
   /**
@@ -143,10 +143,19 @@ export class WorkspaceDatabaseAdvisoryLock extends Context.Service<
   WorkspaceDatabaseAdvisoryLock,
   IWorkspaceDatabaseAdvisoryLock
 >()("@deskohub-workspace/db/WorkspaceDatabaseAdvisoryLock") {
-  static makeLayer = (pool: Pool) => {
-    const semaphore = makeAdvisoryLockSemaphore(pool);
+  /**
+   * Over `client`, whose pool opens at most `maxConnections` connections.
+   */
+  static make = ({
+    client,
+    maxConnections,
+  }: {
+    readonly client: PostgresAdvisoryLockConnections;
+    readonly maxConnections: number;
+  }): IWorkspaceDatabaseAdvisoryLock => {
+    const semaphore = makeAdvisoryLockSemaphore(client, maxConnections);
 
-    return Layer.succeed(this, {
+    return WorkspaceDatabaseAdvisoryLock.of({
       withTransactionPermit: (effect) => {
         if (semaphore === undefined) {
           return Effect.fail(advisoryLockPoolCapacityError);
@@ -160,7 +169,7 @@ export class WorkspaceDatabaseAdvisoryLock extends Context.Service<
         }
 
         return semaphore.withPermits(1)(
-          withPostgresAdvisoryLock(pool, key, effect)
+          withPostgresAdvisoryLock(client, key, effect)
         );
       },
       withLocks: (keys, effect) => {
@@ -169,18 +178,28 @@ export class WorkspaceDatabaseAdvisoryLock extends Context.Service<
         }
 
         return semaphore.withPermits(1)(
-          withPostgresAdvisoryLocks(pool, keys, effect)
+          withPostgresAdvisoryLocks(client, keys, effect)
         );
       },
     });
   };
 
+  /** Over a pool its owner opened, such as a test database's. */
+  static makeLayer = (pool: DatabasePool) =>
+    Layer.succeed(
+      WorkspaceDatabaseAdvisoryLock,
+      WorkspaceDatabaseAdvisoryLock.make({
+        client: Context.get(pool.postgres, SqlClient.SqlClient),
+        maxConnections: pool.maxConnections,
+      })
+    );
+
   static Default = Layer.unwrap(
     Effect.promise(async () => {
-      const { workspaceDatabasePool } = await import(
+      const { workspaceDatabaseAdvisoryLockLayer } = await import(
         "./database-provider.server"
       );
-      return WorkspaceDatabaseAdvisoryLock.makeLayer(workspaceDatabasePool);
+      return workspaceDatabaseAdvisoryLockLayer;
     })
   );
 }

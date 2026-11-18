@@ -11,6 +11,7 @@ import {
   AdministrationDiscountCodeUpdateInput,
   AdministrationDotyposCustomerId,
   AdministrationInstant,
+  AdministrationInvoiceId,
   AdministrationProviderCredentialId,
   AdministrationStandaloneAccessCodeAttemptId,
   type AdministrationStandaloneAccessCodeAttemptIdType,
@@ -54,9 +55,8 @@ import {
   Result,
   Schema,
 } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { HttpApiTest } from "effect/unstable/httpapi";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { HttpRouter } from "effect/http";
+import { HttpApiTest } from "effect/http-api";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,
@@ -66,7 +66,13 @@ import {
   InvoiceAdministrationInProgressError,
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
+import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
 import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
+import { InvoiceCancellationService } from "@/features/accounting/backend/invoice-cancellation.service";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
+import { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
@@ -84,6 +90,7 @@ import {
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
 import type { AdministratorAccountActor } from "@/features/administrators/account-role";
+import { PaidFulfillmentQueueService } from "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation/workspace-table-assignment.service";
@@ -110,6 +117,7 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 import { ReservationAccessService } from "@/features/reservation-access";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { makeMeetingPoint } from "@/shared/testing/overlapping-requests.test-utils";
+import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
   discountMutationRecovery,
@@ -259,6 +267,7 @@ const administrationClient = HttpApiTest.groups(WorkspaceAdminApi, [
 type AdministrationClient = Effect.Success<typeof administrationClient>;
 
 type AdministrationApiServiceLayers = {
+  /** The `dhw` version the client sends, for endpoints with a minimum. */
   readonly administration?: Layer.Layer<AdministrationService>;
   readonly customers?: Layer.Layer<AdministrationCustomerDirectory>;
   readonly discounts?: Layer.Layer<DiscountAdministration>;
@@ -1563,6 +1572,319 @@ describe("Workspace Admin API", () => {
   });
 });
 
+// Reservation cancellations complete in a transaction; no statement reaches
+// Postgres.
+const recordingDatabase = await makeRecordingWorkspaceDatabase();
+
+describe("invoice cancellation and archive endpoints", () => {
+  const invoiceId = AdministrationInvoiceId.make(
+    "01980000-0000-7000-8000-0000000000a1"
+  );
+  const notices = {
+    customer: "failed",
+    internal: "accepted",
+    needsAttention: true,
+  } as const;
+  const cancellation = {
+    cancelledAt: "2026-11-15T10:00:00Z",
+    cause: "invoice_cancellation",
+    source: "dhw-cli",
+    actor: cliAdministrator.email,
+    correctiveDocumentNumber: "WS-OD-2026-000001",
+    correctiveDocumentIssuedAt: "2026-11-15T10:00:00Z",
+    correctiveDocumentPdfUrl: `/admin/invoices/${invoiceId}/corrective-document`,
+    notices,
+  } as const;
+  const dhwActor = { source: "dhw-cli", administrator: cliAdministrator };
+  const invoicesWith = (
+    service: Partial<InvoiceAdministrationService["Service"]>
+  ) =>
+    Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      ...service,
+    });
+
+  test("decodes the include-archived flag from the list query", async () => {
+    const queries: unknown[] = [];
+    const invoices = invoicesWith({
+      list: (query) => {
+        queries.push(query);
+        return Effect.succeed({
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize: 50,
+          pageCount: 1,
+        });
+      },
+    });
+
+    await callAdministrationApi(
+      (client) =>
+        Effect.all([
+          client.listInvoices({ query: { includeArchived: true } }),
+          client.listInvoices({ query: { includeArchived: false } }),
+          client.listInvoices({ query: {} }),
+        ]),
+      { invoices }
+    );
+
+    expect(queries).toEqual([
+      { includeArchived: true },
+      { includeArchived: false },
+      {},
+    ]);
+  });
+
+  test("cancels an invoice as the caller with the confirmations sent", async () => {
+    const cancellations: unknown[] = [];
+    const result = {
+      invoiceId,
+      outcome: "cancelled",
+      cancellation,
+      reservation: {
+        reservationId: AdministrationWorkspaceReservationId.make(
+          "01980000-0000-7000-8000-0000000000a2"
+        ),
+        outcome: "cancelled",
+        email: "sent",
+      },
+    } as const;
+    const invoices = invoicesWith({
+      cancel: (input) => {
+        cancellations.push(input);
+        return Effect.succeed(result as never);
+      },
+    });
+    const reservation = {
+      sendCancellationEmail: false,
+    };
+
+    const responses = await callAdministrationApi(
+      (client) =>
+        Effect.all([
+          client.cancelInvoice({
+            params: { invoiceId },
+            payload: { confirmedCustomerNotice: true, reservation },
+          }),
+          client.cancelInvoice({
+            params: { invoiceId },
+            payload: { confirmedCustomerNotice: false },
+          }),
+        ]),
+      { invoices }
+    );
+
+    expect(responses).toEqual([result, result]);
+    expect(cancellations).toEqual([
+      {
+        invoiceId,
+        actor: dhwActor,
+        confirmedCustomerNotice: true,
+        reservation,
+      },
+      { invoiceId, actor: dhwActor, confirmedCustomerNotice: false },
+    ]);
+  });
+
+  test("maps each invoice cancellation failure to a typed error with its code", async () => {
+    const failures = [
+      new InvoiceAdministrationNotFoundError({ invoiceId }),
+      ...(
+        [
+          "not_found",
+          "reservation_confirmation_required",
+          "confirmation_stale",
+          "reservation_cancellation_in_progress",
+          "document_unavailable",
+          "persistence_failed",
+        ] as const
+      ).map(
+        (code) =>
+          new InvoiceCancellationError({
+            code,
+            invoiceId: null,
+            message: `Synthetic ${code} failure`,
+          })
+      ),
+      new ReservationAdministrationError({
+        code: "not_cancellable",
+        reason: "confirmation_stale",
+        message: "Synthetic stale reservation confirmation",
+      }),
+      new ReservationAdministrationError({
+        code: "cancellation_failed",
+        reason: "dotypos_failed",
+        message: "Synthetic provider failure",
+      }),
+    ];
+    let attempt = 0;
+    const invoices = invoicesWith({
+      cancel: () => Effect.fail(failures[attempt++] as never),
+    });
+
+    const errors = await callAdministrationApi(
+      (client) =>
+        Effect.forEach(failures, () =>
+          client
+            .cancelInvoice({
+              params: { invoiceId },
+              payload: { confirmedCustomerNotice: true },
+            })
+            .pipe(Effect.flip)
+        ),
+      { invoices }
+    );
+
+    expect(
+      errors.map((error) => [
+        error._tag,
+        "code" in error ? (error.code ?? null) : null,
+      ])
+    ).toEqual([
+      ["CliResourceNotFound", null],
+      ["CliResourceNotFound", null],
+      ["CliMutationRejected", "reservation_confirmation_required"],
+      ["CliMutationRejected", "confirmation_stale"],
+      ["CliMutationRejected", "reservation_cancellation_in_progress"],
+      ["CliServiceUnavailable", "document_unavailable"],
+      ["CliServiceUnavailable", null],
+      ["CliMutationRejected", "confirmation_stale"],
+      ["CliServiceUnavailable", null],
+    ]);
+    expect(errors[2]).toMatchObject({
+      message: "Synthetic reservation_confirmation_required failure",
+    });
+    expect(errors[7]).toMatchObject({
+      message: "Synthetic stale reservation confirmation",
+    });
+  });
+
+  test("archives an invoice as the caller and refuses an uncancelled one", async () => {
+    const archives: unknown[] = [];
+    const outcomes = [
+      Effect.succeed({
+        invoiceId,
+        archivedAt: "2026-11-15T11:00:00Z",
+        changed: true,
+      }),
+      Effect.fail(
+        new InvoiceArchiveError({
+          code: "not_cancelled",
+          invoiceId: invoiceId as never,
+          message: "Only a cancelled invoice can be archived.",
+        })
+      ),
+      Effect.fail(new InvoiceAdministrationNotFoundError({ invoiceId })),
+    ];
+    const invoices = invoicesWith({
+      archive: (input) => {
+        archives.push(input);
+        return outcomes[archives.length - 1] as never;
+      },
+    });
+
+    const [archived, ...errors] = await callAdministrationApi(
+      (client) =>
+        Effect.all([
+          client.archiveInvoice({ params: { invoiceId } }),
+          client.archiveInvoice({ params: { invoiceId } }).pipe(Effect.flip),
+          client.archiveInvoice({ params: { invoiceId } }).pipe(Effect.flip),
+        ]),
+      { invoices }
+    );
+
+    expect(archived).toEqual({
+      invoiceId,
+      archivedAt: "2026-11-15T11:00:00Z",
+      changed: true,
+    });
+    expect(archives).toEqual([
+      { invoiceId, actor: dhwActor },
+      { invoiceId, actor: dhwActor },
+      { invoiceId, actor: dhwActor },
+    ]);
+    expect(errors[0]).toBeInstanceOf(CliMutationRejected);
+    expect(errors[0]).toMatchObject({
+      code: "not_cancelled",
+      message: "Only a cancelled invoice can be archived.",
+    });
+    expect(errors[1]).toBeInstanceOf(CliResourceNotFound);
+  });
+
+  test("downloads the corrective document of an archived invoice", async () => {
+    const pdf = new Uint8Array([37, 80, 68, 70]);
+    const reads: unknown[] = [];
+    const outcomes = [
+      Effect.succeed({ bytes: pdf, fileName: "WS-OD-2026-000001.pdf" }),
+      Effect.fail(new InvoiceAdministrationNotFoundError({ invoiceId })),
+      Effect.fail(
+        new InvoiceCancellationError({
+          code: "document_unavailable",
+          invoiceId: null,
+          message: "Synthetic decryption failure",
+        })
+      ),
+    ];
+    const invoices = invoicesWith({
+      getCorrectiveDocumentPdf: (id, scope) => {
+        reads.push({ id, scope });
+        return outcomes[reads.length - 1] as never;
+      },
+    });
+    const download = (client: AdministrationClient) =>
+      client.getInvoiceCorrectiveDocumentPdf({ params: { invoiceId } });
+
+    const [bytes, ...errors] = await callAdministrationApi(
+      (client) =>
+        Effect.all([
+          download(client),
+          download(client).pipe(Effect.flip),
+          download(client).pipe(Effect.flip),
+        ]),
+      { invoices }
+    );
+
+    expect(bytes).toEqual(pdf);
+    expect(reads).toEqual(
+      Array.from({ length: 3 }, () => ({
+        id: invoiceId,
+        scope: { includeArchived: true },
+      }))
+    );
+    expect(errors[0]).toBeInstanceOf(CliResourceNotFound);
+    expect(errors[1]).toBeInstanceOf(CliServiceUnavailable);
+    expect(errors[1]).toMatchObject({ code: "document_unavailable" });
+  });
+
+  test("answers a cancelled invoice's resend with the notices it retried, without the Admin UI's reservation", async () => {
+    const invoices = invoicesWith({
+      retry: () =>
+        Effect.succeed({
+          invoiceId,
+          changed: true,
+          needsAttention: true,
+          notices,
+          reservationId: AdministrationWorkspaceReservationId.make(
+            "01980000-0000-7000-8000-00000000abcd"
+          ),
+        }),
+    });
+
+    const result = await callAdministrationApi(
+      (client) => client.resendInvoice({ params: { invoiceId } }),
+      { invoices }
+    );
+
+    expect(result).toEqual({
+      invoiceId,
+      changed: true,
+      needsAttention: true,
+      notices,
+    });
+  });
+});
+
 describe("customer and reservation administration endpoints", () => {
   const instant = (value: string) => Temporal.Instant.from(value);
 
@@ -1723,6 +2045,10 @@ describe("customer and reservation administration endpoints", () => {
 
     expect(cancellations).toHaveLength(3);
     expect(cancellations[0]).toEqual({
+      actor: {
+        source: "dhw-cli",
+        administrator: cliAdministrator,
+      },
       force: false,
       reservationId,
       sendCancellationEmail: true,
@@ -1741,6 +2067,11 @@ describe("customer and reservation administration endpoints", () => {
       "01980000-0000-7000-8000-000000000001"
     );
     const restorations: unknown[] = [];
+    const replacement = {
+      outcome: "issued",
+      invoiceId: "0b6f3c7e-2f4a-4c1e-9d55-6a1f2e3b4c5d" as InvoiceId,
+      invoiceNumber: "WS-2026-000002",
+    } as const;
     const reservations = Layer.succeed(ReservationAdministrationService, {
       ...({} as ReservationAdministrationService["Service"]),
       restore: (input) =>
@@ -1750,6 +2081,7 @@ describe("customer and reservation administration endpoints", () => {
             outcome: "restored",
             email: "sent",
             access: "failed",
+            invoice: replacement,
           } as const;
         }),
     });
@@ -1777,6 +2109,7 @@ describe("customer and reservation administration endpoints", () => {
       outcome: "restored",
       email: "sent",
       access: "failed",
+      invoice: replacement,
     });
   });
 
@@ -1922,6 +2255,11 @@ describe("customer and reservation administration endpoints", () => {
         updatedAt: Temporal.Now.instant(),
       }) as never;
     const shared = Layer.mergeAll(
+      recordingDatabase.layer,
+      Layer.mock(InvoiceCancellationService, {
+        planForReservation: () => Effect.succeed(null),
+        recordForReservation: () => Effect.succeed(null),
+      }),
       counted(
         "dotypos",
         Layer.mock(DotyposService, {
@@ -1989,9 +2327,10 @@ describe("customer and reservation administration endpoints", () => {
       ),
       // What only a reservation restore uses.
       Layer.mock(AccountingDocumentSnapshots, {}),
+      Layer.mock(PaidFulfillmentQueueService, {}),
+      Layer.mock(ReservationInvoiceService, {}),
       Layer.mock(PaymentRefundService, {}),
       Layer.mock(ReservationAccessService, {}),
-      Layer.mock(WorkspaceDatabase, {}),
       Layer.mock(WorkspaceTableAssignmentService, {})
     );
     const handle = toWorkspaceWebHandler(

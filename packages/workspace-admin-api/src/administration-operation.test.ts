@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Context, Option, Schema, SchemaAST } from "effect";
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   AdministrationOperationBehavior,
   type AdministrationOperationReference,
@@ -26,15 +22,18 @@ import { WorkspaceAdminApi } from "./workspace-admin-http-api";
 
 type ReflectedEndpoint = {
   readonly reference: string;
-  readonly group: HttpApiGroup.AnyWithProps;
-  readonly endpoint: HttpApiEndpoint.AnyWithProps;
+  readonly group: HttpApiGroup.Top;
+  readonly endpoint: HttpApiEndpoint.Top;
   readonly annotations: Context.Context<never>;
   readonly middleware: ReadonlySet<unknown>;
   readonly outputs: ReadonlyArray<Schema.Top>;
   readonly errors: ReadonlyMap<number, ReadonlyArray<Schema.Top>>;
 };
 
-const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Any>(
+const reflectEndpoints = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const endpoints: Array<ReflectedEndpoint> = [];
@@ -49,7 +48,7 @@ const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Any>(
       errors,
     }) => {
       endpoints.push({
-        reference: `${group.identifier}.${endpoint.name}`,
+        reference: `${group.identifier}.${endpoint.identifier}`,
         group,
         endpoint,
         annotations: mergedAnnotations,
@@ -67,13 +66,15 @@ const operations = administrationOperations(WorkspaceAdminApi);
 const operationByReference = new Map(
   operations.map((operation) => [operation.reference, operation])
 );
+/** Whether `schemas` holds `schema`; reflection returns new schema objects over the declared ASTs. */
+const declares = (
+  schemas: ReadonlyArray<Schema.Top> | undefined,
+  schema: Schema.Top
+) => schemas?.some(({ ast }) => ast === schema.ast) ?? false;
 const isCliOnly = (endpoint: ReflectedEndpoint) =>
   Option.isSome(Context.getOption(endpoint.annotations, CliOnly));
 
-const payloadProperty = (
-  endpoint: HttpApiEndpoint.AnyWithProps,
-  name: string
-) =>
+const payloadProperty = (endpoint: HttpApiEndpoint.Top, name: string) =>
   [...endpoint.payload.values()]
     .flatMap(({ schemas }) => schemas)
     .map((schema) => SchemaAST.toType(schema.ast))
@@ -107,7 +108,7 @@ describe("administration operations", () => {
   });
 
   test("refuses an endpoint that declares neither or both", () => {
-    const groupWith = (endpoint: HttpApiEndpoint.Any) =>
+    const groupWith = (endpoint: HttpApiEndpoint.Constraint) =>
       HttpApi.make("test").add(HttpApiGroup.make("test").add(endpoint));
     const bare = groupWith(
       HttpApiEndpoint.get("bare", "/bare", { success: Schema.String })
@@ -217,8 +218,8 @@ describe("administration operations", () => {
       .filter((endpoint) => !isCliOnly(endpoint))
       .filter(
         ({ errors }) =>
-          !errors.get(401)?.includes(CliSessionUnauthorized.schema) ||
-          !errors.get(503)?.includes(CliServiceUnavailable.schema)
+          !declares(errors.get(401), CliSessionUnauthorized.schema) ||
+          !declares(errors.get(503), CliServiceUnavailable.schema)
       )
       .map(({ reference }) => reference);
 

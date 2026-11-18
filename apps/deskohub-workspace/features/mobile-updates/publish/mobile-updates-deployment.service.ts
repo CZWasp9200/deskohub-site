@@ -7,11 +7,7 @@ import {
   Redacted,
   Schedule,
 } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import type {
   MobileUpdatePlatform,
   MobileUpdatePublication,

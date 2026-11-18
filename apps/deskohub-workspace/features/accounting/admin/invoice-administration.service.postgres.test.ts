@@ -10,6 +10,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationInvoiceCreateInput,
   type AdministrationInvoiceCreateInputType,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
 import { Cause, Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -33,11 +34,18 @@ import {
   InvoiceEmailDeliveryService,
 } from "../backend/invoice-email-delivery.service";
 import { InvoiceAdministrationService } from "./invoice-administration.service";
+import {
+  liveInvoiceCancellationFakes,
+  liveInvoiceStanding,
+} from "./invoice-administration.service.test-utils";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+const input = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+)({
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23",
   customer: {
     kind: "new",
@@ -116,6 +124,7 @@ describe.skipIf(!testDatabase)(
               invoiceNumber: document.invoiceNumber,
               issuedAt: Temporal.Instant.from(document.issuedAt),
               document,
+              ...liveInvoiceStanding,
             };
             return { invoice: stored, changed } as ManualInvoiceIssuance;
           })
@@ -152,6 +161,7 @@ describe.skipIf(!testDatabase)(
                   completed = true;
                 }),
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -196,7 +206,8 @@ describe.skipIf(!testDatabase)(
         )
       );
       const secondInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24",
@@ -237,6 +248,7 @@ describe.skipIf(!testDatabase)(
                     invoiceNumber: document.invoiceNumber,
                     issuedAt: Temporal.Instant.from(document.issuedAt),
                     document,
+                    ...liveInvoiceStanding,
                   } satisfies Invoice;
                   stored.set(invoice.id, invoice);
                   return {
@@ -262,6 +274,7 @@ describe.skipIf(!testDatabase)(
               claim: () => Effect.succeed({ kind: "claimed" } as const),
               complete: () => Effect.void,
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -291,7 +304,8 @@ describe.skipIf(!testDatabase)(
         document,
       });
       const existingCustomerInput = Schema.decodeUnknownSync(
-        AdministrationInvoiceCreateInput
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
       )({
         ...input,
         customer: {
@@ -357,6 +371,7 @@ describe.skipIf(!testDatabase)(
                 claim: () => Effect.succeed({ kind: claim } as const),
                 complete: calls.complete,
               } as never),
+              liveInvoiceCancellationFakes,
               testDatabase!.layer
             )
           )
@@ -509,7 +524,8 @@ describe.skipIf(!testDatabase)(
         async ({ phone, written }) => {
           const { calls, layer } = claimLayer("claimed", null);
           const withPhone = Schema.decodeUnknownSync(
-            AdministrationInvoiceCreateInput
+            AdministrationInvoiceCreateInput,
+            administrationInputParseOptions
           )({
             ...existingCustomerInput,
             customer: {
@@ -577,6 +593,7 @@ describe.skipIf(!testDatabase)(
                   invoiceNumber: document.invoiceNumber,
                   issuedAt: Temporal.Instant.from(document.issuedAt),
                   document,
+                  ...liveInvoiceStanding,
                 },
                 changed: true,
               } as ManualInvoiceIssuance)
@@ -618,6 +635,7 @@ describe.skipIf(!testDatabase)(
                 claim: () => Effect.succeed({ kind: "claimed" } as const),
                 complete: () => Effect.void,
               } as never),
+              liveInvoiceCancellationFakes,
               testDatabase!.layer
             )
           )

@@ -1,4 +1,5 @@
 import { Context, Data, Duration, Effect, Layer, Schema } from "effect";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -6,16 +7,33 @@ import {
 import { QueuePublisher } from "@/shared/backend/queue/queue-publisher";
 import { defineQueueTopic } from "@/shared/backend/queue/queue-topic";
 
-/** One message per order: the key is the order's fulfillment idempotency. */
+/**
+ * The fulfillment of a paid order, or the replacement invoice a restored
+ * reservation is owed. A run for an order already fulfilled issues and sends
+ * its invoice alone, so a replacement reuses the order's message.
+ */
+type PaidFulfillmentRequest = {
+  readonly orderId: WorkspaceReservationId;
+  /** The cancelled invoice a restore replaces; set only for that retry. */
+  readonly replacesInvoiceId?: InvoiceId;
+};
+
+/**
+ * One message per order: the key is the order's fulfillment idempotency. A
+ * replacement's key names the invoice it replaces, so the order's earlier
+ * message, still retained, doesn't absorb it, and each replacement runs once.
+ */
 export const paidFulfillmentTopic = defineQueueTopic({
   topic: "workspace-paid-fulfillment",
   label: "Paid fulfillment",
   message: Schema.toStandardSchemaV1(
     Schema.Struct({ orderId: workspaceReservationIdSchema })
   ),
-  publish: (input: { readonly orderId: WorkspaceReservationId }) => ({
+  publish: (input: PaidFulfillmentRequest) => ({
     message: { orderId: input.orderId },
-    key: `paid-fulfillment:${input.orderId}`,
+    key: input.replacesInvoiceId
+      ? `paid-fulfillment:${input.orderId}:replacing:${input.replacesInvoiceId}`
+      : `paid-fulfillment:${input.orderId}`,
   }),
   retention: Duration.hours(24),
 });
@@ -28,9 +46,9 @@ export class PaidFulfillmentQueueError extends Data.TaggedError(
 }> {}
 
 interface IPaidFulfillmentQueueService {
-  readonly enqueue: (input: {
-    readonly orderId: WorkspaceReservationId;
-  }) => Effect.Effect<void, PaidFulfillmentQueueError>;
+  readonly enqueue: (
+    input: PaidFulfillmentRequest
+  ) => Effect.Effect<void, PaidFulfillmentQueueError>;
 }
 
 /**

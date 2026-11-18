@@ -16,12 +16,26 @@ The reservation experience records personal or business purpose and collects com
 
 An issued invoice is a separate immutable business record. It owns a unique invoice number, issue time, successful payment, completed access-code delivery, customer, reservation, and the exact document facts used for rendering.
 
-- A successful reservation payment may have at most one invoice.
+- A successful reservation payment may have at most one valid invoice at a time. A cancelled invoice may be replaced by a new invoice with a new number, which refers to the invoice it replaces.
 - An invoice may be issued only after the customer access code has been delivered. Its fulfilment date is the date of that recorded delivery, not the date for which the workspace was reserved.
-- Repeated or concurrent issuance returns the same invoice rather than consuming another number.
+- Repeated or concurrent issuance returns the same invoice rather than consuming another number. A retry returns the valid invoice.
+- No invoice is issued for a reservation that is being cancelled or is cancelled.
 - Invoice numbers use the annual `WS-FV-YYYY-NNNNNN` sequence in Prague time. Committed numbers are never reused and failed issuance does not consume a number.
 - Rendering the same issued record always produces the same document even after customer, catalog, or reservation data changes.
 - A rendered file is a presentation of the immutable record, not the record itself.
+
+## Cancellation and corrective documents
+
+An issued invoice is never changed or deleted. Cancelling it issues a corrective document (credit note) that reverses the whole invoice; the invoice stays retained as it was issued. The supplier is not a VAT payer, so the corrective document is not a corrective tax document.
+
+- A corrective document has its own number in the annual `WS-OD-YYYY-NNNNNN` sequence in Prague time, its own issue date, and a reference to the number and issue date of the invoice it cancels. Committed numbers are never reused and a failed cancellation does not consume a number.
+- It copies the supplier, buyer, currency and items of the invoice with negated amounts, and states whether the paid amount is to be refunded. It is rendered only from its own record.
+- An invoice is cancelled at most once. Repeating a cancellation returns the existing corrective document and sends nothing again.
+- Cancelling a reservation's invoice cancels the reservation, and cancelling a reservation cancels its valid invoice. Both happen as one operation: either both are cancelled or neither is. A reservation that was cancelled before invoice cancellation existed keeps its invoice valid until an operator cancels it.
+- When the invoice was ever accepted for delivery to the customer, or its delivery to them is under way, the customer is emailed a cancellation notice with the corrective document. The internal accounting copy always receives it. A failed notice never undoes the cancellation; it can be retried, and no audience receives two accepted notices for one cancellation.
+- Who cancelled, when, through which channel and why is recorded. The record keeps the operator's login email when the operator's account is later deleted.
+- Operators may hide a cancelled invoice from the administration list. Only cancelled invoices can be hidden. A hidden invoice remains retained and is reachable through the administration API; hiding changes nothing for the customer.
+- Refunds are unaffected: a cancelled paid reservation still needs its refund, as before.
 
 ## Reservation purpose and invoice request
 
@@ -45,7 +59,7 @@ Historical reservations without trustworthy transaction facts or a verified reci
 
 ## Customer account
 
-A signed-in customer sees the invoices issued to their own customer record in the billing area of their account, with each invoice's number, issue date, total, and payment status, and the due date while payment is requested. They can download each invoice as a PDF and all of them as a CSV export. Access follows the account's active customer link: an account without one, an account awaiting deletion, and anyone signed out see no invoices, and a request for an invoice that isn't theirs is indistinguishable from a request for one that doesn't exist. Deleting the account ends this access, but issued invoices are accounting records and are retained.
+A signed-in customer sees the invoices issued to their own customer record in the billing area of their account, with each invoice's number, issue date, total, and payment status, and the due date while payment is requested. They can download each invoice as a PDF and all of them as a CSV export. A cancelled invoice stays listed, marked cancelled, with its own PDF unchanged and its corrective document downloadable. Access follows the account's active customer link: an account without one, an account awaiting deletion, and anyone signed out see no invoices, and a request for an invoice that isn't theirs is indistinguishable from a request for one that doesn't exist. Deleting the account ends this access, but issued invoices are accounting records and are retained.
 
 ## Administration and privacy
 

@@ -1,11 +1,14 @@
-import { Download, FileDown } from "lucide-react";
+import { Download, FileDown, FileMinus } from "lucide-react";
 import { Suspense, use } from "react";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type {
   CustomerInvoiceHistory,
   CustomerInvoiceHistoryItem,
 } from "@/features/account/contracts";
-import type { InvoicePaymentStatus } from "@/features/accounting/invoice-settlement";
+import {
+  type CustomerInvoiceStatus,
+  getCustomerInvoiceStatus,
+} from "@/features/accounting/customer-invoice";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -17,6 +20,8 @@ import {
 /*
  * The billing section's own panel beside the billing form: the account's
  * issued invoices with a PDF download each and a CSV export of all of them.
+ * A cancelled invoice stays listed, marked cancelled, with a download of the
+ * corrective document beside its own unchanged PDF.
  * The history streams in after the page: the panel's title and a mounted
  * status region render at once, and two row-shaped skeletons hold the body
  * until the history resolves. Every text arrives formatted from the server.
@@ -138,7 +143,7 @@ function InvoiceRows({
         <span>{labels.status}</span>
       </div>
       <ul className="min-w-0 divide-y divide-[#e6ebf1]">
-        {invoices.map(({ display, invoice, pdfPath }) => (
+        {invoices.map(({ correctiveDocument, display, invoice, pdfPath }) => (
           <li
             className={`${rowGridClassName} py-4 first:pt-0 last:pb-0 @xl:first:pt-4`}
             data-slot="invoice-row"
@@ -169,11 +174,12 @@ function InvoiceRows({
                         issued: "neutral",
                         due: "progress",
                         overdue: "attention",
+                        cancelled: "neutral",
                       } as const satisfies Record<
-                        InvoicePaymentStatus,
+                        CustomerInvoiceStatus,
                         StatusTone
                       >
-                    )[invoice.paymentStatus]
+                    )[getCustomerInvoiceStatus(invoice)]
                   }
                 >
                   {display.status}
@@ -188,7 +194,7 @@ function InvoiceRows({
                 )}
               </span>
             </div>
-            <div className="col-span-2 min-w-0 @xl:col-span-1 @xl:justify-self-end">
+            <div className="col-span-2 flex min-w-0 flex-wrap gap-2 @xl:col-span-1 @xl:flex-col @xl:items-end @xl:justify-self-end">
               <Button asChild size="sm" variant="secondary" wrap>
                 <a data-slot="invoice-pdf" download href={pdfPath}>
                   <Download aria-hidden="true" className="size-4 shrink-0" />
@@ -198,6 +204,27 @@ function InvoiceRows({
                   </span>
                 </a>
               </Button>
+              {correctiveDocument && (
+                <Button asChild size="sm" variant="secondary" wrap>
+                  <a
+                    data-slot="invoice-corrective-document"
+                    download
+                    href={correctiveDocument.pdfPath}
+                  >
+                    <FileMinus aria-hidden="true" className="size-4 shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {m.accountBillingDownloadCorrectiveDocument(
+                        {},
+                        { locale }
+                      )}
+                      <span className="sr-only">
+                        {" "}
+                        {correctiveDocument.documentNumber}
+                      </span>
+                    </span>
+                  </a>
+                </Button>
+              )}
             </div>
           </li>
         ))}

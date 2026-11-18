@@ -5,7 +5,7 @@ import { describe, expect, mock, spyOn, test } from "bun:test";
 import type { GoogleCalendarEvent } from "@deskohub/google-calendar";
 import { testEmailAddress } from "@deskohub/test-email";
 import { type Duration, Effect, Layer, Schema } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import type { WorkspaceE2EConfig } from "@/e2e/config";
 import { isFreshOwnedPayStateUrl } from "@/e2e/referrals/checkout";
 import { isOwnedReferralCheckoutReviewUrl } from "@/e2e/referrals/checkout-review";

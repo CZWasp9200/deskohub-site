@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Data, Duration, Effect, Fiber, Random, Ref } from "effect";
+import { Data, Duration, Effect, Fiber, Logger, Random, Ref } from "effect";
 import { TestClock } from "effect/testing";
 import { ProviderRetryPolicy } from "./provider-request-policy";
 
@@ -42,6 +42,17 @@ const finishesAt = <A, E>(
 
 const run = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect.pipe(Effect.provide(TestClock.layer())));
+
+/** Runs `effect` and returns the message of every line it logs. */
+const loggedMessages = <A, E>(effect: Effect.Effect<A, E>) => {
+  const messages: unknown[] = [];
+  const logger = Logger.make((options) => {
+    messages.push(options.message);
+  });
+  return run(
+    effect.pipe(Effect.exit, Effect.provide(Logger.layer([logger])))
+  ).then(() => messages);
+};
 
 describe("ProviderRetryPolicy bounds", () => {
   test("derives the per-attempt and retried worst cases from one declaration", () => {
@@ -178,6 +189,36 @@ describe("ProviderRetryPolicy retries", () => {
         attempt === 2 ? new ProviderRefusal() : new ProviderTimeout()
       )
     ).toBe(2);
+  });
+
+  test("logs each retry with its number and un-jittered backoff", async () => {
+    const messages = await loggedMessages(
+      Effect.gen(function* () {
+        const attempts = yield* Ref.make(0);
+        const fiber = yield* Effect.forkChild(
+          failingAttempt(attempts, () => new ProviderTimeout()).pipe(
+            policy.retryWhile(
+              (outcome: ProviderTimeout | ProviderRefusal) =>
+                outcome._tag === "ProviderTimeout"
+            ),
+            withJitterAt(1)
+          )
+        );
+        yield* TestClock.adjust(policy.worstCaseBackoff);
+        yield* Fiber.await(fiber);
+      })
+    );
+
+    expect(messages).toEqual(
+      [1, 2, 3].map((attempt) => [
+        `Provider retry attempt #${attempt}`,
+        {
+          attemptNumber: attempt,
+          delayMs: 100 * 2 ** (attempt - 1),
+          maxRetries: 3,
+        },
+      ])
+    );
   });
 
   test("a declaration without retries sends one attempt and adds no backoff", async () => {
@@ -512,6 +553,34 @@ describe("ProviderRetryPolicy requested delays", () => {
       attempts: 3,
       finished: true,
     });
+  });
+
+  test("logs each retry with the delay it waits", async () => {
+    const messages = await loggedMessages(
+      Effect.gen(function* () {
+        const attempts = yield* Ref.make(0);
+        const fiber = yield* Effect.forkChild(
+          busyAttempt(attempts, Duration.millis(1500)).pipe(
+            retryHonoringRetryAfter,
+            withJitterAt(0.5)
+          )
+        );
+        yield* TestClock.adjust("10 seconds");
+        yield* Fiber.await(fiber);
+      })
+    );
+
+    // Retry-After 1.5 s against a 1 s then 2 s backoff.
+    expect(messages).toEqual([
+      [
+        "Provider retry attempt #1",
+        { attemptNumber: 1, delayMs: 1500, maxRetries: 2 },
+      ],
+      [
+        "Provider retry attempt #2",
+        { attemptNumber: 2, delayMs: 2000, maxRetries: 2 },
+      ],
+    ]);
   });
 
   test("gives up at once when the provider asks for more than the longest honoured delay", async () => {

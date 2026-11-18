@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { workspaceStatementConcurrency } from "@/db/database.service";
 import {
   type QueueMessageSendError,
   QueuePublisher,
@@ -40,13 +41,15 @@ export class AutomationUnitQueue extends Context.Service<
       const publisher = yield* QueuePublisher;
       return {
         enqueue: Effect.fn("automationUnitQueue.enqueue")(function* (units) {
-          yield* Effect.all(
-            units.map((unit) =>
-              automationUnitTopic
-                .publish(unit)
-                .pipe(Effect.provideService(QueuePublisher, publisher))
-            ),
-            { concurrency: "inherit", discard: true }
+          yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+            Effect.all(
+              units.map((unit) =>
+                automationUnitTopic
+                  .publish(unit)
+                  .pipe(Effect.provideService(QueuePublisher, publisher))
+              ),
+              { concurrency, discard: true }
+            )
           );
         }),
       };

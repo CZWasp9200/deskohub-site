@@ -1,11 +1,15 @@
 import type { AdministrationInvoiceIdType } from "@deskohub/workspace-admin-api";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { invoices } from "@/db/schema";
+import { invoiceArchives, invoices } from "@/db/schema";
 
 interface IInvoiceBreadcrumbService {
+  /**
+   * The invoice's number, or `null` for an unknown invoice or one hidden from
+   * the Admin UI, which the breadcrumb never names.
+   */
   readonly getInvoiceNumber: (
     invoiceId: AdministrationInvoiceIdType
   ) => Effect.Effect<string | null, EffectDrizzleQueryError>;
@@ -26,7 +30,10 @@ export class InvoiceBreadcrumbService extends Context.Service<
         const [row] = yield* db
           .select({ invoiceNumber: invoices.invoiceNumber })
           .from(invoices)
-          .where(eq(invoices.id, invoiceId))
+          .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
+          .where(
+            and(eq(invoices.id, invoiceId), isNull(invoiceArchives.invoiceId))
+          )
           .limit(1);
         return row?.invoiceNumber ?? null;
       });

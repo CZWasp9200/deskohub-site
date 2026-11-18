@@ -1,5 +1,5 @@
 import { Stream } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 /** The current time, read again every 30 seconds while a screen reads it. */
 const clockTicksAtom = Atom.make(

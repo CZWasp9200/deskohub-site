@@ -1,5 +1,5 @@
 import { Schedule } from "effect";
-import { HttpClient, type HttpClientError } from "effect/unstable/http";
+import { HttpClient, type HttpClientError } from "effect/http";
 
 /**
  * A request may be sent again only when it never got an answer: a transport

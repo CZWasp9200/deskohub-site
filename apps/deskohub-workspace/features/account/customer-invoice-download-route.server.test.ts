@@ -18,6 +18,7 @@ import {
 } from "./backend/customer-invoice.service";
 import { CustomerAccountAccessError } from "./customer-account";
 import {
+  makeCustomerCorrectiveDocumentPdfGet,
   makeCustomerInvoiceExportGet,
   makeCustomerInvoicePdfGet,
 } from "./customer-invoice-download-route.server";
@@ -36,8 +37,10 @@ const summary: CustomerInvoiceSummary = {
   total: { amount: "450.50", currency: "CZK" },
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
+  cancellation: null,
   reservation: null,
 };
+const correctiveDocumentNumber = "WS-OD-2026-000042";
 
 type Outcome = "own" | "not-found" | "unavailable" | "load-failed";
 
@@ -76,6 +79,20 @@ const service = Layer.mock(CustomerInvoiceService, {
       }
       return refuse();
     }),
+  correctiveDocumentPdf: (invoiceId) =>
+    Effect.suspend(() => {
+      requestedInvoiceIds.push(invoiceId);
+      if (outcome === "own" && invoiceId === ownInvoiceId) {
+        return Effect.succeed({
+          bytes: pdfBytes,
+          fileName: `${correctiveDocumentNumber}.pdf`,
+        });
+      }
+      if (outcome === "own" || outcome === "not-found") {
+        return Effect.fail(new CustomerInvoiceNotFoundError());
+      }
+      return refuse();
+    }),
   csv: (locale) =>
     Effect.suspend(() =>
       outcome === "own"
@@ -100,6 +117,17 @@ const requestPdf = (
   makeCustomerInvoicePdfGet(layer)(
     new Request(
       `https://workspace.test/${locale}/account/invoices/${invoiceId}/pdf`
+    ),
+    { params: Promise.resolve({ locale, invoiceId }) }
+  );
+
+const requestCorrectiveDocument = (
+  invoiceId: string,
+  { locale = "en-US", layer = service } = {}
+) =>
+  makeCustomerCorrectiveDocumentPdfGet(layer)(
+    new Request(
+      `https://workspace.test/${locale}/account/invoices/${invoiceId}/corrective-document`
     ),
     { params: Promise.resolve({ locale, invoiceId }) }
   );
@@ -188,6 +216,42 @@ describe("customer invoice PDF route", () => {
     expect(logged).toContain("account.invoice-download");
     expect(logged).not.toContain("synthetic configuration failure");
     expect(logged).not.toContain(ownInvoiceId);
+  });
+});
+
+describe("customer corrective document PDF route", () => {
+  test("downloads the corrective document of the customer's cancelled invoice as a private attachment", async () => {
+    const response = await requestCorrectiveDocument(ownInvoiceId);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    expect(response.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="${correctiveDocumentNumber}.pdf"`
+    );
+    expectPrivate(response);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(pdfBytes);
+  });
+
+  test("answers every refusal with the invoice PDF's private 404 and a load failure with its private 500", async () => {
+    const notFound = await describeResponse(
+      await requestPdf(otherCustomersInvoiceId)
+    );
+    const refusals = [
+      await requestCorrectiveDocument(otherCustomersInvoiceId),
+      await requestCorrectiveDocument(ownInvoiceId, { locale: "xx-XX" }),
+    ];
+    outcome = "unavailable";
+    refusals.push(await requestCorrectiveDocument(ownInvoiceId));
+    for (const response of refusals) {
+      expect(await describeResponse(response)).toEqual(notFound);
+    }
+
+    outcome = "load-failed";
+    const failed = await requestCorrectiveDocument(ownInvoiceId);
+    expect(await describeResponse(failed)).toEqual(
+      await describeResponse(await requestPdf(ownInvoiceId))
+    );
+    expect(failed.status).toBe(500);
   });
 });
 

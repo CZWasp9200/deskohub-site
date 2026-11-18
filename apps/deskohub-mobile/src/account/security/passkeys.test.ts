@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Option } from "effect";
-import {
-  type AsyncResult,
-  type Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import { type AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
 import {
   makeFakeCustomerData,

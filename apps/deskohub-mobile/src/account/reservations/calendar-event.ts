@@ -1,6 +1,6 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { DateTime, Effect } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { shareTemporaryFile } from "../../customer-api/share-temporary-file";
 
