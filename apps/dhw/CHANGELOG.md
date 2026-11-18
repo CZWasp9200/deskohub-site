@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.37.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.36.1...dhw-v1.37.0) (2026-11-18)
+
+
+### Features
+
+* **workspace:** restore cancelled reservations ([f8d9583](https://github.com/totalolage/deskohub-site/commit/f8d9583f79481e26e4542eae507dd7ca5e7643ed))
+
+
+### Bug Fixes
+
+* **dhw:** stop the restore confirmation promising the earlier door PIN no longer works ([a622aea](https://github.com/totalolage/deskohub-site/commit/a622aeaf8329b60572b75947d52acf33f3cde89b))
+
 ## [1.36.1](https://github.com/totalolage/deskohub-site/compare/dhw-v1.36.0...dhw-v1.36.1) (2026-11-17)
 
 
