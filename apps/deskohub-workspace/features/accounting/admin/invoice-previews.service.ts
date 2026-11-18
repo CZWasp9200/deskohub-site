@@ -42,9 +42,9 @@ const makeInvoicePreviews = Effect.gen(function* () {
   });
 
   // The database clock decides expiry, for writing and reading alike.
-  const deleteExpired = db
-    .delete(invoicePreviews)
-    .where(lte(invoicePreviews.expiresAt, sql`now()`));
+  const deleteExpired = Effect.suspend(() =>
+    db.delete(invoicePreviews).where(lte(invoicePreviews.expiresAt, sql`now()`))
+  );
 
   /**
    * Keeps a rendered preview, encrypted, for `invoicePreviewLifetime`, and
