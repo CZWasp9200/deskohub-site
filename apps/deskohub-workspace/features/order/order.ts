@@ -1,10 +1,14 @@
 import { Schema } from "effect";
 
-export const orderKinds = ["reservation"] as const;
+/**
+ * What an order commits to: one reservation, or one pass purchase. A pass
+ * purchase pays for a pass rather than a reservation.
+ */
+export const orderKinds = ["reservation", "pass-purchase"] as const;
 
 export const orderKindSchema = Schema.Literals(orderKinds).annotate({
   identifier: "OrderKind",
-  description: "The fulfillment family of a Deskohub order.",
+  description: "What a Deskohub order commits to.",
 });
 
 export type OrderKind = typeof orderKindSchema.Type;

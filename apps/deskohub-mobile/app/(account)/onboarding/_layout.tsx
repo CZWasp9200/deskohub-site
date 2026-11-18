@@ -7,6 +7,7 @@ import {
   renderClosingStackHeader,
   stackScreenOptions,
 } from "../../../src/ui/navigation";
+import { useUpdateOfferHost } from "../../../src/updates/update-offer";
 
 /**
  * Completing the profile, above the tabs so it opens over the tab the
@@ -16,6 +17,9 @@ import {
  */
 export default function OnboardingLayout() {
   const locale = useAppLocale();
+  // The whole flow is critical: its screens show the quiet update card, and
+  // the banner stays away even while one loads or fails.
+  useUpdateOfferHost();
   // The steps share one submit; it is forgotten once onboarding closes.
   useSettledResultReset(completeProfileAtom);
   const title = m.account_section_complete({}, { locale });

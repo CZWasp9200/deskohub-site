@@ -27,6 +27,10 @@ import { AdministratorAgentAuthorization } from "@/features/administrators/backe
 import { AgentToolReply } from "@/features/agent-tools/agent-tool";
 import type { CustomerAgentCaller } from "@/features/agent-tools/customer-agent-caller";
 import {
+  AdministrationAgentDocuments,
+  type AdministrationDocument,
+} from "./administration-agent-documents";
+import {
   deriveAdministrationOperationTools,
   makeAdministrationAgentTools,
 } from "./administration-agent-tools";
@@ -124,6 +128,18 @@ const TestApi = HttpApi.make("testApi").add(
         ),
       }).annotate(AdministrationOperationBehavior, readOperation)
     )
+    .add(
+      HttpApiEndpoint.post("issueDocument", "/documents/:documentId/issue", {
+        params: { documentId: Schema.String },
+        success: Schema.Struct({ issued: Schema.Boolean }),
+      }).annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: readPreview("administration.getDocument"),
+        })
+      )
+    )
 );
 
 /** The requests the test API served, by operation, in order. */
@@ -191,6 +207,9 @@ const handleTestRequest = HttpRouter.toWebHandler(
               Effect.as(new TextEncoder().encode("%PDF-1.7 synthetic"))
             )
           )
+          .handle("issueDocument", () =>
+            record("issueDocument").pipe(Effect.as({ issued: true }))
+          )
       )
     ),
     Layer.provide(NodeHttpServer.layerHttpServices)
@@ -246,9 +265,32 @@ const administratorAuthorization = Layer.succeed(
   }
 );
 
-/** The services a tool call runs with: the grant check and the test API. */
+/** Whether binary results get a download link, and the documents linked. */
+let documentLinks = false;
+let linkedDocuments: Array<
+  Pick<AdministrationDocument, "reference" | "administratorAccountId">
+> = [];
+
+const agentDocuments = Layer.succeed(AdministrationAgentDocuments, {
+  link: ({ reference, args, administratorAccountId }) =>
+    Effect.sync(() => {
+      linkedDocuments.push({ reference, administratorAccountId });
+      return documentLinks
+        ? Option.some({
+            url: `https://workspace.example/admin/documents/${String(args.documentId)}`,
+            expiresAt: Temporal.Instant.from("2026-11-18T10:15:00Z"),
+          })
+        : Option.none();
+    }),
+});
+
+/**
+ * The services a tool call runs with: the grant check, the document links
+ * and the test API.
+ */
 const toolServices = Layer.mergeAll(
   administratorAuthorization,
+  agentDocuments,
   AdministrationApiClient.forApi(TestApi).pipe(
     Layer.provide(Layer.succeed(AdministrationApiTransport, transport))
   )
@@ -351,7 +393,9 @@ describe("administration agent tool calls", () => {
           .call({ reservationId: "r-1", sendEmail: true }, Option.some(caller))
           .pipe(
             Effect.provideContext(built),
-            Effect.provide(administratorAuthorization),
+            Effect.provide(
+              Layer.mergeAll(administratorAuthorization, agentDocuments)
+            ),
             Effect.result
           );
       })
@@ -514,14 +558,20 @@ describe("administration agent tool calls", () => {
   });
 
   test("attach a binary result as an embedded document", async () => {
+    documentLinks = false;
     const result = await callTool("admin_get_document", { documentId: "d-1" });
     const reply = result._tag === "Success" ? result.success : undefined;
 
     expect(reply).toBeInstanceOf(AgentToolReply);
-    expect(reply instanceof AgentToolReply && reply.result).toMatchObject({
+    expect(reply instanceof AgentToolReply && reply.result).toEqual({
+      uri: expect.any(String),
       mimeType: "application/pdf",
       byteLength: 18,
     });
+    expect(
+      reply instanceof AgentToolReply &&
+        reply.attachments.map(({ download }) => download)
+    ).toEqual([undefined]);
     expect(
       reply instanceof AgentToolReply &&
         reply.attachments.map(({ mimeType, blob }) => ({
@@ -529,6 +579,71 @@ describe("administration agent tool calls", () => {
           text: Buffer.from(blob, "base64").toString(),
         }))
     ).toEqual([{ mimeType: "application/pdf", text: "%PDF-1.7 synthetic" }]);
+  });
+
+  test("link a binary result for the caller's administrator account when it can be downloaded", async () => {
+    documentLinks = true;
+    linkedDocuments = [];
+    const result = await callTool("admin_get_document", { documentId: "d-1" });
+    documentLinks = false;
+    const reply = result._tag === "Success" ? result.success : undefined;
+
+    expect(linkedDocuments).toEqual([
+      {
+        reference: expect.any(String),
+        administratorAccountId: caller.grant.accountId,
+      },
+    ]);
+    expect(reply instanceof AgentToolReply && reply.result).toMatchObject({
+      byteLength: 18,
+      downloadUrl: "https://workspace.example/admin/documents/d-1",
+      expiresAt: "2026-11-18T10:15:00Z",
+    });
+    expect(
+      reply instanceof AgentToolReply &&
+        reply.attachments.map(({ download }) => download)
+    ).toEqual([
+      {
+        url: "https://workspace.example/admin/documents/d-1",
+        expiresAt: "2026-11-18T10:15:00Z",
+      },
+    ]);
+  });
+
+  test("link a binary preview of a destructive operation without confirm, and change nothing", async () => {
+    documentLinks = true;
+    linkedDocuments = [];
+    const result = await callTool("admin_issue_document", {
+      documentId: "d-1",
+    });
+    documentLinks = false;
+    const reply = result._tag === "Success" ? result.success : undefined;
+
+    expect(linkedDocuments).toEqual([
+      {
+        reference: "administration.getDocument",
+        administratorAccountId: caller.grant.accountId,
+      },
+    ]);
+    expect(reply instanceof AgentToolReply && reply.result).toMatchObject({
+      outcome: "confirmation-required",
+      current: {
+        "administration.getDocument": {
+          downloadUrl: "https://workspace.example/admin/documents/d-1",
+          expiresAt: "2026-11-18T10:15:00Z",
+        },
+      },
+    });
+    expect(
+      reply instanceof AgentToolReply &&
+        reply.attachments.map(({ download }) => download)
+    ).toEqual([
+      {
+        url: "https://workspace.example/admin/documents/d-1",
+        expiresAt: "2026-11-18T10:15:00Z",
+      },
+    ]);
+    expect(served.map(({ operation }) => operation)).toEqual(["getDocument"]);
   });
 
   test("refuse a call without a verified caller", async () => {

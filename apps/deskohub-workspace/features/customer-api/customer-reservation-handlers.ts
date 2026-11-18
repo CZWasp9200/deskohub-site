@@ -411,9 +411,12 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
         Effect.succeed<CustomerOrderState>({
           orderId,
           kind,
-          status,
+          status: status === "reservation_cancelled" ? "cancelled" : status,
           paymentStatus,
           fulfillmentStatus,
+          ...(status === "reservation_cancelled" && {
+            reservationCancelled: true,
+          }),
           ...(reviewSandbox && { reviewSandbox }),
           ...(paymentPageReopenable && { paymentPageReopenable }),
           ...(summary && {

@@ -6,6 +6,7 @@ import {
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import type { OrderKind } from "@/features/order";
 import type { WorkspaceReservationDetailsMalformedError } from "@/features/reservation/backend/stored-reservation-details.server";
 import {
   type WorkspaceReservation,
@@ -49,6 +50,11 @@ export type PayableReservation = WorkspaceReservation & {
  * reservation's `dotyposCustomerId` is the customer it prices for.
  */
 export type OpenCheckout = {
+  /**
+   * The kind of order the state pays for. Each kind carries what it pays
+   * for; only reservation orders are payable here so far.
+   */
+  readonly kind: Extract<OrderKind, "reservation">;
   readonly state: PayStateWithHoldExpiry;
   readonly reservation: PayableReservation;
 };
@@ -208,6 +214,7 @@ export class PayableCheckout extends Context.Service<
           dotyposReservationId,
         };
         const checkout: OpenCheckout = {
+          kind: "reservation",
           state: withPayStateHoldExpiry(state, payable),
           reservation: payable,
         };

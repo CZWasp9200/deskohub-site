@@ -160,6 +160,8 @@ export const shadow = {
   sheet: { boxShadow: "0 -12px 32px -12px rgba(0, 2, 79, 0.35)" },
   toast: { boxShadow: "0 10px 24px -8px rgba(0, 2, 79, 0.5)" },
   toastConfirmation: { boxShadow: "0 10px 24px -8px rgba(0, 81, 62, 0.55)" },
+  /** A light card lifted off navy, such as the update offer on the sign-in masthead. */
+  onNavy: { boxShadow: "0 8px 20px -12px rgba(0, 0, 24, 0.8)" },
   /** The pull-to-refresh disc. */
   refresh: { boxShadow: "0 2px 8px rgba(0, 2, 79, 0.25)" },
 } as const;

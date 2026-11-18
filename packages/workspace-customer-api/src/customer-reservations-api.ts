@@ -395,6 +395,8 @@ export const CustomerOrderState = Schema.Struct({
   status: CustomerOrderStatus,
   paymentStatus: CustomerOrderPaymentStatus,
   fulfillmentStatus: CustomerOrderFulfillmentStatus,
+  /** With status `cancelled`, marks a cancelled reservation irrespective of the payment outcome. */
+  reservationCancelled: Schema.optional(Schema.Literal(true)),
   /** Marks a review account's sample or simulated hold. */
   reviewSandbox: Schema.optional(Schema.Literal(true)),
   /**

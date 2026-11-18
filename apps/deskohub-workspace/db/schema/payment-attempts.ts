@@ -68,12 +68,13 @@ export const paymentAttempts = pgTable(
       .$type<WorkspaceReservationId>()
       .references(() => workspaceReservations.id, { onDelete: "cascade" }),
     /**
-     * The order the attempt pays: the reservation's mirrored order, so always
-     * equal to `workspace_reservation_id`. A trigger fills it on insert when
-     * the writer leaves it out, which repairs attempts that writers from
-     * before the mirror insert during a rolling deployment.
+     * The order the attempt pays. For a reservation order it equals
+     * `workspace_reservation_id`. A trigger fills it from the reservation on
+     * insert when the writer leaves it out, which repairs attempts that
+     * writers from before the order key insert during a rolling deployment.
      */
     orderId: text("order_id")
+      .notNull()
       .$type<OrderId>()
       .references(() => orders.id, { onDelete: "cascade" }),
     provider: text("provider").notNull().$type<PaymentProvider>(),

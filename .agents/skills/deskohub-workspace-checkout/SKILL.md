@@ -1,6 +1,6 @@
 ---
 name: deskohub-workspace-checkout
-description: Workspace checkout, reservation submission, reservation order mirror, orders table, payment attempt order_id, agent booking view, MCP Apps, Pay page, order summary, pricing_changed, discount affirmation, Nexi payment, webhook, late payment, refund, reservation hold, supersession, hold cleanup, paid fulfillment, access PIN, availability cache, invoice, accounting snapshot.
+description: Workspace checkout, reservation submission, reservation order mirror, orders table, order kind, pass-purchase order, payment attempt order_id, legal evidence order_id, status route dispatch, agent booking view, MCP Apps, Pay page, order summary, pricing_changed, discount affirmation, Nexi payment, webhook, late payment, refund, reservation hold, supersession, hold cleanup, paid fulfillment, access PIN, availability cache, invoice, accounting snapshot.
 ---
 
 # Deskohub Workspace checkout

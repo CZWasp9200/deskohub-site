@@ -9,6 +9,7 @@ import { type LegalEvidenceEvent, legalEvidenceEvents } from "@/db/schema";
 import { postgresUuidV7 } from "@/db/uuid-v7";
 import { legalEvidenceSchema } from "@/features/checkout/legal-evidence";
 import {
+  reservationOrderId,
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
@@ -89,6 +90,10 @@ const getLegalEvidenceEventRecord = (
   parsed: typeof legalEvidenceEventInputSchema.Type
 ) => ({
   workspaceReservationId: parsed.workspaceReservationId,
+  orderId:
+    parsed.workspaceReservationId === undefined
+      ? undefined
+      : reservationOrderId(parsed.workspaceReservationId),
   documentKey: parsed.evidence.documentKey,
   documentPath: parsed.evidence.document.path,
   documentHash: parsed.evidence.documentHash,

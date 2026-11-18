@@ -6,7 +6,7 @@ Workspace preserves the transaction facts needed to issue a trustworthy invoice 
 
 ## Current scope
 
-Each payment attempt receives one protected, immutable source snapshot at the same business boundary as the attempt. The snapshot exists whether or not the customer has requested an invoice, and its presence does not mean that an invoice was requested or issued.
+Each payment attempt of an order receives one protected, immutable source snapshot at the same business boundary as the attempt. The snapshot exists whether or not the customer has requested an invoice, and its presence does not mean that an invoice was requested or issued.
 
 Every terminal payment attempt retains its immutable snapshot as accounting evidence. A terminal Nexi attempt may additionally need the accepted reservation and price facts for verified late-settlement recovery. A paid snapshot cannot be rewritten or deleted. Historical payments are not reconstructed from current customer or catalog data.
 

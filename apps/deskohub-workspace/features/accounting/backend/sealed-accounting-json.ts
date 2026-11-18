@@ -6,6 +6,7 @@ import type { SelectResultFields } from "drizzle-orm/query-builders/select.types
 import { Data, Effect, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { AccountingSnapshotKeyId } from "@/features/accounting/accounting-document-snapshot";
+import type { InvoicePreviewId } from "@/features/accounting/admin/invoice-preview-id";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -23,6 +24,7 @@ import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service"
 /** The id an accounting record was sealed or looked up by, and what it is. */
 export type AccountingRecordReference =
   | { readonly type: "invoiceId"; readonly id: InvoiceId }
+  | { readonly type: "invoicePreviewId"; readonly id: InvoicePreviewId }
   | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
   | { readonly type: "providerOrderId"; readonly id: NexiOrderId }
   | {

@@ -6,10 +6,14 @@ import { Suspense } from "react";
 import { CheckoutFlowPageSkeleton } from "@/features/checkout/components/checkout-flow-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
+import { loadOrderKind } from "@/features/order/backend/order-kind";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAccessPage } from "@/features/reservation/components/reservation-access-page";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  type WorkspaceReservationId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { withWorkspaceRequestContext } from "@/shared/backend/workspace-request-context";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -55,28 +59,49 @@ async function ReservationAccessContent({
 
   return runWithRequestLocale(async (locale) => {
     await connection();
-    const cookieStore = await cookies();
-    const requestHeaders = await headers();
-    const accessCookie = readReservationAccessCookie(cookieStore, orderId);
-    const access = await Effect.flatMap(ReservationAccessService, (service) =>
-      service.getAccess({ orderId, locale, accessCookie })
-    ).pipe(
-      Effect.provide(ReservationAccessService.Live),
-      // Authorization reads the session from these headers, never from
-      // Next's `headers()` behind the request context.
-      withWorkspaceRequestContext(requestHeaders),
-      runWorkspaceEffect("reservation.access.load")
-    );
-
-    return (
-      <ReservationAccessPage
-        access={access}
-        locale={locale}
-        orderId={orderId}
-        presentation={presentation}
-      />
-    );
+    switch (await loadOrderKind(orderId)) {
+      case "pass-purchase":
+        // Pass purchase orders have no access page yet.
+        return notFound();
+      case "reservation":
+      case undefined:
+        // Without an order row the reservation page still answers, as it
+        // does for an ID no reservation has.
+        return renderReservationAccess({ locale, orderId, presentation });
+    }
   });
+}
+
+async function renderReservationAccess({
+  locale,
+  orderId,
+  presentation,
+}: {
+  readonly locale: Locale;
+  readonly orderId: WorkspaceReservationId;
+  readonly presentation: ReservationAccessPresentation;
+}) {
+  const cookieStore = await cookies();
+  const requestHeaders = await headers();
+  const accessCookie = readReservationAccessCookie(cookieStore, orderId);
+  const access = await Effect.flatMap(ReservationAccessService, (service) =>
+    service.getAccess({ orderId, locale, accessCookie })
+  ).pipe(
+    Effect.provide(ReservationAccessService.Live),
+    // Authorization reads the session from these headers, never from
+    // Next's `headers()` behind the request context.
+    withWorkspaceRequestContext(requestHeaders),
+    runWorkspaceEffect("reservation.access.load")
+  );
+
+  return (
+    <ReservationAccessPage
+      access={access}
+      locale={locale}
+      orderId={orderId}
+      presentation={presentation}
+    />
+  );
 }
 
 function ReservationAccessFallback({

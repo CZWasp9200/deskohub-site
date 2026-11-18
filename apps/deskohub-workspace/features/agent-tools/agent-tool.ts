@@ -54,6 +54,15 @@ export interface AgentToolAttachment {
   readonly mimeType: string;
   /** The content, base64-encoded. */
   readonly blob: string;
+  /** Where the user can also open it, for hosts that can't show `blob`. */
+  readonly download?: AgentToolDownload;
+}
+
+/** An address that serves an attachment until it expires. */
+export interface AgentToolDownload {
+  readonly url: string;
+  /** An ISO 8601 instant. */
+  readonly expiresAt: string;
 }
 
 /**

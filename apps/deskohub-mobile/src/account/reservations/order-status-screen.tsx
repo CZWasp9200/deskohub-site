@@ -51,6 +51,7 @@ import {
 import {
   type BookingTicketModel,
   bookingTicketOf,
+  cancelledBookingTicket,
   orderCheckingOf,
 } from "./booking-ticket-model";
 import { ticketBadge, ticketSteps } from "./booking-ticket-text";
@@ -291,11 +292,14 @@ function OrderTicket({
     onCheckAgain,
     onPaymentPageLeft,
   });
-  const model = bookingTicketOf(
-    order.status,
-    orderCheckingOf(state.automatic),
-    recovery.offer
-  );
+  const model =
+    order.reservationCancelled === true
+      ? cancelledBookingTicket(order.paymentStatus)
+      : bookingTicketOf(
+          order.status,
+          orderCheckingOf(state.automatic),
+          recovery.offer
+        );
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const view = orderTicketView({
     order,

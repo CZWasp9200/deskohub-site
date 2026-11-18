@@ -11,6 +11,10 @@ Checkout turns a customer's selected Workspace product into a temporary reservat
 - Workspace owns the customer's checkout journey, accepted price, local payment and fulfillment status, legal evidence, and recovery decisions.
 - Workspace must not become a duplicate customer profile, reservation store, payment-instrument archive, or raw provider-event archive.
 
+## Orders
+
+An order is the commitment a customer makes at one checkout. Its payment attempts, the legal evidence accepted for its payment, and the accounting source facts of each attempt belong to the order. Today every order is a reservation order: it commits to one reservation and shares that reservation's identity, so the order and its reservation are named by the same ID. A pass purchase is the other kind of order; customers can't buy passes yet. The status and access pages are addressed by order ID and serve the page for the order's kind.
+
 ## Accounts and reservation steps
 
 Every reservation is made by a signed-in customer account with a verified email. There is no guest checkout. The account that submits a reservation is its author. The reservation's customer is the person it is for: the account's own customer, or someone else the account books for.
@@ -165,9 +169,9 @@ The reservation page always explains the privacy policy. Privacy-policy acknowle
 
 Marketing consent is optional and belongs to the customer rather than one reservation. Checking the option grants consent; leaving it unchecked does not withdraw an earlier grant. A withdrawal is a separate deliberate action. A customer booking for themselves who already consents is not shown the option again. Booking for someone else never asks, because consent belongs to the account's own customer and the booker can't grant it for another person.
 
-Payment uses one affirmative checkout choice to accept the current terms and operating rules. When the service begins inside the statutory withdrawal period, that same visible choice also includes the customer's express request to begin at the reserved time and acknowledgement that the withdrawal right ends after full performance. The terms explain that a proportionate amount may be due after partial performance.
+Payment uses one affirmative checkout choice to accept the current terms and operating rules. When the service begins inside the statutory withdrawal period, that same visible choice also includes the customer's express request for the service on the reserved date, within the withdrawal period, and acknowledgement that the withdrawal right ends once the service is fully provided. The terms explain that a proportionate amount may be due after partial performance.
 
-The paths and hashes of the terms and operating rules accepted for payment are preserved as immutable evidence without storing rendered legal-document copies or customer contact details alongside that evidence. When applicable, one early-performance consent fact records the combined request and acknowledgement behind the single checkout choice, without adding a new database document store. Each accepted document's evidence states which acknowledgements came with it, including none. Evidence recorded before acknowledgements were preserved leaves them unknown; Workspace never infers or backfills a consent that was not recorded.
+The paths and hashes of the terms and operating rules accepted for payment are preserved as immutable evidence of the order they were accepted for, without storing rendered legal-document copies or customer contact details alongside that evidence. When applicable, one early-performance consent fact records the combined request and acknowledgement behind the single checkout choice, without adding a new database document store. Each accepted document's evidence states which acknowledgements came with it, including none. Evidence recorded before acknowledgements were preserved leaves them unknown; Workspace never infers or backfills a consent that was not recorded.
 
 Every new reservation declares personal or business purpose. A business reservation always includes an invoice; a personal reservation includes one only when requested. Purpose remains fixed with the reservation so later customer-profile changes cannot reclassify the transaction.
 

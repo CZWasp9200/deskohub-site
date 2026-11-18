@@ -39,6 +39,7 @@ import { PersonRow } from "../../ui/person-row";
 import { Text } from "../../ui/text";
 import { color, radius, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type { CheckoutIntent } from "../checkout/checkout-flow";
 import {
   CheckoutEvent,
@@ -142,6 +143,7 @@ export function ReviewStep({
             setRaised(nativeEvent.contentOffset.y > 0)
           }
         >
+          <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
           {view.retry && (
             <View style={styles.retryNotice}>
               <Notice
@@ -801,6 +803,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
   },
   body: { flex: 1 },
+  updateOffer: { marginBottom: space.lg },
   content: {
     gap: 0,
     paddingBottom: space.xxl,

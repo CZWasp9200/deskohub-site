@@ -1661,6 +1661,51 @@ describe("CheckoutStatusService retry selection", () => {
     );
   };
 
+  test("shows a Dotypos cancellation while payment is still pending", async () => {
+    const getReservationWithoutCustomer = mock(() =>
+      Effect.succeed({
+        id: "dotypos-reservation-id",
+        _customerId: "customer-id",
+        startDate: "2026-06-20T00:00:00.000+02:00",
+        endDate: "2026-06-21T00:00:00.000+02:00",
+        seats: "1",
+        status: "CANCELLED",
+      })
+    );
+    const result = await getStatusFor({
+      reservation: makeReservation(),
+      dotypos: makeDotypos({ getReservationWithoutCustomer }),
+      elapsed: "1 second",
+    });
+
+    expect(result).toMatchObject({
+      status: "reservation_cancelled",
+      paymentStatus: "pending",
+    });
+    expect(getReservationWithoutCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["paid", "cancelled"] as const)(
+    "shows an operator cancellation with payment %s",
+    async (paymentState) => {
+      const result = await getStatusFor({
+        reservation: makeReservation({
+          reservationState: "cancelled",
+          cancellationCause: "operator",
+          paymentState,
+          fulfillmentState: "fulfilled",
+        }),
+      });
+
+      expect(result).toMatchObject({
+        status: "reservation_cancelled",
+        paymentStatus: paymentState,
+      });
+      expect("retrySelection" in result).toBe(false);
+      expect("paymentPageReopenable" in result).toBe(false);
+    }
+  );
+
   test.each([
     { paymentState: "failed", status: "payment_failed" },
     { paymentState: "cancelled", status: "cancelled" },
