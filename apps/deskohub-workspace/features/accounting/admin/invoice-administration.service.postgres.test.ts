@@ -586,6 +586,7 @@ describe.skipIf(!testDatabase)(
                   invoiceNumber: document.invoiceNumber,
                   issuedAt: Temporal.Instant.from(document.issuedAt),
                   document,
+                  ...liveInvoiceStanding,
                 },
                 changed: true,
               } as ManualInvoiceIssuance)
@@ -627,6 +628,7 @@ describe.skipIf(!testDatabase)(
                 claim: () => Effect.succeed({ kind: "claimed" } as const),
                 complete: () => Effect.void,
               } as never),
+              liveInvoiceCancellationFakes,
               testDatabase!.layer
             )
           )
