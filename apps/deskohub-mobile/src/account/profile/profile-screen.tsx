@@ -168,6 +168,7 @@ function ProfileForm({
               <View style={[styles.fields, wideTracks && styles.track]}>
                 <SectionHeader
                   title={m.profile_identity_section({}, { locale })}
+                  first={wideTracks}
                 />
                 <View style={[styles.fields, pairNames && styles.pairedFields]}>
                   <View style={pairNames && styles.track}>
