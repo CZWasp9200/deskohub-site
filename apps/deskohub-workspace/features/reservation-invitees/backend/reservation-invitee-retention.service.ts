@@ -21,9 +21,13 @@ const makeRetention = Effect.gen(function* () {
     const remove = invitees
       .deleteRows([row.id])
       .pipe(Effect.as("deleted" as const));
-    if (!row.paid || row.email === null) return yield* remove;
+    if (!row.paid) return yield* remove;
 
-    const account = yield* findActiveCustomerAccountByEmail(row.email).pipe(
+    const found = yield* invitees.find(row.reservationId, row.id);
+    const email = Option.getOrUndefined(found)?.email;
+    if (!email) return "gone";
+
+    const account = yield* findActiveCustomerAccountByEmail(email).pipe(
       Effect.provideService(WorkspaceDatabase, database)
     );
     if (Option.isSome(account)) {
@@ -61,7 +65,7 @@ const makeRetention = Effect.gen(function* () {
     }
 
     const match = yield* dotypos
-      .classifyExactEmailCustomers(row.email)
+      .classifyExactEmailCustomers(email)
       .pipe(Effect.withTracerEnabled(false));
     if (match.kind !== "matched") return yield* remove;
     yield* invitees.reduceToCustomerLink({
@@ -74,24 +78,41 @@ const makeRetention = Effect.gen(function* () {
   const purgeDue = Effect.fn("reservationInvitees.purgeDue")(function* (
     input: Parameters<typeof invitees.listDue>[0]
   ) {
-    const due = yield* invitees.listDue(input);
-    const outcomes = yield* Effect.forEach(
-      due,
-      (row) =>
-        settle(row).pipe(
-          Effect.catch(() =>
-            Effect.logWarning("Reservation invitee retention row failed", {
-              code: "reservation.invitee.retention-row-failed",
-            }).pipe(Effect.as("failed" as const))
+    const deadline = Date.now() + 45_000;
+    const counts = { deleted: 0, reduced: 0, failed: 0 };
+    const retryAt = input.now.add({ hours: 6 });
+    const processRow = (row: DueReservationInvitee) =>
+      Effect.suspend(() => {
+        const remaining = deadline - Date.now();
+        return remaining <= 0
+          ? Effect.succeed("gone" as const)
+          : settle(row).pipe(Effect.timeout(Math.min(remaining, 35_000)));
+      }).pipe(
+        Effect.catch(() =>
+          invitees.deferRetention({ inviteeId: row.id, retryAt }).pipe(
+            Effect.tap(() =>
+              Effect.logWarning("Reservation invitee retention row deferred", {
+                code: "reservation.invitee.retention-row-failed",
+              })
+            ),
+            Effect.as("failed" as const)
           )
-        ),
-      { concurrency: 4 }
-    );
-    return {
-      deleted: outcomes.filter((outcome) => outcome === "deleted").length,
-      reduced: outcomes.filter((outcome) => outcome === "reduced").length,
-      failed: outcomes.filter((outcome) => outcome === "failed").length,
-    };
+        )
+      );
+
+    // A settled row leaves the query. A failed one stays due for a later
+    // sweep and moves behind untouched rows even when that retry comes due.
+    for (let batch = 0; batch < 8; batch++) {
+      const due = yield* invitees.listDue(input);
+      const outcomes = yield* Effect.forEach(due, processRow, {
+        concurrency: 4,
+      });
+      for (const outcome of outcomes) {
+        if (outcome !== "gone") counts[outcome]++;
+      }
+      if (due.length < input.limit || Date.now() >= deadline) break;
+    }
+    return counts;
   });
   return { purgeDue };
 });

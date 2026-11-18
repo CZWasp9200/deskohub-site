@@ -11,6 +11,7 @@ import {
 import type { EmailMessage } from "@deskohub/email/types/email.types";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Option } from "effect";
+import { m } from "@/features/i18n";
 import { InviteeEmail } from "@/features/office/office-people";
 import {
   type WorkspaceReservation,
@@ -61,7 +62,7 @@ const invitee = (
   sent: { readonly count: number; readonly at?: Temporal.Instant } = {
     count: 0,
   }
-): ReservationInvitee => ({
+): ReservationInvitee & { readonly email: InviteeEmail } => ({
   id: reservationInviteeIdSchema.make(`invitee-${name}`),
   reservationId,
   position: 0,
@@ -82,7 +83,6 @@ const run = async <A, E>(
   }
 ) => {
   const sent: EmailMessage[] = [];
-  const marked: unknown[] = [];
   const released: unknown[] = [];
   const result = await Effect.runPromise(
     ReservationInvitations.use(operation).pipe(
@@ -132,10 +132,6 @@ const run = async <A, E>(
                       ),
                     })
                   ),
-                markInvitationSent: (input) =>
-                  Effect.sync(() => {
-                    marked.push(input);
-                  }),
                 releaseFailedResend: (input) =>
                   Effect.sync(() => {
                     released.push(input);
@@ -161,31 +157,30 @@ const run = async <A, E>(
       )
     )
   );
-  return { result, sent, marked, released };
+  return { result, sent, released };
 };
 
 describe("ReservationInvitations", () => {
-  test("sends each unsent invitee their own link once, without a door code", async () => {
-    const { sent, marked } = await run(
-      (invitations) => invitations.sendAll(reservation),
-      {
-        invitees: [invitee("new"), invitee("already", { count: 1 })],
-      }
+  test("uses the initial invitation key and a personal link that grants invitee access only", async () => {
+    const { sent } = await run(
+      (invitations) =>
+        invitations.deliverNotice({
+          reservation,
+          invitee: invitee("new"),
+          kind: "invitation",
+          noticeId: "notice-1",
+        }),
+      { invitees: [] }
     );
-
     expect(sent.map((message) => message.to)).toEqual([
       { email: testEmailAddress("invitations-new") },
     ]);
-    const [message] = sent;
-    expect(message?.idempotencyKey).toBe(
+    expect(sent[0]?.idempotencyKey).toBe(
       "reservation-invitation:invitee-new:1"
     );
-    expect(message?.html).toContain("invitationToken=");
-    expect(message?.html).not.toContain("accessToken=");
-    expect(message?.text).toContain("Alex Sample");
-    expect(marked).toEqual([
-      expect.objectContaining({ inviteeId: "invitee-new", sendCount: 1 }),
-    ]);
+    expect(sent[0]?.html).toContain("invitationToken=");
+    expect(sent[0]?.html).not.toContain("accessToken=");
+    expect(sent[0]?.text).toContain("Alex Sample");
   });
 
   test("lists the booker and invitees for the booker's confirmation", async () => {
@@ -284,24 +279,46 @@ describe("ReservationInvitations", () => {
     ]);
   });
 
-  test("tells every invitee about a staff cancellation, once per cancellation", async () => {
+  test("keys a cancellation to its durable notice and omits a personal URL", async () => {
     const { sent } = await run(
-      (invitations) => invitations.notifyCancelled(reservation),
-      { invitees: [invitee("first"), invitee("second", { count: 1 })] }
+      (invitations) =>
+        invitations.deliverNotice({
+          reservation,
+          invitee: invitee("first"),
+          kind: "cancellation",
+          noticeId: "cancellation-1",
+        }),
+      { invitees: [] }
     );
-    expect(sent.map((message) => message.idempotencyKey)).toEqual([
-      `reservation-invitee-cancelled:invitee-first:${Temporal.Instant.from("2026-11-10T10:00:00Z").epochMilliseconds}`,
-      `reservation-invitee-cancelled:invitee-second:${Temporal.Instant.from("2026-11-10T10:00:00Z").epochMilliseconds}`,
-    ]);
+    expect(sent[0]?.idempotencyKey).toBe(
+      "reservation-invitee-cancelled:cancellation-1"
+    );
     expect(sent[0]?.html).not.toContain("invitationToken=");
   });
 
-  test("links each invitee's own access page when a restoration reissued the code", async () => {
-    const { sent } = await run(
-      (invitations) =>
-        invitations.notifyRestored({ reservation, accessReissued: true }),
-      { invitees: [invitee("restored")] }
-    );
-    expect(sent[0]?.html).toContain("invitationToken=");
-  });
+  test.each([
+    { restoredAccess: "link", codeIssued: false },
+    { restoredAccess: "issued", codeIssued: true },
+  ] as const)(
+    "links a restored booking with access status $restoredAccess",
+    async ({ restoredAccess, codeIssued }) => {
+      const { sent } = await run(
+        (invitations) =>
+          invitations.deliverNotice({
+            reservation,
+            invitee: invitee("restored"),
+            kind: "restoration",
+            noticeId: "restoration-1",
+            restoredAccess,
+          }),
+        { invitees: [] }
+      );
+      const newCodeNotice = m.officeInviteeRestorationNewAccessCode(
+        {},
+        { locale: "en-US" }
+      );
+      expect(sent[0]?.html).toContain("invitationToken=");
+      expect(sent[0]?.text?.includes(newCodeNotice)).toBe(codeIssued);
+    }
+  );
 });

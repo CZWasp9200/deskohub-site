@@ -1135,7 +1135,11 @@ describe("sendPaidReservationEmails author confirmation", () => {
     expect(sent.errorMessages).toContain(
       "Workspace reservation author confirmation failed"
     );
-    expect(sent.tags).toContainEqual(["workspace-paid-reservation-internal"]);
+    expect(sent.tags).toEqual([
+      ["workspace-paid-reservation-access"],
+      [authorConfirmationTag],
+      ["workspace-paid-reservation-internal"],
+    ]);
   });
 });
 

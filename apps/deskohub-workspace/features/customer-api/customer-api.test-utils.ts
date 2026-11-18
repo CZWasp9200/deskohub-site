@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
@@ -251,6 +252,7 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
 const unusedReservationServices: CustomerReservationServiceLayers = {
   invitedReservations: () => Layer.mock(CustomerInvitedReservationsService, {}),
   invitationResend: Layer.mergeAll(
+    Layer.mock(WorkspaceDatabaseAdvisoryLock, {}),
     Layer.mock(WorkspaceReservationRepository, {}),
     Layer.mock(WorkspaceReservationService, {}),
     Layer.mock(ReservationInvitees, {}),

@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   notInArray,
   or,
   type SQL,
@@ -23,6 +24,7 @@ import {
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   reservationAccessGrants,
+  reservationInviteeNotices,
   reservationInvitees,
   workspaceReservations,
 } from "@/db/schema";
@@ -167,7 +169,6 @@ export interface DueReservationInvitee {
   readonly reservationId: WorkspaceReservationId;
   /** False when the reservation was never paid: the row only goes. */
   readonly paid: boolean;
-  readonly email: InviteeEmail | null;
 }
 
 /**
@@ -285,6 +286,10 @@ export interface IReservationInvitees {
     ReadonlyArray<DueReservationInvitee>,
     ReservationInviteeStorageError
   >;
+  readonly deferRetention: (input: {
+    readonly inviteeId: ReservationInviteeId;
+    readonly retryAt: Temporal.Instant;
+  }) => Effect.Effect<void, ReservationInviteeStorageError>;
   /** Clears a row's address, keeping the customer link that replaces it. */
   readonly reduceToCustomerLink: (input: {
     readonly inviteeId: ReservationInviteeId;
@@ -348,7 +353,7 @@ export class ReservationInvitees extends Context.Service<
   static Live = Layer.effect(
     ReservationInvitees,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const { db, transaction } = yield* WorkspaceDatabase;
       const keys = yield* ReservationInviteeEmailKeys;
 
       // Opens the addresses of rows already read, one untraced statement
@@ -632,23 +637,21 @@ export class ReservationInvitees extends Context.Service<
               eq(workspaceReservations.paymentState, "paid"),
               isNotNull(workspaceReservations.reservationConfirmedAt)
             );
-            const pragueDays = (
-              at: SQL | typeof reservationAccessGrants.accessEndsAt
-            ) =>
-              sql`((${at} at time zone ${pragueTimeZone}) + make_interval(days => ${retentionDays})) at time zone ${pragueTimeZone}`;
-            const rows = yield* db
+            const originalAccessEnd = sql`((${reservationInvitees.retainUntil} at time zone ${pragueTimeZone}) - make_interval(days => ${retentionDays})) at time zone ${pragueTimeZone}`;
+            const rescheduledRetentionEnd = sql`((${reservationAccessGrants.accessEndsAt} at time zone ${pragueTimeZone}) + make_interval(days => ${retentionDays})) at time zone ${pragueTimeZone}`;
+            const at = sql`${now.toString()}::timestamptz`;
+            return yield* db
               .select({
                 id: reservationInvitees.id,
                 reservationId: reservationInvitees.workspaceReservationId,
-                keyId: reservationInvitees.keyId,
                 paid: sql<boolean>`(${paid})`,
               })
               .from(reservationInvitees)
               .innerJoin(
                 workspaceReservations,
                 eq(
-                  workspaceReservations.id,
-                  reservationInvitees.workspaceReservationId
+                  reservationInvitees.workspaceReservationId,
+                  workspaceReservations.id
                 )
               )
               .leftJoin(
@@ -659,85 +662,89 @@ export class ReservationInvitees extends Context.Service<
                 )
               )
               .where(
-                or(
-                  and(
-                    paid,
-                    isNotNull(reservationInvitees.keyId),
-                    sql`${now.toString()}::timestamptz > greatest(${reservationInvitees.retainUntil}, coalesce(${pragueDays(reservationAccessGrants.accessEndsAt)}, ${reservationInvitees.retainUntil}))`
+                and(
+                  isNotNull(reservationInvitees.keyId),
+                  or(
+                    isNull(reservationInvitees.retentionRetryAt),
+                    lte(reservationInvitees.retentionRetryAt, now)
                   ),
-                  and(
-                    isNull(workspaceReservations.reservationConfirmedAt),
-                    notInArray(workspaceReservations.paymentState, [
-                      "paid",
-                      "pending",
-                    ]),
-                    inArray(workspaceReservations.reservationState, [
-                      "cancelled",
-                      "hold_expired",
-                    ]),
-                    // A failed payment can be retried under the same order
-                    // until its booked time ends. The original access end is
-                    // retain_until minus the same Prague calendar days.
-                    or(
+                  or(
+                    and(
+                      paid,
+                      sql`${at} >= greatest(${reservationInvitees.retainUntil}, ${rescheduledRetentionEnd})`
+                    ),
+                    and(
+                      eq(workspaceReservations.reservationState, "draft"),
                       eq(workspaceReservations.paymentState, "not_started"),
-                      sql`${now.toString()}::timestamptz >= ((${reservationInvitees.retainUntil} at time zone ${pragueTimeZone}) - make_interval(days => ${retentionDays})) at time zone ${pragueTimeZone}`
+                      isNull(workspaceReservations.reservationConfirmedAt),
+                      lte(reservationInvitees.retainUntil, now)
+                    ),
+                    and(
+                      isNull(workspaceReservations.reservationConfirmedAt),
+                      notInArray(workspaceReservations.paymentState, [
+                        "paid",
+                        "pending",
+                      ]),
+                      inArray(workspaceReservations.reservationState, [
+                        "cancelled",
+                        "hold_expired",
+                      ]),
+                      or(
+                        eq(workspaceReservations.paymentState, "not_started"),
+                        sql`${at} >= ${originalAccessEnd}`
+                      )
                     )
                   )
                 )
               )
-              .orderBy(asc(reservationInvitees.retainUntil))
+              .orderBy(
+                asc(
+                  sql`coalesce(${reservationInvitees.retentionRetryAt}, ${reservationInvitees.retainUntil})`
+                ),
+                asc(reservationInvitees.id)
+              )
               .limit(limit);
-            const metadata = rows.map(
-              (row): InviteeMetadata => ({
-                id: row.id,
-                reservationId: row.reservationId,
-                position: 0,
-                keyId: row.keyId,
-                lastInvitationSentAt: null,
-                invitationSendCount: 0,
-              })
-            );
-            const paidRows = new Map(rows.map((row) => [row.id, row.paid]));
-            // A never-paid row goes whatever it holds; only paid rows need
-            // their address to look for a registered customer.
-            const opened = yield* openAddresses(
-              metadata.filter((row) => paidRows.get(row.id))
-            );
-            const emails = new Map(opened.map((row) => [row.id, row.email]));
-            return metadata.map(
-              (row): DueReservationInvitee => ({
-                id: row.id,
-                reservationId: row.reservationId,
-                paid: paidRows.get(row.id) ?? false,
-                email: emails.get(row.id) ?? null,
-              })
-            );
           },
-          Effect.mapError((error) =>
-            error instanceof ReservationInviteeStorageError
-              ? error
-              : storageError(
-                  "load",
-                  "Due invitee rows could not be loaded."
-                )(error)
+          Effect.mapError(
+            storageError("load", "Due invitee rows could not be loaded.")
           )
         ),
-        reduceToCustomerLink: ({ inviteeId, link }) =>
+        deferRetention: ({ inviteeId, retryAt }) =>
           db
             .update(reservationInvitees)
-            .set({
-              ...link,
-              keyId: null,
-              encryptedEmail: null,
-              emailLookupKey: null,
-            })
+            .set({ retentionRetryAt: retryAt })
             .where(eq(reservationInvitees.id, inviteeId))
             .pipe(
               Effect.asVoid,
               Effect.mapError(
-                storageError("write", "An invitee row could not be reduced.")
+                storageError(
+                  "write",
+                  "Invitee retention retry could not be recorded."
+                )
               )
             ),
+        reduceToCustomerLink: ({ inviteeId, link }) =>
+          transaction(
+            Effect.gen(function* () {
+              yield* db
+                .update(reservationInvitees)
+                .set({
+                  ...link,
+                  keyId: null,
+                  encryptedEmail: null,
+                  emailLookupKey: null,
+                  retentionRetryAt: null,
+                })
+                .where(eq(reservationInvitees.id, inviteeId));
+              yield* db
+                .delete(reservationInviteeNotices)
+                .where(eq(reservationInviteeNotices.inviteeId, inviteeId));
+            })
+          ).pipe(
+            Effect.mapError(
+              storageError("write", "An invitee row could not be reduced.")
+            )
+          ),
         deleteRows: (inviteeIds) =>
           inviteeIds.length === 0
             ? Effect.void

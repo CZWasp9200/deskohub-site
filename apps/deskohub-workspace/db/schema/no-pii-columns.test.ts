@@ -192,6 +192,7 @@ describe("database schema no-PII persistence", () => {
       "invoices",
       "invoice_email_deliveries",
       "late_payment_recoveries",
+      "reservation_invitee_notices",
     ]);
     const structuredColumns = schemaColumns
       .filter(

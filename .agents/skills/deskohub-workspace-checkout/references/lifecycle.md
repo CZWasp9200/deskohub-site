@@ -316,6 +316,9 @@ Paid fulfillment confirms the Dotypos reservation, issues the access PIN ([reser
 
 ### Email delivery
 
+Private-office guest emails are separate from fulfillment and the booker's notices. Confirmation, staff cancellation and restoration record per-invitee notices in their reservation transaction. The `reservation-invitee-notices` minute cron re-reads the vendor reservation and opens the recipient address at dispatch. It retries on backoff and uses a stable provider key per notice. A newer transition retires pending older notices, and the order's notice lock serializes dispatch with lifecycle recording and manual resend. The restoration email links to the invitee's access page while the booking has time left. It says a new PIN was issued only if a fresh grant had been issued before the first delivery attempt.
+
+
 In production, when the provider accepts the customer send, record its non-PII delivery ID in `active_customer_email_delivery_id` and move to `awaiting_delivery`. A delivery webhook applies only when its email ID matches the recorded ID and its event time is strictly newer than the timestamp guarding the current outcome; older or equal events are no-ops.
 
 Outside production, and whenever Console accepted the send (an `EMAIL_TEST_DOMAIN` customer; Console never reports delivery), fulfillment completes on acceptance. Protected preview deployments can't receive provider callbacks reliably. The internal notification is best effort; a test-recipient customer's copy goes to the synthetic internal mailbox, and outside production its subject carries `[TESTING]`.

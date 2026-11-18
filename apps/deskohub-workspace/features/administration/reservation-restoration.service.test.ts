@@ -420,7 +420,6 @@ test("restores an upcoming reservation: checks the table, confirms Dotypos, reco
   });
   expect(run.calls.sendRestorationEmail).toHaveBeenCalledWith({
     reservation: details,
-    cancelledAt,
     accessReissued: true,
   });
   expect(run.calls.cancelReservation).not.toHaveBeenCalled();
@@ -455,7 +454,6 @@ test("restores an ended reservation without a table check or new access", async 
   expect(run.calls.issueRestoredAccess).not.toHaveBeenCalled();
   expect(run.calls.sendRestorationEmail).toHaveBeenCalledWith({
     reservation: details,
-    cancelledAt,
     accessReissued: false,
   });
   expect(run.committed).toBe(true);
@@ -1031,7 +1029,24 @@ test("keeps the restore when its new access can't be issued", async () => {
   expect(run.committed).toBe(true);
   expect(run.calls.sendRestorationEmail).toHaveBeenCalledWith({
     reservation: details,
-    cancelledAt,
+    accessReissued: false,
+  });
+});
+
+test("keeps the restored transition when both code issuance and booker email fail", async () => {
+  const run = await restored({
+    issueRestoredAccess: () => Effect.succeed("failed"),
+    sendRestorationEmail: () => failure("EmailSendError"),
+  });
+
+  expect(run.value).toEqual({
+    outcome: "restored",
+    email: "failed",
+    access: "failed",
+  });
+  expect(run.committed).toBe(true);
+  expect(run.calls.sendRestorationEmail).toHaveBeenCalledWith({
+    reservation: details,
     accessReissued: false,
   });
 });

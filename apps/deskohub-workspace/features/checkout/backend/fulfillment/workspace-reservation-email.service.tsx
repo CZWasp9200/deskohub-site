@@ -84,7 +84,6 @@ export interface IWorkspaceReservationEmailService {
      * earlier code no longer works.
      */
     readonly accessReissued: boolean;
-    readonly cancelledAt?: Temporal.Instant;
   }) => Effect.Effect<void, EmailSendError>;
 }
 
@@ -467,11 +466,11 @@ export class WorkspaceReservationEmailService extends Context.Service<
             category: "workspace-reservation-cancellation",
             render: (locale) =>
               renderReservationCancellationEmail({ locale, reservation }),
-          }).pipe(Effect.onExit(() => invitations.notifyCancelled(reservation)))
+          })
         ),
         sendRestorationEmail: Effect.fn(
           "WorkspaceReservationEmailService.sendRestorationEmail"
-        )(({ reservation, accessReissued, cancelledAt }) =>
+        )(({ reservation, accessReissued }) =>
           sendCustomerNotice({
             reservation,
             category: "workspace-reservation-restoration",
@@ -491,15 +490,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
                 ...(accessUrl && { accessUrl }),
               });
             }),
-          }).pipe(
-            Effect.onExit(() =>
-              invitations.notifyRestored({
-                reservation,
-                accessReissued,
-                cancelledAt,
-              })
-            )
-          )
+          })
         ),
         sendPaidReservationEmails: Effect.fn(
           "WorkspaceReservationEmailService.sendPaidReservationEmails"
@@ -596,7 +587,6 @@ export class WorkspaceReservationEmailService extends Context.Service<
 
           // Each invited person gets their own invitation once the booker's
           // confirmation is out; a failed one never fails fulfillment.
-          yield* invitations.sendAll(reservation);
 
           const confirmableAuthor = getConfirmableAuthor(
             input.author,

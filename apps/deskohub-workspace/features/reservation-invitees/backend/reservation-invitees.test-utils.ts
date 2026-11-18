@@ -11,7 +11,4 @@ export const NoReservationInvitees = Layer.mock(ReservationInvitees, {
 /** Invitations for a test whose reservations invited nobody. */
 export const NoReservationInvitations = Layer.mock(ReservationInvitations, {
   bookerPeople: () => Effect.succeed(Option.none()),
-  sendAll: () => Effect.void,
-  notifyCancelled: () => Effect.void,
-  notifyRestored: () => Effect.void,
 });

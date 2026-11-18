@@ -58,6 +58,7 @@ import type {
   WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
+import { recordReservationInviteeNotices } from "@/features/reservation-invitees/backend/record-reservation-invitee-notices";
 import {
   deleteOfficeInvitees,
   recordOfficeInvitees,
@@ -466,7 +467,8 @@ export interface IWorkspaceReservationRepository {
     } | null,
     | EffectDrizzleQueryError
     | WorkspaceReservationDetailsMalformedError
-    | WorkspaceReservationSessionTakenError,
+    | WorkspaceReservationSessionTakenError
+    | SqlError.SqlError,
     WorkspaceTransaction
   >;
   /**
@@ -1447,6 +1449,8 @@ export class WorkspaceReservationRepository extends Context.Service<
                 )
                 .returning({
                   id: workspaceReservations.id,
+                  officeContactAttends:
+                    workspaceReservations.officeContactAttends,
                   dotyposCustomerId: workspaceReservations.dotyposCustomerId,
                   reservationConfirmedAt:
                     workspaceReservations.reservationConfirmedAt,
@@ -1461,6 +1465,13 @@ export class WorkspaceReservationRepository extends Context.Service<
               // Only a booked reservation's cancellation is a customer event;
               // an unconfirmed one was never booked.
               if (cancelled?.reservationConfirmedAt) {
+                if (cancelled.officeContactAttends !== null) {
+                  yield* recordReservationInviteeNotices({
+                    reservationId: input.id,
+                    kind: "cancellation",
+                    occurredAt: input.cancelledAt,
+                  });
+                }
                 yield* recordCustomerEvent({
                   kind: "reservation-cancelled",
                   occurredAt: input.cancelledAt,
@@ -1640,6 +1651,13 @@ export class WorkspaceReservationRepository extends Context.Service<
                 )
               );
             if (!restored) return null;
+            if (restored.officeContactAttends !== null) {
+              yield* recordReservationInviteeNotices({
+                reservationId: input.id,
+                kind: "restoration",
+                occurredAt: input.restoredAt,
+              });
+            }
 
             // Refunds Nexi already recorded stay as they are.
             yield* db
@@ -1799,6 +1817,8 @@ export class WorkspaceReservationRepository extends Context.Service<
                 )
                 .returning({
                   id: workspaceReservations.id,
+                  officeContactAttends:
+                    workspaceReservations.officeContactAttends,
                   dotyposCustomerId: workspaceReservations.dotyposCustomerId,
                 });
               yield* ensureUpdated(
@@ -1809,6 +1829,13 @@ export class WorkspaceReservationRepository extends Context.Service<
               );
               const [confirmed] = updated;
               if (confirmed) {
+                if (confirmed.officeContactAttends !== null) {
+                  yield* recordReservationInviteeNotices({
+                    reservationId: input.id,
+                    kind: "invitation",
+                    occurredAt: input.confirmedAt,
+                  });
+                }
                 yield* recordCustomerEvent({
                   kind: "reservation-booked",
                   occurredAt: input.confirmedAt,

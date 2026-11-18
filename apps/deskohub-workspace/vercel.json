@@ -46,7 +46,11 @@
     },
     {
       "path": "/api/cron/workspace/reservation-invitees",
-      "schedule": "47 3 * * *"
+      "schedule": "47 * * * *"
+    },
+    {
+      "path": "/api/cron/workspace/reservation-invitee-notices",
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/workspace/payment-refunds",

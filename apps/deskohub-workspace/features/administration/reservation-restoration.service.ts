@@ -772,9 +772,6 @@ export class ReservationRestorationService extends Context.Service<
                 emails.sendRestorationEmail({
                   reservation: details,
                   accessReissued,
-                  ...(reservation.reservationCancelledAt && {
-                    cancelledAt: reservation.reservationCancelledAt,
-                  }),
                 })
               ),
               Effect.as("sent" as const),

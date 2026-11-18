@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { ReservationInviteeRetention } from "@/features/reservation-invitees/backend/reservation-invitee-retention.service";
 import { defineWorkspaceCron } from "@/shared/backend/service-route";
 
+export const maxDuration = 60;
+
 const inviteeRetentionBatchLimit = 25;
 
 export const GET = defineWorkspaceCron({

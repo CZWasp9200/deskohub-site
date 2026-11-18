@@ -5,8 +5,12 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
-import { Context, Data, Effect, Layer, Option, Schedule } from "effect";
+import { Context, Data, Effect, Layer, Match, Option, Schedule } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import type {
+  ReservationInviteeNoticeKind,
+  RestoredInviteeAccess,
+} from "@/db/schema/reservation-invitee-notices";
 import type { OfficeInviteeEmailReservation } from "@/emails/_components/office-invitee-email-details";
 import type { ReservationEmailPeople } from "@/emails/_components/reservation-email-details";
 import {
@@ -23,8 +27,12 @@ import {
 } from "@/emails/office-invitee-restoration";
 import { env } from "@/env";
 import { isLocale, type Locale } from "@/features/i18n";
+import type { InviteeEmail } from "@/features/office/office-people";
 import { getReservationInvitationPath } from "@/features/reservation/backend/protected-reservation-path";
-import { createReservationInvitationToken } from "@/features/reservation/backend/reservation-invitation-capability";
+import {
+  createReservationInvitationToken,
+  type ReservationInvitationInvalid,
+} from "@/features/reservation/backend/reservation-invitation-capability";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -62,16 +70,6 @@ export interface IReservationInvitations {
     reservation: WorkspaceReservationDetails
   ) => Effect.Effect<Option.Option<ReservationEmailPeople>>;
   /**
-   * Sends each invitee of a confirmed office their first invitation, once:
-   * a retried fulfillment skips the ones already sent, and each send's
-   * idempotency key collapses a repeat into the first. A failure is logged
-   * per invitee and never fails the booker's confirmation; the booker can
-   * resend.
-   */
-  readonly sendAll: (
-    reservation: WorkspaceReservationDetails
-  ) => Effect.Effect<void>;
-  /**
    * Sends one invitee their invitation again, at most once per cooldown,
    * while the order is confirmed.
    */
@@ -85,16 +83,13 @@ export interface IReservationInvitations {
     },
     InvitationResendRefused | ReservationInviteeStorageError | EmailSendError
   >;
-  /** Tells each invitee that staff cancelled the office. Never fails. */
-  readonly notifyCancelled: (
-    reservation: WorkspaceReservationDetails
-  ) => Effect.Effect<void>;
-  /** Tells each invitee that staff restored the office. Never fails. */
-  readonly notifyRestored: (input: {
+  readonly deliverNotice: (input: {
     readonly reservation: WorkspaceReservationDetails;
-    readonly accessReissued: boolean;
-    readonly cancelledAt?: Temporal.Instant;
-  }) => Effect.Effect<void>;
+    readonly invitee: ReservationInvitee & { readonly email: InviteeEmail };
+    readonly kind: ReservationInviteeNoticeKind;
+    readonly noticeId: string;
+    readonly restoredAccess?: RestoredInviteeAccess;
+  }) => Effect.Effect<void, EmailSendError | ReservationInvitationInvalid>;
 }
 
 const invitationSource = "workspace-reservation-invitation";
@@ -212,7 +207,6 @@ export class ReservationInvitations extends Context.Service<
               },
             })
           ),
-          Effect.retry({ schedule: sendRetry }),
           Effect.asVoid
         );
 
@@ -251,44 +245,6 @@ export class ReservationInvitations extends Context.Service<
         }
       );
 
-      /** Runs `notify` for each invitee still holding an address. */
-      const forEachInvitee = (
-        reservation: WorkspaceReservationDetails,
-        operation: string,
-        notify: (
-          invitee: ReservationInvitee & { readonly email: string }
-        ) => Effect.Effect<void, unknown>
-      ) =>
-        invitees.listForReservation(reservation.id).pipe(
-          Effect.flatMap((rows) =>
-            Effect.forEach(
-              rows.filter(
-                (row): row is ReservationInvitee & { readonly email: string } =>
-                  row.email !== null
-              ),
-              (invitee) =>
-                notify(invitee).pipe(
-                  Effect.tapError(() =>
-                    Effect.logError("Reservation invitee email failed", {
-                      code: "reservation.invitation.delivery-failed",
-                      operation,
-                    })
-                  ),
-                  Effect.ignore
-                ),
-              { discard: true }
-            )
-          ),
-          Effect.tapError(() =>
-            Effect.logError("Reservation invitees could not be read", {
-              code: "reservation.invitation.list-failed",
-              operation,
-            })
-          ),
-          Effect.ignore,
-          Effect.annotateLogs({ workspaceReservationId: reservation.id })
-        );
-
       return ReservationInvitations.of({
         bookerPeople: (reservation) =>
           loadBooked(reservation).pipe(
@@ -311,20 +267,6 @@ export class ReservationInvitations extends Context.Service<
               )
             ),
             Effect.orElseSucceed(() => Option.none())
-          ),
-        sendAll: (reservation) =>
-          forEachInvitee(reservation, "invitation", (invitee) =>
-            invitee.invitationSendCount > 0
-              ? Effect.void
-              : sendInvitation(reservation, invitee, 1).pipe(
-                  Effect.andThen(
-                    invitees.markInvitationSent({
-                      inviteeId: invitee.id,
-                      sendCount: 1,
-                      sentAt: Temporal.Now.instant(),
-                    })
-                  )
-                )
           ),
         resend: Effect.fn("ReservationInvitations.resend")(function* ({
           reservation,
@@ -376,6 +318,7 @@ export class ReservationInvitations extends Context.Service<
             });
           }
           yield* sendInvitation(reservation, invitee, claimed.value).pipe(
+            Effect.retry({ schedule: sendRetry }),
             Effect.onError(() =>
               invitees
                 .releaseFailedResend({
@@ -401,61 +344,56 @@ export class ReservationInvitations extends Context.Service<
             resendAvailableAt: sentAt.add(invitationResendCooldown),
           };
         }),
-        notifyCancelled: Effect.fn("ReservationInvitations.notifyCancelled")(
-          function* (reservation: WorkspaceReservationDetails) {
-            const stored = yield* reservations
-              .findById(reservation.id)
-              .pipe(Effect.orElseSucceed(() => null));
-            const cancelledAt = stored?.reservationCancelledAt;
-            yield* forEachInvitee(reservation, "cancellation", (invitee) => {
-              const props = {
-                locale: getEmailLocale(reservation.locale),
-                reservation: inviteeReservation(reservation),
-              };
-              return send({
-                reservation,
-                to: invitee.email,
-                category: "workspace-reservation-invitee-cancellation",
-                ...(cancelledAt && {
-                  idempotencyKey: `reservation-invitee-cancelled:${invitee.id}:${cancelledAt.epochMilliseconds}`,
-                }),
-                element: <OfficeInviteeCancellationEmail {...props} />,
-                subject: officeInviteeCancellationEmailSubject(props),
-              });
-            });
+        deliverNotice: Effect.fn("ReservationInvitations.deliverNotice")(
+          function* (input) {
+            const { reservation, invitee, noticeId, restoredAccess } = input;
+            const props = {
+              locale: getEmailLocale(reservation.locale),
+              reservation: inviteeReservation(reservation),
+            };
+            yield* Match.value(input.kind).pipe(
+              Match.when("invitation", () =>
+                sendInvitation(reservation, invitee, 1)
+              ),
+              Match.when("cancellation", () =>
+                send({
+                  reservation,
+                  to: invitee.email,
+                  category: "workspace-reservation-invitee-cancellation",
+                  idempotencyKey: `reservation-invitee-cancelled:${noticeId}`,
+                  element: <OfficeInviteeCancellationEmail {...props} />,
+                  subject: officeInviteeCancellationEmailSubject(props),
+                })
+              ),
+              Match.when(
+                "restoration",
+                Effect.fnUntraced(function* () {
+                  const restored = {
+                    ...props,
+                    ...(restoredAccess &&
+                      restoredAccess !== "past" && {
+                        invitationUrl: yield* createInvitationUrl(
+                          reservation,
+                          invitee.id,
+                          props.locale
+                        ),
+                        accessReissued: restoredAccess === "issued",
+                      }),
+                  };
+                  yield* send({
+                    reservation,
+                    to: invitee.email,
+                    category: "workspace-reservation-invitee-restoration",
+                    idempotencyKey: `reservation-invitee-restored:${noticeId}`,
+                    element: <OfficeInviteeRestorationEmail {...restored} />,
+                    subject: officeInviteeRestorationEmailSubject(props),
+                  });
+                })
+              ),
+              Match.exhaustive
+            );
           }
         ),
-        notifyRestored: ({ reservation, accessReissued, cancelledAt }) =>
-          forEachInvitee(
-            reservation,
-            "restoration",
-            Effect.fnUntraced(function* (
-              invitee: ReservationInvitee & { readonly email: string }
-            ) {
-              const locale = getEmailLocale(reservation.locale);
-              const props = {
-                locale,
-                reservation: inviteeReservation(reservation),
-                ...(accessReissued && {
-                  invitationUrl: yield* createInvitationUrl(
-                    reservation,
-                    invitee.id,
-                    locale
-                  ),
-                }),
-              };
-              yield* send({
-                reservation,
-                to: invitee.email,
-                category: "workspace-reservation-invitee-restoration",
-                ...(cancelledAt && {
-                  idempotencyKey: `reservation-invitee-restored:${invitee.id}:${cancelledAt.epochMilliseconds}`,
-                }),
-                element: <OfficeInviteeRestorationEmail {...props} />,
-                subject: officeInviteeRestorationEmailSubject(props),
-              });
-            })
-          ),
       });
     })
   );

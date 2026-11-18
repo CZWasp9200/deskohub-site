@@ -18,10 +18,10 @@ export type OfficeInviteeRestorationEmailProps = {
   readonly locale: Locale;
   readonly reservation: OfficeInviteeEmailReservation;
   /**
-   * The invited person's own link to the access page, present only when the
-   * restoration issued a new door code.
+   * The invited person's own link while the restored booking has time left.
    */
   readonly invitationUrl?: string;
+  readonly accessReissued?: boolean;
 };
 
 /** The subject, which the inbox also previews. */
@@ -36,12 +36,12 @@ export const officeInviteeRestorationEmailSubject = ({
 
 /**
  * Tells an invited person that the cancelled office they were invited to is
- * valid again, linking their own access page when the door code changed.
+ * valid again, with their personal access page when the booking has time left.
  */
 export function OfficeInviteeRestorationEmail(
   props: OfficeInviteeRestorationEmailProps
 ) {
-  const { locale, reservation, invitationUrl } = props;
+  const { locale, reservation, invitationUrl, accessReissued } = props;
 
   return (
     <WorkspaceEmailLayout
@@ -57,19 +57,19 @@ export function OfficeInviteeRestorationEmail(
       <WorkspaceEmailBody>
         {m.officeInviteeRestorationBody({}, { locale })}
       </WorkspaceEmailBody>
+      {accessReissued && (
+        <WorkspaceEmailBody>
+          {m.officeInviteeRestorationNewAccessCode({}, { locale })}
+        </WorkspaceEmailBody>
+      )}
       {invitationUrl && (
-        <>
-          <WorkspaceEmailBody>
-            {m.officeInviteeRestorationNewAccessCode({}, { locale })}
-          </WorkspaceEmailBody>
-          <ReservationEmailActionPanel
-            action={{
-              button: m.checkoutEmailCustomerAccessButton({}, { locale }),
-              url: invitationUrl,
-            }}
-            locale={locale}
-          />
-        </>
+        <ReservationEmailActionPanel
+          action={{
+            button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+            url: invitationUrl,
+          }}
+          locale={locale}
+        />
       )}
       <WorkspaceEmailDetails
         details={officeInviteeEmailDetails(reservation, locale)}

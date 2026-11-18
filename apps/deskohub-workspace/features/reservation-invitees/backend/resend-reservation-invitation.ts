@@ -1,5 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { Locale } from "@/features/i18n";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -18,6 +20,7 @@ export const resendReservationInvitationServices = Layer.mergeAll(
     Layer.provide(WorkspaceDatabase.Default)
   ),
   WorkspaceReservationService.Live,
+  WorkspaceDatabaseAdvisoryLock.Default,
   ReservationInvitees.Default,
   ReservationInvitations.Live.pipe(Layer.provide(WorkspaceEmailLayer))
 );
@@ -45,36 +48,40 @@ export const resendAuthorizedReservationInvitation = Effect.fn(
     });
   }
 
-  const reservations = yield* WorkspaceReservationRepository;
-  const stored = yield* reservations.findById(orderId);
-  if (stored?.reservationDetails.kind !== "office") {
-    return yield* new InvitationResendRefused({
-      refusal: { reason: "not-found" },
-    });
-  }
-  const invitees = yield* ReservationInvitees;
-  const invitee = yield* invitees.find(orderId, inviteeId);
-  if (Option.isNone(invitee) || invitee.value.email === null) {
-    return yield* new InvitationResendRefused({
-      refusal: { reason: "not-found" },
-    });
-  }
-  if (
-    stored.paymentState !== "paid" ||
-    stored.reservationState !== "confirmed"
-  ) {
-    return yield* new InvitationResendRefused({
-      refusal: { reason: "not-confirmed" },
-    });
-  }
+  return yield* WorkspaceLockSections.reservationInviteeNotices(orderId)(
+    Effect.gen(function* () {
+      const reservations = yield* WorkspaceReservationRepository;
+      const stored = yield* reservations.findById(orderId);
+      if (stored?.reservationDetails.kind !== "office") {
+        return yield* new InvitationResendRefused({
+          refusal: { reason: "not-found" },
+        });
+      }
+      const invitees = yield* ReservationInvitees;
+      const invitee = yield* invitees.find(orderId, inviteeId);
+      if (Option.isNone(invitee) || invitee.value.email === null) {
+        return yield* new InvitationResendRefused({
+          refusal: { reason: "not-found" },
+        });
+      }
+      if (
+        stored.paymentState !== "paid" ||
+        stored.reservationState !== "confirmed"
+      ) {
+        return yield* new InvitationResendRefused({
+          refusal: { reason: "not-confirmed" },
+        });
+      }
 
-  const workspace = yield* WorkspaceReservationService;
-  const reservation = yield* workspace.getReservation(orderId);
-  if (reservation.providerStatus !== "CONFIRMED") {
-    return yield* new InvitationResendRefused({
-      refusal: { reason: "not-confirmed" },
-    });
-  }
-  const invitations = yield* ReservationInvitations;
-  return yield* invitations.resend({ reservation, inviteeId });
+      const workspace = yield* WorkspaceReservationService;
+      const reservation = yield* workspace.getReservation(orderId);
+      if (reservation.providerStatus !== "CONFIRMED") {
+        return yield* new InvitationResendRefused({
+          refusal: { reason: "not-confirmed" },
+        });
+      }
+      const invitations = yield* ReservationInvitations;
+      return yield* invitations.resend({ reservation, inviteeId });
+    }).pipe(Effect.timeout("8 seconds"))
+  );
 });

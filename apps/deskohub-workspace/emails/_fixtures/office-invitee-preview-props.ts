@@ -25,4 +25,5 @@ export const officeInviteeRestorationPreviewProps = {
   locale: "en-US",
   reservation: previewReservation,
   invitationUrl: officeInvitationPreviewProps.invitationUrl,
+  accessReissued: true,
 } satisfies OfficeInviteeRestorationEmailProps;

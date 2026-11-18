@@ -182,14 +182,16 @@ export class CustomerInvitedReservationsService extends Context.Service<
   CustomerInvitedReservationsService,
   Effect.Success<typeof makeInvitedReservations>
 >()("@deskohub-workspace/customer-api/CustomerInvitedReservationsService") {
+  static Default = Layer.effect(
+    CustomerInvitedReservationsService,
+    makeInvitedReservations
+  );
+
   static withAccess = <E, AccountError>(
     access: Layer.Layer<ReservationAccessService, E>,
     account: Layer.Layer<CurrentCustomerAccount, AccountError>
   ) => {
-    return Layer.effect(
-      CustomerInvitedReservationsService,
-      makeInvitedReservations
-    ).pipe(
+    return CustomerInvitedReservationsService.Default.pipe(
       Layer.provide(
         Layer.mergeAll(
           access,
