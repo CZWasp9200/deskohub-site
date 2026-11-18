@@ -90,8 +90,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Plätze im Büro",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "Personen",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -100,8 +100,8 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} Platz",
-        "countPlural=other": "{formattedCount} Plätze"
+        "countPlural=one": "{formattedCount} Person",
+        "countPlural=other": "{formattedCount} Personen"
       }
     }
   ],
@@ -579,11 +579,9 @@
   "booking_price_unit_per_hour": "pro Stunde",
   "booking_office_days_decrease": "Einen Tag weniger",
   "booking_office_days_increase": "Einen Tag mehr",
-  "booking_office_seats_decrease": "Einen Platz weniger",
-  "booking_office_seats_increase": "Einen Platz mehr",
   "booking_office_date_unavailable": "Das Büro ist ab diesem Datum nicht frei. Versuch ein anderes Anfangsdatum.",
   "booking_office_day_count_unavailable": "Das Büro ist nicht an allen gewählten Tagen verfügbar. Versuch ein anderes Anfangsdatum oder weniger Tage.",
-  "booking_office_seats_unavailable": "So viele Plätze hat das Büro nicht. Wähle weniger.",
+  "booking_office_seats_unavailable": "So viele Plätze hat das Büro nicht. Entferne jemanden von der Liste.",
   "booking_availability_loading": "Wir prüfen die Verfügbarkeit im Workspace …",
   "booking_calendar_notice": "Achtung: Einschränkung an diesem Tag von {start} bis {end}.",
   "booking_calendar_notice_with_summary": "Achtung: {summary}, von {start} bis {end}.",
@@ -628,6 +626,14 @@
   "reservations_time_until": "Bis {time}",
   "reservations_time_date_until": "{date}, bis {time}",
   "reservations_section_later": "Später",
+  "reservations_section_invited": "Eingeladen",
+  "reservations_booked_by_name": "Gebucht von {name}",
+  "reservations_people_resend": "Erneut senden",
+  "reservations_people_resend_to": "Zugangs-E-Mail erneut an {email} senden",
+  "reservations_people_resent": "Zugangs-E-Mail an {email} gesendet.",
+  "reservations_people_resend_later": "Die Zugangs-E-Mail wurde gerade erst gesendet. Du kannst sie in ein paar Minuten erneut senden.",
+  "reservations_people_change": "Um zu ändern, wer kommt, <contact>kontaktiere uns</contact>.",
+  "reservations_people_change_message": "Hallo,\n\nich möchte ändern, wer zu meiner Buchung des privaten Büros {reference} am {date} kommt.\n\nHinzufügen:\n\nEntfernen:\n",
   "reservations_section_past": "Vergangen",
   "reservations_show_all_past": "Alle vergangenen Buchungen anzeigen",
   "reservations_nothing_upcoming": "Nichts geplant",
@@ -661,6 +667,8 @@
   "reservations_access_from": "Ab",
   "reservations_access_until": "Bis",
   "reservations_access_for": "Für",
+  "reservations_access_through": "Bis einschließlich",
+  "reservations_access_booked_by": "Gebucht von",
   "reservations_access_where": "Wo",
   "reservations_access_chip_starts": "Ab {start} · {when}",
   "reservations_access_starts_today": "heute",
@@ -675,12 +683,34 @@
   "reservations_access_no_pin_body": "Die Buchung ist noch nicht bestätigt. Wenn sie es sein sollte, kontaktiere uns.",
   "reservations_access_back_to_booking": "Zurück zur Buchung",
   "booking_office_first_day_heading": "Erster Tag",
-  "booking_office_days_and_seats_heading": "Tage und Plätze",
   "booking_office_days_label": "Tage",
-  "booking_office_seats_label": "Plätze",
+  "booking_office_people_heading": "Personen",
+  "booking_office_people_of": "{count} von {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "Der einzige Platz ist belegt. Entferne jemanden, um eine weitere Person hinzuzufügen.",
+        "countPlural=other": "Alle {formattedCount} Plätze sind belegt. Entferne jemanden, um eine weitere Person hinzuzufügen."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "Alle bekommen die Tür-PIN per E-Mail.",
+  "booking_office_people_who_is_coming": "Wer kommt",
+  "booking_office_person_you": "Du",
+  "booking_office_person_remove": "{email} entfernen",
+  "booking_office_person_remove_you": "Dich entfernen",
+  "booking_office_person_email_label": "E-Mail-Adresse",
+  "booking_office_person_email_invalid": "Gib eine vollständige E-Mail-Adresse ein.",
+  "booking_office_person_add": "Hinzufügen",
+  "booking_office_person_add_yourself": "Dich hinzufügen",
+  "booking_review_people_pin_note": "Nach der Zahlung bekommen alle die Tür-PIN per E-Mail.",
   "booking_office_until": "Bis {date}",
-  "booking_office_seats_up_to": "Bis zu {count}",
-  "booking_office_seats_maximum": "Höchstens {count}",
   "booking_office_reason_date": "Wähle deinen ersten Tag, um fortzufahren",
   "booking_price_unit_per_day_one_seat": "pro Tag, 1 Platz",
   "booking_space_from": "ab",

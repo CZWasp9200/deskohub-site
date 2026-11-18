@@ -1,5 +1,6 @@
 import type {
   CustomerLegalDocument,
+  CustomerOfficePeople,
   CustomerPaymentRetryBilling,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -29,6 +30,36 @@ export type ReviewParty =
       readonly email: string;
       readonly bookerName: Option.Option<string>;
     };
+
+/**
+ * Who is coming to an office, as the review lists them: the booking's
+ * contact while they attend (the customer's own "You" when booking for
+ * themselves), then the invited addresses in added order.
+ */
+export interface ReviewPeople {
+  readonly contact: Option.Option<{
+    readonly name: string;
+    readonly email: string;
+    readonly you: boolean;
+  }>;
+  readonly invitees: ReadonlyArray<string>;
+}
+
+/** The checkout's people with the details' contact; none for other spaces. */
+export const reviewPeople = (
+  people: Option.Option<CustomerOfficePeople>,
+  details: BookedParty
+): Option.Option<ReviewPeople> =>
+  Option.map(people, ({ contactAttends, invitees }) => ({
+    contact: contactAttends
+      ? Option.some({
+          name: details.contact.name,
+          email: details.contact.email,
+          you: details.bookingFor === "self",
+        })
+      : Option.none(),
+    invitees,
+  }));
 
 /** Who the invoice goes to: no invoice, the customer (by city), a company. */
 export type ReviewInvoice =
@@ -242,6 +273,8 @@ export interface ReviewView {
   readonly retry: boolean;
   /** For whom. */
   readonly party: ReviewParty;
+  /** An office's people; none for other spaces or an order booked without a list. */
+  readonly people: Option.Option<ReviewPeople>;
   /** A meeting room booked with early setup: the room opens before the start. */
   readonly earlySetup: boolean;
   /** Who is invoiced. */
@@ -298,6 +331,12 @@ export const reviewView = (
   return {
     retry,
     party: reviewParty(details, bookerName),
+    people: reviewPeople(
+      Option.orElse(checkout.people, () =>
+        Option.fromUndefinedOr(review.flow.people)
+      ),
+      details
+    ),
     earlySetup: withEarlySetup(review),
     invoice: reviewInvoice(
       ReviewKind.$match(review.kind, {

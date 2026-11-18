@@ -1,0 +1,43 @@
+import { describe, expect, test } from "bun:test";
+import { DateTime, Option } from "effect";
+import { inviteeResend } from "./order-people";
+
+const now = DateTime.makeUnsafe("2026-11-18T10:00:00Z");
+const sent = { invitationSentAt: "2026-11-18T09:00:00Z" };
+
+describe("inviteeResend", () => {
+  test("offers no Resend before the first invitation went out", () => {
+    expect(
+      inviteeResend({ invitationSentAt: null }, Option.none(), now)
+    ).toEqual(Option.none());
+  });
+
+  test("is open now when nothing holds it", () => {
+    expect(inviteeResend(sent, Option.none(), now)).toEqual(
+      Option.some({ opensAt: Option.none() })
+    );
+    expect(
+      inviteeResend(
+        { ...sent, resendAvailableAt: "2026-11-18T09:30:00Z" },
+        Option.none(),
+        now
+      )
+    ).toEqual(Option.some({ opensAt: Option.none() }));
+  });
+
+  test("opens at the later of the server's time and this screen's own resend", () => {
+    const server = "2026-11-18T10:05:00Z";
+    const resent = "2026-11-18T10:15:00Z";
+    const opensAt = (resentUntil: Option.Option<string>) =>
+      Option.flatMap(
+        inviteeResend({ ...sent, resendAvailableAt: server }, resentUntil, now),
+        (resend) => resend.opensAt
+      ).pipe(Option.map(DateTime.formatIso));
+    expect(opensAt(Option.none())).toEqual(
+      Option.some("2026-11-18T10:05:00.000Z")
+    );
+    expect(opensAt(Option.some(resent))).toEqual(
+      Option.some("2026-11-18T10:15:00.000Z")
+    );
+  });
+});

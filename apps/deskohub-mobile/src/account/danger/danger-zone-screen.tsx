@@ -11,7 +11,6 @@ import ShieldCheck from "lucide-react-native/icons/shield-check";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { apiOrigin } from "../../auth/auth-client";
 import { useReauthentication } from "../../auth/reauthentication";
 import { nativeSignInFailureMessage } from "../../auth/sign-in-failure-message";
 import { signOut } from "../../auth/sign-out";
@@ -22,8 +21,7 @@ import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-m
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { openSitePage } from "../../routing/open-site-page";
-import { contactPageUrl } from "../../routing/site-page";
+import { openContactPage } from "../../routing/open-contact-page";
 import { ActionFooter } from "../../ui/action-footer";
 import { Badge } from "../../ui/badge";
 import { Card } from "../../ui/card";
@@ -59,10 +57,6 @@ const leaveDeletedAccountScreens = deletedAccountExit.leave({
   leave: Effect.sync(() => router.replace("/account-deleted")),
   signOut,
 });
-
-// Where no browser is available there is nothing else to open.
-const openContactPage = () =>
-  void openSitePage(contactPageUrl(apiOrigin)).catch(() => undefined);
 
 /** The sentence for an outcome the screen shows above its content. */
 const screenNotice = (
@@ -324,7 +318,7 @@ function ContactCard({
           variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
       </EmptyState>
     </Card>
@@ -358,7 +352,7 @@ function DeleteScreenFooter({
           variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
       )}
     </ActionFooter>

@@ -55,6 +55,10 @@ import {
 import { countdownText, ticketBadge } from "./booking-ticket-text";
 import { establishmentAtom, establishmentPlace } from "./establishment";
 import {
+  invitedReservationsAtom,
+  invitedReservationView,
+} from "./invited-reservations";
+import {
   type NextAccess,
   nextReservationView,
   type ReservationGroups,
@@ -189,10 +193,15 @@ function ReservationsBeforeAccount() {
 
 /** The account may see reservations: the list, saved then fresh. */
 function ReservationsHistory() {
+  const refreshHistory = useAtomRefresh(reservationHistoryAtom);
+  const refreshInvited = useAtomRefresh(invitedReservationsAtom);
   return (
     <ReservationsListView
       result={useAtomValue(reservationsListAtom)}
-      onRefresh={useAtomRefresh(reservationHistoryAtom)}
+      onRefresh={() => {
+        refreshHistory();
+        refreshInvited();
+      }}
     />
   );
 }
@@ -315,6 +324,7 @@ function ReservationGroupsView({
           </EmptyState>
         </Card>
         {savedNotice}
+        <InvitedReservations />
       </View>
     );
   }
@@ -332,7 +342,58 @@ function ReservationGroupsView({
           <ReservationRows rows={later} place="later" />
         </View>
       )}
+      <InvitedReservations />
       {groups.past.length > 0 && <PastReservations rows={groups.past} />}
+    </View>
+  );
+}
+
+/**
+ * Orders someone else booked that invite this account, read-only: each
+ * opens its access screen. Nothing shows while they load, when the read
+ * fails, or when there are none; the account's own history stands alone.
+ */
+function InvitedReservations() {
+  const locale = useAppLocale();
+  const router = useRouter();
+  const invited = Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(invitedReservationsAtom))
+  );
+  if (invited === undefined || invited.current.length === 0) return null;
+  return (
+    <View>
+      <SectionHeader title={m.reservations_section_invited({}, { locale })} />
+      <View style={styles.group}>
+        {invited.current.map((reservation, index) => {
+          const view = invitedReservationView(reservation, locale);
+          return (
+            <Pressable
+              key={view.orderId}
+              role="link"
+              onPress={() =>
+                router.push({
+                  pathname: "/reservations/[orderId]/access",
+                  params: { orderId: view.orderId },
+                })
+              }
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            >
+              {index > 0 && <View aria-hidden style={styles.divider} />}
+              {Option.match(view.date, {
+                onSome: (parts) => (
+                  <DateTile parts={parts} tone="soft" compact />
+                ),
+                onNone: () => <View style={styles.noTile} />,
+              })}
+              <View style={styles.rowText}>
+                <Text variant="bodyStrong">{view.title}</Text>
+                <Text variant="bodySmall">{view.detail}</Text>
+              </View>
+              <Icon icon={ChevronRight} size={20} color={color.ink3} />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }

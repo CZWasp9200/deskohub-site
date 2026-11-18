@@ -11,6 +11,7 @@ import type {
   CustomerDiscountCodeRejected,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerOfficePeople,
   CustomerPaymentRetryDetails,
   ReferralCode,
   SubmitCustomerCheckout,
@@ -41,6 +42,8 @@ export interface CheckoutStartInput {
   readonly advertisedPriceToken: string;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /** Office only: who is coming, sent with the order. */
+  readonly people?: CustomerOfficePeople;
   /** The referral code the app remembers for the signed-in account. */
   readonly rememberedReferralCode: Option.Option<ReferralCode>;
 }
@@ -79,6 +82,8 @@ export interface HeldCheckout {
   >;
   readonly earlyPerformanceConsent: CustomerCheckout["earlyPerformanceConsent"];
   readonly referralApplied: boolean;
+  /** An office order's people as the server holds them. */
+  readonly people: Option.Option<CustomerOfficePeople>;
 }
 
 /** The discount or referral code field. */

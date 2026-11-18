@@ -58,7 +58,7 @@ export const bookingSummaryOf = (
 
 /**
  * A selection's summary in parts: when, and what the product comes with
- * ("coffee", "4 hours", "Office seats: 6"), for the bar's one detail line
+ * ("coffee", "4 hours", "6 people"), for the bar's one detail line
  * or the review's booking card.
  */
 export interface BookingSummaryParts {
@@ -156,7 +156,7 @@ export const bookingSummaryParts = (
                 { locale }
               ),
         extras: extrasOf(
-          m.booking_price_line_seats({ count: overview.seats }, { locale })
+          m.booking_office_people_count({ count: overview.seats }, { locale })
         ),
       };
     }

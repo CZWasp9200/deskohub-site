@@ -680,14 +680,27 @@ const serverLayer = (workspace: FakeWorkspace) => {
           })
         )
         .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
-        // No sample invitations yet: the office people stream adds them.
         .handle("listInvitedReservations", () =>
-          Effect.succeed({ current: [], past: [] })
-        )
-        .handle("resendInvitation", ({ params }) =>
-          Effect.flatMap(order(params.orderId), () =>
-            Effect.fail(new CustomerReservationNotFound())
+          Effect.sync(
+            () => workspace.data.invited ?? { current: [], past: [] }
           )
+        )
+        // Sends again to a listed invitee, then accepts no other resend for
+        // five minutes, as the Workspace's cooldown does.
+        .handle("resendInvitation", ({ params }) =>
+          Effect.flatMap(order(params.orderId), (found) => {
+            const listed = found.state.people?.invitees.some(
+              ({ id }) => id === params.inviteeId
+            );
+            if (listed !== true) {
+              return Effect.fail(new CustomerReservationNotFound());
+            }
+            const now = Date.now();
+            return Effect.succeed({
+              invitationSentAt: new Date(now).toISOString(),
+              resendAvailableAt: new Date(now + 5 * 60_000).toISOString(),
+            });
+          })
         )
         .handle("getReservationStatus", ({ params }) =>
           Effect.map(order(params.orderId), (found) => found.state)
