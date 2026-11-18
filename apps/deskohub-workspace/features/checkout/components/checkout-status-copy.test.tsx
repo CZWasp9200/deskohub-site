@@ -99,6 +99,12 @@ const expectedCopy = {
     tone: "warning",
     Icon: XCircle,
   },
+  reservation_cancelled: {
+    title: m.checkoutStatusReservationCancelledTitle,
+    lead: m.checkoutStatusReservationCancelledLead,
+    tone: "warning",
+    Icon: XCircle,
+  },
   expired: {
     title: m.checkoutStatusExpiredTitle,
     lead: m.checkoutStatusExpiredLead,

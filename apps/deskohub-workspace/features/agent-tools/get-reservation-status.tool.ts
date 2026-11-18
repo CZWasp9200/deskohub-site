@@ -41,7 +41,7 @@ const outputSchema = Schema.Struct({
     checkoutStatusKinds.filter((kind) => kind !== "not_found")
   ).annotate({
     description:
-      "created: held, not paid yet. pending: payment in progress. paid_*: paid and being confirmed. fulfilled: confirmed. payment_failed, cancelled, expired: not booked. late_payment_*: a payment after the hold expired is being checked or refunded.",
+      "created: held, not paid yet. pending: payment in progress. paid_*: paid and being confirmed. fulfilled: confirmed. payment_failed, cancelled, expired: not booked. reservation_cancelled: the reservation was cancelled independently of its payment status. late_payment_*: a payment after the hold expired is being checked or refunded.",
   }),
   payment_status: Schema.Literals(paymentStates),
   fulfillment_status: Schema.Literals(fulfillmentStates),

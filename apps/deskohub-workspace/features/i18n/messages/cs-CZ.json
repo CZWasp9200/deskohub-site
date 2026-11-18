@@ -860,6 +860,8 @@
   "checkoutStatusPaymentFailedLead": "Platba neprošla, takže k této objednávce nevydáváme přístup. Údaje o rezervaci zůstaly uložené, takže můžeš platbu zkusit znovu.",
   "checkoutStatusCancelledTitle": "Platba byla zrušena.",
   "checkoutStatusCancelledLead": "Platba byla zrušena, takže k této objednávce nevydáváme přístup. Údaje o rezervaci zůstaly uložené, takže můžeš platbu zkusit znovu.",
+  "checkoutStatusReservationCancelledTitle": "Rezervace byla zrušena.",
+  "checkoutStatusReservationCancelledLead": "Přístup k této rezervaci už není k dispozici.",
   "checkoutStatusExpiredTitle": "Platební odkaz vypršel.",
   "checkoutStatusExpiredLead": "Platba nebyla dokončena včas, takže jsme rezervovaný termín uvolnili. Údaje o rezervaci zůstaly uložené, takže můžeš platbu zkusit znovu.",
   "checkoutStatusLatePaymentCheckingTitle": "Ověřujeme tvou rezervaci.",
