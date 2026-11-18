@@ -93,10 +93,14 @@ export const reservationCancellationPreviewProps = {
 
 export const contractWithdrawalReceiptPreviewProps = {
   locale: "en-US",
+  reference: "reservation-3",
   customerName: "Alex Example",
-  contractLabel: "Open Space · 14 Jan 2027 (reservation-3)",
+  receiptEmail: "alex@example.com",
+  contractLabel: "Open Space · 14 Jan 2027",
   submittedAt: Temporal.Instant.from("2027-01-12T09:41:00Z"),
+  paidAmount: { value: 35_000, exponent: 2, currency: "CZK" },
   refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+  refundBasis: { kind: "full" },
 } satisfies ContractWithdrawalReceiptEmailProps;
 
 export const contractWithdrawalNoticePreviewProps = {

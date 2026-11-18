@@ -67,10 +67,14 @@ export class WithdrawalEmails extends Context.Service<
         }) {
           const props = {
             locale: withdrawal.locale,
+            reference: withdrawal.contract.id,
             customerName,
+            receiptEmail,
             contractLabel: withdrawal.contractLabel,
             submittedAt: withdrawal.submittedAt,
+            paidAmount: withdrawal.paidAmount,
             refundAmount: withdrawal.refundAmount,
+            refundBasis: withdrawal.refundBasis,
           };
           const rendered = yield* renderWorkspaceEmail(
             <ContractWithdrawalReceiptEmail {...props} />
