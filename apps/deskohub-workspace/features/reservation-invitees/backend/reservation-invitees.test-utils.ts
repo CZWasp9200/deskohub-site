@@ -6,6 +6,7 @@ import { ReservationInvitees } from "./reservation-invitees.service";
 export const NoReservationInvitees = Layer.mock(ReservationInvitees, {
   findBookedPeople: () => Effect.succeed(Option.none()),
   findInvitedReservations: () => Effect.succeed([]),
+  deleteForAccount: () => Effect.void,
 });
 
 /** Invitations for a test whose reservations invited nobody. */

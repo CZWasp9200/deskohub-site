@@ -4,20 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Effect } from "effect";
 import type { Pool } from "pg";
-import {
-  type DatabasePool,
-  makeDatabaseClient,
-  makeDatabasePool,
-} from "@/db/database-client";
+import { makeDatabasePool } from "@/db/database-client";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
-import {
-  fixtureReservationAuthorId,
-  type ReservationFixtureInput,
-  workspaceFixtures,
-} from "@/shared/testing/workspace-fixtures.test-utils";
+import { fixtureReservationAuthorId } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   linkMigrationsBefore,
   workspaceMigrationsFolder,
@@ -26,10 +16,6 @@ import {
 const MIGRATION_DIR = "20261118122220_order_owned_payments";
 
 const testDatabaseUrl = process.env.WORKSPACE_TEST_DATABASE_URL;
-
-const heldReservation = {
-  stage: { reservation: "held", payment: "pending" },
-} as const satisfies ReservationFixtureInput;
 
 type ScratchDatabase = {
   readonly pool: Pool;
@@ -51,7 +37,6 @@ const beforeMigration = async (
     "order_owned_payments"
   );
   const pool = makeDatabasePool({ connectionString: scratch.url, max: 4 });
-  let databasePool: DatabasePool | undefined;
   try {
     await migrate(drizzle({ client: pool }), {
       migrationsFolder: earlierMigrations,
@@ -59,28 +44,41 @@ const beforeMigration = async (
     await pool.query("insert into customer_accounts (id) values ($1)", [
       fixtureReservationAuthorId,
     ]);
-    databasePool = await openDatabasePool({
-      connectionString: scratch.url,
-      maxConnections: 4,
-    });
-    const fixtures = workspaceFixtures(
-      await Effect.runPromise(makeDatabaseClient(databasePool))
-    );
     await run({
       pool,
-      reservation: async () =>
-        (await Effect.runPromise(fixtures.reservation(heldReservation))).id,
+      reservation: () => insertHeldReservation(pool),
       migrateRemaining: () =>
         migrate(drizzle({ client: pool }), {
           migrationsFolder: workspaceMigrationsFolder,
         }),
     });
   } finally {
-    await databasePool?.close();
     await pool.end();
     await scratch.drop();
     await rm(earlierMigrations, { recursive: true, force: true });
   }
+};
+
+/** Inserts a hold using the reservation columns available before migration. */
+const insertHeldReservation = async (pool: Pool) => {
+  const id = crypto.randomUUID();
+  await pool.query(
+    `insert into workspace_reservations
+       (id, checkout_attempt_key, dotypos_customer_id, author_account_id,
+        dotypos_reservation_id, reservation_state, payment_state, fulfillment_state,
+        reservation_details, locale, reservation_hold_expires_at)
+     values ($1, $2, $3, $4, $5, 'held', 'pending', 'not_started', $6, 'en-US',
+       now() + interval '1 hour')`,
+    [
+      id,
+      `fixture-attempt-${id}`,
+      `fixture-customer-${id}`,
+      fixtureReservationAuthorId,
+      `fixture-dotypos-reservation-${id}`,
+      { kind: "cowork", entryTier: "basic", coffee: false },
+    ]
+  );
+  return id;
 };
 
 /** Records legal evidence as writers from before the order key do. */
