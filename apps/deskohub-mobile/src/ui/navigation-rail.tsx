@@ -22,6 +22,7 @@ import { accountAtom } from "../customer-api/customer-data-runtime";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import {
+  bookingFamilyReset,
   type SignedInDestination,
   signedInDestination,
 } from "../routing/signed-in-destination";
@@ -161,18 +162,11 @@ export function NavigationRail({
   const openProduct = (family: CustomerReservationFamily) => {
     if (group === "book") {
       if (segments[2] === family) return;
-      const accountStack = navigation
-        .getRootState()
-        ?.routes.find(({ name }) => name === "(account)")?.state;
-      const bookStack = accountStack?.routes.find(
-        ({ name }) => name === "book"
-      )?.state;
-      if (bookStack?.key !== undefined) {
-        // A single removal action lets a dirty Profile keep or discard its
-        // edits. Back from the new choice leaves the previous checkout behind.
+      const reset = bookingFamilyReset(navigation.getRootState(), family);
+      if (reset !== undefined) {
         navigation.dispatch({
-          ...CommonActions.reset({ routes: [{ name: family }] }),
-          target: bookStack.key,
+          ...CommonActions.reset(reset.state),
+          target: reset.target,
         });
         return;
       }
