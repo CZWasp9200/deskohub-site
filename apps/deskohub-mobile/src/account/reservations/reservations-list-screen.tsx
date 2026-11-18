@@ -428,6 +428,8 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
+  // The pinned badge's width, so the title keeps clear of it.
+  const [badgeWidth, setBadgeWidth] = useState(0);
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -440,25 +442,19 @@ function ReservationRow({
       <View style={styles.rowText}>
         <Text
           variant="bodyStrong"
-          style={past ? styles.pastTitle : undefined}
+          style={[
+            past ? styles.pastTitle : undefined,
+            Option.isSome(badge) && {
+              // The badge spans the chevron's column; keep clear of the rest.
+              marginRight: Math.max(0, badgeWidth - rowChevronColumn) + space.sm,
+            },
+          ]}
         >
           {view.title}
         </Text>
-        <View style={styles.rowMeta}>
-          <Text variant="bodySmall" style={styles.rowDetail}>
-            {view.detail}
-          </Text>
-          {Option.match(badge, {
-            onSome: (badge) => (
-              <Badge
-                label={badge.label}
-                tone={badge.tone}
-                icon={badge.icon}
-              />
-            ),
-            onNone: () => null,
-          })}
-        </View>
+        <Text variant="bodySmall" style={styles.rowDetail}>
+          {view.detail}
+        </Text>
         {!past &&
           row.withdrawal?.eligible === true &&
           Option.isSome(target) && (
@@ -472,6 +468,19 @@ function ReservationRow({
       {Option.isSome(target) && (
         <Icon icon={ChevronRight} size={20} color={color.ink3} />
       )}
+      {Option.match(badge, {
+        onSome: (badge) => (
+          <View
+            onLayout={(event) =>
+              setBadgeWidth(event.nativeEvent.layout.width)
+            }
+            style={styles.rowBadge}
+          >
+            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+          </View>
+        ),
+        onNone: () => null,
+      })}
     </>
   );
   return Option.match(target, {
@@ -669,20 +678,14 @@ function TodayPin({
   );
 }
 
+/** The chevron and the gap before it, which a row's badge may span. */
+const rowChevronColumn = 20 + space.md;
+
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
-  // Line 2 of a row: its time, then a status badge when it has one; held to
-  // the badge's height so rows with and without one match.
-  rowMeta: {
-    alignItems: "center",
-    columnGap: space.sm,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 2,
-    minHeight: 26,
-    rowGap: 2,
-  },
-  rowDetail: { flexShrink: 1 },
+  rowDetail: { marginTop: 2 },
+  // A row's status badge, pinned top right above its chevron.
+  rowBadge: { position: "absolute", right: 14, top: space.md },
   rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
   stubActions: { gap: space.sm, width: "100%" },
   stubWithdrawal: { alignSelf: "center", textAlign: "center" },
