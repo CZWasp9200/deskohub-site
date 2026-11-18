@@ -549,7 +549,7 @@ function CheckoutStatusActions({
   const retriesPayment =
     showPageActions && offersNewReservation && retriesPaymentFor !== undefined;
   const reserveAgain = (
-    <Button asChild size="lg">
+    <Button asChild size="lg" variant="secondary">
       <a href={reserveAgainPath} id="checkout-status-reserve-again">
         {reserveAgainLabel}
       </a>
@@ -573,7 +573,7 @@ function CheckoutStatusActions({
       )}
       {reservationAccessHref && (
         <ReservationAccessButton
-          className="sm:w-auto"
+          className={cn("sm:w-auto", showPageActions && "sm:ml-auto")}
           href={reservationAccessHref}
           id="checkout-status-access"
           locale={locale}
