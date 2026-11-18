@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Console, Effect, Layer } from "effect";
+import { Console, Effect, Exit, Layer, Option } from "effect";
 import { Command } from "effect/cli";
 import { CliConfigLive } from "./cli-config";
 import { dhwCommand } from "./command";
@@ -82,5 +82,32 @@ describe("dhw global flags", () => {
     const { exit } = await runDhw(["--wizard"]);
 
     expect(exit._tag).toBe("Failure");
+  });
+
+  test("writes the same PowerShell completion script for powershell and pwsh", async () => {
+    const powershell = await runDhw(["--completions", "powershell"]);
+    const pwsh = await runDhw(["--completions", "pwsh"]);
+
+    expect(Exit.isSuccess(powershell.exit)).toBe(true);
+    expect(powershell.output).not.toBe("");
+    expect(pwsh.output).toBe(powershell.output);
+  });
+
+  test("refuses a single-value flag given twice before running the command", async () => {
+    const { exit } = await runDhw([
+      "reservations",
+      "list",
+      "--page",
+      "1",
+      "--page",
+      "2",
+    ]);
+
+    const error = Option.getOrUndefined(Exit.findErrorOption(exit));
+    expect(error).toMatchObject({
+      _tag: "ShowHelp",
+      commandPath: ["dhw", "reservations", "list"],
+      errors: [{ _tag: "InvalidValue", option: "page", kind: "flag" }],
+    });
   });
 });
