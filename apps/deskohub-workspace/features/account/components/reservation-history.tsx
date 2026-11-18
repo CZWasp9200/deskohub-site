@@ -164,10 +164,14 @@ const getReservationHref = (
 /** The ⋮ menu of a reservation the customer can still withdraw from. */
 function ReservationRowMenu({
   className,
+  linkClassName,
+  linkOnly,
   locale,
   reservation,
 }: {
   readonly className?: string;
+  readonly linkClassName?: string;
+  readonly linkOnly?: boolean;
   readonly locale: Locale;
   readonly reservation: CustomerReservationSummary;
 }) {
@@ -176,6 +180,8 @@ function ReservationRowMenu({
   return (
     <ReservationOptionsMenu
       className={className}
+      linkClassName={linkClassName}
+      linkOnly={linkOnly}
       locale={locale}
       withdrawalHref={`${getReservationHref(locale, reservation.workspaceReservationId)}?withdraw=1`}
     />
@@ -290,6 +296,7 @@ function FeaturedReservationItem({
           </div>
           <ReservationRowMenu
             className="-my-1.5 -mr-2"
+            linkClassName="@max-3xl:hidden"
             locale={locale}
             reservation={reservation}
           />
@@ -352,6 +359,12 @@ function FeaturedReservationItem({
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
+          <ReservationRowMenu
+            linkClassName="w-full text-center @3xl:hidden"
+            linkOnly
+            locale={locale}
+            reservation={reservation}
+          />
           {reservation.workspaceReservationId && (
             <div className="min-w-0 *:w-full @3xl:*:w-auto">
               <ReservationDetailLink
@@ -468,7 +481,13 @@ function CompactReservationItem({
 
   return (
     <li className="min-w-0">
-      <article className="min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
+      <article className="relative min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
+        <ReservationRowMenu
+          linkClassName="absolute top-4 right-4 @2xl:hidden"
+          linkOnly
+          locale={locale}
+          reservation={reservation}
+        />
         <div className="flex min-w-0 flex-col gap-4 @2xl:flex-row @2xl:items-center">
           <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border border-[#dbe4ff] bg-[#f3f6ff] px-1 text-center text-[#344258]">
             <span className="sr-only">
@@ -497,9 +516,21 @@ function CompactReservationItem({
             <p className="sr-only">
               {m.accountReservationProduct({}, { locale })}
             </p>
-            <h4 className="break-words text-base font-semibold leading-5 text-[#00024f]">
-              {getReservationProductName(reservation.product, locale)}
-            </h4>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+              <h4 className="break-words text-base font-semibold leading-5 text-[#00024f]">
+                {getReservationProductName(reservation.product, locale)}
+              </h4>
+              <span className="sr-only">
+                {m.accountReservationStatus({}, { locale })}:{" "}
+              </span>
+              <StatusBadge
+                className="max-w-full min-w-0 break-words whitespace-normal"
+                data-account-reservation-status={reservation.status}
+                tone={getReservationStatusTone(reservation.status)}
+              >
+                {getStatusLabel(reservation.status, locale)}
+              </StatusBadge>
+            </div>
             <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm text-[#64748b]">
               {period ? (
                 <span className="inline-flex min-w-0 items-start gap-1.5 break-words">
@@ -538,18 +569,14 @@ function CompactReservationItem({
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col items-stretch gap-3 @2xl:flex-row @2xl:items-center">
-            <span className="sr-only">
-              {m.accountReservationStatus({}, { locale })}:{" "}
-            </span>
-            <StatusBadge
-              className="max-w-full min-w-0 self-start break-words whitespace-normal"
-              data-account-reservation-status={reservation.status}
-              tone={getReservationStatusTone(reservation.status)}
-            >
-              {getStatusLabel(reservation.status, locale)}
-            </StatusBadge>
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <div className="flex min-w-0 flex-col items-stretch gap-1 @2xl:items-center">
+            <ReservationRowMenu
+              linkClassName="hidden w-full text-center @2xl:block"
+              linkOnly
+              locale={locale}
+              reservation={reservation}
+            />
+            <div className="flex min-w-0 items-center gap-1">
               <div className="min-w-0 flex-1 *:w-full @2xl:flex-none @2xl:*:w-auto">
                 <ReservationDetailLink
                   locale={locale}
@@ -558,6 +585,7 @@ function CompactReservationItem({
               </div>
               <ReservationRowMenu
                 className="-mr-2"
+                linkClassName="hidden"
                 locale={locale}
                 reservation={reservation}
               />

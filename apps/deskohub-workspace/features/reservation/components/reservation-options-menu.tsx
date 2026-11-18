@@ -20,10 +20,16 @@ import { cn } from "@/shared/utils";
 export function ReservationOptionsMenu({
   className,
   defaultOpen,
+  linkClassName,
+  linkOnly = false,
   locale,
   withdrawalHref,
 }: {
   readonly className?: string;
+  /** Design preview only: extra classes for the text-link variant. */
+  readonly linkClassName?: string;
+  /** Design preview only: render only in the text-link variant. */
+  readonly linkOnly?: boolean;
   /** Design preview only: render the menu open. */
   readonly defaultOpen?: boolean;
   readonly locale: Locale;
@@ -35,12 +41,15 @@ export function ReservationOptionsMenu({
   const linkVariant =
     process.env.NODE_ENV === "development" &&
     searchParams?.get("withdrawLink") === "1";
-  if (!withdrawalHref) return null;
+  if (!withdrawalHref || (linkOnly && !linkVariant)) return null;
 
   if (linkVariant) {
     return (
       <GuardedLink
-        className="w-full shrink-0 self-center py-1 text-left text-[0.6875rem] leading-4 text-rose-700 sm:w-auto sm:text-right underline-offset-4 hover:text-rose-800 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
+        className={cn(
+          "shrink-0 self-center py-1 text-right text-[0.6875rem] leading-4 text-rose-700 underline-offset-4 hover:text-rose-800 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2",
+          linkClassName
+        )}
         data-reservation-withdrawal-link=""
         href={withdrawalHref}
       >
