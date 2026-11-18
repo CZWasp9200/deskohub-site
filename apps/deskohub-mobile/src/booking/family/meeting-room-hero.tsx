@@ -18,18 +18,22 @@ const factIcon = { capacity: Users, equipment: Monitor } as const;
  */
 export function MeetingRoomHero({
   facts,
+  inline = false,
 }: {
   readonly facts: ReadonlyArray<CustomerOfferingFact>;
+  readonly inline?: boolean;
 }) {
   return (
-    <View style={styles.card}>
-      <SpaceIllustration
-        family="meeting-room"
-        height={pictureHeight}
-        span="full"
-      />
+    <View style={!inline && styles.card}>
+      {!inline && (
+        <SpaceIllustration
+          family="meeting-room"
+          height={pictureHeight}
+          span="full"
+        />
+      )}
       {facts.length > 0 && (
-        <View style={styles.facts}>
+        <View style={[styles.facts, inline && styles.inlineFacts]}>
           {facts.map((fact) => (
             <View key={`${fact.kind}:${fact.text}`} style={styles.fact}>
               <Icon icon={factIcon[fact.kind]} size={16} color={color.ink2} />
@@ -61,6 +65,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.md,
     rowGap: 6,
+  },
+  inlineFacts: {
+    justifyContent: "flex-end",
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: space.sm,
   },
   fact: {
     alignItems: "center",

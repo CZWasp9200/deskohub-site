@@ -23,6 +23,7 @@ import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
 import { bookingPreselectionKey } from "../booking-preselection";
 import { bookCheckoutHref } from "../booking-routes";
 import { checkoutRequestAtom } from "../checkout/checkout-flow";
@@ -74,6 +75,7 @@ import {
 } from "./booking-family-view";
 import { BookingGate } from "./booking-gate";
 import { BookingReadFailure, BookingReadView } from "./booking-read-view";
+import { chooseStyles, useChooseTracks } from "./choose-layout";
 import {
   type KeptMeetingRoomDraft,
   meetingRoomBookingModel,
@@ -297,6 +299,8 @@ function MeetingRoomSelection({
   const lengthLabel = (duration: CustomerMeetingRoomDuration) =>
     lengthOf(duration)?.durationLabel ?? duration;
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
+  const tracks = useChooseTracks(3);
+  const { isWide } = useViewport();
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const chosenDuration = Option.getOrUndefined(model.draft.duration);
   const chosenStart = Option.getOrUndefined(model.draft.startTime);
@@ -430,169 +434,210 @@ function MeetingRoomSelection({
               onRetry={retrySupportingReads}
             />
 
-            <MeetingRoomHero facts={facts} />
-
-            <BookingSectionHeading
-              title={m.booking_date_heading({}, { locale })}
-            />
-            <MonthCalendar
-              label={m.booking_date_heading({}, { locale })}
-              locale={locale}
-              dates={enablement.dates}
-              selected={chosenDate}
-              onSelect={(date) =>
-                setDraft(selectMeetingRoomDate(model.draft, date))
+            <MeetingRoomHero
+              facts={
+                isWide ? facts.filter(({ kind }) => kind === "capacity") : facts
               }
-              today={today}
-              previousMonthLabel={m.booking_calendar_previous_month(
-                {},
-                { locale }
-              )}
-              nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
-              unavailableLabel={m.booking_calendar_unavailable_day(
-                {},
-                { locale }
-              )}
+              inline={tracks}
             />
-            <View style={styles.after}>
-              <Notice
-                tone="info"
-                message={
-                  enablement.notices
-                    .map((notice) => availabilityNoticeMessage(notice, locale))
-                    .join(" ") || undefined
-                }
-              />
-            </View>
 
-            {chosenDate !== undefined && (
-              <>
+            <View style={tracks && chooseStyles.row}>
+              <View style={tracks && chooseStyles.meetingCalendar}>
                 <BookingSectionHeading
-                  title={m.booking_meeting_room_duration_heading(
-                    {},
-                    { locale }
-                  )}
-                  aside={shortDate(chosenDate)}
+                  title={m.booking_date_heading({}, { locale })}
+                  first={tracks}
                 />
-                <MeetingRoomLengths
-                  label={m.booking_meeting_room_duration_heading(
-                    {},
-                    { locale }
-                  )}
-                  lengths={offerings.map((offering) => ({
-                    duration: offering.duration,
-                    label: offering.durationLabel,
-                    price: offering.advertisedPrice.price,
-                    ...(offering.advertisedPrice.discount.value > 0 && {
-                      was: offering.price,
-                    }),
-                  }))}
-                  selected={chosenDuration}
-                  onSelect={(duration) =>
-                    setDraft(selectMeetingRoomDuration(model.draft, duration))
-                  }
+                <MonthCalendar
+                  stretch={tracks}
+                  label={m.booking_date_heading({}, { locale })}
                   locale={locale}
-                />
-              </>
-            )}
-
-            {chosenDate !== undefined && hourly && (
-              <BookingSectionHeading
-                title={m.booking_meeting_room_start_heading({}, { locale })}
-              />
-            )}
-            {noneLeft !== undefined ? (
-              <View style={hourly ? undefined : styles.after}>
-                <MeetingRoomNoneLeft
-                  title={m.booking_meeting_room_none_left(
-                    {
-                      length: lengthLabel(noneLeft.duration),
-                      date: shortDate(noneLeft.date),
-                    },
+                  dates={enablement.dates}
+                  selected={chosenDate}
+                  onSelect={(date) =>
+                    setDraft(selectMeetingRoomDate(model.draft, date))
+                  }
+                  today={today}
+                  previousMonthLabel={m.booking_calendar_previous_month(
+                    {},
                     { locale }
                   )}
-                  body={noneLeftBody({
-                    alternatives,
-                    length: lengthLabel(noneLeft.duration),
-                    lengthLabel,
-                    shortDate,
-                    locale,
-                  })}
-                  actions={[
-                    ...(alternatives?.durations[0] === undefined
-                      ? []
-                      : [alternatives.durations[0]].map((other) => ({
-                          label: m.booking_meeting_room_switch_length(
-                            { length: lengthLabel(other) },
-                            { locale }
-                          ),
-                          onPress: () =>
-                            setDraft(
-                              selectMeetingRoomDuration(model.draft, other)
-                            ),
-                        }))),
-                    ...Option.match(alternatives?.nextDate ?? Option.none(), {
-                      onNone: () => [],
-                      onSome: (next: PragueDate) => [
-                        {
-                          label: m.booking_meeting_room_go_to_day(
-                            { date: shortDate(next) },
-                            { locale }
-                          ),
-                          onPress: () =>
-                            setDraft(selectMeetingRoomDate(model.draft, next)),
-                        },
-                      ],
-                    }),
-                  ]}
+                  nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
+                  unavailableLabel={m.booking_calendar_unavailable_day(
+                    {},
+                    { locale }
+                  )}
                 />
-              </View>
-            ) : (
-              chosenDate !== undefined &&
-              hourly &&
-              (startChoices === undefined ? (
-                <View style={styles.loading}>
-                  <LoadingIndicator
-                    size="section"
-                    tone="brand"
-                    label={m.booking_availability_loading({}, { locale })}
+                <View style={styles.after}>
+                  <Notice
+                    tone="info"
+                    message={
+                      enablement.notices
+                        .map((notice) =>
+                          availabilityNoticeMessage(notice, locale)
+                        )
+                        .join(" ") || undefined
+                    }
                   />
                 </View>
-              ) : (
-                <MeetingRoomStartTimes
-                  label={m.booking_meeting_room_start_heading({}, { locale })}
-                  daytime={startChoices.daytime}
-                  outside={startChoices.outside}
-                  selected={chosenStart}
-                  onSelect={(startTime) =>
-                    setDraft(selectMeetingRoomStartTime(model.draft, startTime))
-                  }
-                  locale={locale}
-                />
-              ))
-            )}
-
-            {hourly && chosenStart !== undefined && noneLeft === undefined && (
-              <View style={styles.earlySetup}>
-                <CheckboxRow
-                  label={m.booking_meeting_room_early_setup({}, { locale })}
-                  checked={model.draft.earlySetup}
-                  disabled={!enablement.earlySetupAvailable}
-                  onChange={(earlySetup) =>
-                    setDraft({ ...model.draft, earlySetup })
-                  }
-                />
-                {!enablement.earlySetupAvailable && (
-                  <Text variant="hint" style={styles.earlySetupReason}>
-                    {m.booking_meeting_room_early_setup_unavailable(
+              </View>
+              {chosenDate !== undefined && (
+                <View style={tracks && chooseStyles.track}>
+                  <BookingSectionHeading
+                    first={tracks}
+                    title={m.booking_meeting_room_duration_heading(
                       {},
                       { locale }
                     )}
-                  </Text>
-                )}
-              </View>
-            )}
+                    aside={shortDate(chosenDate)}
+                  />
+                  <MeetingRoomLengths
+                    label={m.booking_meeting_room_duration_heading(
+                      {},
+                      { locale }
+                    )}
+                    lengths={offerings.map((offering) => ({
+                      duration: offering.duration,
+                      label: offering.durationLabel,
+                      price: offering.advertisedPrice.price,
+                      ...(offering.advertisedPrice.discount.value > 0 && {
+                        was: offering.price,
+                      }),
+                    }))}
+                    cards={tracks}
+                    selected={chosenDuration}
+                    onSelect={(duration) =>
+                      setDraft(selectMeetingRoomDuration(model.draft, duration))
+                    }
+                    locale={locale}
+                  />
+                </View>
+              )}
 
+              {((chosenDate !== undefined && hourly) ||
+                noneLeft !== undefined) && (
+                <View style={tracks && chooseStyles.track}>
+                  {chosenDate !== undefined && hourly && (
+                    <BookingSectionHeading
+                      title={m.booking_meeting_room_start_heading(
+                        {},
+                        { locale }
+                      )}
+                      first={tracks}
+                    />
+                  )}
+                  {noneLeft !== undefined ? (
+                    <View style={hourly ? undefined : styles.after}>
+                      <MeetingRoomNoneLeft
+                        title={m.booking_meeting_room_none_left(
+                          {
+                            length: lengthLabel(noneLeft.duration),
+                            date: shortDate(noneLeft.date),
+                          },
+                          { locale }
+                        )}
+                        body={noneLeftBody({
+                          alternatives,
+                          length: lengthLabel(noneLeft.duration),
+                          lengthLabel,
+                          shortDate,
+                          locale,
+                        })}
+                        actions={[
+                          ...(alternatives?.durations[0] === undefined
+                            ? []
+                            : [alternatives.durations[0]].map((other) => ({
+                                label: m.booking_meeting_room_switch_length(
+                                  { length: lengthLabel(other) },
+                                  { locale }
+                                ),
+                                onPress: () =>
+                                  setDraft(
+                                    selectMeetingRoomDuration(
+                                      model.draft,
+                                      other
+                                    )
+                                  ),
+                              }))),
+                          ...Option.match(
+                            alternatives?.nextDate ?? Option.none(),
+                            {
+                              onNone: () => [],
+                              onSome: (next: PragueDate) => [
+                                {
+                                  label: m.booking_meeting_room_go_to_day(
+                                    { date: shortDate(next) },
+                                    { locale }
+                                  ),
+                                  onPress: () =>
+                                    setDraft(
+                                      selectMeetingRoomDate(model.draft, next)
+                                    ),
+                                },
+                              ],
+                            }
+                          ),
+                        ]}
+                      />
+                    </View>
+                  ) : (
+                    chosenDate !== undefined &&
+                    hourly &&
+                    (startChoices === undefined ? (
+                      <View style={styles.loading}>
+                        <LoadingIndicator
+                          size="section"
+                          tone="brand"
+                          label={m.booking_availability_loading({}, { locale })}
+                        />
+                      </View>
+                    ) : (
+                      <MeetingRoomStartTimes
+                        label={m.booking_meeting_room_start_heading(
+                          {},
+                          { locale }
+                        )}
+                        daytime={startChoices.daytime}
+                        twoColumns={tracks}
+                        outside={startChoices.outside}
+                        selected={chosenStart}
+                        onSelect={(startTime) =>
+                          setDraft(
+                            selectMeetingRoomStartTime(model.draft, startTime)
+                          )
+                        }
+                        locale={locale}
+                      />
+                    ))
+                  )}
+
+                  {hourly &&
+                    chosenStart !== undefined &&
+                    noneLeft === undefined && (
+                      <View style={styles.earlySetup}>
+                        <CheckboxRow
+                          label={m.booking_meeting_room_early_setup(
+                            {},
+                            { locale }
+                          )}
+                          checked={model.draft.earlySetup}
+                          disabled={!enablement.earlySetupAvailable}
+                          onChange={(earlySetup) =>
+                            setDraft({ ...model.draft, earlySetup })
+                          }
+                        />
+                        {!enablement.earlySetupAvailable && (
+                          <Text variant="hint" style={styles.earlySetupReason}>
+                            {m.booking_meeting_room_early_setup_unavailable(
+                              {},
+                              { locale }
+                            )}
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                </View>
+              )}
+            </View>
             <LiveMessage
               role="status"
               message={

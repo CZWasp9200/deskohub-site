@@ -41,6 +41,7 @@ export function MeetingRoomStartTimes({
   selected,
   onSelect,
   locale,
+  twoColumns = false,
 }: {
   /** Names the group for assistive tech. */
   readonly label: string;
@@ -50,6 +51,7 @@ export function MeetingRoomStartTimes({
   readonly selected: string | undefined;
   readonly onSelect: (startTime: string) => void;
   readonly locale: AppLocale;
+  readonly twoColumns?: boolean;
 }) {
   const { fontScale } = useWindowDimensions();
   const [width, setWidth] = useState(0);
@@ -61,7 +63,8 @@ export function MeetingRoomStartTimes({
         first.startTime.localeCompare(second.startTime)
       )
     : daytime;
-  const columns = startTimeColumns(width, fontScale);
+  const fittingColumns = startTimeColumns(width, fontScale);
+  const columns = twoColumns ? Math.min(2, fittingColumns) : fittingColumns;
   // Every chip gets the same share of the row, the last row's too.
   // Floored to half a point so rounding never pushes the last chip of a
   // row onto the next.
@@ -69,6 +72,7 @@ export function MeetingRoomStartTimes({
     width > 0
       ? Math.floor(((width - gap * (columns - 1)) / columns) * 2) / 2
       : undefined;
+  const unmeasured = twoColumns ? styles.unmeasuredPair : styles.unmeasured;
 
   const chipRefs = useRef<Array<ComponentRef<typeof Pressable> | null>>([]);
   const free = shown.flatMap((choice, index) => (choice.taken ? [] : [index]));
@@ -129,9 +133,8 @@ export function MeetingRoomStartTimes({
               }}
               style={({ pressed }) => [
                 styles.chip,
-                chipWidth === undefined
-                  ? styles.unmeasured
-                  : { width: chipWidth },
+                twoColumns && styles.tallChip,
+                chipWidth === undefined ? unmeasured : { width: chipWidth },
                 chipLook(choice.taken, checked),
                 pressed && !checked && !choice.taken && styles.pressed,
               ]}
@@ -191,6 +194,8 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   unmeasured: { width: "22%" },
+  unmeasuredPair: { width: "47%" },
+  tallChip: { minHeight: 64 },
   free: {
     backgroundColor: color.surface,
     borderColor: color.field,
