@@ -6,7 +6,13 @@ import { Badge } from "../../ui/badge";
 import { Button, ButtonRow } from "../../ui/controls";
 import { ListRow } from "../../ui/list";
 import { LoadingIndicator } from "../../ui/loading-indicator";
-import { InvoiceDownload, invoiceRowOf } from "./invoice-list-model";
+import { findAll } from "../../ui/testing/element-tree";
+import { Text } from "../../ui/text";
+import {
+  InvoiceDownload,
+  invoiceRowOf,
+  invoiceRowText,
+} from "./invoice-list-model";
 import { InvoiceListRow } from "./invoice-list-row";
 
 const creditNoteNumber = "WS-OD-2026-000004";
@@ -32,10 +38,12 @@ const element = (
   {
     downloading,
     held = false,
+    amountColumn = false,
     onDownload = () => undefined,
   }: {
     readonly downloading?: InvoiceDownload["_tag"];
     readonly held?: boolean;
+    readonly amountColumn?: boolean;
     readonly onDownload?: (download: InvoiceDownload) => void;
   } = {}
 ) =>
@@ -44,6 +52,7 @@ const element = (
     locale: "en-US",
     downloading,
     held,
+    amountColumn,
     onDownload,
   });
 
@@ -72,39 +81,66 @@ const downloadButtons = (row: ReactElement<{ below?: ReactElement }>) => {
 };
 
 describe("InvoiceListRow", () => {
-  test("a cancelled invoice is marked cancelled and offers its own and its credit note's download", () => {
+  test.each([false, true])(
+    "a cancelled invoice offers both downloads with amountColumn=%s",
+    (amountColumn) => {
+      for (const invoice of inForce) {
+        const requested: InvoiceDownload[] = [];
+        const row = element(cancelled(invoice), {
+          amountColumn,
+          onDownload: (download) => requested.push(download),
+        });
+
+        expect(row.type).toBe(ListRow);
+        expect(row.props.badge.type).toBe(Badge);
+        expect(row.props.badge.props.tone).toBe("neutral");
+        // Its buttons act; the row itself doesn't.
+        expect(row.props.onPress).toBeUndefined();
+        const buttons = downloadButtons(row);
+        expect(buttons.invoice.props.accessibilityLabel).toContain(
+          invoice.invoiceNumber
+        );
+        expect(buttons.creditNote.props.accessibilityLabel).toContain(
+          creditNoteNumber
+        );
+
+        buttons.invoice.props.onPress();
+        buttons.creditNote.props.onPress();
+
+        expect(requested).toEqual([
+          InvoiceDownload.Invoice({
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+          }),
+          InvoiceDownload.CreditNote({
+            id: invoice.id,
+            correctiveDocumentNumber: creditNoteNumber,
+          }),
+        ]);
+      }
+    }
+  );
+
+  test("wide rows put the total and a non-redundant invoice number in the trailing column", () => {
     for (const invoice of inForce) {
-      const requested: InvoiceDownload[] = [];
-      const row = element(cancelled(invoice), {
-        onDownload: (download) => requested.push(download),
-      });
-
-      expect(row.type).toBe(ListRow);
-      expect(row.props.badge.type).toBe(Badge);
-      expect(row.props.badge.props.tone).toBe("neutral");
-      // Its buttons act; the row itself doesn't.
-      expect(row.props.onPress).toBeUndefined();
-      const buttons = downloadButtons(row);
-      expect(buttons.invoice.props.accessibilityLabel).toContain(
-        invoice.invoiceNumber
-      );
-      expect(buttons.creditNote.props.accessibilityLabel).toContain(
-        creditNoteNumber
+      const model = invoiceRowOf(invoice);
+      const details = invoiceRowText(model, "en-US");
+      const row = element(invoice, { amountColumn: true });
+      const compact = element(invoice);
+      const columnText = findAll(row.props.trailing, Text).map(
+        ({ props }) => props.children
       );
 
-      buttons.invoice.props.onPress();
-      buttons.creditNote.props.onPress();
-
-      expect(requested).toEqual([
-        InvoiceDownload.Invoice({
-          id: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-        }),
-        InvoiceDownload.CreditNote({
-          id: invoice.id,
-          correctiveDocumentNumber: creditNoteNumber,
-        }),
-      ]);
+      expect(row.props.description).toBe(details.when);
+      expect(row.props.accessibilityLabel).toBe(
+        compact.props.accessibilityLabel
+      );
+      expect(compact.props.description).toContain(details.amount);
+      expect(columnText).toEqual(
+        model._tag === "Described"
+          ? [details.amount, `No. ${invoice.invoiceNumber}`]
+          : [details.amount]
+      );
     }
   });
 

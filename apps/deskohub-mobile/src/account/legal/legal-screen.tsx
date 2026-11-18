@@ -26,6 +26,7 @@ import { ScrollScreen } from "../../ui/scroll-screen";
 import { SkeletonGroup, SkeletonRow } from "../../ui/skeleton";
 import { SwitchRow } from "../../ui/switch";
 import { useToast } from "../../ui/toast";
+import { useViewport } from "../../ui/viewport";
 import {
   type AnalyticsSaveFeedback,
   analyticsPreferenceAtom,
@@ -75,6 +76,7 @@ const openDocumentAtom = Atom.fn((url: string) =>
  */
 export function LegalScreen() {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const account = useAtomValue(accountAtom);
   const refreshAccount = useAtomRefresh(accountAtom);
   const registry = useContext(RegistryContext);
@@ -126,7 +128,7 @@ export function LegalScreen() {
       >
         {(current) =>
           current.kind === "linked" ? (
-            <MarketingPreference />
+            <MarketingPreference isWide={isWide} />
           ) : (
             <ListGroup>
               <ListRow label={m.legal_marketing_unavailable({}, { locale })} />
@@ -135,9 +137,14 @@ export function LegalScreen() {
         }
       </AsyncView>
       <SectionHeader title={m.legal_analytics_heading({}, { locale })} />
-      <AnalyticsPreference onOpenPrivacyPolicy={openPrivacyPolicy} />
+      <AnalyticsPreference
+        isWide={isWide}
+        onOpenPrivacyPolicy={openPrivacyPolicy}
+      />
       <SectionHeader title={m.legal_archive_heading({}, { locale })} />
-      <DataExportRow />
+      <DataExportRow
+        account={AsyncResult.isSuccess(account) ? account.value : undefined}
+      />
     </ScrollScreen>
   );
 }
@@ -177,7 +184,7 @@ const feedbackMessage = (
   );
 
 /** The linked account's marketing consent switch. */
-function MarketingPreference() {
+function MarketingPreference({ isWide }: { readonly isWide: boolean }) {
   const locale = useAppLocale();
   const preferences = useAtomValue(marketingPreferencesAtom);
   const refresh = useAtomRefresh(marketingPreferencesAtom);
@@ -219,7 +226,9 @@ function MarketingPreference() {
             <PreferenceSwitch
               icon={Megaphone}
               label={m.legal_marketing_switch_label({}, { locale })}
-              description={m.legal_marketing_description({}, { locale })}
+              description={(isWide
+                ? m.legal_marketing_description_wide
+                : m.legal_marketing_description)({}, { locale })}
               view={view}
               saving={view.feedback?.kind === "saving"}
               onChange={(granted) => {
@@ -271,8 +280,10 @@ const analyticsFeedbackMessage = (
  * read there is no switch, so it never reads as off.
  */
 function AnalyticsPreference({
+  isWide,
   onOpenPrivacyPolicy,
 }: {
+  readonly isWide: boolean;
   readonly onOpenPrivacyPolicy: () => void;
 }) {
   const locale = useAppLocale();
@@ -309,8 +320,12 @@ function AnalyticsPreference({
           <ListGroup>
             <PreferenceSwitch
               icon={ChartColumn}
-              label={m.legal_analytics_switch_label({}, { locale })}
-              description={m.legal_analytics_description({}, { locale })}
+              label={(isWide
+                ? m.legal_analytics_switch_label_wide
+                : m.legal_analytics_switch_label)({}, { locale })}
+              description={(isWide
+                ? m.legal_analytics_description_wide
+                : m.legal_analytics_description)({}, { locale })}
               view={view}
               saving={view.feedback?.kind === "saving"}
               onChange={(granted) => {
@@ -318,12 +333,14 @@ function AnalyticsPreference({
                 choose({ granted, locale });
               }}
             />
-            <ListRow
-              icon={FileText}
-              label={m.legal_document_privacy({}, { locale })}
-              trailing="external"
-              onPress={onOpenPrivacyPolicy}
-            />
+            {!isWide && (
+              <ListRow
+                icon={FileText}
+                label={m.legal_document_privacy({}, { locale })}
+                trailing="external"
+                onPress={onOpenPrivacyPolicy}
+              />
+            )}
           </ListGroup>
         )}
       </AsyncView>

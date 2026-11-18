@@ -20,9 +20,9 @@ import { fakeBooking, fakeBookingCodes } from "./fake-booking-api";
 import { sampleLegalDocuments } from "./sample-booking-catalog";
 import { samplePaymentBrowserLayer } from "./sample-booking-services-layer";
 
-const harness = () => {
+const harness = (now?: () => Date) => {
   const workspace = FakeWorkspace.forKind("linked");
-  const booking = fakeBooking(workspace);
+  const booking = fakeBooking(workspace, now);
   const run = <A, E>(
     use: (api: CustomerApi["Service"]) => Effect.Effect<A, E>
   ) =>
@@ -245,8 +245,7 @@ describe("sample booking", () => {
   });
 
   test("a whole-day meeting room runs the Prague calendar day, 23 hours when clocks go forward", async () => {
-    const { booking, run } = harness();
-    booking.now = () => new Date("2027-03-01T10:00:00Z");
+    const { run } = harness(() => new Date("2027-03-01T10:00:00Z"));
     const submission = await run((api) =>
       submitted(
         api,

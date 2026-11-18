@@ -25,6 +25,7 @@ import { m } from "../../i18n/messages";
 import { openSitePage } from "../../routing/open-site-page";
 import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
+import { StackHeader } from "../../ui/navigation";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { space } from "../../ui/tokens";
@@ -52,6 +53,7 @@ import { bookingOfferingsAtom } from "../data/booking-queries";
 import { quotedBarSummary } from "../ui/booking-summary";
 import { HoldChip, HoldEndedDialog } from "../ui/hold-timer";
 import { retryMessage } from "./checkout-copy";
+import { useCheckoutLayout } from "./checkout-layout";
 import {
   checkoutDestination,
   holdEndedReview,
@@ -89,6 +91,7 @@ function CheckoutFlowScreen({
   readonly request: CheckoutRequest;
 }) {
   const locale = useAppLocale();
+  const { contentWidth } = useCheckoutLayout();
   // Blurred, the flow holds the payment page until the screen is back (R8).
   const focused = useIsFocused();
   const navigation = useNavigation();
@@ -145,6 +148,14 @@ function CheckoutFlowScreen({
     <Stack.Screen
       options={{
         title: checkoutTitle(onDetails, Option.isSome(review), locale),
+        header: (props) => (
+          <StackHeader
+            {...props}
+            contentWidth={
+              onDetails || Option.isSome(review) ? contentWidth : "form"
+            }
+          />
+        ),
         headerRight: Option.match(
           Option.filter(review, () => retriedOrderId === undefined),
           {

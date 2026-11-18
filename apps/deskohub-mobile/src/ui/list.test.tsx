@@ -300,4 +300,17 @@ describe("ListRow", () => {
     expect(trailingIcons({ ...pick, selected: false })).toEqual([]);
     expect(rowRoot(pick).props["aria-selected"]).toBeUndefined();
   });
+
+  test("an active navigation row marks the current page and exposes native selection", () => {
+    const row = {
+      label: "l",
+      trailing: "none" as const,
+      onPress: () => undefined,
+    };
+    const current = rowRoot({ ...row, active: true });
+    expect(current.props["aria-current"]).toBe("page");
+    expect(current.props["aria-selected"]).toBe(true);
+    expect(trailingIcons({ ...row, active: true })).toEqual([]);
+    expect(rowRoot(row).props["aria-selected"]).toBeUndefined();
+  });
 });

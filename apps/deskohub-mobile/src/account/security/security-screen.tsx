@@ -27,6 +27,7 @@ import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
 import { PasskeyListRow } from "./passkey-list-row";
 import {
   deletePasskeyAtom,
@@ -119,6 +120,7 @@ const dialogFailureMessage = ({
  */
 export function SecurityScreen() {
   const locale = useAppLocale();
+  const { isWide } = useViewport();
   const account = useAtomValue(accountAtom);
   const refreshAccount = useAtomRefresh(accountAtom);
   const passkeys = useAtomValue(passkeysAtom);
@@ -204,6 +206,7 @@ export function SecurityScreen() {
   const adding = (kind: "first" | "another") => (
     <AddPasskeyAction
       kind={kind}
+      width={isWide && kind === "another" ? "content" : "full"}
       onStart={() => dispatch(SecurityScreenEvent.PasskeyAddStarted())}
       onSettled={() => dispatch(SecurityScreenEvent.PasskeyAddSettled())}
       onAdded={() => {
@@ -290,7 +293,9 @@ export function SecurityScreen() {
                       />
                     ))}
                   </ListGroup>
-                  <View style={styles.another}>{adding("another")}</View>
+                  <View style={isWide ? styles.anotherWide : styles.another}>
+                    {adding("another")}
+                  </View>
                 </>
               );
             }}
@@ -436,4 +441,5 @@ export function SecurityScreen() {
 
 const styles = StyleSheet.create({
   another: { marginTop: space.lg },
+  anotherWide: { marginTop: space.md },
 });

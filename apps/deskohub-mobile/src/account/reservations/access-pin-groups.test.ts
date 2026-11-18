@@ -3,6 +3,7 @@ import {
   accessPinBox,
   accessPinBoxSize,
   accessPinGroups,
+  wideAccessPinBox,
 } from "./access-pin-groups";
 
 // Synthetic digits only: a real PIN never appears in a test.
@@ -79,5 +80,29 @@ describe("accessPinBoxSize", () => {
     const wide = accessPinBoxSize(groups, 800, 2);
     expect(wide.width).toBe(80);
     expect(wide.fontSize).toBe(72);
+  });
+
+  test("uses the approved tile size when the groups fit the wide card", () => {
+    expect(accessPinBoxSize(accessPinGroups(digits(6)), 436, 1, true)).toEqual({
+      width: 64,
+      height: 84,
+      fontSize: 48,
+      radius: 14,
+    });
+  });
+
+  test("keeps each group in the measured card at 200% text size", () => {
+    for (const length of [7, 8, 9]) {
+      const groups = accessPinGroups(digits(length));
+      const pane = 380;
+      const size = accessPinBoxSize(groups, pane, 2, true);
+      for (const group of groups) {
+        const width =
+          group.length * size.width +
+          (group.length - 1) * wideAccessPinBox.digitGap;
+        expect(width).toBeLessThanOrEqual(pane);
+      }
+      expect(size.fontSize).toBeGreaterThan(wideAccessPinBox.fontSize);
+    }
   });
 });
