@@ -1687,5 +1687,21 @@
   "installGuideStepAndroidMenu": "Öffne das Menü deines Browsers, meist <b>⋮</b> neben der Adressleiste.",
   "installGuideStepAndroidAdd": "Tippe auf <b>Zum Startbildschirm hinzufügen</b> oder <b>Installieren</b>.",
   "installGuideStepAndroidConfirm": "Bestätige mit <b>Hinzufügen</b> oder <b>Installieren</b>.",
-  "installGuideStepGenericMenu": "Öffne das Menü deines Browsers oder tippe auf <b>Teilen</b>."
+  "installGuideStepGenericMenu": "Öffne das Menü deines Browsers oder tippe auf <b>Teilen</b>.",
+  "officeInvitationSubject": "{booker} hat ein Privatbüro für dich gebucht",
+  "officeInvitationHeading": "{booker} hat ein Privatbüro für dich gebucht: {date}",
+  "officeInvitationSpaceLabel": "Raum",
+  "officeInvitationDateLabel": "Datum",
+  "officeInvitationBookedByLabel": "Gebucht von",
+  "officeInvitationReason": "Du bekommst diese E-Mail, weil {booker} deine Adresse zur Reservierung hinzugefügt hat. Fragen? Antworte einfach oder schreib an {email}.",
+  "officeInvitationPeopleLabel": "Wer kommt",
+  "officeInvitationPeopleYou": "{name} (du)",
+  "officeInvitationPeopleNote": "Alle bekommen eine eigene E-Mail mit dem Zugang.",
+  "officeInviteeCancellationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, wurde storniert",
+  "officeInviteeCancellationBody": "Die unten aufgeführte Reservierung wurde storniert, und dein Zugangscode funktioniert nicht mehr.",
+  "officeInviteeRestorationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, gilt wieder",
+  "officeInviteeRestorationHeading": "Das Privatbüro, das {booker} für dich gebucht hat, wurde wiederhergestellt",
+  "officeInviteeRestorationBody": "Wir haben die unten aufgeführte Reservierung wiederhergestellt, sie gilt wieder. Die frühere Nachricht über ihre Stornierung ist damit hinfällig.",
+  "officeInviteeRestorationNewAccessCode": "Wir haben einen neuen Zugangscode ausgestellt; du öffnest ihn unten.",
+  "officeInviteeListRejected": "Prüf bitte die Personen, die du hinzugefügt hast, und versuch es noch einmal."
 }

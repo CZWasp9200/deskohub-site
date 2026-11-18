@@ -205,6 +205,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
           inviteeId: row.id,
           sentAt: sentAt.add({ seconds: 59 }),
           cooldown,
+          previousSendCount: 1,
         })
       )
     );
@@ -214,11 +215,34 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
           inviteeId: row.id,
           sentAt: sentAt.add({ seconds: 60 }),
           cooldown,
+          previousSendCount: 1,
         })
       )
     );
     expect(Option.isNone(tooSoon)).toBe(true);
     expect(claimed).toEqual(Option.some(2));
+    const resentAt = sentAt.add({ seconds: 60 });
+    await run(
+      ReservationInvitees.use((invitees) =>
+        invitees.releaseFailedResend({
+          inviteeId: row.id,
+          sendCount: 2,
+          sentAt: resentAt,
+          previousSentAt: sentAt,
+        })
+      )
+    );
+    const reclaimed = await run(
+      ReservationInvitees.use((invitees) =>
+        invitees.claimResend({
+          inviteeId: row.id,
+          sentAt: resentAt,
+          cooldown,
+          previousSendCount: 1,
+        })
+      )
+    );
+    expect(reclaimed).toEqual(Option.some(2));
   });
 
   test("lists rows due after retention, honouring a later access end", async () => {
@@ -319,7 +343,10 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
 
     await run(
       ReservationInvitees.use((invitees) =>
-        invitees.deleteForAccount({ accountId: account })
+        invitees.deleteForAccount({
+          accountId: account,
+          email: testEmailAddress("deleted-invitee"),
+        })
       )
     );
     expect(

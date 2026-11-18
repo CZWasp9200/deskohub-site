@@ -64,6 +64,10 @@ import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnig
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
 import {
   makeMemoryRequestBudget,
@@ -87,6 +91,7 @@ import {
   CustomerBookingCheckoutLayers,
 } from "./customer-booking-checkout-layers";
 import { CustomerCheckoutOperations } from "./customer-checkout-operations.service";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 import {
   CustomerReservationLayers,
   type CustomerReservationServiceLayers,
@@ -244,6 +249,13 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
+  invitedReservations: () => Layer.mock(CustomerInvitedReservationsService, {}),
+  invitationResend: Layer.mergeAll(
+    Layer.mock(WorkspaceReservationRepository, {}),
+    Layer.mock(WorkspaceReservationService, {}),
+    Layer.mock(ReservationInvitees, {}),
+    Layer.mock(ReservationInvitations, {})
+  ),
   currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
   authorization: Layer.mock(ReservationAuthorizationService, {}),

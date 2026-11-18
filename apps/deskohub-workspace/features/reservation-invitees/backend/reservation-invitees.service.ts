@@ -225,6 +225,11 @@ export interface IReservationInvitees {
     Option.Option<ReservationInvitee>,
     ReservationInviteeStorageError
   >;
+  /** Whether a link still names an invitee whose address is retained. */
+  readonly hasInvitation: (
+    reservationId: WorkspaceReservationId,
+    inviteeId: ReservationInviteeId
+  ) => Effect.Effect<boolean, ReservationInviteeStorageError>;
   /**
    * The reservations that invited a signed-in account: rows whose address
    * digest matches its verified email under any configured key, and rows the
@@ -253,8 +258,16 @@ export interface IReservationInvitees {
   readonly claimResend: (input: {
     readonly inviteeId: ReservationInviteeId;
     readonly sentAt: Temporal.Instant;
-    readonly cooldown: Temporal.Duration;
+    readonly cooldown: Temporal.DurationLike;
+    readonly previousSendCount: number;
   }) => Effect.Effect<Option.Option<number>, ReservationInviteeStorageError>;
+  /** Releases precisely this failed resend, preserving a newer claim. */
+  readonly releaseFailedResend: (input: {
+    readonly inviteeId: ReservationInviteeId;
+    readonly sendCount: number;
+    readonly sentAt: Temporal.Instant;
+    readonly previousSentAt: Temporal.Instant | null;
+  }) => Effect.Effect<void, ReservationInviteeStorageError>;
   /** Deletes the reservation's rows, for a released hold. */
   readonly deleteForReservation: (
     reservationId: WorkspaceReservationId
@@ -289,6 +302,7 @@ export interface IReservationInvitees {
   readonly deleteForAccount: (input: {
     readonly accountId: CustomerAccountId;
     readonly dotyposCustomerId?: DotyposCustomerId | null;
+    readonly email: string;
   }) => Effect.Effect<void, ReservationInviteeStorageError>;
 }
 
@@ -332,7 +346,7 @@ const pragueTimeZone = workspaceSiteConstants.location.timeZone;
  * retry books an expired or retried order again under the same id, so its
  * rows stay until retrying it is no longer plausible.
  */
-const unpaidRetryWindow = Temporal.Duration.from({ hours: 7 * 24 });
+const unpaidRetryWindow = { hours: 7 * 24 };
 
 export class ReservationInvitees extends Context.Service<
   ReservationInvitees,
@@ -472,6 +486,28 @@ export class ReservationInvitees extends Context.Service<
             ),
             reservationId
           ).pipe(Effect.map(Arr.head)),
+        hasInvitation: (reservationId, inviteeId) =>
+          db
+            .select({ id: reservationInvitees.id })
+            .from(reservationInvitees)
+            .where(
+              and(
+                eq(reservationInvitees.workspaceReservationId, reservationId),
+                eq(reservationInvitees.id, inviteeId),
+                isNotNull(reservationInvitees.keyId)
+              )
+            )
+            .limit(1)
+            .pipe(
+              Effect.map((rows) => rows.length > 0),
+              Effect.mapError(
+                storageError(
+                  "load",
+                  "Invitation could not be checked.",
+                  reservationId
+                )
+              )
+            ),
         findInvitedReservations: Effect.fn(
           "reservationInvitees.findInvitedReservations"
         )(function* (viewer) {
@@ -527,7 +563,7 @@ export class ReservationInvitees extends Context.Service<
                 storageError("write", "An invitation could not be recorded.")
               )
             ),
-        claimResend: ({ inviteeId, sentAt, cooldown }) =>
+        claimResend: ({ inviteeId, sentAt, cooldown, previousSendCount }) =>
           db
             .update(reservationInvitees)
             .set({
@@ -537,6 +573,7 @@ export class ReservationInvitees extends Context.Service<
             .where(
               and(
                 eq(reservationInvitees.id, inviteeId),
+                eq(reservationInvitees.invitationSendCount, previousSendCount),
                 isNotNull(reservationInvitees.keyId),
                 or(
                   sql`${reservationInvitees.lastInvitationSentAt} is null`,
@@ -553,6 +590,31 @@ export class ReservationInvitees extends Context.Service<
               ),
               Effect.mapError(
                 storageError("write", "A resend could not be recorded.")
+              )
+            ),
+        releaseFailedResend: ({
+          inviteeId,
+          sendCount,
+          sentAt,
+          previousSentAt,
+        }) =>
+          db
+            .update(reservationInvitees)
+            .set({
+              invitationSendCount: sendCount - 1,
+              lastInvitationSentAt: previousSentAt,
+            })
+            .where(
+              and(
+                eq(reservationInvitees.id, inviteeId),
+                eq(reservationInvitees.invitationSendCount, sendCount),
+                eq(reservationInvitees.lastInvitationSentAt, sentAt)
+              )
+            )
+            .pipe(
+              Effect.asVoid,
+              Effect.mapError(
+                storageError("write", "A failed resend could not be released.")
               )
             ),
         deleteForReservation: (reservationId) =>
@@ -691,12 +753,18 @@ export class ReservationInvitees extends Context.Service<
                     storageError("write", "Invitee rows could not be deleted.")
                   )
                 ),
-        deleteForAccount: ({ accountId, dotyposCustomerId }) =>
+        deleteForAccount: ({ accountId, dotyposCustomerId, email }) =>
           db
             .delete(reservationInvitees)
             .where(
               or(
                 eq(reservationInvitees.customerAccountId, accountId),
+                inArray(
+                  reservationInvitees.emailLookupKey,
+                  keys
+                    .digests(InviteeEmail.make(email.trim().toLowerCase()))
+                    .map(({ digest }) => digest)
+                ),
                 ...(dotyposCustomerId
                   ? [
                       eq(
@@ -709,11 +777,12 @@ export class ReservationInvitees extends Context.Service<
             )
             .pipe(
               Effect.asVoid,
-              Effect.mapError(
+              Effect.withTracerEnabled(false),
+              Effect.mapError((error) =>
                 storageError(
                   "write",
                   "A deleted account's invitee rows could not be deleted."
-                )
+                )(censorDatabaseQueryError(error))
               )
             ),
       });

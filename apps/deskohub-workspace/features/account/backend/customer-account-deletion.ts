@@ -1,5 +1,9 @@
 import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Option } from "effect";
+import {
+  type ReservationInviteeStorageError,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccounts } from "@/features/review-accounts";
 import { catchRecoverableCause } from "@/shared/backend/workspace-effect";
 import type {
@@ -12,7 +16,10 @@ import {
   type CustomerAccountLinkError,
   CustomerAccountLinkRepository,
 } from "./customer-account-link.repository";
-import { CustomerAccountSections } from "./customer-account-sections";
+import {
+  CustomerAccountSections,
+  HeldCustomerAccount,
+} from "./customer-account-sections";
 import {
   type CustomerAvatarProviderError,
   CustomerAvatarService,
@@ -39,7 +46,8 @@ type CustomerAccountDeletionError =
   | CustomerAccountLinkError
   | DotyposCustomerError
   | CustomerAvatarProviderError
-  | CustomerAvatarUnavailableError;
+  | CustomerAvatarUnavailableError
+  | ReservationInviteeStorageError;
 
 /**
  * The fixed, low-cardinality fields a deletion that stays retryable logs.
@@ -78,6 +86,10 @@ export type CustomerAccountDeletionDependencies = {
     void,
     CustomerAvatarProviderError | CustomerAvatarUnavailableError
   >;
+  readonly deleteInvitations: (
+    accountId: CustomerAccountId,
+    dotyposCustomerId: DotyposCustomerId | null
+  ) => Effect.Effect<void, ReservationInviteeStorageError, HeldCustomerAccount>;
   readonly tombstone: (
     accountId: CustomerAccountId,
     deletedAt: Temporal.Instant
@@ -137,6 +149,7 @@ export const expireLinkedDotyposProfile = (
           // provider outcome fails retryably so deletion stays retryable,
           // and a missing asset is idempotent success.
           yield* dependencies.destroyAvatar(accountId);
+          yield* dependencies.deleteInvitations(accountId, linkedCustomerId);
 
           // The tombstone goes last, once nothing retryable remains, and
           // before Better Auth removes the identity rows, so reservations
@@ -193,6 +206,7 @@ export class CustomerAccountDeletionService extends Context.Service<
       const reviewAccounts = yield* ReviewAccounts;
       const analyticsPersons = yield* AnalyticsPersonAnonymisation;
       const sections = yield* CustomerAccountSections;
+      const invitees = yield* ReservationInvitees;
 
       const requestDeletion = expireLinkedDotyposProfile({
         isReviewAccount: reviewAccounts.isReviewAccount,
@@ -200,6 +214,10 @@ export class CustomerAccountDeletionService extends Context.Service<
         findLink: links.find,
         expireCustomer: dotypos.expireCustomer,
         destroyAvatar: avatars.destroy,
+        deleteInvitations: (accountId, dotyposCustomerId) =>
+          Effect.flatMap(HeldCustomerAccount, ({ email }) =>
+            invitees.deleteForAccount({ accountId, dotyposCustomerId, email })
+          ),
         tombstone: accounts.tombstone,
         withActiveAccount: sections.withActiveAccount,
         anonymiseAnalyticsPerson: analyticsPersons.anonymiseDeletedAccount,
@@ -218,7 +236,8 @@ export class CustomerAccountDeletionService extends Context.Service<
         CustomerAvatarService.Live,
         ReviewAccounts.Live,
         AnalyticsPersonAnonymisation.Live,
-        CustomerAccountSections.Live
+        CustomerAccountSections.Live,
+        ReservationInvitees.Default
       )
     )
   );

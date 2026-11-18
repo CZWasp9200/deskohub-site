@@ -1687,5 +1687,21 @@
   "installGuideStepAndroidMenu": "अपने ब्राउज़र का मेनू खोलें, आम तौर पर पता बार के पास <b>⋮</b>।",
   "installGuideStepAndroidAdd": "<b>Add to Home Screen</b> या <b>इंस्टॉल करें</b> पर टैप करें।",
   "installGuideStepAndroidConfirm": "<b>Add</b> या <b>इंस्टॉल करें</b> से पुष्टि करें।",
-  "installGuideStepGenericMenu": "अपने ब्राउज़र का मेनू या उसका <b>शेयर करें</b> बटन खोलें।"
+  "installGuideStepGenericMenu": "अपने ब्राउज़र का मेनू या उसका <b>शेयर करें</b> बटन खोलें।",
+  "officeInvitationSubject": "{booker} ने आपके लिए निजी ऑफ़िस बुक किया है",
+  "officeInvitationHeading": "{booker} ने {date} के लिए आपके लिए निजी ऑफ़िस बुक किया है",
+  "officeInvitationSpaceLabel": "जगह",
+  "officeInvitationDateLabel": "तारीख़",
+  "officeInvitationBookedByLabel": "बुक करने वाले",
+  "officeInvitationReason": "आपको यह ईमेल इसलिए मिला है क्योंकि {booker} ने अपनी बुकिंग में आपका पता जोड़ा है। कोई सवाल? इस ईमेल का जवाब दें या {email} पर लिखें।",
+  "officeInvitationPeopleLabel": "कौन आ रहा है",
+  "officeInvitationPeopleYou": "{name} (आप)",
+  "officeInvitationPeopleNote": "हर व्यक्ति को प्रवेश का अपना ईमेल मिलेगा।",
+  "officeInviteeCancellationSubject": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस रद्द कर दिया गया है",
+  "officeInviteeCancellationBody": "नीचे दी गई बुकिंग रद्द कर दी गई है, और आपका प्रवेश कोड अब काम नहीं करेगा।",
+  "officeInviteeRestorationSubject": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस फिर से मान्य है",
+  "officeInviteeRestorationHeading": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस बहाल कर दिया गया है",
+  "officeInviteeRestorationBody": "नीचे दी गई बुकिंग बहाल कर दी गई है और फिर से मान्य है। उसके रद्द होने की पिछली सूचना अब लागू नहीं है।",
+  "officeInviteeRestorationNewAccessCode": "हमने नया प्रवेश कोड जारी किया है; उसे नीचे खोलें।",
+  "officeInviteeListRejected": "जोड़े गए लोगों की सूची जाँचें और फिर से कोशिश करें।"
 }

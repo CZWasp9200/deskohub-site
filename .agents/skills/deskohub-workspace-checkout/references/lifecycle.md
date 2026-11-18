@@ -131,7 +131,7 @@ Lookup keys survive `CHECKOUT_PAY_STATE_KEYS` rotation. Each configured key deri
 
 ### Rotating `CHECKOUT_PAY_STATE_KEYS`
 
-The value is an ordered `kid:base64url-32-byte-key` list. The first entry is active: it seals new Pay-state tokens and derives new lookup keys. Every entry opens its tokens and is accepted for lookups. Code reads it only through the `SealedStateKeys` capability (`shared/backend/sealed-state-keys.service.ts`): its `ring` seals and opens every sealed state, including purpose-bound auth return state, whose tokens live 30 minutes, and its `configured` string keys only the ring-keyed lookup digest. Wait out the longest token lifetime before retiring a key.
+The value is an ordered `kid:base64url-32-byte-key` list. The first entry is active: it seals new Pay-state tokens and derives new lookup keys. Every entry opens its tokens and is accepted for lookups. Code reads it only through the `SealedStateKeys` capability (`shared/backend/sealed-state-keys.service.ts`): its `ring` seals and opens every sealed state, including purpose-bound auth return state, whose tokens live 30 minutes, and its `configured` string keys only the ring-keyed lookup digest. Wait out the longest token lifetime before retiring a key. Also verify that no `reservation_invitees` row is still sealed under the retiring `key_id`. The active key derives separate HKDF subkeys for invitee address encryption and email lookup. All configured keys match verified email lookups. The retention cron clears addresses after access ends plus 30 Prague days, including rescheduled access.
 
 Pay-state and advertised-price tokens keep the purposeless sealed-state format (`makeLegacySealedState`), and `checkout-state-token-formats.test.ts` pins their bytes along with the stable Pay URL. Open Pay pages and agent links hold such tokens, so a change that fails those pins breaks tokens in flight. Boundaries provide `SealedStateKeys.Default`; tests provide `TestSealedStateKeys` or run through `runSealedState` (`shared/testing/sealed-state-keys.test-utils.ts`) for another ring or a stopped clock.
 
@@ -146,6 +146,8 @@ Rotate in three complete deployments:
 Never prepend a new key in one step: an old worker could neither open new tokens nor find new lookup keys.
 
 Production stores the value as a Vercel sensitive variable that can't be read back, and every phase rewrites the whole list. Confirm the developer can supply the current entries before staging. If they can't, the only option is a one-step replace followed by a production redeploy. It breaks every open Pay page, so do it at a quiet time and only after the ring-keyed and retire checks pass. Orphaned holds still reach cleanup, which works from reservation IDs.
+
+Office checkout derives seats from the normalized list of people and binds that list, in order, into the checkout attempt key. The draft transaction records the contact's attendance flag and the sealed invitee rows together. Pay and eligible payment retries read the list by order ID. The Pay token and edit URL carry no invitee addresses. An office booking without a people list keeps its supplied seat count for legacy apps and assistant clients.
 
 ## Supersession
 

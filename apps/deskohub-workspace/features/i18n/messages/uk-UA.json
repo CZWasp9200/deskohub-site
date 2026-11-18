@@ -1721,5 +1721,21 @@
   "installGuideStepAndroidMenu": "Відкрийте меню браузера, зазвичай <b>⋮</b> поруч з адресним рядком.",
   "installGuideStepAndroidAdd": "Натисніть <b>Додати на головний екран</b> або <b>Установити</b>.",
   "installGuideStepAndroidConfirm": "Підтвердьте кнопкою <b>Додати</b> або <b>Установити</b>.",
-  "installGuideStepGenericMenu": "Відкрийте меню браузера або натисніть <b>Поширити</b>."
+  "installGuideStepGenericMenu": "Відкрийте меню браузера або натисніть <b>Поширити</b>.",
+  "officeInvitationSubject": "{booker} запрошує вас до приватного офісу",
+  "officeInvitationHeading": "{booker} запрошує вас до приватного офісу – {date}",
+  "officeInvitationSpaceLabel": "Простір",
+  "officeInvitationDateLabel": "Дата",
+  "officeInvitationBookedByLabel": "Хто забронював",
+  "officeInvitationReason": "Ви отримали цей лист, бо вашу адресу додано до бронювання від {booker}. Є запитання? Відповідайте на цей лист або напишіть на {email}.",
+  "officeInvitationPeopleLabel": "Хто прийде",
+  "officeInvitationPeopleYou": "{name} (ви)",
+  "officeInvitationPeopleNote": "Кожен отримає власний лист із доступом.",
+  "officeInviteeCancellationSubject": "Бронювання приватного офісу від {booker} скасовано",
+  "officeInviteeCancellationBody": "Наведене нижче бронювання скасовано, і ваш код доступу більше не діє.",
+  "officeInviteeRestorationSubject": "Бронювання приватного офісу від {booker} знову дійсне",
+  "officeInviteeRestorationHeading": "Бронювання приватного офісу від {booker} відновлено",
+  "officeInviteeRestorationBody": "Наведене нижче бронювання відновлено, і воно знову дійсне. Попереднє повідомлення про його скасування більше не діє.",
+  "officeInviteeRestorationNewAccessCode": "Ми видали новий код доступу, відкрийте його нижче.",
+  "officeInviteeListRejected": "Перевірте список людей і спробуйте ще раз."
 }

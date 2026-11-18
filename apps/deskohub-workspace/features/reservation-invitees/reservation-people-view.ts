@@ -2,9 +2,7 @@ import type { InviteeEmail } from "@/features/office/office-people";
 import type { ReservationInviteeId } from "./reservation-invitee";
 
 /** How long a booker waits before sending the same person's invitation again. */
-export const invitationResendCooldown = Temporal.Duration.from({
-  seconds: 60,
-});
+export const invitationResendCooldown = { seconds: 60 } as const;
 
 /** An invited person as the order's booker sees them. */
 export interface ReservationInviteeView {

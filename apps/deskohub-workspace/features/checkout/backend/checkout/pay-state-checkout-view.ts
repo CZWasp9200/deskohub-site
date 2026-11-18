@@ -1,4 +1,5 @@
-import { Effect, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import type {
   CheckoutSummary,
   CheckoutSummaryChangedKeys,
@@ -7,18 +8,23 @@ import type {
   CanonicalPromotionCode,
   DiscountId,
 } from "@/features/discounts/contracts";
+import type { Locale } from "@/features/i18n";
 import {
   getEarlyPerformanceRequestRequiredAt,
   isEarlyPerformanceRequestRequired,
 } from "@/features/legal/early-performance";
 import type { InviteeEmail } from "@/features/office/office-people";
+import { isReservationSupersedable } from "@/features/reservation/backend/reservation-supersession";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
+  type BookedOfficePeople,
   getBookedPeopleQuery,
   ReservationInvitees,
 } from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import {
+  currentInstant,
   type Instant,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
@@ -51,7 +57,7 @@ export type PayStateCheckoutView = {
   /**
    * Who is coming to an office booked with a people list; absent for any
    * other order. Read from the order's invitee rows, since the Pay state
-   * never carries an invitee's address (`withCheckoutOfficePeople`).
+   * never carries an invitee's address.
    */
   readonly people?: CheckoutOfficePeople;
 };
@@ -61,6 +67,13 @@ export type CheckoutOfficePeople = {
   readonly contactAttends: boolean;
   readonly invitees: ReadonlyArray<InviteeEmail>;
 };
+
+const toCheckoutOfficePeople = (
+  people: BookedOfficePeople
+): CheckoutOfficePeople => ({
+  contactAttends: people.contactAttends,
+  invitees: people.invitees.map(({ email }) => email),
+});
 
 /**
  * Who is coming to a Pay state's order, when it is an office booked with a
@@ -78,26 +91,65 @@ export const findCheckoutOfficePeople = Effect.fn(
       invitees.findBookedPeople(getBookedPeopleQuery(reservation))
     )
   );
-  return Option.map(
-    booked,
-    (people): CheckoutOfficePeople => ({
-      contactAttends: people.contactAttends,
-      invitees: people.invitees.map(({ email }) => email),
-    })
-  );
+  return Option.map(booked, toCheckoutOfficePeople);
 });
 
-/** The view with who is coming to its order, when that is an office. */
-export const withCheckoutOfficePeople = (view: PayStateCheckoutView) =>
-  findCheckoutOfficePeople(view.orderId).pipe(
-    Effect.map(
-      (people): PayStateCheckoutView =>
-        Option.match(people, {
-          onNone: () => view,
-          onSome: (found) => ({ ...view, people: found }),
-        })
-    )
+/**
+ * Reads the list from a held office when the Pay token belongs to this
+ * visitor. An order without an account author can be recovered with its
+ * existing signed Pay token.
+ */
+export const findCheckoutOfficePeopleForVisitor = Effect.fn(
+  "payState.findCheckoutOfficePeopleForVisitor"
+)(function* (input: {
+  readonly payStateToken: string;
+  readonly locale: Locale;
+}) {
+  const state = yield* PayState.open(input.payStateToken, {
+    locale: input.locale,
+  });
+  if (state.reservation.kind !== "office")
+    return Option.none<CheckoutOfficePeople>();
+
+  const reservations = yield* WorkspaceReservationRepository;
+  const reservation = yield* reservations.findById(state.orderId);
+  if (
+    !reservation ||
+    !isReservationSupersedable(reservation) ||
+    !reservation.reservationHoldExpiresAt
+  ) {
+    return Option.none<CheckoutOfficePeople>();
+  }
+  const now = yield* currentInstant;
+  if (
+    Temporal.Instant.compare(reservation.reservationHoldExpiresAt, now) <= 0
+  ) {
+    return Option.none<CheckoutOfficePeople>();
+  }
+  if (reservation.authorAccountId !== null) {
+    const authentication = yield* CustomerAuthentication;
+    const session = yield* authentication.currentUser;
+    if (
+      session?.accountId !== reservation.authorAccountId ||
+      session.deletionRequested
+    ) {
+      return Option.none<CheckoutOfficePeople>();
+    }
+  }
+
+  const invitees = yield* ReservationInvitees;
+  const booked = yield* invitees.findBookedPeople(
+    getBookedPeopleQuery(reservation)
   );
+  return Option.map(booked, toCheckoutOfficePeople);
+});
+
+export const checkoutOfficePeopleForVisitorServices = Layer.mergeAll(
+  CustomerAuthentication.Default,
+  ReservationInvitees.Default,
+  SealedStateKeys.Default,
+  WorkspaceReservationRepository.Live
+);
 
 export const getPayStateCheckoutView = (
   state: PayStateWithHoldExpiry,

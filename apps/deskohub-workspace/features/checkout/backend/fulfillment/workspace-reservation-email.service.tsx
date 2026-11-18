@@ -12,7 +12,7 @@ import type {
   EmailMessage,
 } from "@deskohub/email/types/email.types";
 import { generateQrCodePngBuffer } from "@deskohub/qr-code";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { env } from "@/env";
 import {
   CustomerEmailLocaleService,
@@ -30,6 +30,7 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import {
   type EmailKind,
@@ -83,6 +84,7 @@ export interface IWorkspaceReservationEmailService {
      * earlier code no longer works.
      */
     readonly accessReissued: boolean;
+    readonly cancelledAt?: Temporal.Instant;
   }) => Effect.Effect<void, EmailSendError>;
 }
 
@@ -314,6 +316,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
       const networkDetailsService =
         yield* WorkspaceCheckoutNetworkDetailsService;
       const emailLocaleService = yield* CustomerEmailLocaleService;
+      const invitations = yield* ReservationInvitations;
       const resolveCustomerEmailLocale =
         createCustomerEmailLocaleResolver(emailLocaleService);
 
@@ -464,11 +467,11 @@ export class WorkspaceReservationEmailService extends Context.Service<
             category: "workspace-reservation-cancellation",
             render: (locale) =>
               renderReservationCancellationEmail({ locale, reservation }),
-          })
+          }).pipe(Effect.onExit(() => invitations.notifyCancelled(reservation)))
         ),
         sendRestorationEmail: Effect.fn(
           "WorkspaceReservationEmailService.sendRestorationEmail"
-        )(({ reservation, accessReissued }) =>
+        )(({ reservation, accessReissued, cancelledAt }) =>
           sendCustomerNotice({
             reservation,
             category: "workspace-reservation-restoration",
@@ -488,7 +491,15 @@ export class WorkspaceReservationEmailService extends Context.Service<
                 ...(accessUrl && { accessUrl }),
               });
             }),
-          })
+          }).pipe(
+            Effect.onExit(() =>
+              invitations.notifyRestored({
+                reservation,
+                accessReissued,
+                cancelledAt,
+              })
+            )
+          )
         ),
         sendPaidReservationEmails: Effect.fn(
           "WorkspaceReservationEmailService.sendPaidReservationEmails"
@@ -541,11 +552,13 @@ export class WorkspaceReservationEmailService extends Context.Service<
               ).pipe(Effect.as(undefined))
             )
           );
+          const people = yield* invitations.bookerPeople(reservation);
           const renderedCustomerEmail = yield* renderCustomerReservationEmail({
             locale,
             reservation,
             accessUrl,
             invoiceUrl,
+            ...(Option.isSome(people) && { people: people.value }),
             network: {
               ssid: networkDetails.ssid,
               password: networkDetails.password,
@@ -580,6 +593,10 @@ export class WorkspaceReservationEmailService extends Context.Service<
                 })
               )
             );
+
+          // Each invited person gets their own invitation once the booker's
+          // confirmation is out; a failed one never fails fulfillment.
+          yield* invitations.sendAll(reservation);
 
           const confirmableAuthor = getConfirmableAuthor(
             input.author,

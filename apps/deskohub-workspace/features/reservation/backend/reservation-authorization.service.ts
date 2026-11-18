@@ -40,7 +40,8 @@ type ReservationPermission =
   | "open-payment-page"
   | "retry-payment"
   | "view-access-code"
-  | "view-invoice";
+  | "view-invoice"
+  | "resend-invitation";
 
 /**
  * Who may see what. The customer's emailed capability links, the access
@@ -56,6 +57,7 @@ const reservationAccessPolicy = {
     "retry-payment",
     "view-access-code",
     "view-invoice",
+    "resend-invitation",
   ],
   customer: [
     "view-status",
@@ -63,8 +65,14 @@ const reservationAccessPolicy = {
     "retry-payment",
     "view-access-code",
     "view-invoice",
+    "resend-invitation",
   ],
-  author: ["view-status", "open-payment-page", "retry-payment"],
+  author: [
+    "view-status",
+    "open-payment-page",
+    "retry-payment",
+    "resend-invitation",
+  ],
   // A person the booker invited sees the door code and nothing else of the
   // order: no status, payment, invoice or other people.
   invitee: ["view-access-code"],
@@ -251,16 +259,18 @@ export class ReservationAuthorizationService extends Context.Service<
         if (!grants("invitee", input.permission)) return false;
         const invitation = yield* openedInvitation(input);
         if (Option.isSome(invitation)) {
-          const invitee = yield* invitees.find(
-            input.orderId,
-            invitation.value.inviteeId
-          );
-          if (Option.isSome(invitee)) return true;
+          if (
+            yield* invitees.hasInvitation(
+              input.orderId,
+              invitation.value.inviteeId
+            )
+          )
+            return true;
         }
 
         const account = yield* unlessDenied(ownership.activeAccount);
         if (Option.isNone(account)) return false;
-        const linked = yield* unlessDenied(ownership.resolve);
+        const linked = yield* ownership.resolve.pipe(Effect.option);
         const invited = yield* invitees.findInvitedReservations({
           accountId: account.value.accountId,
           email: account.value.email,
@@ -310,12 +320,15 @@ export class ReservationAuthorizationService extends Context.Service<
       const decide = Effect.fnUntraced(function* (
         input: ReservationAuthorizationInput
       ) {
-        if (yield* decideCustomer(input)) {
+        const customer = yield* decideCustomer(input).pipe(Effect.result);
+        if (Result.isSuccess(customer) && customer.success) {
           return Option.some<ReservationViewer>("customer");
         }
-        return (yield* isInvitee(input))
-          ? Option.some<ReservationViewer>("invitee")
-          : Option.none<ReservationViewer>();
+        if (yield* isInvitee(input))
+          return Option.some<ReservationViewer>("invitee");
+        if (Result.isFailure(customer))
+          return yield* Effect.fail(customer.failure);
+        return Option.none<ReservationViewer>();
       });
 
       const authorizeViewer = Effect.fn(

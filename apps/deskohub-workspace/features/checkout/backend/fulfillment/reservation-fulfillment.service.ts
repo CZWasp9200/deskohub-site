@@ -25,6 +25,7 @@ import {
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
@@ -1081,11 +1082,14 @@ export class ReservationFulfillment extends Context.Service<
       Layer.provideMerge(
         WorkspaceReservationEmailService.Default,
         Layer.provideMerge(
+          ReservationInvitations.Live,
           Layer.provideMerge(
-            WorkspaceEmailLayer,
-            WorkspaceCheckoutNetworkDetailsService.Default
-          ),
-          CustomerEmailLocaleService.Live
+            Layer.provideMerge(
+              WorkspaceEmailLayer,
+              WorkspaceCheckoutNetworkDetailsService.Default
+            ),
+            CustomerEmailLocaleService.Live
+          )
         )
       )
     ),

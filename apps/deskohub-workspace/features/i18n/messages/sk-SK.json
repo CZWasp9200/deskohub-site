@@ -1721,5 +1721,21 @@
   "installGuideStepAndroidMenu": "Otvor menu prehliadača, zvyčajne <b>⋮</b> vedľa adresného riadka.",
   "installGuideStepAndroidAdd": "Ťukni na <b>Pridať na plochu</b> alebo <b>Inštalovať</b>.",
   "installGuideStepAndroidConfirm": "Potvrď tlačidlom <b>Pridať</b> alebo <b>Inštalovať</b>.",
-  "installGuideStepGenericMenu": "Otvor menu prehliadača alebo tlačidlo <b>Zdieľať</b>."
+  "installGuideStepGenericMenu": "Otvor menu prehliadača alebo tlačidlo <b>Zdieľať</b>.",
+  "officeInvitationSubject": "{booker} ťa pozýva do súkromnej kancelárie",
+  "officeInvitationHeading": "{booker} ťa pozýva do súkromnej kancelárie – {date}",
+  "officeInvitationSpaceLabel": "Priestor",
+  "officeInvitationDateLabel": "Dátum",
+  "officeInvitationBookedByLabel": "Rezervácia od",
+  "officeInvitationReason": "Tento e-mail ti prišiel, pretože tvoja adresa je uvedená v rezervácii od {booker}. Máš otázku? Odpovedz na tento e-mail alebo napíš na {email}.",
+  "officeInvitationPeopleLabel": "Kto príde",
+  "officeInvitationPeopleYou": "{name} (ty)",
+  "officeInvitationPeopleNote": "Každý dostane vlastný e-mail s prístupom.",
+  "officeInviteeCancellationSubject": "Rezervácia súkromnej kancelárie od {booker} bola zrušená",
+  "officeInviteeCancellationBody": "Rezervácia uvedená nižšie bola zrušená a tvoj prístupový kód už nefunguje.",
+  "officeInviteeRestorationSubject": "Rezervácia súkromnej kancelárie od {booker} opäť platí",
+  "officeInviteeRestorationHeading": "Rezervácia súkromnej kancelárie od {booker} bola obnovená",
+  "officeInviteeRestorationBody": "Rezerváciu uvedenú nižšie sme obnovili a opäť platí. Predchádzajúce oznámenie o jej zrušení už neplatí.",
+  "officeInviteeRestorationNewAccessCode": "Vydali sme nový prístupový kód, otvoríš ho nižšie.",
+  "officeInviteeListRejected": "Skontroluj prosím zoznam ľudí a skús to znova."
 }

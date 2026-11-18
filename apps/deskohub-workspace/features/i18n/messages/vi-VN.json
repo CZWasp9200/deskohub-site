@@ -1670,5 +1670,21 @@
   "installGuideStepAndroidMenu": "Mở menu của trình duyệt, thường là <b>⋮</b> cạnh thanh địa chỉ.",
   "installGuideStepAndroidAdd": "Chạm vào <b>Add to Home Screen</b> hoặc <b>Cài đặt</b>.",
   "installGuideStepAndroidConfirm": "Xác nhận bằng <b>Add</b> hoặc <b>Cài đặt</b>.",
-  "installGuideStepGenericMenu": "Mở menu của trình duyệt hoặc nút <b>Chia sẻ</b>."
+  "installGuideStepGenericMenu": "Mở menu của trình duyệt hoặc nút <b>Chia sẻ</b>.",
+  "officeInvitationSubject": "{booker} đã đặt văn phòng riêng cho bạn",
+  "officeInvitationHeading": "{booker} đã đặt văn phòng riêng cho bạn vào {date}",
+  "officeInvitationSpaceLabel": "Không gian",
+  "officeInvitationDateLabel": "Ngày",
+  "officeInvitationBookedByLabel": "Người đặt",
+  "officeInvitationReason": "Bạn nhận được email này vì {booker} đã thêm địa chỉ của bạn vào đặt chỗ của họ. Có câu hỏi? Hãy trả lời email này hoặc viết cho chúng tôi tại {email}.",
+  "officeInvitationPeopleLabel": "Ai sẽ đến",
+  "officeInvitationPeopleYou": "{name} (bạn)",
+  "officeInvitationPeopleNote": "Mỗi người sẽ nhận email ra vào riêng.",
+  "officeInviteeCancellationSubject": "Văn phòng riêng {booker} đặt cho bạn đã bị hủy",
+  "officeInviteeCancellationBody": "Đặt chỗ dưới đây đã bị hủy và mã ra vào của bạn không còn hoạt động.",
+  "officeInviteeRestorationSubject": "Văn phòng riêng {booker} đặt cho bạn đã có hiệu lực trở lại",
+  "officeInviteeRestorationHeading": "Văn phòng riêng {booker} đặt cho bạn đã được khôi phục",
+  "officeInviteeRestorationBody": "Đặt chỗ dưới đây đã được khôi phục và có hiệu lực trở lại. Thông báo hủy trước đó không còn áp dụng.",
+  "officeInviteeRestorationNewAccessCode": "Chúng tôi đã cấp mã ra vào mới, hãy mở mã bên dưới.",
+  "officeInviteeListRejected": "Hãy kiểm tra danh sách người bạn đã thêm rồi thử lại."
 }

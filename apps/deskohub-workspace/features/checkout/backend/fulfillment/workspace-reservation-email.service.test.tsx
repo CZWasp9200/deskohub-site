@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -134,6 +135,7 @@ const makeReservation = (
     coffee: false,
   },
   locale: "en-US",
+  providerStatus: "CONFIRMED",
   customer,
   reservedFrom: Temporal.Instant.from("2026-06-12T07:00:00Z"),
   reservedUntil: Temporal.Instant.from("2026-06-12T11:00:00Z"),
@@ -192,6 +194,7 @@ const sendPaidReservationEmail = async (
     }).pipe(
       Effect.provide(
         WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(NoReservationInvitations),
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(EmailServiceTag, emailService),
@@ -555,6 +558,7 @@ describe("workspace reservation email details", () => {
       }).pipe(
         Effect.provide(
           WorkspaceReservationEmailService.Default.pipe(
+            Layer.provide(NoReservationInvitations),
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(EmailServiceTag, emailService),
@@ -701,6 +705,7 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     }).pipe(
       Effect.provide(
         WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(NoReservationInvitations),
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(EmailServiceTag, emailService),
@@ -946,6 +951,7 @@ describe("sendPaidReservationEmails author confirmation", () => {
     }).pipe(
       Effect.provide(
         WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(NoReservationInvitations),
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(EmailServiceTag, emailService),
@@ -1183,6 +1189,7 @@ describe("sendPaidReservationEmails idempotency", () => {
       }).pipe(
         Effect.provide(
           WorkspaceReservationEmailService.Default.pipe(
+            Layer.provide(NoReservationInvitations),
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(EmailServiceTag, emailService),
@@ -1270,6 +1277,7 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
         }).pipe(
           Effect.provide(
             WorkspaceReservationEmailService.Default.pipe(
+              Layer.provide(NoReservationInvitations),
               Layer.provide(
                 Layer.mergeAll(
                   Layer.succeed(EmailServiceTag, emailService),
@@ -1376,6 +1384,7 @@ describe("sendPaidReservationEmails reservation access capability", () => {
     }).pipe(
       Effect.provide(
         WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(NoReservationInvitations),
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(EmailServiceTag, emailService),
@@ -1502,6 +1511,7 @@ describe("sendPaidReservationEmails reservation access capability", () => {
     }).pipe(
       Effect.provide(
         WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(NoReservationInvitations),
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(EmailServiceTag, emailService),
@@ -1674,6 +1684,7 @@ const runCustomerNoticeScenario = async (
       }).pipe(
         Effect.provide(
           WorkspaceReservationEmailService.Default.pipe(
+            Layer.provide(NoReservationInvitations),
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(EmailServiceTag, emailService),

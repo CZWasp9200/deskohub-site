@@ -301,7 +301,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "15. November 2026",
+    updatedAt: "18. November 2026",
     sections: [
       {
         heading: "1. Verantwortlicher",
@@ -337,6 +337,19 @@ const legalDocuments = {
             Produktfamilie und das gewählte Produkt der Reservierung, Datum oder
             Datumsbereich, Beginn, Dauer, Anzahl der Plätze und etwaige
             Coworking-Wünsche zu Verpflegung, Monitoren oder Workstation.
+          </>,
+          <>
+            Die E-Mail-Adresse einer eingeladenen Person erhalten wir von dem
+            Kunden, der das private Büro reserviert hat. Wir verwenden sie, um
+            die Einladung und Mitteilungen zu Änderungen der Reservierung zu
+            senden und der eingeladenen Person Zugang zum Büro zu ermöglichen.
+            Rechtsgrundlage ist unser berechtigtes Interesse daran, eingeladenen
+            Personen die Nutzung der Reservierung zu ermöglichen und sie über
+            deren Status zu informieren. Wir speichern die Adresse bis 30 Tage
+            nach Ende des Zugangs. Gehört sie zu einem Kundenkonto oder einem
+            registrierten Kunden, speichern wir danach nur die Zuordnung der
+            Einladung zu diesem Konto oder Kundendatensatz, solange das Konto
+            oder der Datensatz besteht.
           </>,
           <>
             Wenn Sie mit der Bestellung fortfahren, verarbeiten wir außerdem den

@@ -78,10 +78,7 @@ export const reservationInvitees = pgTable(
       "reservation_invitees_invitation_send_count_check",
       sql`${t.invitationSendCount} >= 0`
     ),
-    check(
-      "reservation_invitees_key_id_check",
-      sql`${t.keyId} <> ''`
-    ),
+    check("reservation_invitees_key_id_check", sql`${t.keyId} <> ''`),
     check(
       "reservation_invitees_address_check",
       sql`(

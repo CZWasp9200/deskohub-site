@@ -1687,5 +1687,21 @@
   "installGuideStepAndroidMenu": "Open your browser's menu, usually <b>⋮</b> next to the address bar.",
   "installGuideStepAndroidAdd": "Tap <b>Add to Home screen</b> or <b>Install app</b>.",
   "installGuideStepAndroidConfirm": "Confirm with <b>Add</b> or <b>Install</b>.",
-  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button."
+  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button.",
+  "officeInvitationSubject": "{booker} booked a private office for you",
+  "officeInvitationHeading": "{booker} booked a private office for you on {date}",
+  "officeInvitationSpaceLabel": "Space",
+  "officeInvitationDateLabel": "Date",
+  "officeInvitationBookedByLabel": "Booked by",
+  "officeInvitationReason": "You got this email because {booker} added your address to their reservation. Questions? Reply or write to {email}.",
+  "officeInvitationPeopleLabel": "People",
+  "officeInvitationPeopleYou": "{name} (you)",
+  "officeInvitationPeopleNote": "Everyone gets their own access email.",
+  "officeInviteeCancellationSubject": "The private office {booker} booked for you was cancelled",
+  "officeInviteeCancellationBody": "The reservation below has been cancelled, and your access PIN no longer works.",
+  "officeInviteeRestorationSubject": "The private office {booker} booked for you is valid again",
+  "officeInviteeRestorationHeading": "The private office {booker} booked for you has been restored",
+  "officeInviteeRestorationBody": "We have restored the reservation below, and it is valid again. The earlier cancellation notice no longer applies.",
+  "officeInviteeRestorationNewAccessCode": "We have issued a new access code; open it below.",
+  "officeInviteeListRejected": "Check the people you added and try again."
 }

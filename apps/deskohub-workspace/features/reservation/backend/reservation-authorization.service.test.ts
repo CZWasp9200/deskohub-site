@@ -150,13 +150,8 @@ const prepareAuthorization = (options: AuthorizationOptions) => {
           resolve: Effect.suspend(resolve),
         }),
         Layer.mock(ReservationInvitees, {
-          find: (_orderId, inviteeId) =>
-            Effect.succeed(
-              Option.filter(
-                Option.fromNullishOr(options.invitee),
-                (invitee) => invitee.id === inviteeId
-              )
-            ),
+          hasInvitation: (_orderId, inviteeId) =>
+            Effect.succeed(options.invitee?.id === inviteeId),
           findInvitedReservations: () =>
             Effect.succeed(options.invitedOrders ?? []),
         }),
@@ -527,6 +522,19 @@ describe("invited people", () => {
 
     expect(accessCode).toEqual(Option.some("invitee"));
     expect(status).toEqual(Option.none());
+  });
+
+  test("a personal invitation works even when the visitor's account cannot be read", async () => {
+    expect(
+      await runViewer({
+        owner: "unavailable",
+        invitee: { id: inviteeId },
+        input: {
+          invitationToken: await invitationToken(),
+          permission: "view-access-code",
+        },
+      })
+    ).toEqual(Option.some("invitee"));
   });
 
   test("an invitation stops opening once its invitee is gone", async () => {
