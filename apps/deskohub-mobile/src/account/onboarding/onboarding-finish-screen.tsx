@@ -16,6 +16,7 @@ import { Button } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
 import { FocusedStatusBar } from "../../ui/focused-status-bar";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { LeaveOnboarding } from "./onboarding-gate";
 import { finishOnboardingAt, onboardingHref } from "./onboarding-routes";
 
@@ -38,6 +39,7 @@ export function OnboardingFinishScreen() {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.screen}>
       <FocusedStatusBar style="dark" />
+      <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
       <View style={styles.body}>
         <EmptyState
           icon={CircleCheck}
@@ -67,6 +69,7 @@ export function OnboardingFinishScreen() {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  updateOffer: { marginHorizontal: space.gutter, marginTop: space.md },
   body: {
     flex: 1,
     justifyContent: "center",

@@ -38,6 +38,7 @@ import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Text } from "../../ui/text";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type {
   CheckoutDetails,
   DetailsNotice,
@@ -225,6 +226,7 @@ export function DetailsStep(props: DetailsStepProps) {
           onScroll={onScroll}
           scrollEventThrottle={32}
         >
+          <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
           <BookingSectionHeading
             title={m.booking_details_who_heading({}, { locale })}
             first
@@ -933,6 +935,7 @@ const fixFieldsMessage = (count: number, locale: AppLocale) =>
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   body: { flex: 1 },
+  updateOffer: { marginBottom: space.lg, marginTop: space.sm },
   content: {
     alignSelf: "center",
     maxWidth: 640,

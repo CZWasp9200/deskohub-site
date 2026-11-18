@@ -40,6 +40,10 @@ shows something none of them draws.
 - Overlays: `Dialog`, `ConfirmDialog`, `BottomSheet` (an optional fixed
   `header`, such as a `SearchField`; it stays above the keyboard), and the
   toast. A pick list in a sheet marks the chosen `ListRow` with `selected`.
+- The update offer (`src/updates/`), in two presentations of one prompt:
+  `UpdateBanner`, the prominent navy banner over the bottom of the screen,
+  and `QuietUpdateOffer`, the quiet light card (`UpdateOfferCard`) a
+  critical flow draws as the first item of its scrolling content.
 - Booking: `BookingBar` (the expandable price bar with its itemized
   breakdown), the step progress, `BookingSectionHeading` (an aside, a text
   action, or a `control` on the right, such as the Overnight switch),
@@ -55,7 +59,18 @@ shows something none of them draws.
 - Toasts: `useToast().show(...)` under the root `ToastProvider`. Anything
   fixed to the bottom (tab bar with its raised circle, action footer, booking
   bar) reports what it covers with `useToastObstruction`, and toasts rise
-  above it. Never offset a toast by hand.
+  above it. Never offset a toast by hand. Another floating overlay at the
+  bottom (the update banner) sits at `useFloatingBottomOffset()`.
+- Update offer: `UpdateOfferProvider` at the root checks once and shares the
+  one prompt, so accepting or dismissing it in either presentation does it
+  in both. Critical flows (sign-in, sign-up onboarding, the booking steps
+  and checkout, Profile opened from checkout) draw `QuietUpdateOffer` first
+  in their scrolling content, with `backdrop="navy"` on the sign-in
+  masthead and `"paper"` on the canvas; it scrolls with the screen, never
+  pinned. Everywhere else (tab roots, account pages, reservations) the
+  banner shows. A screen that shows the card, or a transient screen that
+  should show no offer (auth callback, with `useUpdateOfferHost`), hosts
+  the offer while focused and the banner stays away; never list routes.
 - Loading: `LoadingIndicator` (the logo die) is the only spinner; never
   `ActivityIndicator`.
 - Keyboard: `useKeyboardShown` and `keyboard-viewport.ts`; the focused field

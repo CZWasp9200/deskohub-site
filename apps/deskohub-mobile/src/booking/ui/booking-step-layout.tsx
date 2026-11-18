@@ -9,6 +9,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { ScrollScreenContext } from "../../ui/scroll-screen";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { type BookingStep, BookingSteps } from "./booking-steps";
 
 /**
@@ -49,6 +50,7 @@ export function BookingStepLayout({
           setRaised(nativeEvent.contentOffset.y > 0)
         }
       >
+        <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
         <ScrollScreenContext value={scrollToTop}>
           {children}
         </ScrollScreenContext>
@@ -67,4 +69,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
     paddingTop: space.md,
   },
+  updateOffer: { marginBottom: space.lg },
 });

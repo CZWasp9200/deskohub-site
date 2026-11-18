@@ -8,6 +8,7 @@ import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
+import { QuietUpdateOffer } from "../updates/update-offer-card";
 
 // The landing page's hero photo with its left 40% (the kitchen) cut off,
 // 1080 x 1012, about 93 KB.
@@ -72,6 +73,7 @@ export function SignInMasthead() {
   return (
     <View style={[styles.masthead, { paddingTop: insets.top }]}>
       <FocusedStatusBar style="light" />
+      <QuietUpdateOffer backdrop="navy" style={styles.updateOffer} />
       <View style={styles.brand}>
         <Image source={colorLogo} style={styles.logo} />
         <View>
@@ -132,6 +134,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
   },
+  updateOffer: { marginHorizontal: space.lg, marginTop: space.md },
   brand: {
     alignItems: "center",
     flexDirection: "row",
