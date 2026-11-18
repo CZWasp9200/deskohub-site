@@ -117,9 +117,14 @@ const loadList = (status: string | undefined) => () => {
         ? withdrawnSummary(item, "settled")
         : item
   );
+  // Needs attention: a withdrawal whose settlement fails, or any refund owed.
   const shown =
-    status === "attention"
-      ? items.filter((item) => item.status.group === "attention")
+    status === "needs_attention"
+      ? items.filter(
+          (item) =>
+            item.withdrawal?.settlement === "needs_attention" ||
+            item.statusNoteCode === "needs_refund"
+        )
       : items;
   return {
     input: Promise.resolve({ ...input, ...(status ? { status } : {}) } as never),
