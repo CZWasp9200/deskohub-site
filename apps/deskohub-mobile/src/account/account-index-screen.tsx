@@ -131,7 +131,7 @@ export function AccountIndexScreen({
       }
       collapsedHeader={
         <>
-          <FocusedStatusBar style="dark" />
+          {!inPane && <FocusedStatusBar style="dark" />}
           <AppBar title={title} raised actions={<SignOutButton />} />
         </>
       }
