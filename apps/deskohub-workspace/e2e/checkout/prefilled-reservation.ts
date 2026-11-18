@@ -189,16 +189,16 @@ export const isPrefilledReservation = (
           )
         )
           return false;
-        const monitorInputs = [
-          ...document.querySelectorAll('input[type="radio"]'),
-        ].filter(
-          (input): input is HTMLInputElement =>
-            input instanceof HTMLInputElement && input.name !== "entryTier"
+        // Only the monitor's own radio group, so another radio group on the
+        // form is never read as the monitor choice.
+        const monitorInputs = document.querySelectorAll(
+          'input[type="radio"][name="monitorOption"]'
         );
         return expected.monitorOption === null
           ? monitorInputs.length === 0
-          : monitorInputs.find((input) => input.checked)?.value ===
-              expected.monitorOption;
+          : checkedValue(
+              'input[type="radio"][name="monitorOption"]:checked'
+            ) === expected.monitorOption;
       }
       case "meeting-room": {
         // The field holds the whole local start. A whole day keeps whatever
