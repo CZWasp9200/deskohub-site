@@ -10,21 +10,33 @@ export function SplitPane({
   list,
   children,
   enabled = true,
+  collapsed = "detail",
 }: {
   readonly list: ReactNode;
   readonly children: ReactNode;
   readonly enabled?: boolean;
+  readonly collapsed?: "list" | "detail";
 }) {
   const { availableWidth, isExpanded } = useViewport();
-  const showList = isExpanded && enabled;
+  const split = isExpanded && enabled;
+  const listOnly = !split && collapsed === "list";
+  const listStyle = listOnly ? styles.detail : styles.hidden;
   return (
     <View style={styles.frame}>
-      <View style={[styles.list, !showList && styles.hidden]}>
-        <AvailableWidthContext value={listWidth}>{list}</AvailableWidthContext>
+      <View
+        aria-hidden={!split && !listOnly}
+        style={split ? styles.list : listStyle}
+      >
+        <AvailableWidthContext value={split ? listWidth : availableWidth}>
+          {list}
+        </AvailableWidthContext>
       </View>
-      <View style={styles.detail}>
+      <View
+        aria-hidden={listOnly}
+        style={listOnly ? styles.hidden : styles.detail}
+      >
         <AvailableWidthContext
-          value={showList ? availableWidth - listWidth : availableWidth}
+          value={split ? availableWidth - listWidth : availableWidth}
         >
           {children}
         </AvailableWidthContext>

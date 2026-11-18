@@ -644,6 +644,7 @@
   "reservations_not_found_body": "Sie gehört eventuell zu einem anderen Konto. Du bist als {email} angemeldet.",
   "reservations_go_to_list": "Zu den Reservierungen",
   "navigation_close": "Schließen",
+  "navigation_reserve": "Reservieren",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Der Kalendereintrag ließ sich auf diesem Gerät nicht öffnen. Versuche es erneut.",
   "booking_choose_date_reason": "Wähle ein Datum, um fortzufahren",

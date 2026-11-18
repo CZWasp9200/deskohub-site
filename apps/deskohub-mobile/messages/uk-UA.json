@@ -648,6 +648,7 @@
   "reservations_not_found_body": "Можливо, воно належить іншому обліковому запису. Ви ввійшли як {email}.",
   "reservations_go_to_list": "До бронювань",
   "navigation_close": "Закрити",
+  "navigation_reserve": "Забронювати",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Не вдалося відкрити подію календаря на цьому пристрої. Спробуйте ще раз.",
   "booking_choose_date_reason": "Виберіть дату, щоб продовжити",

@@ -642,6 +642,7 @@
   "reservations_not_found_body": "Đặt chỗ có thể thuộc về tài khoản khác. Bạn đang đăng nhập bằng {email}.",
   "reservations_go_to_list": "Đến danh sách đặt chỗ",
   "navigation_close": "Đóng",
+  "navigation_reserve": "Đặt chỗ",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Không thể mở sự kiện lịch trên thiết bị này. Hãy thử lại.",
   "booking_choose_date_reason": "Chọn ngày để tiếp tục",

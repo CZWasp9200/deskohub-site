@@ -48,20 +48,19 @@ describe("Masthead", () => {
   });
 
   test("identity content sits above the title, the subtitle below it in muted white", () => {
-    const parts = Children.toArray(
+    const [statusBar, column] = Children.toArray(
       masthead({
         title: "title",
         subtitle: "subtitle",
         children: createElement("Identity"),
       }).props.children
-    ) as ReactElement<{ style?: unknown; variant?: string }>[];
-    expect(parts.map((part) => part.type)).toEqual([
-      FocusedStatusBar,
-      "Identity",
-      Text,
-      Text,
-    ]);
-    expect(flatStyle(parts[3]?.props.style)).toMatchObject({
+    ) as ReactElement<{ children?: ReactNode }>[];
+    expect(statusBar?.type).toBe(FocusedStatusBar);
+    const parts = Children.toArray(column?.props.children) as ReactElement<{
+      style?: unknown;
+    }>[];
+    expect(parts.map((part) => part.type)).toEqual(["Identity", Text, Text]);
+    expect(flatStyle(parts[2]?.props.style)).toMatchObject({
       color: color.onNavyMuted,
     });
   });

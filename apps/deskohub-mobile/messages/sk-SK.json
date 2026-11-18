@@ -648,6 +648,7 @@
   "reservations_not_found_body": "Môže patriť inému účtu. Si prihlásený ako {email}.",
   "reservations_go_to_list": "Prejsť na rezervácie",
   "navigation_close": "Zavrieť",
+  "navigation_reserve": "Rezervovať",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Udalosť do kalendára sa v tomto zariadení nepodarilo otvoriť. Skús to znova.",
   "booking_choose_date_reason": "Na pokračovanie vyber dátum",

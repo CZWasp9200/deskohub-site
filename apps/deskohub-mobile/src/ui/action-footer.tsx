@@ -78,7 +78,9 @@ export function ActionFooter({
           <View style={inline ? styles.aside : undefined}>{aside}</View>
         )}
         {inlineMessage && announcement}
-        <View style={inline ? styles.actions : undefined}>{children}</View>
+        <View style={[styles.buttons, inline && styles.actions]}>
+          {children}
+        </View>
       </View>
     </View>
   );
@@ -108,6 +110,7 @@ const styles = StyleSheet.create({
   },
   stacked: { gap: space.sm },
   aside: { flex: 1, minWidth: 0 },
+  buttons: { gap: space.sm },
   actions: { flexShrink: 1, marginLeft: "auto", maxWidth: "60%" },
   message: { textAlign: "center" },
   inlineMessage: { flex: 1, minWidth: 0 },

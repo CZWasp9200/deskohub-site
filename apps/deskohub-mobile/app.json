@@ -4,7 +4,7 @@
     "slug": "deskohub-mobile",
     "version": "0.2.3",
     "scheme": "deskohub",
-    "orientation": "portrait",
+    "orientation": "default",
     "backgroundColor": "#F8F5EF",
     "icon": "./assets/images/icon.png",
     "runtimeVersion": {
