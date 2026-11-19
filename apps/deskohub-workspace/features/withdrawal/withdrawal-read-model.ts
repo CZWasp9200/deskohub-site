@@ -19,6 +19,7 @@ export type WithdrawalQuote = {
   readonly paidAmount: Money;
   readonly refundAmount: Money;
   readonly refundBasis: WithdrawalRefundBasis;
+  readonly refundTermsKey: string;
   readonly periodEndsAt: Temporal.Instant;
 };
 

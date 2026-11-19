@@ -34,6 +34,7 @@ export type WithdrawalDialogView =
   | {
       readonly step: "statement";
       readonly quote: WithdrawalQuoteData;
+      readonly refundChanged: boolean;
       readonly pending: boolean;
       /** The last submission failed: the server's message, or a fallback. */
       readonly submitError: string | undefined;
@@ -184,6 +185,7 @@ function WithdrawalDialogBody({
           pending={view.pending}
           quote={view.quote}
           reference={reference}
+          refundChanged={view.refundChanged}
           submitError={view.submitError}
         />
       );
@@ -284,6 +286,7 @@ function WithdrawalStatementForm({
   pending,
   quote,
   reference,
+  refundChanged,
   submitError,
 }: {
   readonly locale: Locale;
@@ -293,6 +296,7 @@ function WithdrawalStatementForm({
   readonly pending: boolean;
   readonly quote: WithdrawalQuoteData;
   readonly reference: string;
+  readonly refundChanged: boolean;
   readonly submitError: string | undefined;
 }) {
   // The name comes from the account; an input stands in only when the
@@ -418,6 +422,10 @@ function WithdrawalStatementForm({
             {m.withdrawalConfirmRefundNote({}, { locale })}
           </p>
         </div>
+
+        <p className="empty:hidden text-sm font-medium" role="status">
+          {refundChanged && m.withdrawalRefundChanged({}, { locale })}
+        </p>
 
         <p
           className="empty:hidden text-sm font-medium text-red-700"

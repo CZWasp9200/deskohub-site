@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   Context,
   Data,
@@ -18,11 +19,14 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
 import { ReservationWithdrawals } from "@/features/reservation/backend/reservation-withdrawals";
+import type { Money } from "@/shared/money/money";
 import type {
   ContractCancellationError,
+  WithdrawableContract,
   WithdrawableContractFamily,
   WithdrawableContractRef,
 } from "../withdrawable-contract";
+import type { WithdrawalAssessment } from "../withdrawal-assessment";
 import type {
   WithdrawalQuote,
   WithdrawalReceipt,
@@ -52,6 +56,12 @@ export class WithdrawalNameRequiredError extends Data.TaggedError(
   "WithdrawalNameRequiredError"
 ) {}
 
+export class WithdrawalRefundChangedError extends Data.TaggedError(
+  "WithdrawalRefundChangedError"
+)<{
+  readonly quote: WithdrawalQuote;
+}> {}
+
 /** The withdrawal ledger or the contract's family couldn't be read. */
 export class WithdrawalUnavailableError extends Data.TaggedError(
   "WithdrawalUnavailableError"
@@ -72,7 +82,48 @@ type WithdrawalInput = {
  */
 type WithdrawalSubmission = WithdrawalInput & {
   readonly customerName?: string;
+  readonly refundTermsKey?: string;
 };
+
+function makeWithdrawalQuote(
+  contract: WithdrawableContract,
+  assessment: Extract<WithdrawalAssessment, { withdrawable: true }>,
+  customerName: string | null,
+  receiptEmail: string
+): WithdrawalQuote {
+  const { refundAmount, refundBasis, periodEndsAt } = assessment;
+  const moneyTerms = ({ value, currency, exponent }: Money) => [
+    value,
+    currency,
+    exponent,
+  ];
+  const basisTerms =
+    refundBasis.kind === "full"
+      ? ["full"]
+      : ["partial", refundBasis.unit, refundBasis.unstarted, refundBasis.total];
+  const refundTermsKey = createHash("sha256")
+    .update(
+      JSON.stringify([
+        contract.ref.kind,
+        contract.ref.id,
+        moneyTerms(contract.paidAmount),
+        moneyTerms(refundAmount),
+        basisTerms,
+      ])
+    )
+    .digest("hex");
+  return {
+    contractId: contract.ref.id,
+    contractLabel: contract.label,
+    customerName,
+    receiptEmail,
+    paidAmount: contract.paidAmount,
+    refundAmount,
+    refundBasis,
+    refundTermsKey,
+    periodEndsAt,
+  };
+}
 
 type WithdrawalFailure =
   | WithdrawalRefusedError
@@ -103,9 +154,9 @@ interface IWithdrawalService {
     input: WithdrawalInput
   ) => Effect.Effect<WithdrawalQuote, WithdrawalFailure>;
   /**
-   * Records the signed-in author's withdrawal, then sends the receipt, the
-   * operator notice and ends the contract. Only recording can fail the
-   * customer: a later step that fails is retried by `settleDue`. Submitting
+   * Records the signed-in author's withdrawal if the refund terms match the
+   * confirmed quote, then sends the receipt, the operator notice and ends the
+   * contract. A later step that fails is retried by `settleDue`. Submitting
    * again answers the recorded withdrawal's receipt. The statement carries
    * the profile name, else the trimmed typed one; with neither, a new
    * withdrawal fails with `WithdrawalNameRequiredError`.
@@ -114,7 +165,9 @@ interface IWithdrawalService {
     input: WithdrawalSubmission
   ) => Effect.Effect<
     WithdrawalReceipt,
-    WithdrawalFailure | WithdrawalNameRequiredError
+    | WithdrawalFailure
+    | WithdrawalNameRequiredError
+    | WithdrawalRefundChangedError
   >;
   /**
    * Settles the contract's withdrawal now, as `settleDue` would with every
@@ -465,16 +518,12 @@ export class WithdrawalService extends Context.Service<
                   input,
                   Temporal.Now.instant()
                 );
-                return {
-                  contractId: contract.ref.id,
-                  contractLabel: contract.label,
+                return makeWithdrawalQuote(
+                  contract,
+                  assessment,
                   customerName,
-                  receiptEmail: held.email,
-                  paidAmount: contract.paidAmount,
-                  refundAmount: assessment.refundAmount,
-                  refundBasis: assessment.refundBasis,
-                  periodEndsAt: assessment.periodEndsAt,
-                } satisfies WithdrawalQuote;
+                  held.email
+                );
               })
             );
           },
@@ -483,9 +532,9 @@ export class WithdrawalService extends Context.Service<
         withdraw: Effect.fn("WithdrawalService.withdraw")(
           function* (input) {
             const family = families.get(input.contract.kind);
+            const profileName = yield* currentCustomerName;
             const customerName =
-              (yield* currentCustomerName) ??
-              (input.customerName?.trim() || null);
+              profileName ?? (input.customerName?.trim() || null);
             const { withdrawal, recorded, receiptEmail } =
               yield* sections.withActiveAccount(
                 input.accountId,
@@ -527,10 +576,24 @@ export class WithdrawalService extends Context.Service<
                       receiptEmail: held.email,
                     };
                   }
+                  if (input.refundTermsKey === undefined) {
+                    return yield* new WithdrawalRefusedError({
+                      reason: "not_withdrawable",
+                    });
+                  }
+                  const { contract, assessment } = assessed;
+                  const quote = makeWithdrawalQuote(
+                    contract,
+                    assessment,
+                    profileName,
+                    held.email
+                  );
+                  if (input.refundTermsKey !== quote.refundTermsKey) {
+                    return yield* new WithdrawalRefundChangedError({ quote });
+                  }
                   if (customerName === null) {
                     return yield* new WithdrawalNameRequiredError();
                   }
-                  const { contract, assessment } = assessed;
                   const result = yield* repository
                     .record({
                       contract: contract.ref,

@@ -6,6 +6,7 @@ import { Context, Effect, Layer } from "effect";
 import { m } from "@/features/i18n";
 import {
   WithdrawalNameRequiredError,
+  WithdrawalRefundChangedError,
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
 import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
@@ -58,27 +59,36 @@ const calls: string[] = [];
 // Whether the mocked profile has a name for the statement.
 let profileNamed = true;
 const paid = { value: 300_000, exponent: 2, currency: "CZK" };
+const makeQuote = (contractId: string) => ({
+  contractId,
+  contractLabel: "Office · 10.–12. 1. 2027",
+  customerName: null,
+  receiptEmail: testEmailAddress("customer"),
+  paidAmount: paid,
+  refundAmount: paid,
+  refundBasis: { kind: "full" } as const,
+  refundTermsKey: "full",
+  periodEndsAt: Temporal.Instant.from("2027-01-16T23:00:00Z"),
+});
 Object.assign(WithdrawalService, {
   Live: Layer.mock(WithdrawalService, {
     quote: (input) =>
       Effect.sync(() => {
         calls.push(`quote ${input.accountId} ${input.contract.id}`);
-        return {
-          contractId: input.contract.id,
-          contractLabel: "Office · 10.–12. 1. 2027",
-          customerName: null,
-          receiptEmail: testEmailAddress("customer"),
-          paidAmount: paid,
-          refundAmount: paid,
-          refundBasis: { kind: "full" } as const,
-          periodEndsAt: Temporal.Instant.from("2027-01-16T23:00:00Z"),
-        };
+        return makeQuote(input.contract.id);
       }),
     withdraw: (input) =>
       Effect.suspend(() => {
         calls.push(
           `withdraw ${input.accountId} ${input.contract.id}${input.customerName === undefined ? "" : ` as ${input.customerName}`}`
         );
+        if (input.refundTermsKey === "stale") {
+          return Effect.fail(
+            new WithdrawalRefundChangedError({
+              quote: makeQuote(input.contract.id),
+            })
+          );
+        }
         if (!profileNamed && !input.customerName?.trim()) {
           return Effect.fail(new WithdrawalNameRequiredError());
         }
@@ -181,6 +191,18 @@ describe("reservation withdrawal actions", () => {
     });
 
     expect(withdrawal.data).toEqual({ status: "name_required" });
+  });
+
+  test("returns a fresh quote when the submitted refund terms changed", async () => {
+    const { withdrawFromReservation } = await importActions();
+    const result = await withdrawFromReservation({
+      orderId: "reservation-1",
+      refundTermsKey: "stale",
+    });
+    expect(result.data).toMatchObject({
+      status: "refund_changed",
+      quote: { refundTermsKey: "full", periodEndsAt: "2027-01-16T23:00:00Z" },
+    });
   });
 
   test("refuse a signed-out request without touching withdrawals", async () => {

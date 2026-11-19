@@ -184,6 +184,7 @@ export {
   CustomerWithdrawalQuote,
   CustomerWithdrawalReceipt,
   CustomerWithdrawalRefundBasis,
+  CustomerWithdrawalRefundChanged,
   CustomerWithdrawalRefused,
   CustomerWithdrawalRefusedReason,
   ReopenCustomerPaymentPage,

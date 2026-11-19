@@ -18,6 +18,7 @@
   "withdrawalStartedDays": "Za začaté dni ({started}/{total})",
   "withdrawalStartedHours": "Za začaté hodiny ({started}/{total})",
   "withdrawalConfirmRefundNote": "Na pôvodnú platobnú metódu do 14 dní.",
+  "withdrawalRefundChanged": "Výška vrátenej sumy sa zmenila. Skontrolujte novú sumu a znova potvrďte odstúpenie.",
   "withdrawalConfirmDecline": "Neodstupovať",
   "withdrawalConfirmSubmit": "Potvrdiť odstúpenie od zmluvy",
   "withdrawalReceivedTitle": "Odstúpenie od zmluvy sme prijali",

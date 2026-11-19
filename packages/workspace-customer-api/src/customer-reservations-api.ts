@@ -544,6 +544,16 @@ export const CustomerWithdrawalRefundBasis = Schema.Union([
 export type CustomerWithdrawalRefundBasis =
   typeof CustomerWithdrawalRefundBasis.Type;
 
+const withdrawalRefundTermsFields = {
+  paidAmount: Money,
+  refundAmount: Money,
+  refundBasis: CustomerWithdrawalRefundBasis,
+  /** Echo this key on confirmation to accept the displayed refund terms. */
+  refundTermsKey: Schema.String,
+  /** The end of the withdrawal period, exclusive. */
+  periodEndsAt: isoInstant,
+};
+
 /** What the customer confirms before withdrawing from an order. */
 export const CustomerWithdrawalQuote = Schema.Struct({
   contractId: CustomerReservationOrderId,
@@ -553,13 +563,17 @@ export const CustomerWithdrawalQuote = Schema.Struct({
   customerName: Schema.NullOr(Schema.String),
   /** Where the receipt of the withdrawal is sent: the login email. */
   receiptEmail: Schema.String,
-  paidAmount: Money,
-  refundAmount: Money,
-  refundBasis: CustomerWithdrawalRefundBasis,
-  /** The end of the withdrawal period, exclusive. */
-  periodEndsAt: isoInstant,
+  ...withdrawalRefundTermsFields,
 }).annotate({ identifier: "CustomerWithdrawalQuote" });
 export type CustomerWithdrawalQuote = typeof CustomerWithdrawalQuote.Type;
+
+/** The displayed refund terms no longer match the live quote. */
+export class CustomerWithdrawalRefundChanged extends Schema.TaggedError<CustomerWithdrawalRefundChanged>()(
+  "CustomerWithdrawalRefundChanged",
+  { quote: Schema.Struct(withdrawalRefundTermsFields) }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
 
 /** The confirmation of a submitted withdrawal; the receipt email follows. */
 export const CustomerWithdrawalReceipt = Schema.Struct({
@@ -576,6 +590,8 @@ export type CustomerWithdrawalReceipt = typeof CustomerWithdrawalReceipt.Type;
  */
 export const WithdrawFromCustomerReservation = Schema.Struct({
   locale: CustomerLocale,
+  /** Required to record a new withdrawal. A recorded withdrawal can be retried without it. */
+  refundTermsKey: Schema.optionalKey(Schema.String),
   /**
    * The name the customer typed for the statement when the profile has
    * none. The server trims it, treats a blank one as absent, and ignores it
@@ -825,6 +841,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerReservationNotFound.schema,
         CustomerWithdrawalRefused.schema,
         CustomerWithdrawalNameRequired.schema,
+        CustomerWithdrawalRefundChanged.schema,
         CustomerFeatureUnavailable.schema,
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,

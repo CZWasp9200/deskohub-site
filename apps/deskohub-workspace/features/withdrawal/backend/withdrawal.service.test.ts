@@ -1,7 +1,7 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/polyfills/temporal";
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Effect, Layer, Option } from "effect";
 import {
   CustomerAccountContactService,
@@ -9,6 +9,7 @@ import {
   HeldCustomerAccount,
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { assessReservationWithdrawal } from "@/features/reservation/reservation-withdrawal";
 import type { Money } from "@/shared/money/money";
 import {
   ContractCancellationError,
@@ -44,6 +45,8 @@ type Harness = ReturnType<typeof makeHarness>;
 
 const makeHarness = (options: {
   readonly assessment?: WithdrawalAssessment;
+  readonly assess?: WithdrawableContract["assess"];
+  readonly paidAmount?: Money;
   readonly contractFound?: boolean;
   /** Failures the family's cancellation answers, in order, before succeeding. */
   readonly cancellationFailures?: ContractCancellationError[];
@@ -231,8 +234,9 @@ const makeHarness = (options: {
           : Option.some<WithdrawableContract>({
               ref: contract,
               label: "Office · 10.–12. 1. 2027",
-              paidAmount: paid,
-              assess: () => options.assessment ?? withdrawable,
+              paidAmount: options.paidAmount ?? paid,
+              assess:
+                options.assess ?? (() => options.assessment ?? withdrawable),
             })
       ),
     cancel: (cancellation) =>
@@ -322,8 +326,26 @@ const makeHarness = (options: {
     accountReadable = readable;
   };
 
+  const quotedInput = async () => ({
+    ...input,
+    refundTermsKey: (await run((service) => service.quote(input)))
+      .refundTermsKey,
+  });
+
+  const submitQuoted = async (customerName?: string) => {
+    const confirmed = await quotedInput();
+    return run((service) =>
+      service.withdraw({
+        ...confirmed,
+        ...(customerName !== undefined && { customerName }),
+      })
+    );
+  };
+
   return {
     log,
+    quotedInput,
+    submitQuoted,
     emailNames,
     rows,
     run,
@@ -361,9 +383,94 @@ const cancellationFailure = (
   });
 
 describe("WithdrawalService.withdraw", () => {
+  test("requires reconfirmation when the meeting room starts and the refund falls", async () => {
+    const startsAt = Temporal.Instant.from("2027-01-10T09:00:00Z");
+    const paidAmount = { ...paid, value: 10_000 };
+    let now = startsAt.subtract({ seconds: 1 });
+    const clock = spyOn(Temporal.Now, "instant").mockImplementation(() => now);
+    try {
+      const harness = makeHarness({
+        paidAmount,
+        profileName: null,
+        assess: (instant) =>
+          assessReservationWithdrawal(
+            {
+              reservationState: "confirmed",
+              paymentState: "paid",
+              purpose: "personal",
+              contractAt: startsAt.subtract({ hours: 24 }),
+              paidAmount,
+              schedule: {
+                kind: "meeting-room",
+                startsAt,
+                duration: { unit: "hour", amount: 2 },
+              },
+            },
+            instant
+          ),
+      });
+      const originalQuote = await harness.run((service) =>
+        service.quote(input)
+      );
+      expect(originalQuote.refundAmount).toEqual(paidAmount);
+      now = startsAt;
+      const statement = {
+        ...input,
+        customerName: "  Sam Typed  ",
+        refundTermsKey: originalQuote.refundTermsKey,
+      };
+      const updatedQuote = await harness.run((service) =>
+        service
+          .withdraw(statement)
+          .pipe(
+            Effect.catchTag("WithdrawalRefundChangedError", ({ quote }) =>
+              Effect.succeed(quote)
+            )
+          )
+      );
+      if (!("refundTermsKey" in updatedQuote)) {
+        throw new Error("A stale quote returned a receipt.");
+      }
+      expect(updatedQuote.refundTermsKey).not.toBe(
+        originalQuote.refundTermsKey
+      );
+      expect(updatedQuote).toMatchObject({
+        customerName: null,
+        refundAmount: { ...paidAmount, value: 5_000 },
+        refundBasis: { kind: "partial", unit: "hour", unstarted: 1, total: 2 },
+      });
+      expect(harness.rows.size).toBe(0);
+      expect(harness.log).toEqual([]);
+
+      const receipt = await harness.run((service) =>
+        service.withdraw({
+          ...statement,
+          refundTermsKey: updatedQuote.refundTermsKey,
+        })
+      );
+      expect(receipt.refundAmount).toEqual(updatedQuote.refundAmount);
+      expect(onlyRow(harness).statementName).toBe("Sam Typed");
+      expect(
+        await harness.run((service) => service.withdraw(statement))
+      ).toEqual(receipt);
+      expect(await harness.run((service) => service.withdraw(input))).toEqual(
+        receipt
+      );
+      expect(harness.rows.size).toBe(1);
+      expect(harness.log).toEqual([
+        "record",
+        `receipt to ${receiptEmail}`,
+        "operator notice",
+        "cancel refund 5000",
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test("records, confirms by email, tells the operator, then cancels", async () => {
     const harness = makeHarness({});
-    const receipt = await harness.run((service) => service.withdraw(input));
+    const receipt = await harness.submitQuoted();
 
     expect(harness.log).toEqual([
       "record",
@@ -386,7 +493,7 @@ describe("WithdrawalService.withdraw", () => {
 
   test("answers a repeated submission with the recorded receipt and does nothing again", async () => {
     const harness = makeHarness({});
-    const first = await harness.run((service) => service.withdraw(input));
+    const first = await harness.submitQuoted();
     const second = await harness.run((service) => service.withdraw(input));
 
     expect(second.withdrawalId).toBe(first.withdrawalId);
@@ -395,6 +502,18 @@ describe("WithdrawalService.withdraw", () => {
     expect(
       harness.log.filter((entry) => entry.startsWith("cancel"))
     ).toHaveLength(1);
+  });
+
+  test("refuses an initial submission without confirmed refund terms", async () => {
+    const harness = makeHarness({});
+    const exit = await harness.runExit((service) => service.withdraw(input));
+
+    expect(exit).toMatchObject({
+      _tag: "Failure",
+      cause: { reasons: [{ error: { reason: "not_withdrawable" } }] },
+    });
+    expect(harness.rows.size).toBe(0);
+    expect(harness.log).toEqual([]);
   });
 
   test("refuses with the contract's reason and records nothing", async () => {
@@ -424,7 +543,7 @@ describe("WithdrawalService.withdraw", () => {
     const harness = makeHarness({
       cancellationFailures: [cancellationFailure(true)],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
 
     expect(harness.log.slice(-2)).toEqual([
       "cancel failed: reservation_dotypos_failed",
@@ -439,7 +558,7 @@ describe("WithdrawalService.withdraw", () => {
         cancellationFailure(false, "reservation_invalid_state"),
       ],
     });
-    const receipt = await harness.run((service) => service.withdraw(input));
+    const receipt = await harness.submitQuoted();
 
     expect(receipt.receiptEmail).toBe(receiptEmail);
     const row = onlyRow(harness);
@@ -471,9 +590,7 @@ describe("WithdrawalService.withdraw", () => {
 
   test("cancels the booking while the receipt keeps failing, and retries the receipt on its own", async () => {
     const harness = makeHarness({ receiptFailures: 3, profileName: null });
-    const receipt = await harness.run((service) =>
-      service.withdraw({ ...input, customerName: "Sam Typed" })
-    );
+    const receipt = await harness.submitQuoted("Sam Typed");
 
     expect(receipt.receiptEmail).toBe(receiptEmail);
     expect(harness.log).toEqual([
@@ -532,7 +649,7 @@ describe("WithdrawalService.withdraw", () => {
       receiptFailures: 3,
       operatorNoticeFailures: 6,
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     expect(onlyRow(harness).contractCancelledAt).not.toBeNull();
     expect(
       getWithdrawalSettlementStatus(onlyRow(harness)).failingSteps
@@ -585,7 +702,7 @@ describe("WithdrawalService.withdraw", () => {
         cancellationFailure(false, "reservation_invalid_state"),
       ],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     harness.setAccountReadable(false);
     harness.makeRetriesDue(["receipt", "contract_cancellation"]);
 
@@ -604,18 +721,14 @@ describe("WithdrawalService.withdraw", () => {
 describe("WithdrawalService.withdraw statement name", () => {
   test("carries the profile name and ignores a typed one", async () => {
     const harness = makeHarness({});
-    await harness.run((service) =>
-      service.withdraw({ ...input, customerName: "Typed Name" })
-    );
+    await harness.submitQuoted("Typed Name");
 
     expect(harness.emailNames).toEqual(["Alex Example", "Alex Example"]);
   });
 
   test("carries the trimmed typed name when the profile has none", async () => {
     const harness = makeHarness({ profileName: null });
-    await harness.run((service) =>
-      service.withdraw({ ...input, customerName: "  Sam Typed  " })
-    );
+    await harness.submitQuoted("  Sam Typed  ");
 
     expect(harness.emailNames).toEqual(["Sam Typed", "Sam Typed"]);
     expect(harness.rows.size).toBe(1);
@@ -628,9 +741,10 @@ describe("WithdrawalService.withdraw statement name", () => {
     "requires a name and records nothing with %s when the profile has none",
     async (_case, customerName) => {
       const harness = makeHarness({ profileName: null });
+      const confirmed = await harness.quotedInput();
       const exit = await harness.runExit((service) =>
         service.withdraw({
-          ...input,
+          ...confirmed,
           ...(customerName !== undefined && { customerName }),
         })
       );
@@ -648,9 +762,7 @@ describe("WithdrawalService.withdraw statement name", () => {
 
   test("answers a recorded withdrawal's receipt without asking for a name", async () => {
     const harness = makeHarness({ profileName: null });
-    const first = await harness.run((service) =>
-      service.withdraw({ ...input, customerName: "Sam Typed" })
-    );
+    const first = await harness.submitQuoted("Sam Typed");
     const second = await harness.run((service) => service.withdraw(input));
 
     expect(second.withdrawalId).toBe(first.withdrawalId);
@@ -666,7 +778,7 @@ describe("WithdrawalService.settleDue", () => {
         cancellationFailure(true),
       ],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     expect(onlyRow(harness)).toMatchObject({
       settledAt: null,
       stepRetries: { contract_cancellation: { attempts: 1 } },
@@ -691,6 +803,7 @@ describe("WithdrawalService.quote", () => {
     const quote = await harness.run((service) => service.quote(input));
 
     expect(quote).toEqual({
+      refundTermsKey: expect.stringMatching(/^[a-f0-9]{64}$/),
       contractId: "reservation-1",
       contractLabel: "Office · 10.–12. 1. 2027",
       customerName: "Alex Example",
@@ -707,7 +820,7 @@ describe("WithdrawalService.quote", () => {
 
   test("refuses a quote once the customer withdrew", async () => {
     const harness = makeHarness({});
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     const exit = await harness.runExit((service) => service.quote(input));
 
     expect(exit).toMatchObject({
@@ -722,7 +835,7 @@ describe("WithdrawalService.settleNow", () => {
     const harness = makeHarness({
       cancellationFailures: [cancellationFailure(false)],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     expect(onlyRow(harness).stepRetries.contract_cancellation).toMatchObject({
       attempts: 1,
       failureCode: "reservation_dotypos_failed",
@@ -753,7 +866,7 @@ describe("WithdrawalService.settleNow", () => {
         cancellationFailure(false, "reservation_dotypos_unavailable"),
       ],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
 
     const outcome = await harness.run((service) => service.settleNow(contract));
 
@@ -773,7 +886,7 @@ describe("WithdrawalService.settleNow", () => {
     const harness = makeHarness({
       cancellationFailures: [cancellationFailure(false)],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     const own = onlyRow(harness);
     const otherId = "withdrawal-other" as WithdrawalId;
     const other: ContractWithdrawal = {
@@ -798,7 +911,7 @@ describe("WithdrawalService.settleNow", () => {
 
   test("does nothing again for a settled withdrawal", async () => {
     const harness = makeHarness({});
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     const settled = onlyRow(harness);
     const steps = harness.log.length;
 
@@ -815,7 +928,7 @@ describe("WithdrawalService.settleNow", () => {
     const harness = makeHarness({
       cancellationFailures: [cancellationFailure(false)],
     });
-    await harness.run((service) => service.withdraw(input));
+    await harness.submitQuoted();
     const busy: ContractWithdrawal = {
       ...onlyRow(harness),
       settlementClaimedAt: Temporal.Now.instant(),

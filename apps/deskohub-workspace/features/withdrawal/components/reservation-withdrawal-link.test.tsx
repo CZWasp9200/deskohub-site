@@ -11,6 +11,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { useAction } from "next-safe-action/hooks";
 import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { formatMoney } from "@/shared/money/money";
 import {
   workspaceRouterRefresh,
   workspaceUseAction,
@@ -34,6 +35,7 @@ const quote = (customerName: string | null) => ({
   paidAmount: paid,
   refundAmount: { ...paid, value: 200_000 },
   refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
+  refundTermsKey: "two-days",
   periodEndsAt: "2027-01-16T23:00:00Z",
 });
 const receipt = {
@@ -124,7 +126,10 @@ describe("ReservationWithdrawalLink", () => {
       fireEvent.click(await confirmButton(view));
     });
 
-    expect(withdrawFromReservation).toHaveBeenCalledWith({ orderId });
+    expect(withdrawFromReservation).toHaveBeenCalledWith({
+      orderId,
+      refundTermsKey: "two-days",
+    });
     expect(
       await view.findByRole("heading", {
         name: m.withdrawalReceivedTitle({}, { locale }),
@@ -170,7 +175,76 @@ describe("ReservationWithdrawalLink", () => {
     expect(withdrawFromReservation).toHaveBeenCalledWith({
       orderId,
       customerName: "Sam Typed",
+      refundTermsKey: "two-days",
     });
+  });
+
+  test("shows the updated refund and keeps the name until the customer confirms again", async () => {
+    quoteReservationWithdrawal.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "available", quote: quote(null) } })
+    );
+    withdrawFromReservation
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          data: {
+            status: "refund_changed",
+            quote: {
+              ...quote(null),
+              refundBasis: {
+                kind: "partial",
+                unit: "day",
+                unstarted: 1,
+                total: 3,
+              },
+              refundAmount: { ...paid, value: 100_000 },
+              refundTermsKey: "one-day",
+            },
+          },
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ serverError: "Temporary failure" })
+      );
+    const view = await openDialog();
+    const name = await view.findByLabelText<HTMLInputElement>(
+      m.withdrawalConfirmNameLabel({}, { locale })
+    );
+    await act(async () => {
+      fireEvent.change(name, { target: { value: "Sam Typed" } });
+      fireEvent.click(await confirmButton(view));
+    });
+
+    expect((await view.findByRole("status")).textContent).toContain(
+      m.withdrawalRefundChanged({}, { locale })
+    );
+    expect(view.getByRole("dialog").textContent).toContain(
+      formatMoney({ ...paid, value: 100_000 }, locale)
+    );
+    expect(name.value).toBe("Sam Typed");
+    expect(withdrawFromReservation).toHaveBeenCalledTimes(1);
+    expect(withdrawFromReservation).toHaveBeenLastCalledWith({
+      orderId,
+      customerName: "Sam Typed",
+      refundTermsKey: "two-days",
+    });
+    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(await confirmButton(view));
+    });
+    expect(await view.findByText("Temporary failure")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(await confirmButton(view));
+    });
+    expect(withdrawFromReservation.mock.calls.slice(1)).toEqual([
+      [{ orderId, customerName: "Sam Typed", refundTermsKey: "one-day" }],
+      [{ orderId, customerName: "Sam Typed", refundTermsKey: "one-day" }],
+    ]);
+    expect(
+      await view.findByRole("heading", {
+        name: m.withdrawalReceivedTitle({}, { locale }),
+      })
+    ).toBeTruthy();
   });
 
   test("asks for the name when the server needs one the profile couldn't give", async () => {

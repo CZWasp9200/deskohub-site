@@ -3,6 +3,7 @@ import type {
   CustomerWithdrawalNameRequired,
   CustomerWithdrawalQuote,
   CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundChanged,
   CustomerWithdrawalRefused,
   CustomerWithdrawalRefusedReason,
   WithdrawFromCustomerReservation,
@@ -76,7 +77,8 @@ export const withdrawAtom = Atom.family((orderId: CustomerReservationOrderId) =>
 export type WithdrawalFailure =
   | CustomerRequestFailure
   | CustomerWithdrawalRefused
-  | CustomerWithdrawalNameRequired;
+  | CustomerWithdrawalNameRequired
+  | CustomerWithdrawalRefundChanged;
 
 /**
  * The statement's name line: the profile's name to confirm, or an input
@@ -85,6 +87,11 @@ export type WithdrawalFailure =
 export type WithdrawalNameField =
   | { readonly kind: "known"; readonly name: string }
   | { readonly kind: "input"; readonly missing: boolean };
+
+export type WithdrawalStatementQuote = {
+  readonly quote: CustomerWithdrawalQuote;
+  readonly refundChanged: boolean;
+};
 
 /** What the withdrawal screen shows. */
 export type WithdrawalScreenState = Data.TaggedEnum<{
@@ -95,8 +102,7 @@ export type WithdrawalScreenState = Data.TaggedEnum<{
   /** The customer can't withdraw from the order online, for `reason`. */
   Refused: { readonly reason: CustomerWithdrawalRefusedReason };
   /** The statement to confirm. */
-  Statement: {
-    readonly quote: CustomerWithdrawalQuote;
+  Statement: WithdrawalStatementQuote & {
     readonly name: WithdrawalNameField;
     /** The confirmation is on its way. */
     readonly pending: boolean;
@@ -117,6 +123,10 @@ type Failed =
       readonly reason: CustomerWithdrawalRefusedReason;
     }
   | { readonly kind: "name_required" }
+  | {
+      readonly kind: "refund_changed";
+      readonly quote: CustomerWithdrawalRefundChanged["quote"];
+    }
   | { readonly kind: "failed"; readonly error: CustomerViewError };
 
 const failureOf = (cause: Cause.Cause<WithdrawalFailure>): Failed =>
@@ -128,6 +138,8 @@ const failureOf = (cause: Cause.Cause<WithdrawalFailure>): Failed =>
           return { kind: "refused", reason: error.reason };
         case "CustomerWithdrawalNameRequired":
           return { kind: "name_required" };
+        case "CustomerWithdrawalRefundChanged":
+          return { kind: "refund_changed", quote: error.quote };
         default:
           return { kind: "failed", error: toCustomerViewError(error) };
       }
@@ -144,6 +156,7 @@ const failureOf = (cause: Cause.Cause<WithdrawalFailure>): Failed =>
  */
 export const withdrawalScreenState = ({
   quote,
+  statementQuote,
   submission,
   typedName,
   nameAttempted,
@@ -152,6 +165,7 @@ export const withdrawalScreenState = ({
     CustomerWithdrawalQuote,
     WithdrawalFailure
   >;
+  readonly statementQuote: WithdrawalStatementQuote | undefined;
   readonly submission: AsyncResult.AsyncResult<
     CustomerWithdrawalReceipt,
     WithdrawalFailure
@@ -159,7 +173,12 @@ export const withdrawalScreenState = ({
   readonly typedName: string;
   readonly nameAttempted: boolean;
 }): WithdrawalScreenState => {
-  if (AsyncResult.isFailure(quote)) {
+  const originalQuote =
+    statementQuote ??
+    (AsyncResult.isSuccess(quote)
+      ? { quote: quote.value, refundChanged: false }
+      : undefined);
+  if (!originalQuote && AsyncResult.isFailure(quote)) {
     const failed = failureOf(quote.cause);
     if (failed.kind === "refused")
       return WithdrawalScreenState.Refused({ reason: failed.reason });
@@ -175,36 +194,38 @@ export const withdrawalScreenState = ({
       error: CustomerViewError.Unexpected(),
     });
   }
-  if (!AsyncResult.isSuccess(quote)) return WithdrawalScreenState.Loading();
+  if (!originalQuote) return WithdrawalScreenState.Loading();
+  const failure = AsyncResult.isFailure(submission)
+    ? failureOf(submission.cause)
+    : undefined;
+  const current =
+    failure?.kind === "refund_changed"
+      ? {
+          quote: { ...originalQuote.quote, ...failure.quote },
+          refundChanged: true,
+        }
+      : originalQuote;
   if (AsyncResult.isSuccess(submission))
     return WithdrawalScreenState.Received({
-      quote: quote.value,
+      quote: current.quote,
       receipt: submission.value,
     });
 
-  const failed =
-    AsyncResult.isFailure(submission) && !submission.waiting
-      ? Option.some(failureOf(submission.cause))
-      : Option.none<Failed>();
-  if (Option.isSome(failed) && failed.value.kind === "refused")
-    return WithdrawalScreenState.Refused({ reason: failed.value.reason });
-  const nameRequired = Option.exists(
-    failed,
-    (failed) => failed.kind === "name_required"
-  );
+  const failed = submission.waiting ? undefined : failure;
+  if (failed?.kind === "refused")
+    return WithdrawalScreenState.Refused({ reason: failed.reason });
   const name: WithdrawalNameField =
-    quote.value.customerName !== null && !nameRequired
-      ? { kind: "known", name: quote.value.customerName }
+    current.quote.customerName !== null && failed?.kind !== "name_required"
+      ? { kind: "known", name: current.quote.customerName }
       : // A name the server asked for follows a confirmation, so the empty
         // input shows its error at once.
         { kind: "input", missing: nameAttempted && typedName.trim() === "" };
   return WithdrawalScreenState.Statement({
-    quote: quote.value,
+    ...current,
     name,
     pending: submission.waiting,
-    failure: Option.flatMap(failed, (failed) =>
-      failed.kind === "failed" ? Option.some(failed.error) : Option.none()
-    ),
+    failure:
+      failed?.kind === "failed" ? Option.some(failed.error) : Option.none(),
   });
 };
 
@@ -215,11 +236,12 @@ export const withdrawalScreenState = ({
 export const withdrawalSubmission = (
   name: WithdrawalNameField,
   typedName: string,
-  locale: AppLocale
+  locale: AppLocale,
+  refundTermsKey: CustomerWithdrawalQuote["refundTermsKey"]
 ): Option.Option<typeof WithdrawFromCustomerReservation.Type> => {
-  if (name.kind === "known") return Option.some({ locale });
+  if (name.kind === "known") return Option.some({ locale, refundTermsKey });
   const customerName = typedName.trim();
   return customerName === ""
     ? Option.none()
-    : Option.some({ locale, customerName });
+    : Option.some({ locale, refundTermsKey, customerName });
 };

@@ -42,6 +42,7 @@ import {
   CustomerWithdrawalNameRequired,
   type CustomerWithdrawalQuote,
   type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundChanged,
   CustomerWithdrawalRefused,
   type CustomerWithdrawalRefusedReason,
   customerApiClientHeader,
@@ -272,6 +273,7 @@ export class FakeWorkspace {
       paidAmount: total,
       refundAmount: total,
       refundBasis: { kind: "full" },
+      refundTermsKey: "sample-refund-terms",
       periodEndsAt: entry.withdrawal.periodEndsAt,
     };
   }
@@ -850,12 +852,37 @@ const serverLayer = (workspace: FakeWorkspace) => {
             Effect.suspend(
               (): Effect.Effect<
                 CustomerWithdrawalReceipt,
-                CustomerWithdrawalRefused | CustomerWithdrawalNameRequired
+                | CustomerWithdrawalRefused
+                | CustomerWithdrawalRefundChanged
+                | CustomerWithdrawalNameRequired
               > => {
                 const answer = workspace.withdrawalFor(params.orderId);
                 if (typeof answer === "string")
                   return Effect.fail(
                     new CustomerWithdrawalRefused({ reason: answer })
+                  );
+                const {
+                  paidAmount,
+                  refundAmount,
+                  refundBasis,
+                  refundTermsKey,
+                  periodEndsAt,
+                } = answer;
+                if (payload.refundTermsKey !== refundTermsKey)
+                  return Effect.fail(
+                    payload.refundTermsKey === undefined
+                      ? new CustomerWithdrawalRefused({
+                          reason: "not_withdrawable",
+                        })
+                      : new CustomerWithdrawalRefundChanged({
+                          quote: {
+                            paidAmount,
+                            refundAmount,
+                            refundBasis,
+                            refundTermsKey,
+                            periodEndsAt,
+                          },
+                        })
                   );
                 // The statement needs a name: the profile's, else the typed one.
                 if (

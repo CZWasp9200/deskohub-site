@@ -1976,13 +1976,16 @@
             }
           },
           "409": {
-            "description": "CustomerWithdrawalRefused | CustomerAccountLinkRequired",
+            "description": "CustomerWithdrawalRefused | CustomerWithdrawalRefundChanged | CustomerAccountLinkRequired",
             "content": {
               "application/json": {
                 "schema": {
                   "anyOf": [
                     {
                       "$ref": "#/components/schemas/CustomerWithdrawalRefusedEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerWithdrawalRefundChangedEncoded"
                     },
                     {
                       "$ref": "#/components/schemas/CustomerAccountLinkRequiredEncoded"
@@ -5813,6 +5816,86 @@
         "required": ["_tag"],
         "additionalProperties": false
       },
+      "CustomerWithdrawalRefundChangedEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerWithdrawalRefundChanged"]
+          },
+          "quote": {
+            "type": "object",
+            "properties": {
+              "paidAmount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "refundAmount": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "refundBasis": {
+                "$ref": "#/components/schemas/CustomerWithdrawalRefundBasis"
+              },
+              "refundTermsKey": {
+                "type": "string"
+              },
+              "periodEndsAt": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              }
+            },
+            "required": [
+              "paidAmount",
+              "refundAmount",
+              "refundBasis",
+              "refundTermsKey",
+              "periodEndsAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["_tag", "quote"],
+        "additionalProperties": false
+      },
+      "CustomerWithdrawalRefundBasis": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["full"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["partial"]
+              },
+              "unit": {
+                "type": "string",
+                "enum": ["day", "hour"]
+              },
+              "unstarted": {
+                "type": "integer",
+                "maximum": 9007199254740991,
+                "exclusiveMinimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "maximum": 9007199254740991,
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": ["kind", "unit", "unstarted", "total"],
+            "additionalProperties": false
+          }
+        ]
+      },
       "CustomerWithdrawalRefusedEncoded": {
         "type": "object",
         "properties": {
@@ -5886,6 +5969,9 @@
           "locale": {
             "$ref": "#/components/schemas/CustomerLocale"
           },
+          "refundTermsKey": {
+            "type": "string"
+          },
           "customerName": {
             "type": "string"
           }
@@ -5924,6 +6010,9 @@
           "refundBasis": {
             "$ref": "#/components/schemas/CustomerWithdrawalRefundBasis"
           },
+          "refundTermsKey": {
+            "type": "string"
+          },
           "periodEndsAt": {
             "type": "string",
             "description": "ISO 8601 instant."
@@ -5937,49 +6026,10 @@
           "paidAmount",
           "refundAmount",
           "refundBasis",
+          "refundTermsKey",
           "periodEndsAt"
         ],
         "additionalProperties": false
-      },
-      "CustomerWithdrawalRefundBasis": {
-        "anyOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["full"]
-              }
-            },
-            "required": ["kind"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["partial"]
-              },
-              "unit": {
-                "type": "string",
-                "enum": ["day", "hour"]
-              },
-              "unstarted": {
-                "type": "integer",
-                "maximum": 9007199254740991,
-                "exclusiveMinimum": 0
-              },
-              "total": {
-                "type": "integer",
-                "maximum": 9007199254740991,
-                "exclusiveMinimum": 0
-              }
-            },
-            "required": ["kind", "unit", "unstarted", "total"],
-            "additionalProperties": false
-          }
-        ]
       },
       "CustomerPaymentRetryRefusedEncoded": {
         "type": "object",

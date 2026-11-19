@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
   WithdrawalNameRequiredError,
+  WithdrawalRefundChangedError,
   WithdrawalRefusedError,
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
@@ -40,6 +41,7 @@ const quote: WithdrawalQuote = {
   paidAmount: paid,
   refundAmount: { ...paid, value: 200_000 },
   refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
+  refundTermsKey: "two-days",
   periodEndsAt: Temporal.Instant.from("2027-01-16T23:00:00Z"),
 };
 const receipt: WithdrawalReceipt = {
@@ -175,6 +177,33 @@ describe("customer API withdrawal endpoints", () => {
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({
       _tag: "CustomerWithdrawalNameRequired",
+    });
+  });
+
+  test("returns the fresh quote as a conflict when the confirmed terms changed", async () => {
+    const { reservations } = withdrawals(true, {
+      withdraw: (input) => {
+        expect(input.refundTermsKey).toBe("stale");
+        return Effect.fail(new WithdrawalRefundChangedError({ quote }));
+      },
+    });
+    const response = await makeCustomerApiTestServer({ reservations }).handle(
+      customerApiRequest({
+        ...withdrawCall,
+        body: { locale: "en-US", refundTermsKey: "stale" },
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerWithdrawalRefundChanged",
+      quote: {
+        paidAmount: quote.paidAmount,
+        refundAmount: quote.refundAmount,
+        refundBasis: quote.refundBasis,
+        refundTermsKey: quote.refundTermsKey,
+        periodEndsAt: quote.periodEndsAt.toString(),
+      },
     });
   });
 });
