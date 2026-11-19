@@ -7,7 +7,7 @@ import {
   NexiService,
   type PaymentVerificationResult,
 } from "@deskohub/nexi";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { orders, paymentAttempts } from "@/db/schema";
@@ -75,6 +75,59 @@ describe.skipIf(!testDatabase)("Order payments without a reservation", () => {
     >();
     const recoveries = new Set<PaymentAttemptId>();
     const fulfilled = new Set<OrderId>();
+    const reportedTransitions: PaymentAttemptId[] = [];
+    const settlePayment = (
+      input: { readonly orderId: OrderId; readonly id: PaymentAttemptId },
+      state: "paid" | "failed" | "cancelled" | "expired",
+      timestamp: Temporal.Instant,
+      settleAttempt: ReturnType<typeof markPaymentAttemptPaid>
+    ) =>
+      transaction(
+        Effect.gen(function* () {
+          const [changedOrder] = yield* db
+            .update(orders)
+            .set({
+              paymentState: state,
+              paidAt: state === "paid" ? timestamp : undefined,
+            })
+            .where(
+              and(
+                eq(orders.id, input.orderId),
+                eq(orders.activePaymentAttemptId, input.id),
+                eq(orders.paymentState, "pending")
+              )
+            )
+            .returning({ id: orders.id });
+
+          if (changedOrder) {
+            const attempt = yield* settleAttempt;
+            if (!attempt)
+              return yield* Effect.die("Missing active payment attempt");
+            return {
+              attempt: toPaymentAttempt(attempt),
+              changed: true,
+              timestamp,
+            };
+          }
+
+          const [attempt] = yield* db
+            .select()
+            .from(paymentAttempts)
+            .where(
+              and(
+                eq(paymentAttempts.orderId, input.orderId),
+                eq(paymentAttempts.id, input.id)
+              )
+            );
+          if (!attempt)
+            return yield* Effect.die("Missing payment attempt on replay");
+          return {
+            attempt: toPaymentAttempt(attempt),
+            changed: false,
+            timestamp: attempt.updatedAt,
+          };
+        })
+      );
     const handler: AdmittingOrderPaymentHandler<unknown> = {
       load: (orderId) =>
         db
@@ -124,43 +177,28 @@ describe.skipIf(!testDatabase)("Order payments without a reservation", () => {
           .returning()
           .pipe(Effect.map(([attempt]) => toPaymentAttempt(attempt!))),
       markPaid: (input) =>
-        transaction(
-          Effect.gen(function* () {
-            const attempt = yield* markPaymentAttemptPaid(input);
-            yield* db
-              .update(orders)
-              .set({ paymentState: "paid", paidAt: input.paidAt })
-              .where(eq(orders.id, input.orderId));
-            return {
-              attempt: toPaymentAttempt(attempt!),
-              changed: true,
-              timestamp: input.paidAt,
-            };
-          })
+        settlePayment(
+          input,
+          "paid",
+          input.paidAt,
+          markPaymentAttemptPaid(input)
         ),
-      markTerminal: (input) =>
-        transaction(
-          Effect.gen(function* () {
-            const terminalAt = Temporal.Now.instant();
-            const attempt = yield* markPaymentAttemptTerminal({
-              ...input,
-              fromAttemptStates: input.fromAttemptStates ?? [
-                "created",
-                "pending",
-              ],
-              terminalAt,
-            });
-            yield* db
-              .update(orders)
-              .set({ paymentState: input.state })
-              .where(eq(orders.id, input.orderId));
-            return {
-              attempt: toPaymentAttempt(attempt!),
-              changed: true,
-              timestamp: terminalAt,
-            };
+      markTerminal: (input) => {
+        const terminalAt = Temporal.Now.instant();
+        return settlePayment(
+          input,
+          input.state,
+          terminalAt,
+          markPaymentAttemptTerminal({
+            ...input,
+            fromAttemptStates: input.fromAttemptStates ?? [
+              "created",
+              "pending",
+            ],
+            terminalAt,
           })
-        ),
+        );
+      },
       fulfill: (orderId) =>
         Effect.sync(() => {
           fulfilled.add(orderId);
@@ -215,9 +253,15 @@ describe.skipIf(!testDatabase)("Order payments without a reservation", () => {
               }),
           }),
           Layer.mock(CheckoutAnalytics, {
-            paymentCompleted: () => Effect.void,
+            paymentCompleted: ({ attempt }) =>
+              Effect.sync(() => {
+                reportedTransitions.push(attempt.id);
+              }),
             paymentAbandoned: () => Effect.void,
-            paymentFailed: () => Effect.void,
+            paymentFailed: ({ attempt }) =>
+              Effect.sync(() => {
+                reportedTransitions.push(attempt.id);
+              }),
           }),
           Layer.mock(PaymentRefundService, {})
         )
@@ -268,6 +312,7 @@ describe.skipIf(!testDatabase)("Order payments without a reservation", () => {
       snapshots,
       recoveries,
       fulfilled,
+      reportedTransitions,
       entryPoints,
     };
   });
@@ -327,6 +372,58 @@ describe.skipIf(!testDatabase)("Order payments without a reservation", () => {
         expect(recoveries.has(attachedAttempt.id)).toBe(true);
       })
     ));
+
+  test.each(["success", "failure"] as const)(
+    "distinct webhook events preserve the first %s transition",
+    (outcome) =>
+      run(({ admit, notify, order, reportedTransitions, setOutcome }) =>
+        Effect.gen(function* () {
+          const { db } = yield* WorkspaceDatabase;
+          const attempts = yield* PaymentAttemptRepository;
+          const { attachedAttempt, hostedPaymentPage } = yield* admit({
+            description: "Webhook replay",
+          });
+          setOutcome(outcome);
+          const operationResult =
+            outcome === "success" ? "EXECUTED" : "DECLINED";
+
+          const first = yield* notify(
+            hostedPaymentPage.orderId,
+            operationResult
+          );
+          expect(first.status).toBe("accepted");
+          const firstAttempt = yield* attempts.findById(attachedAttempt.id);
+          const [firstOrder] = yield* db
+            .select()
+            .from(orders)
+            .where(eq(orders.id, order.id));
+          expect(firstAttempt?.state).toBe(
+            outcome === "success" ? "paid" : "failed"
+          );
+          if (outcome === "success") expect(firstOrder?.paidAt).not.toBeNull();
+
+          const replay = yield* notify(
+            hostedPaymentPage.orderId,
+            operationResult
+          );
+          expect(replay.status).toBe("accepted");
+          expect(replay.eventId).not.toBe(first.eventId);
+          const replayedAttempt = yield* attempts.findById(attachedAttempt.id);
+          const [replayedOrder] = yield* db
+            .select()
+            .from(orders)
+            .where(eq(orders.id, order.id));
+
+          expect(reportedTransitions).toEqual([attachedAttempt.id]);
+          expect(replayedAttempt?.updatedAt?.toString()).toBe(
+            firstAttempt?.updatedAt?.toString()
+          );
+          expect(replayedOrder?.paidAt?.toString()).toBe(
+            firstOrder?.paidAt?.toString()
+          );
+        })
+      )
+  );
 
   test.each(["paid", "late recovery"] as const)(
     "dispatches a verified webhook to %s",
