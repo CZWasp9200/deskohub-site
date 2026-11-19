@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -80,6 +81,7 @@ const makeHarness = (options: {
     Effect.succeed("recovery_started" as const)
   );
   const layer = CheckoutStatusService.Default.pipe(
+    Layer.provide(NoReservationInvitees),
     Layer.provide(observePaymentPagesAs("unknown").layer),
     Layer.provide(
       Layer.mergeAll(

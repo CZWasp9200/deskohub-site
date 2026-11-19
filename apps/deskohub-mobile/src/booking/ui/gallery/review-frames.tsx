@@ -221,6 +221,7 @@ const reviewOf = (
         requiredFrom: "2026-12-10T09:00:00.000Z",
       },
       referralApplied: false,
+      people: Option.none(),
       ...frame.checkout,
     },
     priceBefore: Option.none(),

@@ -1,5 +1,6 @@
 import type {
   CustomerEstablishment,
+  CustomerInvitedReservation,
   CustomerReservationAccess,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
@@ -21,12 +22,15 @@ import Lock from "lucide-react-native/icons/lock";
 import Mail from "lucide-react-native/icons/mail";
 import MapPin from "lucide-react-native/icons/map-pin";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
-import { Fragment, type ReactNode, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { bookKindHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView } from "../../customer-api/async-view";
+import { isSameWorkspaceDay } from "../../i18n/date-time-format";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { systemConfirmsCopy } from "../../platform/clipboard-confirmation";
+import { openContactPage } from "../../routing/open-contact-page";
 import { Card } from "../../ui/card";
 import { Button } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
@@ -38,6 +42,7 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
+import { useToast } from "../../ui/toast";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import {
@@ -67,9 +72,9 @@ import {
   accessChipOf,
   accessChipText,
   accessDateTimeText,
-  accessDaysText,
   accessWindowSpanOf,
 } from "./access-window-text";
+import { shortDate } from "./booking-ticket-text";
 import { calendarShareAtom } from "./calendar-event";
 import {
   establishmentAddressLines,
@@ -77,14 +82,47 @@ import {
   establishmentCopyText,
   openDirections,
 } from "./establishment";
-import { openContactPage } from "./order-status-screen";
+import { invitedReservationOfOrderAtom } from "./invited-reservations";
+import { orderStatusAtoms } from "./order-status-state";
 import { reservationOfOrderAtom } from "./order-ticket-view";
 import { reservationProductTitle } from "./reservation-labels";
 import type { ReservationListRow } from "./reservation-list-model";
+import { reservationsListAtom } from "./reservations-list-state";
 
 /** The PIN the loading state holds room for: the shortest the lock issues. */
 const placeholderGroups = accessPinGroups("0000000");
 const widePinCardPadding = space.xxl;
+
+/**
+ * What the screen knows of the booking besides its PIN: the space and its
+ * times, from the account's own history, else from an invitation, which
+ * also names who booked it.
+ */
+interface AccessBooking
+  extends Pick<ReservationListRow, "product" | "startsAt" | "endsAt"> {
+  /** The booker's name on an invited person's screen. */
+  readonly bookedBy: Option.Option<string>;
+}
+
+const accessBookingOf = (
+  own: Option.Option<ReservationListRow>,
+  invited: Option.Option<CustomerInvitedReservation>
+): Option.Option<AccessBooking> =>
+  Option.orElse(
+    Option.map(own, ({ product, startsAt, endsAt }) => ({
+      product,
+      startsAt,
+      endsAt,
+      bookedBy: Option.none<string>(),
+    })),
+    () =>
+      Option.map(invited, (found) => ({
+        product: found.product,
+        startsAt: found.accessStartsAt,
+        endsAt: found.accessEndsAt,
+        bookedBy: Option.fromNullishOr(found.bookedBy.name),
+      }))
+  );
 
 /**
  * The PIN's header in each tone: navy over the PIN, the paper canvas's
@@ -116,7 +154,9 @@ export function ReservationAccessScreen({
   const { isExpanded, isWide } = useViewport();
   const read = shownAccess(useAtomValue(reservationAccessAtom(orderId)));
   const refresh = useAtomRefresh(reservationAccessAtom(orderId));
-  const row = useAtomValue(reservationOfOrderAtom(orderId));
+  const own = useAtomValue(reservationOfOrderAtom(orderId));
+  const invited = useAtomValue(invitedReservationOfOrderAtom(orderId));
+  const booking = accessBookingOf(own, invited);
   const state = accessScreenStateOf(read);
   const refreshing = !AsyncResult.isInitial(read) && read.waiting;
   const headerTone = isWide ? "paper" : accessHeaderTone(state);
@@ -134,13 +174,19 @@ export function ReservationAccessScreen({
       <>
         {header}
         <ScrollScreen refreshing={refreshing} onRefresh={refresh}>
-          <NoPin orderId={orderId} />
+          <NoPin
+            orderId={orderId}
+            inOwnHistory={Option.isSome(own)}
+            invited={Option.isSome(invited)}
+          />
         </ScrollScreen>
       </>
     );
   }
   const name = Option.getOrUndefined(
-    Option.map(row, (found) => reservationProductTitle(found.product, locale))
+    Option.map(booking, (found) =>
+      reservationProductTitle(found.product, locale)
+    )
   );
   return (
     <>
@@ -166,7 +212,7 @@ export function ReservationAccessScreen({
             orderId={orderId}
             access={access}
             name={name}
-            row={row}
+            booking={booking}
             refreshing={refreshing}
             onRefresh={refresh}
           />
@@ -215,14 +261,14 @@ function AccessDetails({
   orderId,
   access,
   name,
-  row,
+  booking,
   refreshing,
   onRefresh,
 }: {
   readonly orderId: CustomerReservationOrderId;
   readonly access: CustomerReservationAccess;
   readonly name: string | undefined;
-  readonly row: Option.Option<ReservationListRow>;
+  readonly booking: Option.Option<AccessBooking>;
   readonly refreshing: boolean;
   readonly onRefresh: () => void;
 }) {
@@ -265,14 +311,14 @@ function AccessDetails({
             router.push(
               bookKindHref(
                 Option.getOrUndefined(
-                  Option.map(row, (found) => found.product.kind)
+                  Option.map(booking, (found) => found.product.kind)
                 )
               )
             )
           }
         />
       ) : (
-        <WindowAndPlace orderId={orderId} window={window} row={row} />
+        <WindowAndPlace orderId={orderId} window={window} booking={booking} />
       )}
     </AccessLayout>
   );
@@ -493,18 +539,18 @@ function StatusChip({ chip }: { readonly chip: AccessChip }) {
 function WindowAndPlace({
   orderId,
   window,
-  row,
+  booking,
 }: {
   readonly orderId: CustomerReservationOrderId;
   readonly window: Option.Option<AccessWindow>;
-  readonly row: Option.Option<ReservationListRow>;
+  readonly booking: Option.Option<AccessBooking>;
 }) {
   const locale = useAppLocale();
   const { isWide } = useViewport();
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const [calendar, shareEvent] = useAtom(calendarShareAtom(orderId));
   const event = Option.getOrUndefined(
-    Option.flatMap(row, (found) =>
+    Option.flatMap(booking, (found) =>
       Option.map(
         Option.all([
           Option.flatMap(Option.fromNullishOr(found.startsAt), DateTime.make),
@@ -527,19 +573,33 @@ function WindowAndPlace({
       onNone: () => [],
       onSome: (parsed) =>
         AccessWindowSpan.$match(
-          isWide
+          isWide &&
+            !Option.exists(booking, ({ product }) => product.kind === "office")
             ? AccessWindowSpan.Times({
                 from: parsed.startsAt,
                 until: parsed.endsAt,
               })
             : accessWindowSpanOf(parsed),
           {
-            Days: ({ first, last }) => [
-              [
-                m.reservations_access_for({}, { locale }),
-                accessDaysText(first, last, locale),
-              ] as const,
-            ],
+            // One day is For; several are From and Through, dates only.
+            Days: ({ first, last }) =>
+              isSameWorkspaceDay(first, last)
+                ? [
+                    [
+                      m.reservations_access_for({}, { locale }),
+                      shortDate(first, locale),
+                    ] as const,
+                  ]
+                : [
+                    [
+                      m.reservations_access_from({}, { locale }),
+                      shortDate(first, locale),
+                    ] as const,
+                    [
+                      m.reservations_access_through({}, { locale }),
+                      shortDate(last, locale),
+                    ] as const,
+                  ],
             Times: ({ from, until }) => [
               [
                 m.reservations_access_from({}, { locale }),
@@ -562,6 +622,15 @@ function WindowAndPlace({
         ] as const,
       ],
     }),
+    ...Option.match(
+      Option.flatMap(booking, ({ bookedBy }) => bookedBy),
+      {
+        onNone: () => [],
+        onSome: (bookedBy) => [
+          [m.reservations_access_booked_by({}, { locale }), bookedBy] as const,
+        ],
+      }
+    ),
   ];
   return (
     <>
@@ -638,10 +707,23 @@ function AddressValue({ place }: { readonly place: CustomerEstablishment }) {
   const [copied, copy] = useAtom(copyAddressAtom);
   const done = showsCopied(copied);
   const [street, city] = establishmentAddressLines(place);
+  const toast = useToast();
+  // Android 13+ confirms a copy itself; elsewhere the toast says it.
+  const confirmedBySystem = systemConfirmsCopy(Platform);
   useLiveRegionAnnouncement(
-    done ? m.reservations_access_address_copied({}, { locale }) : undefined,
+    done && confirmedBySystem
+      ? m.reservations_access_address_copied({}, { locale })
+      : undefined,
     "polite"
   );
+  useEffect(() => {
+    if (done && !confirmedBySystem) {
+      toast.show({
+        message: m.reservations_access_address_copied({}, { locale }),
+        tone: "confirmation",
+      });
+    }
+  }, [done, confirmedBySystem, toast, locale]);
   return (
     <Pressable
       role="button"
@@ -685,10 +767,28 @@ function LoadingWindow() {
   );
 }
 
-/** No PIN for the order: why, Contact us, and the way back to the booking. */
-function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
+/** No PIN for the order: why, Contact us, and the way back. */
+function NoPin({
+  orderId,
+  inOwnHistory,
+  invited,
+}: {
+  readonly orderId: CustomerReservationOrderId;
+  readonly inOwnHistory: boolean;
+  readonly invited: boolean;
+}) {
   const locale = useAppLocale();
   const router = useRouter();
+  const history = useAtomValue(reservationsListAtom);
+  const status = useAtomValue(orderStatusAtoms.status(orderId));
+  const freshOwnHistory =
+    inOwnHistory &&
+    Option.exists(AsyncResult.value(history), (list) =>
+      Option.isNone(list.savedAt)
+    );
+  // The status screen's read can establish access before history catches up.
+  const returnToStatus =
+    !invited && (freshOwnHistory || AsyncResult.isSuccess(status));
   return (
     <Card padding="none">
       <EmptyState
@@ -701,16 +801,24 @@ function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
           <Button
             icon={Mail}
             label={m.reservations_contact({}, { locale })}
-            onPress={openContactPage}
+            onPress={() => openContactPage()}
           />
           <Button
             variant="quiet"
-            label={m.reservations_access_back_to_booking({}, { locale })}
+            label={
+              returnToStatus
+                ? m.reservations_access_back_to_booking({}, { locale })
+                : m.account_section_reservations({}, { locale })
+            }
             onPress={() =>
-              router.dismissTo({
-                pathname: "/reservations/[orderId]",
-                params: { orderId },
-              })
+              router.dismissTo(
+                returnToStatus
+                  ? {
+                      pathname: "/reservations/[orderId]",
+                      params: { orderId },
+                    }
+                  : reservationsHref
+              )
             }
           />
         </View>

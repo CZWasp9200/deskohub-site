@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import {
@@ -14,8 +14,12 @@ import { getEarlyPerformanceRequestRequiredAt } from "@/features/legal/early-per
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
+import { makeOfficePayRouteFixture } from "./office-pay-route.test-utils";
 import { buildSignedPayState, PayState } from "./pay-state";
-import { getPayStateCheckoutView } from "./pay-state-checkout-view";
+import {
+  findCheckoutOfficeSelectionForVisitor,
+  getPayStateCheckoutView,
+} from "./pay-state-checkout-view";
 
 const reservation = {
   kind: "cowork" as const,
@@ -27,6 +31,21 @@ const reservation = {
   phone: "+420777000111",
 };
 const orderId = "reservation-id" as WorkspaceReservationId;
+
+test("does not turn an unreadable office guest list into a seat-only hold", async () => {
+  const { seal, services } = makeOfficePayRouteFixture({
+    unavailablePeople: true,
+  });
+  const locale = "en-US";
+  const payStateToken = await seal(locale);
+  const result = await Effect.runPromise(
+    findCheckoutOfficeSelectionForVisitor({ payStateToken, locale }).pipe(
+      Effect.provide(services)
+    )
+  );
+  expect(result).toEqual(Option.none());
+});
+
 const changedKeys: CheckoutSummaryChangedKeys = {
   sectionKeys: ["order"],
   itemKeys: ["product:cowork:basic"],

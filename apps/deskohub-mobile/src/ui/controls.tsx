@@ -396,6 +396,7 @@ const buttonPressedStyles = StyleSheet.create({
  */
 export function TextField({
   label,
+  labelHidden = false,
   optional,
   hint,
   error,
@@ -411,6 +412,11 @@ export function TextField({
   ...input
 }: {
   readonly label: string;
+  /**
+   * The label names the field to assistive tech only, for a field whose
+   * placeholder and surroundings already say what it takes.
+   */
+  readonly labelHidden?: boolean;
   /** The marker after the label of a field that may stay empty. */
   readonly optional?: string;
   /** Help under the field, such as the format it expects. */
@@ -466,7 +472,7 @@ export function TextField({
   const iconColor = fieldIconColor(state);
   return (
     <View ref={column} style={fieldColumnStyle}>
-      <FieldLabel label={label} optional={optional} />
+      {!labelHidden && <FieldLabel label={label} optional={optional} />}
       {fieldRow(
         <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
           {leadingIcon && (

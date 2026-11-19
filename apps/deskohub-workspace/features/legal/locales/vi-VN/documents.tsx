@@ -303,7 +303,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "15 tháng 11, 2026",
+    updatedAt: "18 tháng 11, 2026",
     sections: [
       {
         heading: "1. Bên Kiểm soát dữ liệu cá nhân",
@@ -339,6 +339,18 @@ const legalDocuments = {
             số điện thoại, nhóm sản phẩm và sản phẩm đặt chỗ đã chọn, ngày hoặc
             khoảng ngày, giờ bắt đầu, thời lượng, số chỗ và các lựa chọn
             coworking (nếu có) về đồ ăn uống, màn hình hoặc trạm làm việc.
+          </>,
+          <>
+            Chúng tôi nhận địa chỉ email của người được mời từ khách hàng đã đặt
+            chỗ văn phòng riêng. Chúng tôi dùng địa chỉ này để gửi lời mời và
+            thông báo về những thay đổi đối với lượt đặt chỗ, đồng thời cấp
+            quyền vào văn phòng cho người được mời. Cơ sở pháp lý là lợi ích hợp
+            pháp của chúng tôi trong việc giúp người được mời sử dụng lượt đặt
+            chỗ và biết tình trạng của lượt đặt chỗ đó. Chúng tôi lưu địa chỉ
+            đến 30 ngày sau khi quyền ra vào kết thúc. Nếu địa chỉ thuộc về một
+            tài khoản khách hàng hoặc một khách hàng đã đăng ký, sau thời hạn
+            này chúng tôi chỉ lưu liên kết giữa lời mời và tài khoản hoặc hồ sơ
+            khách hàng trong thời gian tài khoản hoặc hồ sơ đó còn tồn tại.
           </>,
           <>
             Khi Quý khách tiếp tục đặt hàng, chúng tôi cũng xử lý số tiền được

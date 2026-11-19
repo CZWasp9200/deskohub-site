@@ -18,6 +18,7 @@ import {
   tryWorkspaceE2ESync,
   type WorkspaceE2EError,
 } from "../errors";
+import { getWorkspaceE2EOfficeInvitees } from "../office";
 import { pollUntil } from "../polling";
 import { isPreviewPageAvailable } from "../preview-readiness";
 import { assert, log } from "../runtime";
@@ -49,7 +50,7 @@ export const prepareOfficeE2E = (
     const pageAvailable = yield* isPreviewPageAvailable(
       config,
       "/en-US/reservation/office",
-      "data-office-base-price"
+      "data-office-price"
     );
     if (!pageAvailable) {
       log("Office checkout e2e skipped because the office page is disabled");
@@ -102,6 +103,9 @@ export const makeOfficeE2ECases = ({
             config,
             data,
             datasourceConfig,
+            expectedOfficeInvitees: getWorkspaceE2EOfficeInvitees(
+              preparation.slot.seats
+            ),
             flow: {
               id: "office-paid-multi-day",
               toReservationPreparation: toReservationStep,
@@ -151,9 +155,8 @@ const assertOfficePayPage = (
         { largestUnit: "day" }
       ).days + 1;
     const dayLabel = dayCount === 1 ? "day" : "days";
-    const accessTitle = `Private office access · ${dayCount} ${dayLabel}`;
-    const seatLabel = office.seats === 1 ? "office seat" : "office seats";
-    const seatTitle = `${office.seats} ${seatLabel} · ${dayCount} ${dayLabel}`;
+    const accessTitle = ` · ${dayCount} ${dayLabel}`;
+    const seatTitle = `${office.seats} ${office.seats === 1 ? "person" : "people"} × `;
     const price = formatMoney(
       getWorkspaceOfficePrice({
         dayCount,

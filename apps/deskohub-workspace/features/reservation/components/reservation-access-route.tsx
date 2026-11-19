@@ -9,6 +9,7 @@ import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { loadOrderKind } from "@/features/order/backend/order-kind";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
+import { readReservationInvitationCookie } from "@/features/reservation/backend/reservation-invitation-capability";
 import { ReservationAccessPage } from "@/features/reservation/components/reservation-access-page";
 import {
   type WorkspaceReservationId,
@@ -84,8 +85,12 @@ async function renderReservationAccess({
   const cookieStore = await cookies();
   const requestHeaders = await headers();
   const accessCookie = readReservationAccessCookie(cookieStore, orderId);
+  const invitationCookie = readReservationInvitationCookie(
+    cookieStore,
+    orderId
+  );
   const access = await Effect.flatMap(ReservationAccessService, (service) =>
-    service.getAccess({ orderId, locale, accessCookie })
+    service.getAccess({ orderId, locale, accessCookie, invitationCookie })
   ).pipe(
     Effect.provide(ReservationAccessService.Live),
     // Authorization reads the session from these headers, never from

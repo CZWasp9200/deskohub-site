@@ -762,32 +762,6 @@
   "checkoutSummaryItemMeetingRoom": "मीटिंग रूम – {duration}",
   "checkoutSummaryItemReferralDiscount": "रेफ़रल छूट · योग्य आमंत्रित व्यक्ति: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "पहली बुकिंग पर रेफ़रल छूट",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "निजी ऑफ़िस तक पहुँच · {dayCount} दिन",
-        "dayCountPlural=other": "निजी ऑफ़िस तक पहुँच · {dayCount} दिन"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "ऑफ़िस में {seatCount} सीट",
-        "seatCountPlural=other": "ऑफ़िस में {seatCount} सीटें"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -805,7 +779,6 @@
   "checkoutSummaryItemCustomerDiscount": "ग्राहक छूट",
   "checkoutSummaryItemTotal": "कुल भुगतान राशि",
   "checkoutPayConsent": "मैं इन दस्तावेज़ों से सहमत हूँ: <terms>सामान्य नियम और शर्तें</terms>, <operatingRules>परिसर नियमावली</operatingRules>।<earlyPerformance> मेरा अनुरोध है कि सेवा बुक की गई तारीख पर, अनुबंध से हटने की अवधि के भीतर, दी जाए, और मुझे जानकारी है कि सेवा पूरी तरह दिए जाने के बाद अनुबंध से हटने का मेरा अधिकार समाप्त हो जाता है।</earlyPerformance>",
-  "checkoutPayProviderHandoff": "भुगतान Nexi के सुरक्षित भुगतान पेज पर पूरा होगा, जो नए टैब में खुलेगा। आपका बैंक आपसे बैंकिंग ऐप में भुगतान की पुष्टि करने के लिए कह सकता है। इसके बाद इस टैब में आपको बुकिंग की स्थिति दिखेगी।",
   "checkoutPayOrderAndPayButton": "ऑर्डर करें और भुगतान करें",
   "checkoutPayOrderAndPayAmountButton": "ऑर्डर करें और {amount} का भुगतान करें",
   "checkoutPaySubmitError": "भुगतान शुरू नहीं हो सका। कृपया बुकिंग का विवरण जाँचें और फिर से कोशिश करें।",
@@ -1716,5 +1689,94 @@
   "installGuideStepAndroidMenu": "अपने ब्राउज़र का मेनू खोलें, आम तौर पर पता बार के पास <b>⋮</b>।",
   "installGuideStepAndroidAdd": "<b>Add to Home Screen</b> या <b>इंस्टॉल करें</b> पर टैप करें।",
   "installGuideStepAndroidConfirm": "<b>Add</b> या <b>इंस्टॉल करें</b> से पुष्टि करें।",
-  "installGuideStepGenericMenu": "अपने ब्राउज़र का मेनू या उसका <b>शेयर करें</b> बटन खोलें।"
+  "installGuideStepGenericMenu": "अपने ब्राउज़र का मेनू या उसका <b>शेयर करें</b> बटन खोलें।",
+  "officePeopleLabel": "कौन आ रहा है?",
+  "officePeopleCount": "{maximum} में से {count}",
+  "officePeopleYou": "आप",
+  "officePeopleContactEmailLater": "अपना email पता आप अगले चरण में दर्ज करेंगे",
+  "officePeopleRemove": "{email} हटाएँ",
+  "officePeopleRemoveYourself": "ख़ुद को हटाएँ",
+  "officePeopleAddYourself": "ख़ुद को जोड़ें",
+  "officePeopleEmailLabel": "email पता",
+  "officePeopleAdd": "जोड़ें",
+  "officePeopleReplace": "बदलें",
+  "officePeopleSwitchToYourself": "खुद शामिल हों",
+  "officePeopleInvalidEmail": "पूरा email पता दर्ज करें।",
+  "officePeopleDuplicateEmail": "यह email पहले से सूची में है।",
+  "officePeopleContactEmail": "यह आपका अपना email है। अपने लिए “आप” वाली पंक्ति इस्तेमाल करें।",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "एकमात्र सीट भर चुकी है। किसी और को जोड़ने के लिए किसी को हटाएँ।",
+        "maximumPlural=other": "सभी {maximum} सीटें भर चुकी हैं। किसी और को जोड़ने के लिए किसी को हटाएँ।"
+      }
+    }
+  ],
+  "officePeopleNote": "हर व्यक्ति को दरवाज़े का PIN email से मिलेगा।",
+  "officePeopleNoPeople": "कम से कम एक व्यक्ति जोड़ें।",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "इस ऑफ़िस में {maximum} सीट है। आगे बढ़ने के लिए किसी को हटाएँ।",
+        "maximumPlural=other": "इस ऑफ़िस में {maximum} सीटें हैं। आगे बढ़ने के लिए किसी को हटाएँ।"
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "कीमत",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} व्यक्ति × {seatPrice}",
+        "countPlural=other": "{count} लोग × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "कुल",
+  "checkoutPeopleTitle": "कौन आ रहा है",
+  "checkoutPeopleNote": "भुगतान के बाद हर व्यक्ति को दरवाज़े का PIN email से मिलेगा।",
+  "checkoutPayNoteNewTab": "नए टैब में सुरक्षित भुगतान। भुगतान पूरा होने पर <backToShop/> पर क्लिक करें या टैब बंद कर दें।",
+  "checkoutPayNoteBackToShop": "Back to the shop",
+  "reservationAccessGuestBookedBy": "{product} · {name} की बुकिंग",
+  "reservationAccessGuestCopyAddress": "पता {address} कॉपी करें",
+  "reservationAccessGuestAddressCopied": "पता कॉपी हो गया।",
+  "reservationAccessGuestOpenRoute": "रास्ता खोलें",
+  "reservationAccessDatesSingle": "लॉक इस PIN को {date} को स्वीकार करेगा।",
+  "reservationAccessDatesRange": "लॉक इस PIN को {startsOn} से {endsOn} तक स्वीकार करेगा।",
+  "checkoutStatusPeopleLabel": "कौन आ रहा है",
+  "checkoutStatusPeopleContact": "{name} (आप)",
+  "checkoutStatusPeopleResend": "फिर से भेजें",
+  "checkoutStatusPeopleResendLabel": "{email} को न्योता फिर से भेजें",
+  "checkoutStatusPeopleSent": "भेज दिया गया",
+  "checkoutStatusPeopleSentAnnouncement": "{email} को न्योता भेज दिया गया।",
+  "checkoutStatusPeopleResendFailed": "न्योता फिर से नहीं भेजा जा सका। थोड़ी देर बाद फिर से कोशिश करें।",
+  "checkoutStatusPeopleChangeNote": "कौन आ रहा है, यह बदलने के लिए <link>हमसे संपर्क करें</link>।",
+  "checkoutStatusPeopleChangeMessage": "नमस्ते,\n\nमुझे अपनी निजी ऑफ़िस बुकिंग में आने वाले लोग बदलने हैं।\n\n{reservationDetails}\n\nजोड़ें:\nहटाएँ:",
+  "officeInvitationSubject": "{booker} ने आपके लिए निजी ऑफ़िस बुक किया है",
+  "officeInvitationHeading": "{booker} ने {date} के लिए आपके लिए निजी ऑफ़िस बुक किया है",
+  "officeInvitationSpaceLabel": "जगह",
+  "officeInvitationDateLabel": "तारीख़",
+  "officeInvitationBookedByLabel": "बुक करने वाले",
+  "officeInvitationReason": "आपको यह ईमेल इसलिए मिला है क्योंकि {booker} ने अपनी बुकिंग में आपका पता जोड़ा है। कोई सवाल? इस ईमेल का जवाब दें या {email} पर लिखें।",
+  "officeInvitationPeopleLabel": "कौन आ रहा है",
+  "officeInvitationPeopleYou": "{name} (आप)",
+  "officeInvitationPeopleNote": "हर व्यक्ति को प्रवेश का अपना ईमेल मिलेगा।",
+  "officeInviteeCancellationSubject": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस रद्द कर दिया गया है",
+  "officeInviteeCancellationBody": "नीचे दी गई बुकिंग रद्द कर दी गई है, और आपका प्रवेश कोड अब काम नहीं करेगा।",
+  "officeInviteeRestorationSubject": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस फिर से मान्य है",
+  "officeInviteeRestorationHeading": "{booker} द्वारा आपके लिए बुक किया गया निजी ऑफ़िस बहाल कर दिया गया है",
+  "officeInviteeRestorationBody": "नीचे दी गई बुकिंग बहाल कर दी गई है और फिर से मान्य है। उसके रद्द होने की पिछली सूचना अब लागू नहीं है।",
+  "officeInviteeRestorationNewAccessCode": "हमने नया प्रवेश कोड जारी किया है; उसे नीचे खोलें।",
+  "officeInviteeListRejected": "जोड़े गए लोगों की सूची जाँचें और फिर से कोशिश करें।"
 }

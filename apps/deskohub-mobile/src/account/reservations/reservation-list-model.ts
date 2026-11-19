@@ -1,6 +1,7 @@
 import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
+  CustomerReservationParty,
   CustomerReservationSummary,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, DateTime, Option } from "effect";
@@ -36,6 +37,8 @@ export type ReservationListRow = SavedReservation & {
   readonly todayAccess?: CustomerReservationAccess;
   /** A fresh row's withdrawal entry point; saved rows never keep it. */
   readonly withdrawal?: CustomerReservationSummary["withdrawal"];
+  /** The other party, on a fresh row only. */
+  readonly party?: CustomerReservationParty;
 };
 
 /** The list's groups, as the site's account page shows them. */

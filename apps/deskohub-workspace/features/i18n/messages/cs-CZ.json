@@ -766,34 +766,6 @@
   "checkoutSummaryItemMeetingRoom": "Zasedací místnost - {duration}",
   "checkoutSummaryItemReferralDiscount": "Doporučovací sleva · způsobilí pozvaní zákazníci: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "Doporučovací sleva na první rezervaci",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Přístup do soukromé kanceláře · {dayCount} den",
-        "dayCountPlural=few": "Přístup do soukromé kanceláře · {dayCount} dny",
-        "dayCountPlural=other": "Přístup do soukromé kanceláře · {dayCount} dní"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} místo v kanceláři",
-        "seatCountPlural=few": "{seatCount} místa v kanceláři",
-        "seatCountPlural=other": "{seatCount} míst v kanceláři"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -812,7 +784,6 @@
   "checkoutSummaryItemCustomerDiscount": "Zákaznická sleva",
   "checkoutSummaryItemTotal": "Celkem k platbě",
   "checkoutPayConsent": "Souhlasím s dokumenty <terms>Všeobecné obchodní podmínky</terms>, <operatingRules>Provozní řád</operatingRules>.<earlyPerformance> Žádám o poskytnutí služby v rezervovaném termínu, během lhůty pro odstoupení od smlouvy, a beru na vědomí, že po jejím úplném poskytnutí mé právo odstoupit od smlouvy zaniká.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Platbu dokončíš na zabezpečené platební stránce Nexi, která se otevře v nové záložce. Banka tě může požádat o potvrzení platby v bankovní aplikaci. V této záložce pak uvidíš stav rezervace.",
   "checkoutPayOrderAndPayButton": "Objednat a zaplatit",
   "checkoutPayOrderAndPayAmountButton": "Objednat a zaplatit {amount}",
   "checkoutPaySubmitError": "Platbu se nepodařilo spustit. Zkontroluj prosím údaje rezervace a zkus to znovu.",
@@ -1733,5 +1704,97 @@
   "installGuideStepAndroidMenu": "Otevři menu prohlížeče, obvykle <b>⋮</b> vedle adresního řádku.",
   "installGuideStepAndroidAdd": "Klepni na <b>Přidat na plochu</b> nebo <b>Nainstalovat</b>.",
   "installGuideStepAndroidConfirm": "Potvrď tlačítkem <b>Přidat</b> nebo <b>Nainstalovat</b>.",
-  "installGuideStepGenericMenu": "Otevři menu prohlížeče nebo tlačítko <b>Sdílet</b>."
+  "installGuideStepGenericMenu": "Otevři menu prohlížeče nebo tlačítko <b>Sdílet</b>.",
+  "officePeopleLabel": "Kdo přijde?",
+  "officePeopleCount": "{count} z {maximum}",
+  "officePeopleYou": "Ty",
+  "officePeopleContactEmailLater": "Svůj e-mail zadáš v dalším kroku",
+  "officePeopleRemove": "Odebrat {email}",
+  "officePeopleRemoveYourself": "Odebrat sebe",
+  "officePeopleAddYourself": "Přidat sebe",
+  "officePeopleEmailLabel": "E-mailová adresa",
+  "officePeopleAdd": "Přidat",
+  "officePeopleReplace": "Nahradit",
+  "officePeopleSwitchToYourself": "Přijdu místo hosta",
+  "officePeopleInvalidEmail": "Zadej celou e-mailovou adresu.",
+  "officePeopleDuplicateEmail": "Tento e-mail už v seznamu je.",
+  "officePeopleContactEmail": "Tohle je tvůj vlastní e-mail. Pro sebe použij řádek Ty.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Jediné místo je obsazené. Chceš-li přidat dalšího člověka, někoho odeber.",
+        "maximumPlural=few": "Všechna {maximum} místa jsou obsazená. Chceš-li přidat dalšího člověka, někoho odeber.",
+        "maximumPlural=other": "Všech {maximum} míst je obsazeno. Chceš-li přidat dalšího člověka, někoho odeber."
+      }
+    }
+  ],
+  "officePeopleNote": "PIN ke dveřím dostane každý e-mailem.",
+  "officePeopleNoPeople": "Přidej alespoň jednoho člověka.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Tato kancelář má {maximum} místo. Chceš-li pokračovat, někoho odeber.",
+        "maximumPlural=few": "Tato kancelář má {maximum} místa. Chceš-li pokračovat, někoho odeber.",
+        "maximumPlural=other": "Tato kancelář má {maximum} míst. Chceš-li pokračovat, někoho odeber."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Cena",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} osoba × {seatPrice}",
+        "countPlural=few": "{count} osoby × {seatPrice}",
+        "countPlural=other": "{count} osob × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Celkem",
+  "checkoutPeopleTitle": "Kdo přijde",
+  "checkoutPeopleNote": "Po zaplacení dostane každý PIN ke dveřím e-mailem.",
+  "checkoutPayNoteNewTab": "Bezpečná platba v nové záložce. Na konci klikni na <backToShop/>, nebo záložku zavři.",
+  "checkoutPayNoteBackToShop": "Zpět do obchodu",
+  "reservationAccessGuestBookedBy": "{product} · na jméno {name}",
+  "reservationAccessGuestCopyAddress": "Zkopírovat adresu {address}",
+  "reservationAccessGuestAddressCopied": "Adresa zkopírována.",
+  "reservationAccessGuestOpenRoute": "Otevřít trasu",
+  "reservationAccessDatesSingle": "Zámek přijme tento PIN dne {date}.",
+  "reservationAccessDatesRange": "Zámek přijme tento PIN od {startsOn} do {endsOn} včetně.",
+  "checkoutStatusPeopleLabel": "Kdo přijde",
+  "checkoutStatusPeopleContact": "{name} (ty)",
+  "checkoutStatusPeopleResend": "Poslat znovu",
+  "checkoutStatusPeopleResendLabel": "Znovu poslat pozvánku na {email}",
+  "checkoutStatusPeopleSent": "Odesláno",
+  "checkoutStatusPeopleSentAnnouncement": "Pozvánka odeslána na {email}.",
+  "checkoutStatusPeopleResendFailed": "Pozvánku se nepodařilo poslat znovu. Zkus to za chvíli.",
+  "checkoutStatusPeopleChangeNote": "Chceš-li změnit, kdo přijde, <link>kontaktuj nás</link>.",
+  "checkoutStatusPeopleChangeMessage": "Dobrý den,\n\nchci změnit, kdo přijde na moji rezervaci soukromé kanceláře.\n\n{reservationDetails}\n\nPřidat:\nOdebrat:",
+  "officeInvitationSubject": "{booker} tě zve do soukromé kanceláře",
+  "officeInvitationHeading": "{booker} tě zve do soukromé kanceláře – {date}",
+  "officeInvitationSpaceLabel": "Prostor",
+  "officeInvitationDateLabel": "Datum",
+  "officeInvitationBookedByLabel": "Rezervace od",
+  "officeInvitationReason": "Tento e-mail ti přišel, protože je tvoje adresa uvedená v rezervaci od {booker}. Máš dotaz? Odpověz na tento e-mail nebo napiš na {email}.",
+  "officeInvitationPeopleLabel": "Kdo přijde",
+  "officeInvitationPeopleYou": "{name} (ty)",
+  "officeInvitationPeopleNote": "Každý dostane vlastní e-mail s přístupem.",
+  "officeInviteeCancellationSubject": "Rezervace soukromé kanceláře od {booker} byla zrušena",
+  "officeInviteeCancellationBody": "Níže uvedená rezervace byla zrušena a tvůj přístupový kód už nefunguje.",
+  "officeInviteeRestorationSubject": "Rezervace soukromé kanceláře od {booker} znovu platí",
+  "officeInviteeRestorationHeading": "Rezervace soukromé kanceláře od {booker} byla obnovena",
+  "officeInviteeRestorationBody": "Níže uvedenou rezervaci jsme obnovili a znovu platí. Předchozí oznámení o jejím zrušení už neplatí.",
+  "officeInviteeRestorationNewAccessCode": "Vydali jsme nový přístupový kód, otevřeš ho níže.",
+  "officeInviteeListRejected": "Zkontroluj prosím seznam lidí a zkus to znovu."
 }

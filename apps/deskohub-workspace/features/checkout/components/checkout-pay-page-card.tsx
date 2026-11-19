@@ -110,18 +110,41 @@ export function CheckoutPayConsent({
 }
 
 /** Tells the customer, and any agent acting for them, who takes the payment. */
+/**
+ * What happens after the pay button: payment opens in a new tab, and the
+ * payment provider's own "back to the shop" button, shown as a small replica
+ * so the customer recognizes it there, returns them here.
+ */
 export function CheckoutPayProviderHandoff({
   locale,
 }: {
   readonly locale: Locale;
 }) {
+  const returnToShop = m.checkoutPayNoteBackToShop({}, { locale });
+  // Nexi publishes the German and Slovak language settings. The payment
+  // result button labels for those languages have not been verified.
+  const showsProviderLabel = locale !== "de-DE" && locale !== "sk-SK";
   return (
     <p className="flex items-start gap-2 text-sm leading-6 text-navy-blue/66">
       <ShieldCheck
         aria-hidden="true"
-        className="mt-1 h-4 w-4 shrink-0 text-aquamarine-ink"
+        className="mt-1 size-4 shrink-0 text-aquamarine-ink"
       />
-      <span>{m.checkoutPayProviderHandoff({}, { locale })}</span>
+      <span>
+        <Interpolate
+          string={m.checkoutPayNoteNewTab({}, { locale })}
+          mapping={{
+            backToShop: showsProviderLabel ? (
+              // Nexi's button: indigo, white bold capitals, 4px corners.
+              <span className="mx-0.5 inline-block whitespace-nowrap rounded-[4px] bg-[#2D32AA] px-2 align-[0.1em] text-[0.7rem] font-bold uppercase leading-5 tracking-[0.08em] text-white">
+                {returnToShop}
+              </span>
+            ) : (
+              returnToShop
+            ),
+          }}
+        />
+      </span>
     </p>
   );
 }
@@ -161,13 +184,12 @@ export function CheckoutPaySubmitButton({
   const separateTotal =
     total && !payLabelNamesAmount(locale) ? total : undefined;
 
-  // Centred on the first line of the label, as the button centres it when
-  // the label fits on one line.
-  const payIconClassName =
-    "me-2 mt-[calc((1lh-1rem)/2)] inline-block size-4 align-top";
+  // The icon sits outside the label, centred on however many lines it takes.
+  const payIconClassName = "size-4 shrink-0";
   const orderLabel = total
     ? m.checkoutPayOrderAndPayAmountButton(
-        { amount: formatMoney(total, locale) },
+        // No-break spaces keep the amount on one line when the label wraps.
+        { amount: formatMoney(total, locale).replaceAll(" ", "\u00a0") },
         { locale }
       )
     : m.checkoutPayOrderAndPayButton({}, { locale });
@@ -197,20 +219,29 @@ export function CheckoutPaySubmitButton({
         pending={pending}
         onClick={onClick}
       >
-        {/* Long labels, such as the German legal order wording, wrap onto
-            balanced lines. The icon leads the first line, so it stays
-            beside the text rather than beside the whole wrapped block.
-            Below 18rem the label takes the small button's type size and
-            caps tracking: at the full size, the longest word
+        {/* Long labels, such as the German legal order wording or a narrow
+            screen's "Order and pay" with its amount, wrap onto balanced
+            lines beside the icon, which stays vertically centred. Below
+            18rem the label takes the small button's type size and caps
+            tracking: at the full size, the longest word
             ("Zahlungspflichtig", about 206px) beside the icon needs a
             278px button. */}
-        <span className="text-balance @max-[18rem]:text-xs @max-[18rem]:tracking-[0.08em]">
+        <span className="flex min-w-0 items-center justify-center gap-3">
           {!pending &&
             {
-              pay: <CreditCard className={payIconClassName} />,
-              retry: <RotateCcw className={payIconClassName} />,
+              pay: (
+                <CreditCard aria-hidden="true" className={payIconClassName} />
+              ),
+              retry: (
+                <RotateCcw aria-hidden="true" className={payIconClassName} />
+              ),
             }[variant]}
-          {label}
+          <span
+            className="min-w-0 text-balance @max-[18rem]:text-xs @max-[18rem]:tracking-[0.08em]"
+            data-checkout-pay-label=""
+          >
+            {label}
+          </span>
         </span>
       </Button>
     </div>

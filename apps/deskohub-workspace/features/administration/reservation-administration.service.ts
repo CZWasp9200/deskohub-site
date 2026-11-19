@@ -39,6 +39,7 @@ import {
   REQUESTED_CANCELLATION_RETRY_AFTER_MS,
 } from "@/features/reservation/reservation-cancellation-policy";
 import { ReservationAccessService } from "@/features/reservation-access";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import { servicePerOperation } from "@/shared/backend/service-per-operation";
@@ -687,11 +688,14 @@ export class ReservationAdministrationService extends Context.Service<
       WorkspaceReservationEmailService.Default.pipe(
         Layer.provide(
           Layer.provideMerge(
+            ReservationInvitations.Live,
             Layer.provideMerge(
-              WorkspaceEmailLayer,
-              WorkspaceCheckoutNetworkDetailsService.Default
-            ),
-            CustomerEmailLocaleService.Live
+              Layer.provideMerge(
+                WorkspaceEmailLayer,
+                WorkspaceCheckoutNetworkDetailsService.Default
+              ),
+              CustomerEmailLocaleService.Live
+            )
           )
         )
       ),

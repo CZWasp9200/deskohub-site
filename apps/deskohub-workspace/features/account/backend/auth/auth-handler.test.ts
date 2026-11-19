@@ -11,6 +11,7 @@ import {
   WorkspaceDatabaseAdvisoryLock,
   withPostgresAdvisoryLock,
 } from "@/db/postgres-advisory-lock";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import { ReviewAccounts } from "@/features/review-accounts";
 import { BotDetectedError } from "@/shared/backend/bot-protection/bot-protection.service";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -121,6 +122,7 @@ const makeTestDeletionLayers = (
             )
           )
         ),
+        NoReservationInvitees,
         Layer.mock(CustomerDotyposAdapter, { expireCustomer }),
         Layer.mock(CustomerAvatarService, { destroy: destroyAvatar }),
         Layer.mock(AnalyticsPersonAnonymisation, {

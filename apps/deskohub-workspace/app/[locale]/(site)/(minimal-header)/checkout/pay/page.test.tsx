@@ -4,11 +4,13 @@ import { Effect, Layer, Schema } from "effect";
 import type { ReactNode } from "react";
 import { prerender } from "react-dom/static";
 import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
+import { makeOfficePayRouteFixture } from "@/features/checkout/backend/checkout/office-pay-route.test-utils";
 import type { PayableReservation } from "@/features/checkout/backend/checkout/payable-checkout.service";
 import { PayableCheckoutMock } from "@/features/checkout/backend/checkout/payable-checkout.service.mock";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import type { Locale } from "@/features/i18n";
+import type { OfficeCheckoutPeople } from "@/features/office/components/office-checkout-people";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationCheckoutStepQueryParam } from "@/features/reservation/reservation-checkout-step";
@@ -81,6 +83,18 @@ mock.module("@/features/discounts/discount-code-entry.server", () => ({
   ),
 }));
 
+const officeCheckout = makeOfficePayRouteFixture();
+const checkoutView = await import(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view"
+);
+mock.module(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view",
+  () => ({
+    ...checkoutView,
+    checkoutOfficeSelectionForVisitorServices: officeCheckout.services,
+  })
+);
+
 type LinkProps = { readonly href: string };
 const flowLayout = await import(
   "@/features/checkout/components/checkout-flow-layout"
@@ -111,18 +125,23 @@ mock.module("@/features/checkout/components/checkout-pay-page", () => ({
     earlyPerformanceRequestRequired,
     freshPayUrl,
     payStateToken,
+    people,
     variant,
   }: {
     readonly discountCodeForm: ReactNode;
     readonly earlyPerformanceRequestRequired: boolean;
     readonly freshPayUrl?: string;
     readonly payStateToken?: string;
+    readonly people?: OfficeCheckoutPeople;
     readonly variant: string;
   }) => (
     <article
       data-early-performance={String(earlyPerformanceRequestRequired)}
       data-fresh-pay-url={freshPayUrl}
       data-pay-state-token={payStateToken}
+      data-booker-email={people?.contact.email}
+      data-booker-name={people?.contact.name}
+      data-invitee-email={people?.invitees[0]}
       data-variant={variant}
     >
       {discountCodeForm}
@@ -245,6 +264,29 @@ test("keeps the pay page out of search results without naming its URL", async ()
 });
 
 describe("LocalizedCheckoutPayPage", () => {
+  test("renders the held office list only for the Pay state's author", async () => {
+    reservationPayable = true;
+    const token = await officeCheckout.seal("cs-CZ");
+    const query = { [payStateTokenQueryParam]: token };
+
+    const authorMarkup = await renderPayPage(query);
+    expect(attributeOf(authorMarkup, "data-variant")).toBe("pay");
+    expect(attributeOf(authorMarkup, "data-booker-email")).toBe(
+      officeCheckout.reservation.email
+    );
+    expect(attributeOf(authorMarkup, "data-booker-name")).toBe(
+      officeCheckout.reservation.name
+    );
+    expect(attributeOf(authorMarkup, "data-invitee-email")).toBe(
+      officeCheckout.inviteeEmail
+    );
+
+    officeCheckout.signInAsAnotherAccount();
+    const otherMarkup = await renderPayPage(query);
+    expect(otherMarkup).not.toContain(officeCheckout.inviteeEmail);
+    expect(attributeOf(otherMarkup, "data-booker-email")).toBeUndefined();
+  });
+
   test("lets a customer pay for a held reservation", async () => {
     reservationPayable = true;
     discountCodeEntryEnabled = true;

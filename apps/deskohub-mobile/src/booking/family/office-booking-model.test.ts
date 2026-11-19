@@ -7,6 +7,7 @@ import {
   bookingAvailabilityAtom,
   bookingOfferingsAtom,
 } from "../data/booking-queries";
+import { youOnly } from "../selection/office-people";
 import {
   emptyOfficeDraft,
   type OfficeDraft,
@@ -15,6 +16,7 @@ import {
   selectOfficeDate,
 } from "../selection/office-selection";
 import { fakeBooking } from "../testing/fake-booking-api";
+import { officePeopleOf } from "../testing/office-people-fixtures";
 import { czk } from "../testing/sample-booking-catalog";
 import { priceLineAmount } from "../ui/price-breakdown";
 import {
@@ -72,19 +74,37 @@ describe("officeBookingModel", () => {
     expect(Option.isSome(office.selection)).toBe(true);
   });
 
-  test("days and seats are kept within what the first day and the office allow", async () => {
-    const { booking, offering, model } = await setup();
+  test("days are kept within what the first day allows", async () => {
+    const { booking, model } = await setup();
     // The fake's first unavailable date is three days ahead.
     const office = model({
       date: Option.some(booking.dateIn(1)),
       dayCount: 30,
-      seats: 1_000,
+      people: youOnly,
     });
 
     expect(office.draft.dayCount).toBe(office.enablement.maximumDayCount);
     expect(office.enablement.maximumDayCount).toBe(2);
-    expect(office.draft.seats).toBe(offering.maximumSeats ?? 1_000);
     expect(office.enablement.blockers).toEqual([]);
+  });
+
+  test("sends one seat per person, and blocks more people than seats", async () => {
+    const { booking, offering, model } = await setup();
+    const most = offering.maximumSeats ?? 0;
+    const withPeople = (count: number) =>
+      model({
+        date: Option.some(booking.dateIn(1)),
+        dayCount: 1,
+        people: officePeopleOf(count),
+      });
+
+    expect(Option.map(withPeople(2).selection, ({ seats }) => seats)).toEqual(
+      Option.some(2)
+    );
+    expect(
+      withPeople(most + 1).enablement.blockers.map(({ _tag }) => _tag)
+    ).toEqual(["SeatsUnavailable"]);
+    expect(withPeople(most + 1).draft.people.invitees).toHaveLength(most);
   });
 
   test("a taken first day can't continue, isn't quoted and shows no steppers", async () => {
@@ -109,7 +129,7 @@ describe("office steppers", () => {
     const steppers = model({
       date: Option.some(booking.dateIn(1)),
       dayCount: 2,
-      seats: 1,
+      people: youOnly,
     }).steppers.pipe(Option.getOrThrow);
 
     expect(steppers.days).toEqual({
@@ -118,35 +138,40 @@ describe("office steppers", () => {
     });
   });
 
-  test("seats say the office's capacity and when the draft has all of it", async () => {
+  test("people say how many of the office's seats they take, and when all are taken", async () => {
     const { booking, offering, model } = await setup();
     const most = offering.maximumSeats ?? 0;
-    const seatsWith = (seats: number) =>
+    const peopleWith = (count: number) =>
       model({
         date: Option.some(booking.dateIn(1)),
         dayCount: 1,
-        seats,
-      }).steppers.pipe(Option.getOrThrow).seats;
+        people: officePeopleOf(count),
+      }).steppers.pipe(Option.getOrThrow).people;
 
     expect(most).toBeGreaterThan(1);
-    expect(seatsWith(1)).toEqual({
+    expect(peopleWith(1)).toEqual({
+      count: 1,
       maximum: Option.some(most),
-      reached: false,
+      full: false,
     });
-    expect(seatsWith(most).reached).toBe(true);
-    expect(seatsWith(most + 3).reached).toBe(true);
+    expect(peopleWith(most).full).toBe(true);
+    expect(peopleWith(most + 3).full).toBe(true);
   });
 
-  test("seats claim no limit while the capacity can't be read", async () => {
+  test("people claim no limit while the capacity can't be read", async () => {
     const { booking, offering, model } = await setup();
     const { maximumSeats: _, ...withoutCapacity } = offering;
 
-    const seats = model(
-      { date: Option.some(booking.dateIn(1)), dayCount: 1, seats: 9 },
+    const people = model(
+      {
+        date: Option.some(booking.dateIn(1)),
+        dayCount: 1,
+        people: officePeopleOf(9),
+      },
       withoutCapacity
-    ).steppers.pipe(Option.getOrThrow).seats;
+    ).steppers.pipe(Option.getOrThrow).people;
 
-    expect(seats).toEqual({ maximum: Option.none(), reached: false });
+    expect(people).toEqual({ count: 9, maximum: Option.none(), full: false });
   });
 });
 
@@ -166,7 +191,7 @@ describe("openingOfficeDraft", () => {
   const keptDraft: OfficeDraft = {
     date: Option.some("2026-11-12"),
     dayCount: 1,
-    seats: 2,
+    people: officePeopleOf(2),
   };
 
   test("opens empty without a preselection or a kept draft", () => {
@@ -179,14 +204,18 @@ describe("openingOfficeDraft", () => {
     ).toEqual(emptyOfficeDraft);
   });
 
-  test("opens a preselection's stay", () => {
+  test("opens a preselection's stay with You only on the list", () => {
     expect(
       openingOfficeDraft({
         kept: Option.none(),
         preselection: preselection(6),
         bookableDates,
       })
-    ).toEqual({ date: Option.some("2026-11-23"), dayCount: 3, seats: 6 });
+    ).toEqual({
+      date: Option.some("2026-11-23"),
+      dayCount: 3,
+      people: youOnly,
+    });
   });
 
   test("keeps the customer's draft when no other preselection opened the screen", () => {
@@ -211,8 +240,8 @@ describe("openingOfficeDraft", () => {
         kept: kept(bookingPreselectionKey(preselection(6))),
         preselection: preselection(4),
         bookableDates,
-      }).seats
-    ).toBe(4);
+      }).people
+    ).toEqual(youOnly);
   });
 });
 

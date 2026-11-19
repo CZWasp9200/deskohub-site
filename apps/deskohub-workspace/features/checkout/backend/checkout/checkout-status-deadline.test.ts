@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { expect, mock, test } from "bun:test";
@@ -127,6 +128,7 @@ const loadStatusPageOnTestClock = (options: {
   }).pipe(
     Effect.provide(
       CheckoutStatusService.Default.pipe(
+        Layer.provide(NoReservationInvitees),
         Layer.provide(observePaymentPagesAs("unknown").layer),
         Layer.provide(
           Layer.mergeAll(

@@ -7,7 +7,6 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { DateTime, Match, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import { useFocusEffect, useRouter } from "expo-router";
-import { openBrowserAsync } from "expo-web-browser";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Download from "lucide-react-native/icons/download";
@@ -18,7 +17,6 @@ import Search from "lucide-react-native/icons/search";
 import Undo2 from "lucide-react-native/icons/undo-2";
 import { type ReactNode, useCallback } from "react";
 import { StyleSheet, View } from "react-native";
-import { apiOrigin } from "../../auth/auth-client";
 import { bookAgainHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView, viewErrorOf } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
@@ -35,7 +33,7 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
-import { contactPageUrl } from "../../routing/site-page";
+import { openContactPage } from "../../routing/open-contact-page";
 import { Card } from "../../ui/card";
 import { Button, LiveMessage } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
@@ -61,6 +59,7 @@ import { ticketBadge, ticketSteps } from "./booking-ticket-text";
 import { type BookingEvent, calendarShareAtom } from "./calendar-event";
 import { establishmentAtom } from "./establishment";
 import { invoiceShareAtom } from "./invoice-share";
+import { OrderPeopleSection } from "./order-people-section";
 import { offersAccessLink, offersInvoice } from "./order-status-kind";
 import { focusGained, focusLost, orderStatusAtoms } from "./order-status-state";
 import { orderTicketView, reservationOfOrderAtom } from "./order-ticket-view";
@@ -69,11 +68,6 @@ import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
 import { WhenWithdrawable } from "./withdrawal-offer";
-
-/** Opens the site's contact form. */
-export const openContactPage = () => {
-  void openBrowserAsync(contactPageUrl(apiOrigin)).catch(() => undefined);
-};
 
 const invoiceFailureMessage = (
   failure: DownloadShareFailure,
@@ -146,7 +140,7 @@ function MoreActions({
           icon={Mail}
           label={m.reservations_contact({}, { locale })}
           trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
         {!withdrawn && !order.reservationCancelled && (
           <WhenWithdrawable orderId={order.orderId}>
@@ -204,7 +198,7 @@ function ContactLink() {
       variant="quiet"
       icon={Mail}
       label={m.reservations_contact({}, { locale })}
-      onPress={openContactPage}
+      onPress={() => openContactPage()}
     />
   );
 }
@@ -294,7 +288,7 @@ function TicketStub({
                   <Button
                     icon={Mail}
                     label={m.reservations_contact({}, { locale })}
-                    onPress={openContactPage}
+                    onPress={() => openContactPage()}
                   />
                 ),
                 "payment-page": paymentPageAction,
@@ -398,6 +392,9 @@ function OrderTicket({
           }
         />
       </BookingTicket>
+      {order.people !== undefined && (
+        <OrderPeopleSection order={order} people={order.people} />
+      )}
       {model.followUp === "more-actions" && (
         <MoreActions order={order} event={view.event} withdrawn={withdrawn} />
       )}
@@ -430,7 +427,7 @@ function OrderNotFound() {
         <Button
           variant="quiet"
           label={m.reservations_contact({}, { locale })}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
       </EmptyState>
     </Card>

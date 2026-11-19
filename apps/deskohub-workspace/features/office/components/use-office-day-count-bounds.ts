@@ -2,13 +2,11 @@
 
 import { Predicate } from "effect";
 import { useEffect, useMemo } from "react";
-import type { UseFormReturn } from "react-hook-form";
 import type { Locale } from "@/features/i18n";
 import type { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
 import { useReservationSelectionUrl } from "@/features/reservation/components/use-reservation-selection-url";
 import {
   getOfficeReservationMaximumDayCount,
-  type OfficeReservationData,
   type OfficeReservationInput,
 } from "@/features/reservation/office-reservation";
 import { officeSelectionLink } from "@/features/reservation/office-selection-link";
@@ -48,11 +46,14 @@ export const useOfficeDayCountBounds = ({
   selection,
 }: {
   readonly availabilityResult: ReturnType<typeof useReservationAvailability>;
-  readonly form: UseFormReturn<
-    OfficeReservationInput,
-    unknown,
-    OfficeReservationData
-  >;
+  /** Shortens a day count that no longer fits. */
+  readonly form: {
+    readonly setValue: (
+      name: "dayCount",
+      value: number,
+      options: { readonly shouldValidate: boolean }
+    ) => void;
+  };
   readonly locale: Locale;
   readonly maximumEndsOn: string;
   readonly selection: OfficeSelection;

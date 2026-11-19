@@ -45,8 +45,9 @@ import { MeetingRoomNoneLeft } from "../../family/meeting-room-none-left";
 import { MeetingRoomStartTimes } from "../../family/meeting-room-start-times";
 import {
   OfficeBookingScreen,
-  OfficeStayControls,
+  OfficeDaysControl,
 } from "../../family/office-booking-screen";
+import { OfficePeopleList } from "../../family/office-people-list";
 import { RestartNotice } from "../../family/restart-notice";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
@@ -99,6 +100,12 @@ const chosenDay: PragueDate = "2026-11-26";
 const fullDay: PragueDate = "2026-11-20";
 
 const ignore = () => undefined;
+
+/** The office board's people: You and one invited address. */
+const officeSamplePeople = {
+  contactAttends: true,
+  invitees: ["jana.novak@example.org"],
+};
 
 // ------------------------------------------------------------ screen shell
 
@@ -977,13 +984,28 @@ function OfficeRange({
         range={officeRange}
         legend={false}
       />
-      <BookingSectionHeading title={sample("Days and seats")} />
-      <OfficeStayControls
-        steppers={{
-          days: { maximum: 28, lastDate: officeRange.end },
-          seats: { maximum: Option.some(6), reached: true },
+      <BookingSectionHeading title={sample("Days")} />
+      <OfficeDaysControl
+        days={{ maximum: 28, lastDate: officeRange.end }}
+        draft={{
+          date: Option.some(officeRange.start),
+          dayCount: 3,
+          people: officeSamplePeople,
         }}
-        draft={{ date: Option.some(officeRange.start), dayCount: 3, seats: 6 }}
+        onChange={ignore}
+        locale={locale}
+      />
+      <BookingSectionHeading
+        title={sample("People")}
+        aside={sample("2 of 6")}
+      />
+      <OfficePeopleList
+        people={officeSamplePeople}
+        contact={Option.some({
+          name: "Alex Sample",
+          email: "alex.sample@deskohub.test",
+        })}
+        maximumSeats={Option.some(6)}
         onChange={ignore}
         locale={locale}
       />

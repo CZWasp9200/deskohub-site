@@ -39,7 +39,10 @@ import {
 } from "@/features/referrals/referral-code-cookie";
 import { env } from "./env";
 import { appendVercelPreviewProtectionBypass } from "./features/checkout/backend/checkout/vercel-preview-protection-bypass";
-import { reservationAccessTokenQueryParam } from "./features/reservation/reservation-access-token";
+import {
+  reservationAccessTokenQueryParam,
+  reservationInvitationTokenQueryParam,
+} from "./features/reservation/reservation-access-token";
 import { classifyAgentTraffic } from "./shared/agent-traffic/agent-traffic";
 import { scheduleAgentPageRequest } from "./shared/backend/agent-traffic/agent-page-request";
 import { resolveWorkspaceRuntimeCallbackOrigin } from "./shared/backend/config/workspace-url.config";
@@ -85,7 +88,8 @@ const isReservationCapabilityExchangePath = (pathname: string) =>
 const hasReservationCapabilityToExchange = (request: NextRequest) =>
   request.method === "GET" &&
   isReservationCapabilityExchangePath(request.nextUrl.pathname) &&
-  request.nextUrl.searchParams.has(reservationAccessTokenQueryParam);
+  (request.nextUrl.searchParams.has(reservationAccessTokenQueryParam) ||
+    request.nextUrl.searchParams.has(reservationInvitationTokenQueryParam));
 
 const isAccountPath = (pathname: string) => /\/account(\/|$)/.test(pathname);
 

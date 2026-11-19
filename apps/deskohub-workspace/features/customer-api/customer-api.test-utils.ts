@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Option } from "effect";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
@@ -64,6 +65,10 @@ import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnig
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
+import { ReservationInviteeNoticeWorker } from "@/features/reservation-invitees/backend/reservation-invitee-notice-worker";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
 import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
@@ -90,6 +95,7 @@ import {
   CustomerBookingCheckoutLayers,
 } from "./customer-booking-checkout-layers";
 import { CustomerCheckoutOperations } from "./customer-checkout-operations.service";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 import {
   CustomerReservationLayers,
   type CustomerReservationServiceLayers,
@@ -247,6 +253,17 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
+  invitedReservations: () => Layer.mock(CustomerInvitedReservationsService, {}),
+  invitationResend: Layer.mergeAll(
+    Layer.mock(WorkspaceDatabaseAdvisoryLock, {}),
+    Layer.mock(WorkspaceReservationRepository, {}),
+    Layer.mock(WorkspaceReservationService, {}),
+    Layer.mock(ReservationInvitees, {}),
+    Layer.mock(ReservationInviteeNoticeWorker, {}),
+    Layer.mock(WithdrawalRepository, {
+      findByContract: () => Effect.succeed(Option.none()),
+    })
+  ),
   currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
   authorization: Layer.mock(ReservationAuthorizationService, {}),

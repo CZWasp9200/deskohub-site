@@ -10,13 +10,18 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { Effect } from "effect";
 import {
   buildCoworkCheckoutSummary,
   buildCoworkReservationQuote as buildCoworkPriceQuote,
   buildDiscountedCoworkCheckoutSummary,
 } from "@/features/checkout/checkout-quote.test-utils";
+import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { m } from "@/features/i18n";
+import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
 import { formatMoney } from "@/shared/money/money";
 import {
   workspaceRouterPush,
@@ -359,7 +364,7 @@ describe("CheckoutPayPage payment navigation", () => {
       "/en-US/reservation/status/reservation-id?outcome=success"
     );
     expect(
-      view.queryByText(m.checkoutPayProviderHandoff({}, { locale: "en-US" }))
+      view.queryByText(m.checkoutPayNoteBackToShop({}, { locale: "en-US" }))
     ).toBeNull();
   });
 });
@@ -394,17 +399,89 @@ describe("CheckoutPayPage provider handoff", () => {
         />
       );
 
-      expect(
-        view.getByText(m.checkoutPayProviderHandoff({}, { locale }))
-      ).toBeDefined();
+      const backToShop = view.getByText(
+        m.checkoutPayNoteBackToShop({}, { locale })
+      );
       const amount = formatMoney(quote.summary.total, locale);
       expect(amount).toMatch(locale === "cs-CZ" ? /Kč/ : /CZK/);
       const payButton = view.getByRole("button", {
         name: m.checkoutPayOrderAndPayAmountButton({ amount }, { locale }),
       });
       expect(payButton).toHaveProperty("disabled", true);
+      // The note follows the button it explains.
+      expect(
+        payButton.compareDocumentPosition(backToShop) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).not.toBe(0);
     }
   );
+
+  test.each(["de-DE", "sk-SK"] as const)(
+    "uses plain return instructions when the %s provider button label is unverified",
+    async (locale) => {
+      const { CheckoutPayProviderHandoff } = await import(
+        "./checkout-pay-page-card"
+      );
+      const view = render(<CheckoutPayProviderHandoff locale={locale} />);
+      expect(view.container.textContent).toContain(
+        m.checkoutPayNoteBackToShop({}, { locale })
+      );
+      expect(view.container.querySelector('[class*="2D32AA"]')).toBeNull();
+    }
+  );
+
+  test("reviews who is coming to an office and prices each person", async () => {
+    const { CheckoutPayPage } = await import("./checkout-pay-page");
+    const inviteeEmail = testEmailAddress("jana.novak");
+    const startsOn = "2026-11-18";
+    const request = getOfficeAdvertisedPriceRequest({
+      locale: "en-US",
+      seats: 2,
+      startsOn: startsOn as never,
+      endsOn: startsOn as never,
+    });
+    const quote = Effect.runSync(
+      buildOfficeReservationQuote(request.reservation.details)
+    );
+    const [item] = quote.items;
+    const view = render(
+      <CheckoutPayPage
+        locale="en-US"
+        officeStartDateLabel="Wed, Nov 18"
+        payStateToken="signed-summary"
+        people={{
+          contact: {
+            name: "Alex Sample",
+            email: testEmailAddress("alex.sample"),
+          },
+          contactAttends: true,
+          invitees: [inviteeEmail],
+          seatCapacity: 6,
+        }}
+        summary={getOfficeCheckoutSummary(quote)}
+        variant="pay"
+      />
+    );
+
+    const people = view.getByRole("list", {
+      name: m.checkoutPeopleTitle({}, { locale: "en-US" }),
+    });
+    expect(people.querySelectorAll("li")).toHaveLength(2);
+    expect(people.textContent).toContain("Alex Sample");
+    expect(people.textContent).toContain(inviteeEmail);
+    expect(view.container.textContent).toContain("Wed, Nov 18");
+    expect(
+      view.getByText(
+        m.officePeopleCount({ count: 2, maximum: 6 }, { locale: "en-US" })
+      )
+    ).toBeDefined();
+    expect(view.container.textContent).toContain(
+      m.officePeoplePriceSeatLine(
+        { count: 2, seatPrice: formatMoney(item.seatAmount, "en-US") },
+        { locale: "en-US" }
+      )
+    );
+  });
 
   test("renders the terms and early-performance consents unticked, for the customer to give", async () => {
     const { CheckoutPayPage } = await import("./checkout-pay-page");

@@ -11,7 +11,7 @@ import {
   test,
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -19,7 +19,12 @@ import {
   type CheckoutStatusKind,
   checkoutStatusKinds,
 } from "@/features/checkout/checkout-status-kind";
+import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
+import { readContactPrefill } from "@/features/contact/components/contact-page-link";
 import { type Locale, m } from "@/features/i18n";
+import { InviteeEmail } from "@/features/office/office-people";
+import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
+import { reservationInviteeIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -573,6 +578,199 @@ describe("CheckoutStatusPage", () => {
     expect(
       view.getByRole("link", { name: "Book again" }).getAttribute("href")
     ).toBe("/en-US/reservation/office?dayCount=3&seats=3");
+  });
+
+  test.each([
+    { resendable: true, withdrawn: false },
+    { resendable: false, withdrawn: false },
+    { resendable: true, withdrawn: true },
+  ])(
+    "shows office people without a summary (resendable $resendable, withdrawn $withdrawn)",
+    ({ resendable, withdrawn }) => {
+      const email = InviteeEmail.make(testEmailAddress("office-status-guest"));
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          resendInvitation={async () => ({ status: "failed" })}
+          withdrawal={
+            withdrawn
+              ? {
+                  status: "withdrawn",
+                  refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+                }
+              : undefined
+          }
+          status={{
+            ...baseStatus,
+            kind: "office",
+            status: resendable ? "fulfilled" : "reservation_cancelled",
+            supportContactPrefill: {
+              name: "Alex Sample",
+              email: testEmailAddressForAda,
+            },
+            people: {
+              contactAttends: false,
+              invitees: [
+                {
+                  id: reservationInviteeIdSchema.make("office-guest"),
+                  email,
+                  invitationSentAt: null,
+                },
+              ],
+              resendable,
+            },
+          }}
+        />
+      );
+      const people = view.container.querySelector(
+        "[data-office-status-people]"
+      );
+      expect(people?.textContent).toContain(email);
+      const href = people?.querySelector("a")?.getAttribute("href");
+      if (!href) throw new Error("Expected the change-request link");
+      const { searchParams } = new URL(href, "https://deskohub.test");
+      expect(searchParams.get("name")).toBe("Alex Sample");
+      expect(searchParams.get("email")).toBe(testEmailAddressForAda);
+      expect(searchParams.get("message")).toContain(baseStatus.orderId);
+      expect(
+        Boolean(
+          view.queryByRole("button", {
+            name: m.checkoutStatusPeopleResendLabel(
+              { email },
+              { locale: "en-US" }
+            ),
+          })
+        )
+      ).toBe(resendable && !withdrawn);
+    }
+  );
+
+  test("lists who is coming to an office and sends an invitation again", async () => {
+    const reservedFrom = Temporal.Instant.from("2026-11-17T23:00:00Z");
+    const jana = InviteeEmail.make(testEmailAddress("office-guest-jana"));
+    const petr = InviteeEmail.make(testEmailAddress("office-guest-petr"));
+    const resendInvitation = mock(async () => ({
+      status: "sent" as const,
+      resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }).toString(),
+    }));
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        resendInvitation={resendInvitation}
+        status={{
+          ...baseStatus,
+          kind: "office",
+          supportContactPrefill: {
+            name: "Alex Sample",
+            email: testEmailAddressForAda,
+          },
+          summary: {
+            kind: "office",
+            reservedFrom,
+            reservedUntil: Temporal.Instant.from("2026-11-18T23:00:00Z"),
+            seats: 2,
+            price: { value: 116_000, exponent: 2, currency: "CZK" },
+          },
+          people: {
+            contactAttends: true,
+            invitees: [
+              {
+                id: reservationInviteeIdSchema.make("invitee-jana"),
+                email: jana,
+                invitationSentAt: reservedFrom,
+              },
+              {
+                id: reservationInviteeIdSchema.make("invitee-petr"),
+                email: petr,
+                invitationSentAt: reservedFrom,
+                resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }),
+              },
+            ],
+            resendable: true,
+          },
+        }}
+      />
+    );
+
+    const people = view.container.querySelector("[data-office-status-people]");
+    expect(people?.textContent).toContain(
+      m.checkoutStatusPeopleContact(
+        { name: "Alex Sample" },
+        { locale: "en-US" }
+      )
+    );
+    expect(people?.textContent).toContain(jana);
+    expect(
+      view.getByRole("button", {
+        name: m.checkoutStatusPeopleResendLabel(
+          { email: petr },
+          { locale: "en-US" }
+        ),
+      })
+    ).toHaveProperty("disabled", true);
+    expect(
+      view.queryByText(
+        m.checkoutStatusSummarySeatsLabel({}, { locale: "en-US" })
+      )
+    ).toBeNull();
+
+    const changeLink = people?.querySelector("a");
+    const changeHref = new URL(
+      changeLink?.getAttribute("href") ?? "",
+      "https://x.test"
+    );
+    expect(changeHref.pathname).toBe("/en-US/contact");
+    expect(readContactPrefill(changeHref.searchParams)).toEqual({
+      name: "Alex Sample",
+      email: testEmailAddressForAda,
+      phone: undefined,
+      message: m.checkoutStatusPeopleChangeMessage(
+        {
+          reservationDetails: [
+            m.checkoutStatusContactOrderReference(
+              { orderId: baseStatus.orderId },
+              { locale: "en-US" }
+            ),
+            m.checkoutStatusContactReservation(
+              {
+                reservation: getWorkspaceOfficeProductTitle("en-US"),
+                date: formatReservationDisplayDate(reservedFrom, "en-US"),
+              },
+              { locale: "en-US" }
+            ),
+          ].join("\n"),
+        },
+        { locale: "en-US" }
+      ),
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.checkoutStatusPeopleResendLabel(
+            { email: jana },
+            { locale: "en-US" }
+          ),
+        })
+      );
+    });
+    expect(resendInvitation).toHaveBeenCalledWith({
+      orderId: baseStatus.orderId,
+      inviteeId: "invitee-jana",
+    });
+    expect(
+      view.getByText(m.checkoutStatusPeopleSent({}, { locale: "en-US" }))
+    ).toBeDefined();
+    expect(
+      view
+        .getByText(
+          m.checkoutStatusPeopleSentAnnouncement(
+            { email: jana },
+            { locale: "en-US" }
+          )
+        )
+        .getAttribute("role")
+    ).toBe("status");
   });
 
   test("links the completed order step to the cowork repeat start as a raw document anchor", () => {

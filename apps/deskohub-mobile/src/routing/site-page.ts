@@ -13,6 +13,25 @@ export const sitePageUrl = (
 ): string =>
   new URL(locale === undefined ? path : `/${locale}${path}`, siteOrigin).href;
 
-/** The site's contact form, where "Contact us" leads. */
-export const contactPageUrl = (siteOrigin: string): string =>
-  sitePageUrl("/contact", siteOrigin);
+/** What the contact form opens filled in with, through its query. */
+export interface ContactPrefill {
+  readonly name?: string;
+  readonly email?: string;
+  readonly message?: string;
+}
+
+/**
+ * The site's contact form, where "Contact us" leads, filled in with
+ * `prefill` through the form's `name`, `email` and `message` query.
+ */
+export const contactPageUrl = (
+  siteOrigin: string,
+  prefill: ContactPrefill = {}
+): string => {
+  const url = new URL(sitePageUrl("/contact", siteOrigin));
+  for (const key of ["name", "email", "message"] as const) {
+    const value = prefill[key];
+    if (value !== undefined && value !== "") url.searchParams.set(key, value);
+  }
+  return url.href;
+};

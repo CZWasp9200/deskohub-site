@@ -21,6 +21,8 @@ import {
   customerEvents,
   paymentAttempts,
   reservationAccessGrants,
+  reservationInviteeNotices,
+  reservationInvitees,
   workspaceReservations,
 } from "@/db/schema";
 import {
@@ -32,6 +34,7 @@ import {
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { ReservationAccessService } from "@/features/reservation-access";
 import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
+import { reservationInviteeKeyIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import { rejectCustomerEventInserts } from "@/shared/backend/customer-events/customer-event-outbox.test-utils";
 import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
@@ -893,12 +896,32 @@ describe.skipIf(!testDatabase)(
         }
       });
 
-      test("keeps a refund learned before withdrawal and marks the remainder due", async () => {
+      test("notifies office guests on withdrawal and keeps the previous partial refund", async () => {
         const claimedAt = at(5);
         const id = await insertReservation(
           { ...confirmedPaid, reservation: "cancelling" },
-          { updatedAt: claimedAt, cancellationCause: "customer_withdrawal" }
+          {
+            updatedAt: claimedAt,
+            cancellationCause: "customer_withdrawal",
+            reservationConfirmedAt: at(0),
+            officeContactAttends: false,
+            reservationDetails: { kind: "office", seats: 1, dayCount: 1 },
+          }
         );
+        const [invitee] = await Effect.runPromise(
+          testDatabase.db
+            .insert(reservationInvitees)
+            .values({
+              workspaceReservationId: id,
+              position: 0,
+              keyId: reservationInviteeKeyIdSchema.make("test-key"),
+              encryptedEmail: Buffer.from("synthetic-ciphertext"),
+              emailLookupKey: "synthetic-digest",
+              retainUntil: at(30),
+            })
+            .returning({ id: reservationInvitees.id })
+        );
+        if (!invitee) throw new Error("Expected an office invitee");
         const attempt = await insertActivePaymentAttempt(id, {
           refundState: "refunded",
           refundedAmountValue: 1_000,
@@ -921,6 +944,13 @@ describe.skipIf(!testDatabase)(
           refundedAt: at(4),
           refundTargetValue: 2_000,
         });
+        const notices = await Effect.runPromise(
+          testDatabase.db
+            .select({ kind: reservationInviteeNotices.kind })
+            .from(reservationInviteeNotices)
+            .where(eq(reservationInviteeNotices.inviteeId, invitee.id))
+        );
+        expect(notices).toEqual([{ kind: "cancellation" }]);
       });
 
       test("records a cancellation failure on the claimed revision only", async () => {

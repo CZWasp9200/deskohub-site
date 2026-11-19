@@ -31,6 +31,34 @@ type OfficeSelection = Partial<
   Pick<OfficeReservationInput, "startsOn" | "dayCount" | "seats">
 >;
 
+const readOfficeSelectionParameters = (
+  searchParams: SupportedSearchParams
+) => ({
+  startsOn: decodeStandardSchema(
+    queryOfficeStartsOnSchema,
+    getTrimmedSearchParam(searchParams, "startsOn")
+  ),
+  dayCount: decodeStandardSchema(
+    queryOfficeDayCountSchema,
+    getTrimmedSearchParam(searchParams, "dayCount")
+  ),
+  seats: decodeStandardSchema(
+    queryOfficeSeatsSchema,
+    getTrimmedSearchParam(searchParams, "seats")
+  ),
+});
+
+/** The complete, unadjusted selection named by a quote's office link. */
+export const readQuotedOfficeSelection = (
+  searchParams: SupportedSearchParams
+) => {
+  const { startsOn, dayCount, seats } =
+    readOfficeSelectionParameters(searchParams);
+  return startsOn && dayCount !== undefined && seats !== undefined
+    ? { startsOn, dayCount, seats }
+    : undefined;
+};
+
 /**
  * The office reservation page's link. A link without a selection opens the
  * page on today.
@@ -54,10 +82,8 @@ export const officeSelectionLink = defineSelectionLink({
     const maximumEndsOn = getOfficeReservationMaximumEndsOn(
       Temporal.PlainDate.from(options.today)
     );
-    const requestedStartsOn = decodeStandardSchema(
-      queryOfficeStartsOnSchema,
-      getTrimmedSearchParam(searchParams, "startsOn")
-    );
+    const requested = readOfficeSelectionParameters(searchParams);
+    const requestedStartsOn = requested.startsOn;
     const startsOn =
       requestedStartsOn !== undefined &&
       requestedStartsOn >= options.today &&
@@ -74,19 +100,12 @@ export const officeSelectionLink = defineSelectionLink({
     const isAllowedSeats = (seats: number | undefined) =>
       seats !== undefined && seats <= options.seatCapacity;
     const dayCount = [
-      decodeStandardSchema(
-        queryOfficeDayCountSchema,
-        getTrimmedSearchParam(searchParams, "dayCount")
-      ),
+      requested.dayCount,
       options.lastReservation?.dayCount,
     ].find(isAllowedDayCount);
-    const seats = [
-      decodeStandardSchema(
-        queryOfficeSeatsSchema,
-        getTrimmedSearchParam(searchParams, "seats")
-      ),
-      options.lastReservation?.seats,
-    ].find(isAllowedSeats);
+    const seats = [requested.seats, options.lastReservation?.seats].find(
+      isAllowedSeats
+    );
 
     return {
       ...officeReservationDefaultValues,

@@ -10,10 +10,12 @@ import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { ReservationWithdrawalAvailability } from "@/features/reservation/backend/reservation-withdrawals";
+import { resendReservationInvitationServices } from "@/features/reservation-invitees/backend/resend-reservation-invitation";
 import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import type { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import { WithdrawalReleaseGateForRun } from "@/features/withdrawal/backend/withdrawal-release-gate-run";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 
 type AuthorizationLayerError = Layer.Error<
   typeof ReservationAuthorizationService.ForProvidedAuthentication
@@ -61,6 +63,8 @@ export type CustomerReservationServiceLayers = {
     AuthorizationLayerError,
     CustomerAuthentication
   >;
+  readonly invitedReservations: typeof CustomerInvitedReservationsService.withAccess;
+  readonly invitationResend: typeof resendReservationInvitationServices;
   /** Order statuses, refreshed as the status page refreshes them. */
   readonly checkoutStatus: Layer.Layer<
     CheckoutStatusService,
@@ -147,6 +151,8 @@ export class CustomerReservationLayers extends Context.Service<
         )
       ),
     authorization: ReservationAuthorizationService.ForProvidedAuthentication,
+    invitedReservations: CustomerInvitedReservationsService.withAccess,
+    invitationResend: resendReservationInvitationServices,
     checkoutStatus: CheckoutStatusService.Live,
     paymentPage: CheckoutPaymentPageService.withAuthorization,
     paymentRetry: (authorization) =>

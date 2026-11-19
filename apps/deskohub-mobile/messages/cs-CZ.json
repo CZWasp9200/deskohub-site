@@ -91,8 +91,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Místa v kanceláři",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "Lidé",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -101,9 +101,9 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} místo",
-        "countPlural=few": "{formattedCount} místa",
-        "countPlural=other": "{formattedCount} míst"
+        "countPlural=one": "{formattedCount} osoba",
+        "countPlural=few": "{formattedCount} osoby",
+        "countPlural=other": "{formattedCount} osob"
       }
     }
   ],
@@ -580,11 +580,9 @@
   "booking_price_unit_per_hour": "za hodinu",
   "booking_office_days_decrease": "O den méně",
   "booking_office_days_increase": "O den více",
-  "booking_office_seats_decrease": "O místo méně",
-  "booking_office_seats_increase": "O místo více",
   "booking_office_date_unavailable": "Kancelář není od tohoto data dostupná. Zkus jiné datum začátku.",
   "booking_office_day_count_unavailable": "Kancelář není dostupná po všechny vybrané dny. Zkus jiné datum začátku nebo kratší pobyt.",
-  "booking_office_seats_unavailable": "Kancelář tolik míst nemá. Vyber méně míst.",
+  "booking_office_seats_unavailable": "Kancelář tolik míst nemá. Někoho ze seznamu odeber.",
   "booking_availability_loading": "Kontrolujeme dostupnost workspace...",
   "booking_calendar_notice": "Pozor: tento den platí omezení od {start} do {end}.",
   "booking_calendar_notice_with_summary": "Pozor: {summary}, od {start} do {end}.",
@@ -635,6 +633,14 @@
   "reservations_time_until": "Do {time}",
   "reservations_time_date_until": "{date}, do {time}",
   "reservations_section_later": "Nadcházející",
+  "reservations_section_invited": "Pozvánky",
+  "reservations_booked_by_name": "Rezervuje {name}",
+  "reservations_people_resend": "Poslat znovu",
+  "reservations_people_resend_to": "Znovu poslat e-mail s přístupem na {email}",
+  "reservations_people_resent": "E-mail s přístupem jsme poslali na {email}.",
+  "reservations_people_resend_later": "E-mail s přístupem odešel před chvílí. Znovu ho můžeš poslat za pár minut.",
+  "reservations_people_change": "Chceš-li změnit, kdo přijde, <contact>napiš nám</contact>.",
+  "reservations_people_change_message": "Dobrý den,\n\nchci změnit, kdo přijde na moji rezervaci soukromé kanceláře {reference} na {date}.\n\nPřidat:\n\nOdebrat:\n",
   "reservations_section_past": "Minulé",
   "reservations_show_all_past": "Zobrazit všechny minulé rezervace",
   "reservations_nothing_upcoming": "Nic tě nečeká",
@@ -669,6 +675,8 @@
   "reservations_access_from": "Od",
   "reservations_access_until": "Do",
   "reservations_access_for": "Na",
+  "reservations_access_through": "Do (včetně)",
+  "reservations_access_booked_by": "Rezervuje",
   "reservations_access_where": "Kde",
   "reservations_access_chip_starts": "Od {start} · {when}",
   "reservations_access_starts_today": "dnes",
@@ -683,12 +691,35 @@
   "reservations_access_no_pin_body": "Rezervace ještě není potvrzená. Pokud už by měla být, napiš nám.",
   "reservations_access_back_to_booking": "Zpět na rezervaci",
   "booking_office_first_day_heading": "První den",
-  "booking_office_days_and_seats_heading": "Dny a místa",
   "booking_office_days_label": "Dny",
-  "booking_office_seats_label": "Místa",
+  "booking_office_people_heading": "Lidé",
+  "booking_office_people_of": "{count} z {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "Jediné místo je obsazené. Chceš-li přidat dalšího člověka, někoho odeber.",
+        "countPlural=few": "Všechna {formattedCount} místa jsou obsazená. Chceš-li přidat dalšího člověka, někoho odeber.",
+        "countPlural=other": "Všech {formattedCount} míst je obsazených. Chceš-li přidat dalšího člověka, někoho odeber."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "PIN ke dveřím dostane každý e-mailem.",
+  "booking_office_people_who_is_coming": "Kdo přijde",
+  "booking_office_person_you": "Ty",
+  "booking_office_person_remove": "Odebrat {email}",
+  "booking_office_person_remove_you": "Odebrat sebe",
+  "booking_office_person_email_label": "E-mailová adresa",
+  "booking_office_person_email_invalid": "Zadej celou e-mailovou adresu.",
+  "booking_office_person_add": "Přidat",
+  "booking_office_person_add_yourself": "Přidat sebe",
+  "booking_review_people_pin_note": "Po zaplacení dostane každý PIN ke dveřím e-mailem.",
   "booking_office_until": "Do {date}",
-  "booking_office_seats_up_to": "Až {count}",
-  "booking_office_seats_maximum": "Maximálně {count}",
   "booking_office_reason_date": "Pro pokračování vyber první den",
   "booking_price_unit_per_day_one_seat": "za den, 1 místo",
   "booking_space_from": "od",

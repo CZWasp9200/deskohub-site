@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
   button: {
     alignItems: "center",
     borderRadius: touchTarget / 2,
-    flex: 0,
+    flexShrink: 0,
     height: touchTarget,
     justifyContent: "center",
     width: touchTarget,

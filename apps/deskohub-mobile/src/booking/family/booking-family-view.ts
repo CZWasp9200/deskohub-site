@@ -3,6 +3,7 @@ import type {
   CustomerBookingQuote,
   CustomerBookingSelection,
   CustomerLocale,
+  CustomerOfficePeople,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
@@ -127,6 +128,7 @@ export const checkoutRequestOf = ({
   quote,
   earlySetup,
   overnightStay,
+  people,
 }: {
   readonly locale: CustomerLocale;
   readonly selection: Option.Option<CustomerBookingSelection>;
@@ -136,6 +138,8 @@ export const checkoutRequestOf = ({
   readonly earlySetup?: boolean;
   /** Overnight Reserved Desk only: the stay's times from the catalog. */
   readonly overnightStay?: CoworkOvernightStay;
+  /** Office only: who is coming. */
+  readonly people?: CustomerOfficePeople;
 }): Option.Option<BookingRequest> =>
   blockers.length > 0
     ? Option.none()
@@ -150,6 +154,7 @@ export const checkoutRequestOf = ({
             quote: { summary, regularPrice },
             ...(earlySetup === undefined ? {} : { earlySetup }),
             ...(overnightStay === undefined ? {} : { overnightStay }),
+            ...(people === undefined ? {} : { people }),
           })
         )
       );

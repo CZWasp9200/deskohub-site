@@ -15,6 +15,7 @@ import type { MeetingRoomReservationDuration } from "@/features/reservation/meet
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
+import { getWorkspaceE2EOfficeInvitees } from "../office";
 import type { CheckoutData } from "../types";
 import {
   makeCoworkCheckoutData,
@@ -480,7 +481,7 @@ describe("meeting-room reservation preparation in Chromium", () => {
 
 describe("office reservation preparation in Chromium", () => {
   test.skipIf(!chromiumAvailable)(
-    "prepares a multi-day office reservation with selected seats",
+    "prepares a multi-day office reservation with an invitee per extra seat",
     async () => {
       const data = makeOfficeCheckoutData(origin, officeSlot);
       const html = `
@@ -489,8 +490,10 @@ describe("office reservation preparation in Chromium", () => {
           <div data-day="${officeSlot.startsOn}"><button type="button"></button></div>
           <input name="startsOn" value="" />
           <input name="dayCount" type="number" value="1" />
-          <input name="seats" type="radio" value="1" />
-          <input checked name="seats" type="radio" value="2" />
+          <ul data-office-people><li>You</li></ul>
+          <span data-office-people-count>1 of 6</span>
+          <input data-office-invitee-email type="email" value="" />
+          <button data-office-invitee-add type="button">Add</button>
           <input name="email" />
           <input name="phone" />
           <input name="name" />
@@ -503,6 +506,15 @@ describe("office reservation preparation in Chromium", () => {
           ></button>
         </form>
         <script>
+          document.querySelector("[data-office-invitee-add]").addEventListener("click", () => {
+            const input = document.querySelector("[data-office-invitee-email]");
+            const person = document.createElement("li");
+            person.textContent = input.value;
+            document.querySelector("[data-office-people]").append(person);
+            input.value = "";
+            const count = document.querySelectorAll("[data-office-people] li").length;
+            document.querySelector("[data-office-people-count]").textContent = count + " of 6";
+          });
           document.addEventListener("click", (event) => {
             const target = event.target;
             const button = target instanceof Element ? target.closest("[data-day] button") : null;
@@ -531,11 +543,16 @@ describe("office reservation preparation in Chromium", () => {
           )?.value,
           email: document.querySelector<HTMLInputElement>('input[name="email"]')
             ?.value,
-          seats: document.querySelector<HTMLInputElement>(
-            'input[name="seats"]:checked'
-          )?.value,
+          people: Array.from(
+            document.querySelectorAll("[data-office-people] li"),
+            (person) => person.textContent
+          ).slice(1),
         }))
-      ).toEqual({ dayCount: "2", email: "", seats: "2" });
+      ).toEqual({
+        dayCount: "2",
+        email: "",
+        people: getWorkspaceE2EOfficeInvitees(officeSlot.seats),
+      });
     }
   );
 });

@@ -6,6 +6,7 @@ import {
   CustomerAccountLinkRequired,
   type CustomerBookedSelection,
   type CustomerEstablishment,
+  CustomerInvitationResendRefused,
   CustomerInvoiceNotIssued,
   type CustomerOrderState,
   type CustomerPaymentPage,
@@ -52,6 +53,7 @@ import {
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
 import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
+import { resendAuthorizedReservationInvitation } from "@/features/reservation-invitees/backend/resend-reservation-invitation";
 import {
   type ContractWithdrawal,
   WithdrawalRepository,
@@ -82,6 +84,7 @@ import {
 } from "./customer-api-failure";
 import { toCustomerCheckout } from "./customer-checkout-view";
 import { answerFileDownload } from "./customer-file-download";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 import { CustomerReservationLayers } from "./customer-reservation-layers";
 
 /**
@@ -140,6 +143,74 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
           )
         )
         .handle("getEstablishment", () => Effect.succeed(establishment))
+        .handle(
+          "listInvitedReservations",
+          ({ query: { locale = defaultLocale } }) =>
+            Effect.flatMap(CustomerInvitedReservationsService, (invitations) =>
+              invitations.load(locale)
+            ).pipe(
+              Effect.provide(
+                reservations.invitedReservations(
+                  reservations.access(authorization),
+                  currentAccount
+                )
+              ),
+              runToCompletion,
+              Effect.catch((failure) =>
+                answerUnavailable("customerApi.listInvitedReservations", {
+                  reason: failure._tag,
+                })
+              )
+            )
+        )
+        .handle("resendInvitation", ({ params: { orderId, inviteeId } }) =>
+          resendAuthorizedReservationInvitation({
+            orderId,
+            inviteeId,
+            locale: defaultLocale,
+          }).pipe(
+            providePerRequest(
+              Layer.mergeAll(reservations.invitationResend, authorization)
+            ),
+            Effect.catchTag(
+              "InvitationResendRefused",
+              (
+                error
+              ): Effect.Effect<
+                never,
+                CustomerReservationNotFound | CustomerInvitationResendRefused
+              > => {
+                const { refusal } = error;
+                if (refusal.reason === "not-found") {
+                  return Effect.fail(new CustomerReservationNotFound());
+                }
+                return Effect.fail(
+                  new CustomerInvitationResendRefused(
+                    refusal.reason === "cooldown"
+                      ? {
+                          reason: "cooldown",
+                          retryAt: refusal.retryAt.toString(),
+                        }
+                      : { reason: "not-confirmed" }
+                  )
+                );
+              }
+            ),
+            Effect.map(({ invitationSentAt, resendAvailableAt }) => ({
+              invitationSentAt: invitationSentAt.toString(),
+              resendAvailableAt: resendAvailableAt.toString(),
+            })),
+            Effect.catchIf(
+              (failure) =>
+                failure._tag !== "CustomerReservationNotFound" &&
+                failure._tag !== "CustomerInvitationResendRefused",
+              (failure) =>
+                answerUnavailable("customerApi.resendInvitation", {
+                  reason: failure._tag,
+                })
+            )
+          )
+        )
         // A refresh can finalize a payment, so it ends even when the client
         // disconnects.
         // The withdrawal record is read beside the status, so it adds no
@@ -148,6 +219,7 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
           Effect.all(
             [
               loadAuthorizedCheckoutStatus({
+                includeSupportContact: false,
                 orderId,
                 locale: defaultLocale,
                 returnOutcome: "unknown",
@@ -496,6 +568,7 @@ const answerOrderState = (
         paymentPageReopenable,
         summary,
         bookedSelection,
+        ...reservation
       }) =>
         Effect.succeed<CustomerOrderState>({
           orderId,
@@ -521,6 +594,25 @@ const answerOrderState = (
               currency: summary.price.currency,
             },
           }),
+          ...("people" in reservation &&
+            reservation.people && {
+              people: {
+                contactAttends: reservation.people.contactAttends,
+                resendable:
+                  Option.isNone(withdrawal) && reservation.people.resendable,
+                invitees: reservation.people.invitees.map(
+                  ({ id, email, invitationSentAt, resendAvailableAt }) => ({
+                    id,
+                    email,
+                    invitationSentAt: invitationSentAt?.toString() ?? null,
+                    ...(Option.isNone(withdrawal) &&
+                      resendAvailableAt && {
+                        resendAvailableAt: resendAvailableAt.toString(),
+                      }),
+                  })
+                ),
+              },
+            }),
           ...(bookedSelection && {
             bookedSelection: answerBookedSelection(bookedSelection),
           }),

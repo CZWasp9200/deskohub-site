@@ -5,8 +5,10 @@ import type {
   FieldValues,
   UseFormReturn,
 } from "react-hook-form";
+import type { CheckoutSummary } from "@/features/checkout/checkout-summary";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationBillingSelectionInput } from "@/features/reservation/reservation-billing";
+import type { CheckoutOfficeSelection } from "@/features/reservation/reservation-checkout-contact";
 import type {
   ReservationCheckoutCustomerForm,
   ReservationContactValues,
@@ -74,8 +76,10 @@ type ReservationFormSubmissionContext<
   readonly checkout: ReservationCheckout;
   readonly checkoutCustomer: ReservationCheckoutCustomerForm;
   readonly checkoutStep: ReturnType<typeof useReservationCheckoutStep>;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly emailVerification: ReturnType<typeof useCheckoutEmailVerification>;
   readonly form: UseFormReturn<Input, unknown, Data>;
+  readonly getOfficeSelection?: (data: Data) => CheckoutOfficeSelection;
   readonly getReservation: (data: Data) => ReservationOrderIssuanceData;
   readonly locale: Locale;
 };
@@ -135,19 +139,23 @@ const getCheckoutDetails = <
   {
     asksMarketingConsent,
     booksForSomeoneElse,
+    displayedOfficePrice,
     getReservation,
   }: ReservationFormSubmissionContext<Input, Data>,
   {
     advertisedPriceToken,
     data,
+    officeSelection,
     marketingConsentSource,
   }: {
     readonly advertisedPriceToken: string;
     readonly data: Data;
+    readonly officeSelection?: CheckoutOfficeSelection;
     readonly marketingConsentSource: "site_tool" | undefined;
   }
 ): Parameters<ReservationCheckout["startCheckout"]>[0] => ({
   advertisedPriceToken,
+  ...(displayedOfficePrice && { displayedOfficePrice }),
   ...(!booksForSomeoneElse && { customer: "account" }),
   // Without the checkbox the account already consented: send no consent.
   ...(asksMarketingConsent && {
@@ -156,6 +164,7 @@ const getCheckoutDetails = <
       marketingConsentSource && { marketingConsentSource }),
   }),
   reservation: getReservation(data),
+  ...(officeSelection?.kind === "people" && { people: officeSelection.people }),
 });
 
 /** Takes valid details to checkout, or a signed-out customer to sign-in. */
@@ -182,6 +191,7 @@ const checkoutReservation = <
     return { status: "error", message };
   }
 
+  const officeSelection = context.getOfficeSelection?.(data);
   if (checkoutCustomer.status === "signed-out") {
     emailVerification.verify({
       name: data.name,
@@ -189,6 +199,7 @@ const checkoutReservation = <
       phone: data.phone,
       billing: data.billing,
       marketingConsent: data.marketingConsent,
+      ...(officeSelection && { officeSelection }),
     });
     return { status: "email-verification" };
   }
@@ -197,6 +208,7 @@ const checkoutReservation = <
     getCheckoutDetails(context, {
       advertisedPriceToken: advertisedPrice.token,
       data,
+      officeSelection,
       marketingConsentSource,
     })
   );

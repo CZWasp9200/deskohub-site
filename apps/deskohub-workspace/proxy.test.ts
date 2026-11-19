@@ -11,6 +11,12 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
 import { runCommand } from "@/scripts/shared/command";
 import type { AgentPageRequest } from "@/shared/backend/agent-traffic/agent-page-request";
+import {
+  createReservationInvitationToken,
+  getReservationInvitationCookieName,
+} from "./features/reservation/backend/reservation-invitation-capability";
+import { reservationInvitationTokenQueryParam } from "./features/reservation/reservation-access-token";
+import { reservationInviteeIdSchema } from "./features/reservation-invitees/reservation-invitee";
 
 const localizedSignInPathname = new RegExp(
   `^/(?:${locales.join("|")})/auth/sign-in$`
@@ -944,6 +950,57 @@ test("exchanges a valid reservation capability for a private cookie", async () =
   expect(
     response.cookies.get(getReservationAccessCookieName(orderId))?.value
   ).toEqual(expect.any(String));
+});
+
+test("exchanges an invitation on the access page for its own cookie", async () => {
+  const orderId = workspaceReservationIdSchema.make("reservation-id");
+  const invitationToken = Effect.runSync(
+    createReservationInvitationToken({
+      orderId,
+      inviteeId: reservationInviteeIdSchema.make("invitee-id"),
+      locale: "en-US",
+    })
+  );
+  const response = await proxy(
+    new NextRequest(
+      `https://workspace.example/en-US/reservation/access/${orderId}?${reservationInvitationTokenQueryParam}=${encodeURIComponent(invitationToken)}`
+    )
+  );
+
+  expect(response.status).toBe(307);
+  expect(response.headers.get("location")).toBe(
+    `https://workspace.example/en-US/reservation/access/${orderId}`
+  );
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(
+    response.cookies.get(getReservationInvitationCookieName(orderId))?.value
+  ).toEqual(expect.any(String));
+  expect(
+    response.cookies.get(getReservationAccessCookieName(orderId))
+  ).toBeUndefined();
+});
+
+test("rejects an invitation outside the access page or posing as an access token", async () => {
+  const orderId = workspaceReservationIdSchema.make("reservation-id");
+  const invitationToken = Effect.runSync(
+    createReservationInvitationToken({
+      orderId,
+      inviteeId: reservationInviteeIdSchema.make("invitee-id"),
+      locale: "en-US",
+    })
+  );
+  const token = encodeURIComponent(invitationToken);
+
+  for (const url of [
+    `https://workspace.example/en-US/reservation/status/${orderId}?${reservationInvitationTokenQueryParam}=${token}`,
+    `https://workspace.example/en-US/reservation/access/${orderId}?${reservationAccessTokenQueryParam}=${token}`,
+    `https://workspace.example/en-US/reservation/access/other-order?${reservationInvitationTokenQueryParam}=${token}`,
+    `https://workspace.example/cs-CZ/reservation/access/${orderId}?${reservationInvitationTokenQueryParam}=${token}`,
+  ]) {
+    const response = await proxy(new NextRequest(url));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  }
 });
 
 test("exchanges an access capability with preview bypass params and strips credentials", async () => {

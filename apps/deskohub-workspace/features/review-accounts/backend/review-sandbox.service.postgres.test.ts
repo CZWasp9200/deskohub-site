@@ -7,9 +7,12 @@ import { Effect, Layer, Option } from "effect";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
+import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { plainDateStringSchema } from "@/shared/utils/temporal";
+import { getReviewPaymentDisabledPath } from "../routes";
 import {
   ReviewSandbox,
   type ReviewSandboxHoldRequest,
@@ -81,6 +84,51 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
     expect(JSON.stringify(stored.rows[0])).not.toContain("App Review");
   });
+
+  test.each(["new", "reused"] as const)(
+    "returns payment-disabled checkout and the stored office price and interval for a %s hold",
+    async (mode) => {
+      // The inclusive dates cross the Prague daylight-saving transition.
+      const startsOn = plainDateStringSchema.make("2027-03-27");
+      const endsOn = plainDateStringSchema.make("2027-03-29");
+      const total = { value: 442500, exponent: 2, currency: "CZK" };
+      const request = hold(startsOn, {
+        total,
+        reservation: normalizedOfficeReservationOrderSchema.make({
+          kind: "office",
+          startsOn,
+          endsOn,
+          seats: 3,
+          name: "Synthetic Reviewer",
+          email: testEmailAddress("office-review"),
+          phone: "+420777123456",
+          billing: { purpose: "personal", invoice: "none" },
+        }),
+      });
+      const created = await run((sandbox) => sandbox.prepareHold(request));
+      const result =
+        mode === "new"
+          ? created
+          : await run((sandbox) =>
+              sandbox.prepareHold({
+                ...request,
+                total: { ...total, value: 460000 },
+              })
+            );
+
+      expect(result).toEqual({
+        status: "ready",
+        orderId: created.orderId,
+        expiresAt: created.expiresAt,
+        redirectUrl: getReviewPaymentDisabledPath(
+          request.locale,
+          created.orderId
+        ),
+        reviewSandbox: true,
+        preparedOffice: { startsOn, endsOn, seats: 3, total },
+      });
+    }
+  );
 
   test("lists the samples and holds with the order IDs their status pages use", async () => {
     const held = await run((sandbox) =>
