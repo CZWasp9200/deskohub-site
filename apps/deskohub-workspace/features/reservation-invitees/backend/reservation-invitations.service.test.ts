@@ -69,7 +69,7 @@ const run = <A, E>(
   invitees: ReadonlyArray<ReturnType<typeof invitee>> = []
 ) =>
   Effect.runPromise(
-    ReservationInvitations.use(operation).pipe(
+    Effect.flatMap(ReservationInvitations, operation).pipe(
       Effect.provide(
         ReservationInvitations.Default.pipe(
           Layer.provide(

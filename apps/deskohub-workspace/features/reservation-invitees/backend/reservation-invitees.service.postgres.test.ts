@@ -434,7 +434,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       ) => Effect.Effect<A, E, WorkspaceDatabase>
     ) =>
       run(
-        WorkspaceReservationRepository.use(action).pipe(
+        Effect.flatMap(WorkspaceReservationRepository, action).pipe(
           Effect.provide(WorkspaceReservationRepository.Default)
         )
       );
@@ -448,7 +448,9 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     );
 
     const [guest] = await run(
-      ReservationInvitees.use((invites) => invites.listForReservation(id))
+      Effect.flatMap(ReservationInvitees, (invites) =>
+        invites.listForReservation(id)
+      )
     );
     if (!guest) throw new Error("expected an invitee");
     const notices = () =>
@@ -460,7 +462,9 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       );
     const acceptedCount = () =>
       run(
-        ReservationInvitees.use((invites) => invites.find(id, guest.id))
+        Effect.flatMap(ReservationInvitees, (invites) =>
+          invites.find(id, guest.id)
+        )
       ).then((found) => Option.getOrThrow(found).invitationSendCount);
 
     const delivery = {
@@ -592,7 +596,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     );
     const drain = (at: Temporal.Instant) =>
       run(
-        ReservationInviteeNoticeWorker.use((service) =>
+        Effect.flatMap(ReservationInviteeNoticeWorker, (service) =>
           service.drain({ now: at, limit: 20 })
         ).pipe(Effect.provide(worker))
       );
@@ -1037,7 +1041,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     const unrelated = await Effect.runPromise(fixtures.customerAccount());
     const history = (accountId: typeof matched, email: string) =>
       run(
-        CustomerInvitedReservationsService.use((service) =>
+        Effect.flatMap(CustomerInvitedReservationsService, (service) =>
           service.load("en-US")
         ).pipe(
           Effect.provide(
@@ -1105,7 +1109,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     const now = Temporal.Instant.from("2027-03-01T00:00:00Z");
     const purge = (at: Temporal.Instant, outage: boolean) =>
       run(
-        ReservationInviteeRetention.use((retention) =>
+        Effect.flatMap(ReservationInviteeRetention, (retention) =>
           retention.purgeDue({ now: at, limit: 25 })
         ).pipe(
           Effect.provide(

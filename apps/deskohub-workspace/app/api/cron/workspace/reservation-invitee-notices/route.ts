@@ -9,7 +9,7 @@ export const GET = defineWorkspaceCron({
   failureMessage: "Reservation invitee notices could not be processed",
   input: () => ({ now: Temporal.Now.instant(), limit: 16 }),
   run: (input) =>
-    ReservationInviteeNoticeWorker.use((worker) => worker.drain(input)).pipe(
-      Effect.provide(ReservationInviteeNoticeWorker.Live)
-    ),
+    Effect.flatMap(ReservationInviteeNoticeWorker, (worker) =>
+      worker.drain(input)
+    ).pipe(Effect.provide(ReservationInviteeNoticeWorker.Live)),
 });
