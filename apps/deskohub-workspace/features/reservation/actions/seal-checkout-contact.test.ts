@@ -152,7 +152,7 @@ describe("sealing a checkout contact", () => {
     const contact = contactWithPhone("+420 777 123 456");
     const first: CheckoutOfficeSelection = {
       kind: "people",
-      people: { contactAttends: false, invitees: ["guest@example.org"] },
+      people: { contactAttends: false, invitees: [testEmailAddress("guest")] },
     };
     const second = { kind: "seats", seats: 3 } as const;
     const issue = async (officeSelection: CheckoutOfficeSelection) => {
@@ -200,9 +200,10 @@ describe("sealing a checkout contact", () => {
 
   test("rejects the contact's address or duplicates as invitees", async () => {
     const contact = contactWithPhone("+420 777 123 456");
+    const guestEmail = testEmailAddress("guest");
     for (const invitees of [
       [contact.email],
-      ["guest@example.org", "GUEST@example.org"],
+      [guestEmail, guestEmail.toUpperCase()],
     ]) {
       const parsed = await validate("en-US", {
         ...contact,

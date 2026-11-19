@@ -10,6 +10,7 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { Effect } from "effect";
 import {
@@ -431,6 +432,7 @@ describe("CheckoutPayPage provider handoff", () => {
 
   test("reviews who is coming to an office and prices each person", async () => {
     const { CheckoutPayPage } = await import("./checkout-pay-page");
+    const inviteeEmail = testEmailAddress("jana.novak");
     const startsOn = "2026-11-18";
     const request = getOfficeAdvertisedPriceRequest({
       locale: "en-US",
@@ -448,9 +450,12 @@ describe("CheckoutPayPage provider handoff", () => {
         officeStartDateLabel="Wed, Nov 18"
         payStateToken="signed-summary"
         people={{
-          contact: { name: "Alex Sample", email: "alex.sample@deskohub.test" },
+          contact: {
+            name: "Alex Sample",
+            email: testEmailAddress("alex.sample"),
+          },
           contactAttends: true,
-          invitees: ["jana.novak@example.org"],
+          invitees: [inviteeEmail],
           seatCapacity: 6,
         }}
         summary={getOfficeCheckoutSummary(quote)}
@@ -463,7 +468,7 @@ describe("CheckoutPayPage provider handoff", () => {
     });
     expect(people.querySelectorAll("li")).toHaveLength(2);
     expect(people.textContent).toContain("Alex Sample");
-    expect(people.textContent).toContain("jana.novak@example.org");
+    expect(people.textContent).toContain(inviteeEmail);
     expect(view.container.textContent).toContain("Wed, Nov 18");
     expect(
       view.getByText(

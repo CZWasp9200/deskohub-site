@@ -780,14 +780,15 @@ describe("OfficeReservationForm", () => {
     );
     expect(people().querySelectorAll("li")).toHaveLength(1);
 
-    add(" Jana.Novak@Example.org ");
-    expect(people().textContent).toContain("jana.novak@example.org");
-    add("jana.novak@example.org");
+    const janaEmail = testEmailAddress("jana.novak");
+    add(` ${janaEmail.toUpperCase()} `);
+    expect(people().textContent).toContain(janaEmail);
+    add(janaEmail);
     expect(view.getByRole("alert").textContent).toBe(
       m.officePeopleDuplicateEmail({}, { locale: "en-US" })
     );
 
-    add("petr.svoboda@example.org");
+    add(testEmailAddress("petr.svoboda"));
     expect(people().querySelectorAll("li")).toHaveLength(3);
     expect(
       view.container.querySelector("[data-office-people-count]")?.textContent
@@ -817,10 +818,7 @@ describe("OfficeReservationForm", () => {
 
     fireEvent.click(
       view.getByRole("button", {
-        name: m.officePeopleRemove(
-          { email: "jana.novak@example.org" },
-          { locale: "en-US" }
-        ),
+        name: m.officePeopleRemove({ email: janaEmail }, { locale: "en-US" }),
       })
     );
     expect(people().querySelectorAll("li")).toHaveLength(2);
@@ -828,6 +826,7 @@ describe("OfficeReservationForm", () => {
   });
 
   test("lets the contact step out and back in while someone is still coming", () => {
+    const janaEmail = testEmailAddress("jana.novak");
     const startsOn = decodePlainDate("2026-08-10");
     const view = renderOfficeForm({
       initialAdvertisedPrices: officeAdvertisedPrices(startsOn),
@@ -844,7 +843,7 @@ describe("OfficeReservationForm", () => {
       view.getByRole("textbox", {
         name: m.officePeopleEmailLabel({}, { locale: "en-US" }),
       }),
-      { target: { value: "jana.novak@example.org" } }
+      { target: { value: janaEmail } }
     );
     fireEvent.click(
       view.getByRole("button", {
@@ -854,10 +853,7 @@ describe("OfficeReservationForm", () => {
     fireEvent.click(removeYourself());
 
     const remaining = view.getByRole("button", {
-      name: m.officePeopleRemove(
-        { email: "jana.novak@example.org" },
-        { locale: "en-US" }
-      ),
+      name: m.officePeopleRemove({ email: janaEmail }, { locale: "en-US" }),
     }) as HTMLButtonElement;
     expect(remaining.disabled).toBe(true);
     fireEvent.click(
@@ -896,10 +892,11 @@ describe("OfficeReservationForm", () => {
       m.officePeopleYou({}, { locale: "en-US" })
     );
 
+    const guestEmail = testEmailAddress("guest");
     field.focus();
-    fireEvent.change(field, { target: { value: "guest@example.org" } });
+    fireEvent.change(field, { target: { value: guestEmail } });
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(list.textContent).toContain("guest@example.org");
+    expect(list.textContent).toContain(guestEmail);
     expect(list.querySelectorAll("li")).toHaveLength(1);
     expect(count()).toBe(oneSeat);
     expect(document.activeElement).toBe(field);
@@ -910,7 +907,7 @@ describe("OfficeReservationForm", () => {
     switchToYou.focus();
     fireEvent.click(switchToYou);
     expect(document.activeElement).toBe(field);
-    expect(list.textContent).not.toContain("guest@example.org");
+    expect(list.textContent).not.toContain(guestEmail);
     expect(list.textContent).toContain(
       m.officePeopleYou({}, { locale: "en-US" })
     );
@@ -923,12 +920,12 @@ describe("OfficeReservationForm", () => {
     const startsOn = decodePlainDate(today.toString());
     const contact = {
       name: "Alex Sample",
-      email: "alex@deskohub.test",
+      email: testEmailAddress("alex"),
       phone: "+420777777777",
     };
     const people = {
       contactAttends: false,
-      invitees: ["guest-one@example.org", "guest-two@example.org"],
+      invitees: [testEmailAddress("guest-one"), testEmailAddress("guest-two")],
     };
     const officeSelection = { kind: "people", people } as const;
     globalThis.fetch = Object.assign(
@@ -989,7 +986,7 @@ describe("OfficeReservationForm", () => {
 
   test("shows the signed-in contact and refuses their own email as an invitee", () => {
     const startsOn = decodePlainDate("2026-08-10");
-    const contactEmail = "alex.sample@deskohub.test";
+    const contactEmail = testEmailAddress("alex.sample");
     const view = renderOfficeForm({
       initialValues: {
         ...officeReservationDefaultValues,
@@ -1024,7 +1021,7 @@ describe("OfficeReservationForm", () => {
 
   test("marks an invitee whose email turns out to be the contact's", () => {
     const startsOn = decodePlainDate("2026-08-10");
-    const contactEmail = "alex.sample@deskohub.test";
+    const contactEmail = testEmailAddress("alex.sample");
     const view = renderOfficeForm({
       initialValues: {
         ...officeReservationDefaultValues,
