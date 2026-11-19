@@ -3,7 +3,7 @@ import { CheckoutSummaryDiscountDetails } from "@/features/checkout/components/c
 import { CheckoutSummaryLine } from "@/features/checkout/components/checkout-summary-line";
 import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
-import { moneyWithValue } from "@/shared/money/money";
+import { formatMoney, moneyWithValue } from "@/shared/money/money";
 
 type OfficeCheckoutSummaryItem = Extract<
   CheckoutSummaryOrderItem,
@@ -14,10 +14,13 @@ export function OfficeCheckoutSummaryItem({
   changed,
   item,
   locale,
+  startDateLabel,
 }: {
   readonly changed?: boolean;
   readonly item: OfficeCheckoutSummaryItem;
   readonly locale: Locale;
+  /** The office's first day, when the page knows the reservation. */
+  readonly startDateLabel?: string;
 }) {
   const discountAmount = item.originalAmount
     ? moneyWithValue(item.amount.value - item.originalAmount.value, item.amount)
@@ -28,22 +31,26 @@ export function OfficeCheckoutSummaryItem({
       <CheckoutSummaryLine
         amount={item.accessAmount}
         changed={changed}
-        label={m.checkoutSummaryItemOfficeAccess(
-          { dayCount: item.dayCount },
-          { locale }
-        )}
+        label={[
+          getWorkspaceOfficeProductTitle(locale),
+          ...(startDateLabel ? [startDateLabel] : []),
+          m.checkoutSummaryItemOfficeDayCount(
+            { dayCount: item.dayCount },
+            { locale }
+          ),
+        ].join(" · ")}
         locale={locale}
       />
       <CheckoutSummaryLine
         amount={item.seatsAmount}
         changed={changed}
-        label={`${m.checkoutSummaryItemOfficeSeatCount(
-          { seatCount: item.seats },
+        label={m.officePeoplePriceSeatLine(
+          {
+            count: item.seats,
+            seatPrice: formatMoney(item.seatAmount, locale),
+          },
           { locale }
-        )} · ${m.checkoutSummaryItemOfficeDayCount(
-          { dayCount: item.dayCount },
-          { locale }
-        )}`}
+        )}
         locale={locale}
       />
       {discountAmount && item.discounts ? (

@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { type Browser, chromium, type Page } from "@playwright/test";
 import { Effect } from "effect";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
@@ -65,9 +66,18 @@ const statusCopy =
 test.skipIf(!chromiumAvailable)(
   "accepts only the canonical fulfilled checkout status page",
   async () => {
-    const problemOn = async (body: string) => {
+    const problemOn = async (
+      body: string,
+      officePeople?: {
+        readonly count: number;
+        readonly invitees: readonly string[];
+      }
+    ) => {
       await requirePage().setContent(body);
-      return requirePage().evaluate(findFulfilledStatusPageProblem);
+      return requirePage().evaluate(
+        findFulfilledStatusPageProblem,
+        officePeople
+      );
     };
 
     expect(
@@ -86,6 +96,20 @@ test.skipIf(!chromiumAvailable)(
     expect(await problemOn("<main>Loading</main>")).toBe(
       "fulfilled checkout status copy not visible"
     );
+    const invitee = testEmailAddress("office-status-attendee");
+    const people = { count: 2, invitees: [invitee] };
+    expect(
+      await problemOn(
+        `<main>${statusCopy}<div data-office-status-people><ul><li>You</li></ul></div></main>`,
+        people
+      )
+    ).toBe("office attendee count does not match the booking");
+    expect(
+      await problemOn(
+        `<main>${statusCopy}<div data-office-status-people><ul><li>You</li><li>Another guest</li></ul></div></main>`,
+        people
+      )
+    ).toBe("office status is missing an expected invitee");
   }
 );
 
@@ -154,7 +178,10 @@ const statusPath = "/en-US/reservation/status/order-id";
 const statusPage = (extra = "") =>
   `<!doctype html><body><main>Your reservation is confirmed. Your payment is complete and we've emailed you the secure access link. Tuesday, August 25, 2026 10:00 AM – 2:00 PM CZK 0</main>${extra}</body>`;
 
-const assertStatusPage = ({ openSession }: BrowserStepDriver) =>
+const assertStatusPage = (
+  { openSession }: BrowserStepDriver,
+  office?: { readonly seats: number; readonly invitees?: readonly string[] }
+) =>
   assertFulfilledStatusPage({
     checkoutRow: {
       amount_exponent: 2,
@@ -165,7 +192,11 @@ const assertStatusPage = ({ openSession }: BrowserStepDriver) =>
       expectedHost: server.url.host,
       timeouts: workspaceE2ETimeouts,
     } as WorkspaceE2EConfig,
-    data: { locale: "en-US", meetingRoom: {} } as CheckoutData,
+    data: {
+      locale: "en-US",
+      ...(office ? { office: { seats: office.seats } } : { meetingRoom: {} }),
+    } as CheckoutData,
+    expectedOfficeInvitees: office?.invitees,
     dotyposReservation: {
       reservedFrom: Temporal.Instant.from("2026-08-25T08:00:00Z"),
       reservedUntil: Temporal.Instant.from("2026-08-25T12:00:00Z"),
@@ -200,6 +231,32 @@ test.skipIf(!chromiumAvailable)(
     expect(result.annotations).toEqual([]);
     // Only the step's own page load: the check never reloads or navigates.
     expect(requests.slice(before)).toEqual([statusPath]);
+  },
+  60_000
+);
+
+test.skipIf(!chromiumAvailable)(
+  "validates office attendee lists and legacy seat counts on the fulfilled page",
+  async () => {
+    const invitee = testEmailAddress("office-status-attendee");
+    const named = await runBrowserStep({
+      browser: requireBrowser(),
+      drive: (driver) =>
+        assertStatusPage(driver, { seats: 2, invitees: [invitee] }),
+      prepare: openStatusPage(
+        `<p>Private office</p><h2>Who is coming</h2><div data-office-status-people><ul><li>You</li><li><span>${invitee}</span></li></ul></div>`
+      ),
+    });
+    const legacy = await runBrowserStep({
+      browser: requireBrowser(),
+      drive: (driver) => assertStatusPage(driver, { seats: 2 }),
+      prepare: openStatusPage(
+        "<p>Private office</p><dl><dt>Seats</dt><dd>2</dd></dl>"
+      ),
+    });
+
+    expect(named.succeeded).toBe(true);
+    expect(legacy.succeeded).toBe(true);
   },
   60_000
 );

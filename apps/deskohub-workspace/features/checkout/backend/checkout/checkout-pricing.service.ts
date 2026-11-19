@@ -1,4 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
+import {
+  type CheckoutSummary,
+  getCheckoutSummaryChangedKeys,
+} from "@/features/checkout/checkout-summary";
+import { getOfficeEditPriceSummary } from "@/features/checkout/checkout-summary-office";
 import { DiscountService } from "@/features/discounts/discount.service";
 import type { DiscountReleaseGates } from "@/features/discounts/discount-release-gate.service";
 import type { Locale } from "@/features/i18n";
@@ -58,7 +63,7 @@ import {
   type OfficePaymentRepricingInput,
   officeCheckoutPricing,
 } from "./office-checkout-pricing";
-import type { PriceVerdict } from "./price-verdict";
+import { getPriceVerdictChangedKeys, type PriceVerdict } from "./price-verdict";
 
 type CheckoutPricingError =
   | CoworkCheckoutPricingError
@@ -143,6 +148,48 @@ export type CustomerQuoteInput = Omit<
   "advertisement"
 > & {
   readonly advertisement: PriceVerdict<AdvertisementAffirmation>;
+  /** The held summary shown by the office edit, in addition to its fresh advertisement. */
+  readonly displayedOfficePrice?: CheckoutSummary;
+};
+
+/** A displayed hold can require review of the current quote, without pricing the hold again. */
+export const reviewDisplayedOfficePrice = <
+  Priced extends PreparedCustomerQuote,
+>(
+  verdict: PriceVerdict<Priced>,
+  displayed: CheckoutSummary | undefined
+): PriceVerdict<Priced> => {
+  if (!displayed || verdict.priced.kind !== "office") return verdict;
+  const displayedChanges = getCheckoutSummaryChangedKeys(
+    displayed,
+    getOfficeEditPriceSummary(verdict.priced.quote)
+  );
+  if (
+    displayedChanges.sectionKeys.length === 0 &&
+    displayedChanges.itemKeys.length === 0
+  ) {
+    return verdict;
+  }
+
+  const advertisedChanges = getPriceVerdictChangedKeys(verdict);
+  return {
+    status: "pricing_changed",
+    priced: verdict.priced,
+    changedKeys: {
+      sectionKeys: [
+        ...new Set([
+          ...(advertisedChanges?.sectionKeys ?? []),
+          ...displayedChanges.sectionKeys,
+        ]),
+      ].sort(),
+      itemKeys: [
+        ...new Set([
+          ...(advertisedChanges?.itemKeys ?? []),
+          ...displayedChanges.itemKeys,
+        ]),
+      ].sort(),
+    },
+  };
 };
 
 export interface ICheckoutPricingService {
@@ -298,10 +345,19 @@ export class CheckoutPricingService extends Context.Service<
                 advertisement: { ...advertisement, priced },
               }),
             office: (priced) =>
-              office.quoteForCustomer({
-                ...input,
-                advertisement: { ...advertisement, priced },
-              }),
+              office
+                .quoteForCustomer({
+                  ...input,
+                  advertisement: { ...advertisement, priced },
+                })
+                .pipe(
+                  Effect.map((verdict) =>
+                    reviewDisplayedOfficePrice(
+                      verdict,
+                      input.displayedOfficePrice
+                    )
+                  )
+                ),
           })
         );
       });

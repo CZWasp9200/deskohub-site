@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -109,6 +110,7 @@ const runGetPdf = async (options: {
   }).pipe(
     Effect.provide(ReservationInvoicePdfService.Default),
     Effect.provide(ReservationAuthorizationService.Default),
+    Effect.provide(NoReservationInvitees),
     Effect.provide(
       Layer.mergeAll(
         ownership,

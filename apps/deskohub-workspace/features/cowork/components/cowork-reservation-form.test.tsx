@@ -2592,11 +2592,17 @@ describe("CoworkReservationForm advertised pricing", () => {
       // Like next-safe-action, a settled call runs the hook's callbacks first.
       workspaceUseAction.mockImplementation(((
         action: typeof preparePayState,
-        options: { readonly onSuccess?: (result: typeof ready) => void }
+        options: {
+          readonly onSuccess?: (
+            result: typeof ready & { readonly input: PreparePayStateInput }
+          ) => void;
+        }
       ) => ({
         executeAsync: async (input: PreparePayStateInput) => {
           prepared.push(input);
-          if (action === preparePayState) act(() => options.onSuccess?.(ready));
+          if (action === preparePayState) {
+            act(() => options.onSuccess?.({ ...ready, input }));
+          }
           return ready;
         },
         isExecuting: false,

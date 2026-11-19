@@ -72,6 +72,7 @@ const makeDependencies = (
         never
       >;
     },
+    deleteInvitations: () => Effect.void,
     tombstone: () => {
       calls.push("tombstone");
       return Effect.void;

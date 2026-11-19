@@ -21,6 +21,7 @@ import { CheckoutStatusReferralCodeSettlement } from "@/features/checkout/compon
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { loadOrderKind } from "@/features/order/backend/order-kind";
+import { resendReservationInvitation } from "@/features/reservation/actions/resend-reservation-invitation";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import {
@@ -179,6 +180,7 @@ async function renderReservationStatus({
       <CheckoutStatusPage
         locale={locale}
         presentation={presentation}
+        resendInvitation={resendReservationInvitation}
         status={status}
       />
     </>

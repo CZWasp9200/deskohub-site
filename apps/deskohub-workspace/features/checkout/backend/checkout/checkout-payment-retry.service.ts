@@ -1,3 +1,7 @@
+import {
+  getBookedPeopleQuery,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import "@/shared/polyfills/temporal";
 
 import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
@@ -165,6 +169,7 @@ const sameEmail = (left: string, right: string) =>
 const implementation = Effect.gen(function* () {
   const authorization = yield* ReservationAuthorizationService;
   const reservations = yield* WorkspaceReservationRepository;
+  const invitees = yield* ReservationInvitees;
   const paymentAttempts = yield* PaymentAttemptRepository;
   const latePaymentRecoveries = yield* LatePaymentRecoveryRepository;
   const snapshots = yield* AccountingDocumentSnapshots;
@@ -352,6 +357,13 @@ const implementation = Effect.gen(function* () {
       const retry = yield* findRetry({ order, attempt });
       if ("state" in retry) return retry;
 
+      const people = yield* invitees
+        .findBookedPeople(getBookedPeopleQuery(order))
+        .pipe(Effect.mapError(unavailable("Who is coming could not be read.")));
+      if (order.officeContactAttends !== null && Option.isNone(people)) {
+        return refused("details_unavailable");
+      }
+
       const provider = yield* providerCheck.check({
         attempt,
         reservation: order,
@@ -451,12 +463,23 @@ const implementation = Effect.gen(function* () {
       return {
         state: "ready",
         payState: toFreshPayState(issued),
-        checkout: getPayStateCheckoutView(
-          withPayStateHoldExpiry(signed, {
-            reservationHoldExpiresAt: holdExpiresAt,
+        checkout: {
+          ...getPayStateCheckoutView(
+            withPayStateHoldExpiry(signed, {
+              reservationHoldExpiresAt: holdExpiresAt,
+            }),
+            yield* currentInstant
+          ),
+          ...Option.match(people, {
+            onNone: () => ({}),
+            onSome: (booked) => ({
+              people: {
+                contactAttends: booked.contactAttends,
+                invitees: booked.invitees.map(({ email }) => email),
+              },
+            }),
           }),
-          yield* currentInstant
-        ),
+        },
         details: {
           bookingFor: booked.bookingFor,
           contact: { name: contact.name, email: contact.email },
@@ -507,7 +530,8 @@ export class CheckoutPaymentRetryService extends Context.Service<
             PaymentAttemptRepository.Default,
             LatePaymentRecoveryRepository.Default,
             AttemptPromotionCodesRepository.Default,
-            CustomerAccountLinkRepository.Default
+            CustomerAccountLinkRepository.Default,
+            ReservationInvitees.Default
           ).pipe(Layer.provide(WorkspaceDatabase.Default))
         )
       )

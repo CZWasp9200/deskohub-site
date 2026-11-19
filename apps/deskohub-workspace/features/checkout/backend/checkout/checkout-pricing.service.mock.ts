@@ -6,6 +6,7 @@ import {
   type PaymentPriceAffirmation,
   type PaymentRepricingInput,
   type PreparedCustomerQuote,
+  reviewDisplayedOfficePrice,
 } from "./checkout-pricing.service";
 import { PayState, type SignedPayStatePricing } from "./pay-state";
 import {
@@ -82,7 +83,7 @@ export const customerQuotePricingFrom = <E>(
             reservation,
             quote: summarized,
           } as SignedPayStatePricing);
-        return getCustomerQuotePriceVerdict({
+        const verdict = getCustomerQuotePriceVerdict({
           advertised: {
             status: input.advertisement.status,
             summary: summarize(advertisedQuote),
@@ -97,6 +98,7 @@ export const customerQuotePricingFrom = <E>(
             advertisedCodeChanged: false,
           },
         });
+        return reviewDisplayedOfficePrice(verdict, input.displayedOfficePrice);
       })
     )) as ICheckoutPricingService["quoteForCustomer"],
 });

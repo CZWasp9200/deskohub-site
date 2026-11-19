@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { Context, Option } from "effect";
+import { Context, Option, Schema } from "effect";
 import { HttpApi, type HttpApiGroup, OpenApi } from "effect/http-api";
 import { customerInputParseOptions } from "./customer-profile";
+import {
+  CustomerReservationInvitee,
+  CustomerReservationPeople,
+} from "./customer-reservations-api";
 import {
   CustomerRequestOriginCheck,
   CustomerSessionAuthentication,
@@ -130,6 +134,25 @@ describe("WorkspaceCustomerApi", () => {
         ],
       });
     }
+  });
+
+  test("keeps the office people payload compatible with clients on either side of resend eligibility", () => {
+    const legacyPeople = { contactAttends: true, invitees: [] };
+    const activePeople = { ...legacyPeople, resendable: false };
+    const legacyContract = Schema.Struct({
+      contactAttends: Schema.Boolean,
+      invitees: Schema.Array(CustomerReservationInvitee),
+    });
+
+    expect(
+      Schema.decodeUnknownSync(CustomerReservationPeople)(legacyPeople)
+    ).toEqual(legacyPeople);
+    expect(
+      Schema.decodeUnknownSync(CustomerReservationPeople)(activePeople)
+    ).toEqual(activePeople);
+    expect(Schema.decodeUnknownSync(legacyContract)(activePeople)).toEqual(
+      legacyPeople
+    );
   });
 
   test("keeps its recorded OpenAPI document", async () => {

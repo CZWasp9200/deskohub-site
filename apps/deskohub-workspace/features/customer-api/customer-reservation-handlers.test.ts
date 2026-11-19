@@ -2,7 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import type {
   CustomerReservationHistory,
   CustomerReservationSummary,
@@ -74,6 +74,7 @@ import {
   makeCustomerApiTestServer,
   testCustomerEndpointGuards,
 } from "./customer-api.test-utils";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 import type { CustomerReservationServiceLayers } from "./customer-reservation-layers";
 
 const orderId = workspaceReservationIdSchema.make(
@@ -100,7 +101,16 @@ const ownOrderAuthorization = (
           ),
           Effect.orElseSucceed(() => false)
         );
-      return { isAuthorized, authorize: isAuthorized };
+      return {
+        isAuthorized,
+        authorize: isAuthorized,
+        authorizeViewer: (input: ReservationAuthorizationInput) =>
+          isAuthorized(input).pipe(
+            Effect.map((allowed) =>
+              allowed ? Option.some("customer" as const) : Option.none()
+            )
+          ),
+      };
     })
   );
 
@@ -583,6 +593,7 @@ describe("getReservationStatus", () => {
       total: { value: 35_000, exponent: 2, currency: "CZK" },
     });
     expect(refreshStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
       orderId,
       returnOutcome: "unknown",
     });
@@ -604,6 +615,59 @@ describe("getReservationStatus", () => {
       paymentStatus: "paid",
     });
   });
+
+  test.each([true, false])(
+    "sends office people with explicit resend eligibility %s",
+    async (resendable) => {
+      const email = testEmailAddress("office-status-api-guest");
+      const refreshStatus = mock(() =>
+        Effect.succeed({
+          orderId,
+          returnOutcome: "unknown",
+          kind: "office",
+          status: resendable ? "fulfilled" : "reservation_cancelled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          people: {
+            contactAttends: false,
+            resendable,
+            invitees: [{ id: "office-guest", email, invitationSentAt: null }],
+          },
+          supportContactPrefill: {
+            name: "Ada Example",
+            email: testEmailAddress("office-status-api-contact"),
+          },
+        } as CheckoutStatusViewModel)
+      );
+      const api = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus),
+      });
+      const response = await api.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        people: {
+          contactAttends: false,
+          resendable,
+          invitees: [{ email, invitationSentAt: null }],
+        },
+      });
+      expect(body).not.toHaveProperty("supportContactPrefill");
+
+      const unrelated = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus, { authorized: false }),
+      });
+      refreshStatus.mockClear();
+      const rejected = await unrelated.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(rejected.status).toBe(404);
+      expect(await rejected.text()).not.toContain(email);
+      expect(refreshStatus).not.toHaveBeenCalled();
+    }
+  );
 
   test("answers the order's booked selection beside its status", async () => {
     const refreshStatus = mock(() =>
@@ -712,11 +776,12 @@ describe("getReservationStatus", () => {
     expect(refreshStatus).not.toHaveBeenCalled();
   });
 
-  test("answers the local status when the refresh fails", async () => {
+  test("answers the local status without requesting support contact when refresh fails", async () => {
+    const getStatus = mock(() => Effect.succeed(fulfilledOrder));
     const api = makeCustomerApiTestServer({
       reservations: statusServices(
         () => Effect.fail(new Error("refresh failed") as never),
-        { getStatus: () => Effect.succeed(fulfilledOrder) }
+        { getStatus }
       ),
     });
 
@@ -724,6 +789,11 @@ describe("getReservationStatus", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "fulfilled" });
+    expect(getStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
+      orderId,
+      returnOutcome: "unknown",
+    });
   });
 
   test("answers unavailable when no status can be read", async () => {
@@ -1195,6 +1265,7 @@ describe("getReservationAccess", () => {
     const getAccess = mock(() =>
       Effect.succeed<ReservationAccessViewModel>({
         state: "available",
+        viewer: "customer",
         code: "2468",
         accessStartsAt: Temporal.Instant.from("2026-06-20T08:00:00Z"),
         accessEndsAt: Temporal.Instant.from("2026-06-20T11:00:00Z"),
@@ -1488,6 +1559,59 @@ describe("getEstablishment", () => {
       coordinates: workspaceSiteConstants.location.coordinates,
       directionsUrl: workspaceGoogleDirectionsUrl,
       mapUrl: workspaceGoogleMapUrl,
+    });
+  });
+});
+
+describe("office invitations", () => {
+  const list: CustomerApiCall = {
+    method: "GET",
+    path: "/reservations/invitations?locale=cs-CZ",
+  };
+  const resend: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/invitees/invitee-1/invitation`,
+  };
+
+  testCustomerEndpointGuards(list);
+  testCustomerEndpointGuards(resend);
+
+  test("lists the signed-in person's office invitations in the requested locale", async () => {
+    const current = [
+      {
+        orderId,
+        product: { kind: "office" as const },
+        status: "confirmed" as const,
+        accessStartsAt: "2026-11-17T23:00:00Z",
+        accessEndsAt: "2026-11-18T23:00:00Z",
+        bookedBy: { name: "Alex Sample" },
+      },
+    ];
+    const load = mock(() => Effect.succeed({ current, past: [] }));
+    const api = makeCustomerApiTestServer({
+      reservations: {
+        invitedReservations: () =>
+          Layer.mock(CustomerInvitedReservationsService, { load }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(list));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ current, past: [] });
+    expect(load).toHaveBeenCalledWith("cs-CZ");
+  });
+
+  test("answers not found when the signed-in account cannot resend", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: { authorization: ownOrderAuthorization(false) },
+    });
+
+    const response = await api.handle(customerApiRequest(resend));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
     });
   });
 });

@@ -120,7 +120,7 @@ test.skipIf(!chromiumAvailable)(
         html: `
           <input name="startsOn" value="2099-08-27" />
           <input name="dayCount" value="2" />
-          <input checked name="seats" type="radio" value="2" />`,
+          <span data-office-people-count>1 of 6</span>`,
         path: "/en-US/reservation/office?dayCount=2&seats=2",
       },
     ];

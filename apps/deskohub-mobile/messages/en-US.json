@@ -90,8 +90,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Office seats",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "People",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -100,8 +100,8 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} seat",
-        "countPlural=other": "{formattedCount} seats"
+        "countPlural=one": "{formattedCount} person",
+        "countPlural=other": "{formattedCount} people"
       }
     }
   ],
@@ -582,11 +582,9 @@
   "booking_price_unit_per_hour": "per hour",
   "booking_office_days_decrease": "One day fewer",
   "booking_office_days_increase": "One day more",
-  "booking_office_seats_decrease": "One seat fewer",
-  "booking_office_seats_increase": "One seat more",
   "booking_office_date_unavailable": "The office isn't available from this date. Try another start date.",
   "booking_office_day_count_unavailable": "The office is not available for all the selected days. Try another start date or a shorter stay.",
-  "booking_office_seats_unavailable": "The office doesn't have that many seats. Choose fewer seats.",
+  "booking_office_seats_unavailable": "The office doesn't have that many seats. Remove someone from the list.",
   "booking_availability_loading": "Checking workspace availability...",
   "booking_calendar_notice": "Heads up: this day has a limitation from {start} to {end}.",
   "booking_calendar_notice_with_summary": "Heads up: {summary}, from {start} to {end}.",
@@ -631,6 +629,14 @@
   "reservations_time_until": "Until {time}",
   "reservations_time_date_until": "{date}, until {time}",
   "reservations_section_later": "Later",
+  "reservations_section_invited": "Invited",
+  "reservations_booked_by_name": "Booked by {name}",
+  "reservations_people_resend": "Resend",
+  "reservations_people_resend_to": "Resend the access email to {email}",
+  "reservations_people_resent": "Access email sent to {email}.",
+  "reservations_people_resend_later": "The access email went out a moment ago. You can send it again in a few minutes.",
+  "reservations_people_change": "To change who is coming, <contact>contact us</contact>.",
+  "reservations_people_change_message": "Hello,\n\nI'd like to change who is coming to my private office booking {reference} on {date}.\n\nAdd:\n\nRemove:\n",
   "reservations_section_past": "Past",
   "reservations_show_all_past": "Show all past bookings",
   "reservations_nothing_upcoming": "Nothing coming up",
@@ -665,6 +671,8 @@
   "reservations_access_from": "From",
   "reservations_access_until": "Until",
   "reservations_access_for": "For",
+  "reservations_access_through": "Through",
+  "reservations_access_booked_by": "Booked by",
   "reservations_access_where": "Where",
   "reservations_access_chip_starts": "From {start} · {when}",
   "reservations_access_starts_today": "today",
@@ -679,12 +687,34 @@
   "reservations_access_no_pin_body": "The booking isn't confirmed yet. If it should be, contact us.",
   "reservations_access_back_to_booking": "Back to the booking",
   "booking_office_first_day_heading": "First day",
-  "booking_office_days_and_seats_heading": "Days and seats",
   "booking_office_days_label": "Days",
-  "booking_office_seats_label": "Seats",
+  "booking_office_people_heading": "People",
+  "booking_office_people_of": "{count} of {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "The office's only seat is taken. Remove someone to add another person.",
+        "countPlural=other": "All {formattedCount} seats are taken. Remove someone to add another person."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "Everyone gets the door PIN by email.",
+  "booking_office_people_who_is_coming": "Who is coming",
+  "booking_office_person_you": "You",
+  "booking_office_person_remove": "Remove {email}",
+  "booking_office_person_remove_you": "Remove yourself",
+  "booking_office_person_email_label": "Email address",
+  "booking_office_person_email_invalid": "Enter a full email address.",
+  "booking_office_person_add": "Add",
+  "booking_office_person_add_yourself": "Add yourself",
+  "booking_review_people_pin_note": "After you pay, everyone gets the door PIN by email.",
   "booking_office_until": "Until {date}",
-  "booking_office_seats_up_to": "Up to {count}",
-  "booking_office_seats_maximum": "Maximum {count}",
   "booking_office_reason_date": "Choose your first day to continue",
   "booking_price_unit_per_day_one_seat": "per day, 1 seat",
   "booking_space_from": "from",

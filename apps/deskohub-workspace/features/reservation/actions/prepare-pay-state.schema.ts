@@ -1,6 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
+import { checkoutSummarySchema } from "@/features/checkout/checkout-summary";
 import { defaultPhoneRegion, locales } from "@/features/i18n";
+import { officePeopleSchema } from "@/features/office/office-people";
 import { reservationOrderIssuanceSchema } from "@/features/reservation/reservation-order";
 import {
   marketingConsentSourceRequiresConsent,
@@ -20,6 +22,15 @@ export const preparePayStateInputSchema = Schema.Union(
       ...preparePayStateCommonSchema.fields,
       locale: Schema.Literal(locale),
       reservation: reservationOrderIssuanceSchema(defaultPhoneRegion(locale)),
+      /**
+       * Who is coming to a private office, beside its reservation so the
+       * signed Pay state never carries an invitee's address. A submission
+       * without it books the office's `seats` with no invitations.
+       */
+      people: Schema.optionalKey(officePeopleSchema),
+      // A Pay edit's displayed price is only a baseline for review.
+      // The current advertisement still proves the price to recheck.
+      displayedOfficePrice: Schema.optionalKey(checkoutSummarySchema),
     })
   )
 ).check(marketingConsentSourceRequiresConsent);

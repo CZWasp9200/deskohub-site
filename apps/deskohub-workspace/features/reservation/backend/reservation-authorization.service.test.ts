@@ -2,13 +2,22 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Effect, Layer } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
 import { CustomerAccountAccessError } from "@/features/account";
 import { CustomerAccountReservationOwnership } from "@/features/account/backend/customer-account-reservation-ownership";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  type WorkspaceReservationId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import {
+  type ReservationInviteeId,
+  reservationInviteeIdSchema,
+} from "@/features/reservation-invitees/reservation-invitee";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { fixtureReservationAuthorId } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
@@ -21,6 +30,7 @@ import {
   type ReservationAuthorizationInput,
   ReservationAuthorizationService,
 } from "./reservation-authorization.service";
+import { createReservationInvitationToken } from "./reservation-invitation-capability";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -46,6 +56,8 @@ const makeReservation = (
 ): AuthorizedReservation =>
   ({ dotyposCustomerId, authorAccountId }) as AuthorizedReservation;
 
+const invitedAccountEmail = testEmailAddress("authorization-invitee");
+
 type AuthorizationOptions = {
   readonly input?: Partial<ReservationAuthorizationInput>;
   /**
@@ -63,6 +75,10 @@ type AuthorizationOptions = {
   readonly reservation?: AuthorizedReservation | null | "unreadable";
   /** Whether the order is one of the signed-in review account's sandbox orders. */
   readonly sandboxOrder?: boolean | "unreadable";
+  /** The reservation's invitee an invitation names, while it is invited. */
+  readonly invitee?: { readonly id: ReservationInviteeId };
+  /** The orders that invited the signed-in account. */
+  readonly invitedOrders?: ReadonlyArray<WorkspaceReservationId>;
 };
 
 const resolveLinkedAccount = (owner: AuthorizationOptions["owner"]) => {
@@ -123,7 +139,21 @@ const prepareAuthorization = (options: AuthorizationOptions) => {
       Layer.mergeAll(
         Layer.succeed(CustomerAccountReservationOwnership, {
           activeAccountId,
+          activeAccount: Effect.map(activeAccountId, (accountId) => ({
+            accountId,
+            email: invitedAccountEmail,
+            deletionRequested: false,
+            displayName: null,
+            accountCreatedAt: Temporal.Instant.from("2026-01-01T00:00:00Z"),
+            accountUpdatedAt: Temporal.Instant.from("2026-01-01T00:00:00Z"),
+          })),
           resolve: Effect.suspend(resolve),
+        }),
+        Layer.mock(ReservationInvitees, {
+          hasInvitation: (_orderId, inviteeId) =>
+            Effect.succeed(options.invitee?.id === inviteeId),
+          findInvitedReservations: () =>
+            Effect.succeed(options.invitedOrders ?? []),
         }),
         Layer.mock(WorkspaceReservationRepository, { findById }),
         Layer.mock(ReviewSandbox, {
@@ -455,5 +485,87 @@ describe("a review account's sandbox order", () => {
     });
 
     expect(result.authorized).toBe(false);
+  });
+});
+
+describe("invited people", () => {
+  const inviteeId = reservationInviteeIdSchema.make("invitee-id");
+  const invitationToken = () =>
+    Effect.runPromise(
+      createReservationInvitationToken({
+        orderId,
+        inviteeId,
+        locale: "en-US",
+      })
+    );
+  const runViewer = (options: AuthorizationOptions) => {
+    const { layer, input } = prepareAuthorization(options);
+    return ReservationAuthorizationService.pipe(
+      Effect.flatMap((service) => service.authorizeViewer(input)),
+      Effect.provide(layer),
+      Effect.runPromise
+    );
+  };
+
+  test("an invitation opens the door code as an invitee, and nothing else", async () => {
+    const token = await invitationToken();
+    const accessCode = await runViewer({
+      owner: "signed-out",
+      invitee: { id: inviteeId },
+      input: { invitationToken: token, permission: "view-access-code" },
+    });
+    const status = await runViewer({
+      owner: "signed-out",
+      invitee: { id: inviteeId },
+      input: { invitationToken: token, permission: "view-status" },
+    });
+
+    expect(accessCode).toEqual(Option.some("invitee"));
+    expect(status).toEqual(Option.none());
+  });
+
+  test("a personal invitation works even when the visitor's account cannot be read", async () => {
+    expect(
+      await runViewer({
+        owner: "unavailable",
+        invitee: { id: inviteeId },
+        input: {
+          invitationToken: await invitationToken(),
+          permission: "view-access-code",
+        },
+      })
+    ).toEqual(Option.some("invitee"));
+  });
+
+  test("an invitation stops opening once its invitee is gone", async () => {
+    expect(
+      await runViewer({
+        owner: "signed-out",
+        input: {
+          invitationToken: await invitationToken(),
+          permission: "view-access-code",
+        },
+      })
+    ).toEqual(Option.none());
+  });
+
+  test("a signed-in account the order invited sees the door code as an invitee", async () => {
+    expect(
+      await runViewer({
+        owner: "different",
+        invitedOrders: [orderId],
+        input: { permission: "view-access-code" },
+      })
+    ).toEqual(Option.some("invitee"));
+  });
+
+  test("the customer stays the customer when also invited", async () => {
+    expect(
+      await runViewer({
+        owner: "matches",
+        invitedOrders: [orderId],
+        input: { permission: "view-access-code" },
+      })
+    ).toEqual(Option.some("customer"));
   });
 });

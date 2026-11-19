@@ -1,6 +1,7 @@
 import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
+  CustomerReservationParty,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, DateTime, Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -32,6 +33,8 @@ import type {
  */
 export type ReservationListRow = SavedReservation & {
   readonly todayAccess?: CustomerReservationAccess;
+  /** The other party, on a fresh row only. */
+  readonly party?: CustomerReservationParty;
 };
 
 /** The list's groups, as the site's account page shows them. */

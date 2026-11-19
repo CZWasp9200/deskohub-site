@@ -43,6 +43,14 @@ import type { StoredMeetingRoomReservationDetails } from "@/features/reservation
 import type { StoredOfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
+import {
+  getBookedPeopleQuery,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import {
+  type ReservationPeopleView,
+  toReservationPeopleView,
+} from "@/features/reservation-invitees/reservation-people-view";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
@@ -148,6 +156,11 @@ type CheckoutMeetingRoomStatusViewModel =
 type CheckoutOfficeStatusViewModel = CheckoutReservationStatusViewModelBase & {
   readonly kind: "office";
   readonly summary?: CheckoutOfficeStatusSummary;
+  /**
+   * Who is coming, for an office booked with a people list; absent for one
+   * booked by seats alone and once the retention purge removed an invitee.
+   */
+  readonly people?: ReservationPeopleView;
 };
 
 type CheckoutStatusNotFoundViewModel = CheckoutStatusViewModelBase & {
@@ -204,10 +217,9 @@ export interface ICheckoutStatusService {
   readonly getStatus: (
     input: CheckoutStatusLookup
   ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
-  readonly refreshStatus: (input: {
-    readonly orderId: WorkspaceReservationId;
-    readonly returnOutcome: CheckoutStatusReturnOutcome;
-  }) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
+  readonly refreshStatus: (
+    input: CheckoutStatusLookup
+  ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
 }
 
 const canUseAttemptForSummary = (
@@ -359,6 +371,32 @@ const implementation = Effect.gen(function* () {
   const inventory = yield* AdvisoryAvailabilityInventory;
   const finalization = yield* ProviderPaymentFinalizationService;
   const seatingMap = yield* SeatingMapReleaseGate;
+  const invitees = yield* ReservationInvitees;
+
+  // Who is coming is extra detail: a status still answers without it.
+  const loadOfficePeople = Effect.fnUntraced(function* (
+    reservation: WorkspaceReservation,
+    loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
+  ) {
+    const booked = yield* invitees
+      .findBookedPeople(getBookedPeopleQuery(reservation))
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Checkout status people unavailable", {
+            cause,
+          }).pipe(Effect.as(Option.none()))
+        )
+      );
+    if (Option.isNone(booked)) return Option.none<ReservationPeopleView>();
+    const resendable =
+      reservation.paymentState === "paid" &&
+      reservation.reservationState === "confirmed" &&
+      (yield* loadDotyposReservation)?.status === "CONFIRMED";
+    const now = yield* currentInstant;
+    return Option.some(
+      toReservationPeopleView(booked.value, { now, resendable })
+    );
+  });
 
   /** Shares the live reservation read between the status and its summary. */
   const loadReservationRecord = (id: DotyposReservationId | null) =>
@@ -556,13 +594,7 @@ const implementation = Effect.gen(function* () {
    */
   const loadSupportContactPrefill = Effect.fn(
     "CheckoutStatusService.loadSupportContactPrefill"
-  )(function* (
-    reservation: WorkspaceReservation,
-    statusKind: CheckoutReservationStatusKind
-  ) {
-    if (!checkoutStatusTraits[statusKind].showsCustomerContact)
-      return undefined;
-
+  )(function* (reservation: WorkspaceReservation) {
     return yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
       Effect.map(
         Option.match({
@@ -707,12 +739,11 @@ const implementation = Effect.gen(function* () {
     );
   });
 
-  /** Derives the customer status and its support contact prefill. */
+  /** Derives the customer status from the local and provider states. */
   const resolveStatusKind = Effect.fn(
     "CheckoutStatusService.resolveStatusKind"
   )(function* (
     reservation: WorkspaceReservation,
-    includeSupportContact: boolean,
     refreshed: PaymentPageProviderObservation | undefined,
     loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
   ) {
@@ -757,15 +788,10 @@ const implementation = Effect.gen(function* () {
     const paymentPageReopenable =
       statusKind === "pending" &&
       pendingPaymentTiming?.paymentPageReopenable === true;
-    const supportContactPrefill = includeSupportContact
-      ? yield* loadSupportContactPrefill(reservation, statusKind)
-      : undefined;
-
     return {
       latePaymentStatusKind,
       statusKind,
       paymentPageReopenable,
-      supportContactPrefill,
     };
   });
 
@@ -813,18 +839,35 @@ const implementation = Effect.gen(function* () {
           statusKind,
           paymentPageReopenable,
           supportContactPrefill,
+          people,
         },
         reconstruction,
         retrySelection,
       ] = yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
         Effect.all(
           [
-            resolveStatusKind(
-              reservation,
-              input.includeSupportContact ?? true,
-              refreshed,
-              loadDotyposReservation
-            ),
+            Effect.gen(function* () {
+              const [status, people] = yield* Effect.all(
+                [
+                  resolveStatusKind(
+                    reservation,
+                    refreshed,
+                    loadDotyposReservation
+                  ),
+                  reservation.reservationDetails.kind === "office"
+                    ? loadOfficePeople(reservation, loadDotyposReservation)
+                    : Effect.succeed(Option.none()),
+                ],
+                { concurrency }
+              );
+              const supportContactPrefill =
+                (input.includeSupportContact ?? true) &&
+                (checkoutStatusTraits[status.statusKind].showsCustomerContact ||
+                  Option.isSome(people))
+                  ? yield* loadSupportContactPrefill(reservation)
+                  : undefined;
+              return { ...status, people, supportContactPrefill };
+            }),
             reconstructSummary(reservation, loadDotyposReservation).pipe(
               Effect.timeoutOrElse({
                 duration: summaryTimeout,
@@ -865,6 +908,10 @@ const implementation = Effect.gen(function* () {
       const result: CheckoutReservationStatusViewModel = {
         ...resultBase,
         ...reconstruction.reservation,
+        ...Option.match(people, {
+          onNone: () => ({}),
+          onSome: (found) => ({ people: found }),
+        }),
       };
 
       yield* Effect.annotateLogsScoped({
@@ -995,6 +1042,7 @@ export class CheckoutStatusService extends Context.Service<
       Layer.provide(PaymentAttemptRepository.Default),
       Layer.provide(WorkspaceReservationRepository.Default),
       Layer.provide(ReviewSandbox.Default),
+      Layer.provide(ReservationInvitees.Default),
       Layer.provide(WorkspaceDatabase.Default),
       Layer.provide(WorkspaceDotyposLayer),
       Layer.provide(SharedAvailabilityInventoryLive),

@@ -35,6 +35,7 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
@@ -187,6 +188,7 @@ const makeAuthorization = (
             Layer.mergeAll(
               ownershipLayer,
               reservationsLayer,
+              NoReservationInvitees,
               ReviewSandbox.Default.pipe(Layer.provide(postgres.layer))
             )
           )

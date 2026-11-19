@@ -8,10 +8,16 @@ import {
   checkoutStatusTraits,
 } from "@/features/checkout/checkout-status-kind";
 import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/checkout-status-summary-presentation";
+import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
+import { getContactPageHref } from "@/features/contact/components/contact-page-link";
 import { getCoworkCheckoutStatusSummary } from "@/features/cowork/components/cowork-checkout-status-summary";
 import { type Locale, m } from "@/features/i18n";
 import { getMeetingRoomCheckoutStatusSummary } from "@/features/meeting-room/components/meeting-room-checkout-status-summary";
 import { getOfficeCheckoutStatusSummary } from "@/features/office/components/office-checkout-status-summary";
+import {
+  OfficeStatusPeopleList,
+  type ResendOfficeInvitation,
+} from "@/features/office/components/office-status-people";
 import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
@@ -35,6 +41,8 @@ import { WorkspaceTableMapView } from "./workspace-table-map-view";
 type CheckoutStatusPageProps = {
   readonly locale: Locale;
   readonly presentation?: "page" | "modal";
+  /** Sends an office invitee their invitation again, where the page can. */
+  readonly resendInvitation?: ResendOfficeInvitation;
   readonly status: CheckoutStatusViewModel;
 };
 
@@ -56,7 +64,8 @@ const statusIconWrapperVariants = cva(
 
 const getSummaryPresentation = (
   status: CheckoutStatusViewModel,
-  locale: Locale
+  locale: Locale,
+  officePeople?: ReactNode
 ): CheckoutStatusSummaryPresentation | undefined =>
   status.summary
     ? Match.value(status.summary).pipe(
@@ -64,30 +73,55 @@ const getSummaryPresentation = (
           cowork: (summary) => getCoworkCheckoutStatusSummary(summary, locale),
           "meeting-room": (summary) =>
             getMeetingRoomCheckoutStatusSummary(summary, locale),
-          office: (summary) => getOfficeCheckoutStatusSummary(summary, locale),
+          office: (summary) =>
+            getOfficeCheckoutStatusSummary(summary, locale, officePeople),
         })
       )
     : undefined;
 
-const getSupportContactMessage = (
+/**
+ * The contact page asking staff to change who is coming: the order reference
+ * and date, then "Add:" and "Remove:" lines for the booker to fill in.
+ */
+const getPeopleChangeContactHref = (
+  status: CheckoutReservationStatusViewModel,
+  locale: Locale
+) =>
+  getContactPageHref(locale, {
+    name: status.supportContactPrefill?.name,
+    email: status.supportContactPrefill?.email,
+    message: m.checkoutStatusPeopleChangeMessage(
+      {
+        reservationDetails: getContactReservationDetails(
+          status,
+          locale,
+          getWorkspaceOfficeProductTitle(locale)
+        ),
+      },
+      { locale }
+    ),
+  });
+
+/**
+ * The lines that identify an order in a message to staff: its reference,
+ * then what it reserves and when. Without reconstructed details the order
+ * reference alone identifies it.
+ */
+const getContactReservationDetails = (
   status: CheckoutStatusViewModel,
   locale: Locale,
-  summaryPresentation: CheckoutStatusSummaryPresentation | undefined,
-  topic: NonNullable<
-    (typeof checkoutStatusTraits)[CheckoutStatusKind]["supportTopic"]
-  >
-) => {
-  // Without reconstructed details the order reference alone identifies it.
-  const reservationDetails = [
+  reservationTitle: string | undefined
+) =>
+  [
     m.checkoutStatusContactOrderReference(
       { orderId: status.orderId },
       { locale }
     ),
-    ...(status.summary && summaryPresentation
+    ...(status.summary && reservationTitle
       ? [
           m.checkoutStatusContactReservation(
             {
-              reservation: summaryPresentation.reservationTitle,
+              reservation: reservationTitle,
               date: formatReservationDisplayDate(
                 status.summary.reservedFrom,
                 locale
@@ -98,6 +132,20 @@ const getSupportContactMessage = (
         ]
       : []),
   ].join("\n");
+
+const getSupportContactMessage = (
+  status: CheckoutStatusViewModel,
+  locale: Locale,
+  summaryPresentation: CheckoutStatusSummaryPresentation | undefined,
+  topic: NonNullable<
+    (typeof checkoutStatusTraits)[CheckoutStatusKind]["supportTopic"]
+  >
+) => {
+  const reservationDetails = getContactReservationDetails(
+    status,
+    locale,
+    summaryPresentation?.reservationTitle
+  );
 
   const message = {
     fulfillment_failed: m.checkoutStatusFulfillmentFailedContactMessage,
@@ -182,17 +230,15 @@ const getSupportContactHref = (
   const topic = checkoutStatusTraits[status.status].supportTopic;
   if (!topic || status.status === "not_found") return undefined;
 
-  const url = new URL(`/${locale}/contact`, "https://deskohub.local");
-  const prefill = status.supportContactPrefill;
-  if (prefill?.name) url.searchParams.set("name", prefill.name);
-  if (prefill?.email) url.searchParams.set("email", prefill.email);
-  if (prefill?.phone) url.searchParams.set("phone", prefill.phone);
-  url.searchParams.set(
-    "message",
-    getSupportContactMessage(status, locale, summaryPresentation, topic)
-  );
-
-  return `${url.pathname}${url.search}`;
+  return getContactPageHref(locale, {
+    ...status.supportContactPrefill,
+    message: getSupportContactMessage(
+      status,
+      locale,
+      summaryPresentation,
+      topic
+    ),
+  });
 };
 
 type CheckoutStatusPresentation = NonNullable<
@@ -216,11 +262,39 @@ const getReservationAccessHref = (
 export function CheckoutStatusPage({
   locale,
   presentation = "page",
+  resendInvitation,
   status,
 }: CheckoutStatusPageProps) {
   const copy = getCheckoutStatusCopy(status, locale);
   const showReservationDetails = status.status !== "not_found";
-  const summaryPresentation = getSummaryPresentation(status, locale);
+  const officePeople = status.status !== "not_found" &&
+    status.kind === "office" &&
+    status.people && (
+      <OfficeStatusPeopleList
+        changeHref={getPeopleChangeContactHref(status, locale)}
+        contact={status.supportContactPrefill}
+        locale={locale}
+        orderId={status.orderId}
+        people={{
+          contactAttends: status.people.contactAttends,
+          invitees: status.people.invitees.map(
+            ({ id, email, resendAvailableAt }) => ({
+              id,
+              email,
+              resendAvailableAt: resendAvailableAt?.toString(),
+            })
+          ),
+        }}
+        resendInvitation={
+          status.people.resendable ? resendInvitation : undefined
+        }
+      />
+    );
+  const summaryPresentation = getSummaryPresentation(
+    status,
+    locale,
+    officePeople || undefined
+  );
   const supportContactHref = getSupportContactHref(
     status,
     locale,
@@ -268,6 +342,9 @@ export function CheckoutStatusPage({
       {showReservationDetails && (
         <CheckoutStatusReservationDetails
           locale={locale}
+          officePeople={
+            summaryPresentation ? undefined : officePeople || undefined
+          }
           status={status}
           summaryPresentation={summaryPresentation}
         />
@@ -404,14 +481,24 @@ function CheckoutStatusHeadline({
 
 function CheckoutStatusReservationDetails({
   locale,
+  officePeople,
   status,
   summaryPresentation,
 }: {
   readonly locale: Locale;
+  readonly officePeople?: ReactNode;
   readonly status: CheckoutReservationStatusViewModel;
   readonly summaryPresentation: CheckoutStatusSummaryPresentation | undefined;
 }) {
   const summaryRows = summaryPresentation?.rows ?? [];
+  const rows = officePeople
+    ? [
+        {
+          label: m.checkoutStatusPeopleLabel({}, { locale }),
+          value: officePeople,
+        },
+      ]
+    : summaryRows;
 
   return (
     <>
@@ -444,7 +531,7 @@ function CheckoutStatusReservationDetails({
               </dd>
             </div>
           )}
-          {summaryRows.map((row) => (
+          {rows.map((row) => (
             <div
               key={row.label}
               className="grid gap-1 rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4"

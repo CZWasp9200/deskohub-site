@@ -751,32 +751,6 @@
   "checkoutSummaryItemMeetingRoom": "Meetingraum – {duration}",
   "checkoutSummaryItemReferralDiscount": "Empfehlungsrabatt · berechtigte eingeladene Personen: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "Empfehlungsrabatt auf die erste Reservierung",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Zugang zum Privatbüro · {dayCount} Tag",
-        "dayCountPlural=other": "Zugang zum Privatbüro · {dayCount} Tage"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} Platz im Büro",
-        "seatCountPlural=other": "{seatCount} Plätze im Büro"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -794,7 +768,6 @@
   "checkoutSummaryItemCustomerDiscount": "Kundenrabatt",
   "checkoutSummaryItemTotal": "Gesamt zu zahlen",
   "checkoutPayConsent": "Ich stimme <terms>den Allgemeinen Geschäftsbedingungen</terms> und <operatingRules>der Hausordnung</operatingRules> zu.<earlyPerformance> Ich verlange die Leistung zum reservierten Termin, innerhalb der Widerrufsfrist, und nehme zur Kenntnis, dass mein Widerrufsrecht mit ihrer vollständigen Erbringung erlischt.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Die Zahlung schließt du auf der gesicherten Zahlungsseite von Nexi ab, die sich in einem neuen Tab öffnet. Deine Bank kann dich bitten, die Zahlung in ihrer Banking-App zu bestätigen. In diesem Tab siehst du danach den Status deiner Reservierung.",
   "checkoutPayOrderAndPayButton": "Zahlungspflichtig bestellen",
   "checkoutPayOrderAndPayAmountButton": "Zahlungspflichtig bestellen",
   "checkoutPaySubmitError": "Die Zahlung konnte nicht gestartet werden. Prüf bitte die Reservierungsdaten und versuch es noch einmal.",
@@ -1689,5 +1662,94 @@
   "installGuideStepAndroidMenu": "Öffne das Menü deines Browsers, meist <b>⋮</b> neben der Adressleiste.",
   "installGuideStepAndroidAdd": "Tippe auf <b>Zum Startbildschirm hinzufügen</b> oder <b>Installieren</b>.",
   "installGuideStepAndroidConfirm": "Bestätige mit <b>Hinzufügen</b> oder <b>Installieren</b>.",
-  "installGuideStepGenericMenu": "Öffne das Menü deines Browsers oder tippe auf <b>Teilen</b>."
+  "installGuideStepGenericMenu": "Öffne das Menü deines Browsers oder tippe auf <b>Teilen</b>.",
+  "officePeopleLabel": "Wer kommt?",
+  "officePeopleCount": "{count} von {maximum}",
+  "officePeopleYou": "Du",
+  "officePeopleContactEmailLater": "Deine E-Mail-Adresse gibst du im nächsten Schritt ein",
+  "officePeopleRemove": "{email} entfernen",
+  "officePeopleRemoveYourself": "Dich entfernen",
+  "officePeopleAddYourself": "Dich hinzufügen",
+  "officePeopleEmailLabel": "E-Mail-Adresse",
+  "officePeopleAdd": "Hinzufügen",
+  "officePeopleReplace": "Ersetzen",
+  "officePeopleSwitchToYourself": "Selbst teilnehmen",
+  "officePeopleInvalidEmail": "Gib eine vollständige E-Mail-Adresse ein.",
+  "officePeopleDuplicateEmail": "Diese E-Mail-Adresse steht schon auf der Liste.",
+  "officePeopleContactEmail": "Das ist deine eigene E-Mail-Adresse. Für dich gilt die Zeile „Du“.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Der einzige Platz ist belegt. Entferne jemanden, um eine weitere Person hinzuzufügen.",
+        "maximumPlural=other": "Alle {maximum} Plätze sind belegt. Entferne jemanden, um eine weitere Person hinzuzufügen."
+      }
+    }
+  ],
+  "officePeopleNote": "Jede Person bekommt die PIN für die Tür per E-Mail.",
+  "officePeopleNoPeople": "Füge mindestens eine Person hinzu.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Dieses Büro hat {maximum} Platz. Entferne jemanden, um fortzufahren.",
+        "maximumPlural=other": "Dieses Büro hat {maximum} Plätze. Entferne jemanden, um fortzufahren."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Preis",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} Person × {seatPrice}",
+        "countPlural=other": "{count} Personen × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Gesamt",
+  "checkoutPeopleTitle": "Wer kommt",
+  "checkoutPeopleNote": "Nach der Zahlung bekommt jede Person die PIN für die Tür per E-Mail.",
+  "checkoutPayNoteNewTab": "Sichere Zahlung in einem neuen Tab. <backToShop/> oder schließe den Tab.",
+  "checkoutPayNoteBackToShop": "Kehre nach der Zahlung zum Shop zurück",
+  "reservationAccessGuestBookedBy": "{product} · reserviert von {name}",
+  "reservationAccessGuestCopyAddress": "Adresse {address} kopieren",
+  "reservationAccessGuestAddressCopied": "Adresse kopiert.",
+  "reservationAccessGuestOpenRoute": "Route öffnen",
+  "reservationAccessDatesSingle": "Das Schloss akzeptiert diese PIN am {date}.",
+  "reservationAccessDatesRange": "Das Schloss akzeptiert diese PIN vom {startsOn} bis einschließlich {endsOn}.",
+  "checkoutStatusPeopleLabel": "Wer kommt",
+  "checkoutStatusPeopleContact": "{name} (du)",
+  "checkoutStatusPeopleResend": "Erneut senden",
+  "checkoutStatusPeopleResendLabel": "Einladung erneut an {email} senden",
+  "checkoutStatusPeopleSent": "Gesendet",
+  "checkoutStatusPeopleSentAnnouncement": "Einladung an {email} gesendet.",
+  "checkoutStatusPeopleResendFailed": "Die Einladung konnte nicht erneut gesendet werden. Versuch es gleich noch einmal.",
+  "checkoutStatusPeopleChangeNote": "Wenn du ändern möchtest, wer kommt, <link>kontaktiere uns</link>.",
+  "checkoutStatusPeopleChangeMessage": "Guten Tag,\n\nich möchte ändern, wer zu meiner Reservierung des Privatbüros kommt.\n\n{reservationDetails}\n\nHinzufügen:\nEntfernen:",
+  "officeInvitationSubject": "{booker} hat ein Privatbüro für dich gebucht",
+  "officeInvitationHeading": "{booker} hat ein Privatbüro für dich gebucht: {date}",
+  "officeInvitationSpaceLabel": "Raum",
+  "officeInvitationDateLabel": "Datum",
+  "officeInvitationBookedByLabel": "Gebucht von",
+  "officeInvitationReason": "Du bekommst diese E-Mail, weil {booker} deine Adresse zur Reservierung hinzugefügt hat. Fragen? Antworte einfach oder schreib an {email}.",
+  "officeInvitationPeopleLabel": "Wer kommt",
+  "officeInvitationPeopleYou": "{name} (du)",
+  "officeInvitationPeopleNote": "Alle bekommen eine eigene E-Mail mit dem Zugang.",
+  "officeInviteeCancellationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, wurde storniert",
+  "officeInviteeCancellationBody": "Die unten aufgeführte Reservierung wurde storniert, und dein Zugangscode funktioniert nicht mehr.",
+  "officeInviteeRestorationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, gilt wieder",
+  "officeInviteeRestorationHeading": "Das Privatbüro, das {booker} für dich gebucht hat, wurde wiederhergestellt",
+  "officeInviteeRestorationBody": "Wir haben die unten aufgeführte Reservierung wiederhergestellt, sie gilt wieder. Die frühere Nachricht über ihre Stornierung ist damit hinfällig.",
+  "officeInviteeRestorationNewAccessCode": "Wir haben einen neuen Zugangscode ausgestellt; du öffnest ihn unten.",
+  "officeInviteeListRejected": "Prüf bitte die Personen, die du hinzugefügt hast, und versuch es noch einmal."
 }

@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceCheckoutAccessCodeService } from "@/features/checkout/backend/reservation/access-code.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
@@ -41,6 +41,8 @@ test("renders the unavailable state within 8 seconds when Dotypos hangs", async 
       Layer.mergeAll(
         Layer.mock(ReservationAuthorizationService, {
           isAuthorized: () => Effect.succeed(true),
+          authorizeViewer: () =>
+            Effect.succeed(Option.some("customer" as const)),
         }),
         Layer.mock(WorkspaceReservationRepository, {
           findById: () =>

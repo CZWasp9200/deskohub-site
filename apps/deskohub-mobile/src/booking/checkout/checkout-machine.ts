@@ -179,6 +179,7 @@ const create = (
       advertisedPriceToken: flow.advertisedPriceToken,
       selection: flow.selection,
       ...(flow.earlySetup === undefined ? {} : { earlySetup: flow.earlySetup }),
+      ...(flow.people === undefined ? {} : { people: flow.people }),
       ...details,
     },
     referralCode: flow.rememberedReferralCode,
@@ -1172,6 +1173,7 @@ const heldCheckout = (checkout: CustomerCheckout): HeldCheckout => ({
   ),
   earlyPerformanceConsent: checkout.earlyPerformanceConsent,
   referralApplied: checkout.referralApplied === true,
+  people: Option.fromUndefinedOr(checkout.people),
 });
 
 const withReferralUpdate = (

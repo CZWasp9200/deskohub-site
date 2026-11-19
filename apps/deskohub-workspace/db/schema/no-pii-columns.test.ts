@@ -59,6 +59,16 @@ const allowedColumns = new Map([
     "public.workspace_reservations.cancellation_email_sent_at",
     "when the cancellation email was sent, not an address",
   ],
+  // An office invitee's address, kept only encrypted and as a keyed digest
+  // until the retention purge; see the checkout skill's lifecycle reference.
+  [
+    "public.reservation_invitees.encrypted_email",
+    "pgcrypto-encrypted invitee address",
+  ],
+  [
+    "public.reservation_invitees.email_lookup_key",
+    "keyed HMAC digest of an invitee address",
+  ],
   // Better Auth owns the login email; AGENTS.md permits it in the auth schema.
   ["auth.user.email", "Better Auth login email"],
   ["auth.user.email_verified", "Better Auth login email verification flag"],
@@ -162,7 +172,7 @@ describe("database schema no-PII persistence", () => {
     }
   });
 
-  test("stores confidential accounting documents only as pgcrypto ciphertext", () => {
+  test("stores confidential accounting documents and invitee addresses only as pgcrypto ciphertext", () => {
     const binaryColumns = schemaColumns
       .filter(({ sqlType }) => sqlType === "bytea")
       .map(({ id }) => id)
@@ -173,6 +183,7 @@ describe("database schema no-PII persistence", () => {
       "public.corrective_documents.encrypted_document",
       "public.invoice_previews.encrypted_document",
       "public.invoices.encrypted_document",
+      "public.reservation_invitees.encrypted_email",
     ]);
   });
 
@@ -182,6 +193,7 @@ describe("database schema no-PII persistence", () => {
       "invoices",
       "invoice_email_deliveries",
       "late_payment_recoveries",
+      "reservation_invitee_notices",
     ]);
     const structuredColumns = schemaColumns
       .filter(

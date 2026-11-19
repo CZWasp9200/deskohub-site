@@ -3,6 +3,7 @@ import { Option } from "effect";
 import { toCoworkSelection } from "../selection/cowork-selection";
 import { toMeetingRoomSelection } from "../selection/meeting-room-selection";
 import { toOfficeSelection } from "../selection/office-selection";
+import { officePeopleOf } from "../testing/office-people-fixtures";
 import {
   BookingOverview,
   bookingOverviewOf,
@@ -123,7 +124,7 @@ describe("bookingOverviewOf", () => {
           toOfficeSelection({
             date: Option.some("2026-11-30"),
             dayCount: 3,
-            seats: 2,
+            people: officePeopleOf(2),
           })
         ),
         false
@@ -144,7 +145,7 @@ describe("bookingOverviewOf", () => {
           toOfficeSelection({
             date: Option.some("2026-11-30"),
             dayCount: 1,
-            seats: 1,
+            people: officePeopleOf(1),
           })
         ),
         false

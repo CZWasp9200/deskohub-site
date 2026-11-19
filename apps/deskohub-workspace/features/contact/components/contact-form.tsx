@@ -45,6 +45,7 @@ import {
   hasContactActionOutcome,
   resolveContactFormState,
 } from "./contact-form-state";
+import { readContactPrefill } from "./contact-page-link";
 
 export type ContactFormClientProps = {
   readonly locale: Locale;
@@ -90,23 +91,6 @@ const getContactFormValues = (
   phone: values?.phone ?? contactDefaultValues.phone,
   message: values?.message ?? contactDefaultValues.message,
 });
-
-const getContactQueryValue = (
-  params: Pick<URLSearchParams, "get">,
-  key: keyof ContactFormInitialValues,
-  maxLength: number
-) => params.get(key)?.slice(0, maxLength);
-
-const getContactQueryInitialValues = (params: Pick<URLSearchParams, "get">) => {
-  const values: ContactFormInitialValues = {
-    name: getContactQueryValue(params, "name", 100),
-    email: getContactQueryValue(params, "email", 255),
-    phone: getContactQueryValue(params, "phone", 20),
-    message: getContactQueryValue(params, "message", 1000),
-  };
-
-  return Object.values(values).some(Boolean) ? values : undefined;
-};
 
 export function ContactFormClient({
   initialValues,
@@ -413,7 +397,7 @@ function ContactQueryInitialValuesSync({
   const queryString = searchParams.toString();
 
   useEffect(() => {
-    onChange(getContactQueryInitialValues(new URLSearchParams(queryString)));
+    onChange(readContactPrefill(new URLSearchParams(queryString)));
   }, [onChange, queryString]);
 
   return null;

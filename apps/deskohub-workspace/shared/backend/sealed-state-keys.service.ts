@@ -1,3 +1,4 @@
+import { hkdfSync } from "node:crypto";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import { SealedStateTokenError } from "./sealed-state-error";
 
@@ -15,6 +16,16 @@ export type SealedStateKey = {
   readonly kid: SealedStateKeyId;
   readonly key: Buffer;
 };
+
+/**
+ * A 32-byte key for one purpose, derived from a ring key with HKDF-SHA256.
+ * Each purpose names its own `info`, so no two uses of the same ring key ever
+ * share key material.
+ */
+export const deriveSealedStateSubkey = (key: SealedStateKey, info: string) =>
+  Buffer.from(
+    hkdfSync("sha256", key.key, Buffer.alloc(0), info, keyByteLength)
+  );
 
 /** Ordered keys: the first seals new state, and every key opens its own. */
 type SealedStateKeyRing = readonly [SealedStateKey, ...SealedStateKey[]];

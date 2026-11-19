@@ -1,4 +1,5 @@
 import type {
+  CustomerAccountState,
   CustomerAvailability,
   CustomerBookableDates,
   CustomerBookedSelection,
@@ -7,6 +8,11 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { bookingPreselectionKey } from "../booking-preselection";
+import { detailsAccess } from "../checkout-screen/details-form";
+import {
+  canAddOfficePerson,
+  officePeopleCount,
+} from "../selection/office-people";
 import {
   clampOfficeDraft,
   emptyOfficeDraft,
@@ -48,7 +54,7 @@ export interface KeptOfficeDraft {
  * was opened on another preselection ("Book again"), which then replaces
  * it; else the preselection's draft, else the empty one. Without a
  * preselection the kept draft stays, so a restarted checkout comes back to
- * the customer's days and seats.
+ * the customer's days and people.
  */
 export const openingOfficeDraft = ({
   kept,
@@ -76,8 +82,9 @@ export const openingOfficeDraft = ({
 };
 
 /**
- * The days and seats steppers, once a first day is picked: how far each
- * goes, the stay's last day, and whether the draft has all the seats.
+ * The days stepper and the people list, once a first day is picked: how far
+ * the days go, the stay's last day, and how many of the office's seats the
+ * people take.
  */
 export type OfficeSteppers = {
   readonly days: {
@@ -86,17 +93,19 @@ export type OfficeSteppers = {
     /** The stay's last day, which the row names. */
     readonly lastDate: PragueDate;
   };
-  readonly seats: {
+  readonly people: {
+    /** People on the list, one seat each. */
+    readonly count: number;
     /** The office's seats; none while its capacity can't be read. */
     readonly maximum: Option.Option<number>;
-    /** At the office's seats: + is off and the row says so in warning ink. */
-    readonly reached: boolean;
+    /** Every seat is taken: no one more can be added. */
+    readonly full: boolean;
   };
 };
 
 /** What the office screen shows for its draft and the availability read. */
 export type OfficeBookingModel = {
-  /** The draft with its days and seats within what the first day allows. */
+  /** The draft with its days within what the first day allows. */
   readonly draft: OfficeDraft;
   readonly enablement: OfficeEnablement;
   /** The booking the draft names, once it has a first day. */
@@ -133,12 +142,10 @@ export const officeBookingModel = ({
               maximum: enablement.maximumDayCount,
               lastDate: officeLastDate(date, fitted.dayCount),
             },
-            seats: {
+            people: {
+              count: officePeopleCount(fitted.people),
               maximum: enablement.maximumSeats,
-              reached: Option.match(enablement.maximumSeats, {
-                onNone: () => false,
-                onSome: (most) => fitted.seats >= most,
-              }),
+              full: !canAddOfficePerson(fitted.people, enablement.maximumSeats),
             },
           })
     ),
@@ -193,3 +200,29 @@ export const officeFromPrice = (
     total: offering.advertisedPrice.price,
     vatStatus: "not-vat-payer",
   }));
+
+/** The signed-in customer, as the people list's You row shows them. */
+export interface OfficeContact {
+  readonly email: string;
+  readonly name?: string;
+}
+
+/**
+ * The signed-in customer as the people list's You row shows them: the
+ * account's email and, once the profile has one, its name. None for an
+ * account that can't book.
+ */
+export const officeContactOf = (
+  account: CustomerAccountState
+): Option.Option<OfficeContact> => {
+  const access = detailsAccess(account);
+  return access._tag === "Ready"
+    ? Option.some({
+        email: access.self.email,
+        ...Option.match(access.self.name, {
+          onNone: () => ({}),
+          onSome: (name) => ({ name }),
+        }),
+      })
+    : Option.none();
+};
