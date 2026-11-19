@@ -101,15 +101,25 @@ const insertLegalEvidence = async (
   return id;
 };
 
-/** Inserts a payment attempt as writers from before the order key do. */
-const insertAttempt = async (pool: Pool, reservationId: string) => {
+const insertAttempt = async (
+  pool: Pool,
+  reservationId: string | null,
+  orderId?: string
+) => {
   const id = `attempt-${crypto.randomUUID()}`;
   await pool.query(
     `insert into payment_attempts
-       (id, workspace_reservation_id, provider, provider_order_id, state,
+       (id, workspace_reservation_id, ${orderId === undefined ? "" : "order_id,"}
+        provider, provider_order_id, state,
         amount_value, amount_exponent, currency)
-     values ($1, $2, 'nexi', $3, 'pending', 29000, 2, 'CZK')`,
-    [id, reservationId, `order-${crypto.randomUUID()}`]
+     values ($1, $2, ${orderId === undefined ? "" : "$4,"}
+       'nexi', $3, 'pending', 29000, 2, 'CZK')`,
+    [
+      id,
+      reservationId,
+      `order-${crypto.randomUUID()}`,
+      ...(orderId === undefined ? [] : [orderId]),
+    ]
   );
   return id;
 };
@@ -224,22 +234,39 @@ describe.skipIf(!testDatabaseUrl)(
       });
     });
 
-    test("accepts pass purchase orders", async () => {
-      await beforeMigration(async ({ pool, migrateRemaining }) => {
+    test("accepts payment attempts for an order without a reservation", async () => {
+      await beforeMigration(async ({ pool, reservation, migrateRemaining }) => {
         await migrateRemaining();
+        const reservationId = await reservation();
 
-        await pool.query(
-          `insert into orders (kind, dotypos_customer_id, payment_state, fulfillment_state)
-           values ('pass-purchase', 'fixture-customer', 'not_started', 'not_started')`
-        );
+        const orderId = (
+          await pool.query<{ id: string }>(
+            `insert into orders (kind, dotypos_customer_id, payment_state, fulfillment_state)
+           values ('pass-purchase', 'fixture-customer', 'not_started', 'not_started')
+           returning id`
+          )
+        ).rows[0]!.id;
+        const attemptId = await insertAttempt(pool, null, orderId);
 
+        expect(await attemptOrder(pool, attemptId)).toBe(orderId);
+        const matchViolation = {
+          code: "23514",
+          constraint: "payment_attempts_reservation_order_match_check",
+        };
         expect(
-          (
-            await pool.query<{ readonly count: string }>(
-              "select count(*) from orders where kind = 'pass-purchase'"
+          await failure(insertAttempt(pool, null, reservationId))
+        ).toMatchObject(matchViolation);
+        expect(
+          await failure(insertAttempt(pool, reservationId, orderId))
+        ).toMatchObject(matchViolation);
+        expect(
+          await failure(
+            pool.query(
+              "update payment_attempts set order_id = $1 where id = $2",
+              [reservationId, attemptId]
             )
-          ).rows[0]?.count
-        ).toBe("1");
+          )
+        ).toMatchObject(matchViolation);
       });
     });
   }

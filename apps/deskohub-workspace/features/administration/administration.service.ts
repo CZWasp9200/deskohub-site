@@ -673,7 +673,7 @@ const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
-  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly workspaceReservationId: WorkspaceReservationId | null;
   readonly providerOrderId: NexiOrderId | null;
   readonly provider: "internal" | "nexi";
   readonly state: PaymentAttemptState;
@@ -1331,14 +1331,14 @@ const latePaymentRecoverySelection = {
 const latePaymentSelection = {
   eventId: webhookEvents.eventId,
   receivedAt: webhookEvents.receivedAt,
-  reservationId: paymentAttempts.workspaceReservationId,
+  reservationId: workspaceReservations.id,
 } as const;
 
 const latePaymentCondition = (
   reservationIds: readonly WorkspaceReservationId[]
 ) =>
   and(
-    equalsAny(paymentAttempts.workspaceReservationId, reservationIds),
+    equalsAny(workspaceReservations.id, reservationIds),
     eq(webhookEvents.errorCode, "nexi_webhook_late_payment")
   );
 
@@ -1778,6 +1778,13 @@ export class AdministrationService extends Context.Service<
                   paymentAttempts,
                   eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
                 )
+                .innerJoin(
+                  workspaceReservations,
+                  eq(
+                    workspaceReservations.id,
+                    paymentAttempts.workspaceReservationId
+                  )
+                )
                 .where(latePaymentCondition(rows.map(({ id }) => id))),
               recoveryRows: db
                 .select(latePaymentRecoverySelection)
@@ -1796,7 +1803,7 @@ export class AdministrationService extends Context.Service<
           const latePaymentReservationIds = new Set(
             latePaymentRows.map(({ reservationId }) => reservationId)
           );
-          const refundReservationIds = new Set<string>(
+          const refundReservationIds = new Set(
             attemptRows.flatMap((attempt) =>
               attempt.refundState === "required"
                 ? [attempt.workspaceReservationId]
@@ -1817,7 +1824,7 @@ export class AdministrationService extends Context.Service<
             ])
           );
           const latestPaymentByReservation = new Map<
-            string,
+            WorkspaceReservationId | null,
             AdministrationPaymentAttempt
           >();
           for (const attempt of attemptRows) {
@@ -2364,6 +2371,13 @@ export class AdministrationService extends Context.Service<
               .innerJoin(
                 paymentAttempts,
                 eq(webhookEvents.paymentAttemptId, paymentAttempts.id)
+              )
+              .innerJoin(
+                workspaceReservations,
+                eq(
+                  workspaceReservations.id,
+                  paymentAttempts.workspaceReservationId
+                )
               )
               .where(latePaymentCondition([row.id]))
               .orderBy(webhookEvents.receivedAt),

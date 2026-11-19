@@ -27,7 +27,7 @@ class LatePaymentRecoveryQueueError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-interface ILatePaymentRecoveryQueueService {
+export interface ILatePaymentRecoveryQueueService {
   readonly enqueue: (input: {
     readonly paymentAttemptId: PaymentAttemptId;
   }) => Effect.Effect<void, LatePaymentRecoveryQueueError>;

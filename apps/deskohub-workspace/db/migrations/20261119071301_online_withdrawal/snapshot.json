@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "285d67ea-bb26-4027-b29f-151ae55d5eec",
+  "id": "725e7841-cf8a-4923-9064-06f0bfcce77e",
   "prevIds": [
-    "c550c58c-f420-454a-9628-9438a0b298a1"
+    "1d55937d-bbaa-4283-9446-d41f00f8f9aa"
   ],
   "ddl": [
     {
@@ -7252,7 +7252,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -20190,7 +20190,7 @@
       "table": "payment_attempts"
     },
     {
-      "value": "\"order_id\" is null or \"order_id\" = \"workspace_reservation_id\"",
+      "value": "\"workspace_reservation_id\" is null or \"order_id\" = \"workspace_reservation_id\"",
       "name": "payment_attempts_reservation_order_match_check",
       "entityType": "checks",
       "schema": "public",

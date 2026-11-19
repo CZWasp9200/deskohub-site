@@ -64,7 +64,6 @@ export const paymentAttempts = pgTable(
       .default(postgresUuidV7)
       .$type<PaymentAttemptId>(),
     workspaceReservationId: text("workspace_reservation_id")
-      .notNull()
       .$type<WorkspaceReservationId>()
       .references(() => workspaceReservations.id, { onDelete: "cascade" }),
     /**
@@ -167,7 +166,7 @@ export const paymentAttempts = pgTable(
     ),
     check(
       "payment_attempts_reservation_order_match_check",
-      sql`${t.orderId} is null or ${t.orderId} = ${t.workspaceReservationId}`
+      sql`${t.workspaceReservationId} is null or ${t.orderId} = ${t.workspaceReservationId}`
     ),
     index("payment_attempts_order_idx").on(t.orderId),
     index("payment_attempts_state_created_idx").on(t.state, t.createdAt),

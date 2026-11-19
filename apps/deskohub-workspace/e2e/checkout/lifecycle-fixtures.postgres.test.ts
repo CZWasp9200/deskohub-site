@@ -1,3 +1,4 @@
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -77,7 +78,7 @@ describe.skipIf(!testDatabase)(
         await PaymentTerminalTransitions.use((transitions) =>
           transitions.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state,
             failureCode: "synthetic_app_terminal",
           })

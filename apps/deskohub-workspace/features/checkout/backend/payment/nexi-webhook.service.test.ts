@@ -16,6 +16,7 @@ import {
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import type { IPaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import type { IWebhookEventRepository as WebhookEventRepositoryType } from "../repositories/webhook-event.repository";
+import { withReservationPaymentHandlers } from "./order-payment-handlers.test-utils";
 
 type NexiServiceType = typeof NexiServiceTag.Service;
 
@@ -36,6 +37,8 @@ const payload = {
 };
 
 const attempt = {
+  orderId: "reservation-id" as never,
+  orderKind: "reservation" as const,
   id: "attempt-id",
   workspaceReservationId: "reservation-id",
   provider: "nexi" as const,
@@ -182,7 +185,7 @@ const buildWebhookEffect = async (
               reconcileRefunds: mock(() => Effect.die("unused")),
               ...services.paymentRefunds,
             })
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     )
@@ -261,7 +264,7 @@ describe("NexiWebhookService", () => {
     expect(markPaidForReservation).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "attempt-id",
-        workspaceReservationId: "reservation-id",
+        orderId: "reservation-id",
         webhookEventId: "event-id",
       })
     );

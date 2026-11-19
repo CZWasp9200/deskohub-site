@@ -68,9 +68,9 @@ export interface ClaimedRefundCheck extends RefundablePaymentAttempt {
 
 export interface IPaymentRefundRepository {
   /**
-   * Claims up to `limit` paid Nexi attempts to check for a refund and stamps
-   * them as checked at `checkedAt`. Eligible attempts are those whose refund
-   * is still outstanding, and paid attempts created since
+   * Claims up to `limit` paid Nexi attempts for reservations to check for a
+   * refund and stamps them as checked at `checkedAt`. Eligible attempts
+   * include outstanding refunds and paid attempts created since
    * `recentPaymentsSince` that Nexi has not fully refunded, because operators
    * can refund in the Nexi back office without cancelling in Workspace and can
    * refund the rest of a partial refund later. An attempt is due once its last
@@ -149,14 +149,22 @@ export class PaymentRefundRepository extends Context.Service<
         // skips the rows already updated, so the claim would exceed `limit`.
         // Every read happens before the commit, so a caller interrupted while
         // claiming either gets the claim back or leaves nothing stamped.
-        const { batch, claimed, correlationIds } = yield* transaction(
+        const { batch, claimed } = yield* transaction(
           Effect.gen(function* () {
             const batch = yield* db
               .select({
                 id: paymentAttempts.id,
                 previousCheckedAt: paymentAttempts.refundCheckedAt,
+                correlationId: workspaceReservations.correlationId,
               })
               .from(paymentAttempts)
+              .innerJoin(
+                workspaceReservations,
+                eq(
+                  workspaceReservations.id,
+                  paymentAttempts.workspaceReservationId
+                )
+              )
               .where(
                 and(
                   or(
@@ -192,16 +200,9 @@ export class PaymentRefundRepository extends Context.Service<
                 asc(paymentAttempts.id)
               )
               .limit(input.limit)
-              .for("update", { skipLocked: true });
+              .for("update", { of: paymentAttempts, skipLocked: true });
             if (batch.length === 0) {
-              return {
-                batch,
-                claimed: [],
-                correlationIds: new Map<
-                  WorkspaceReservationId,
-                  NexiCorrelationId
-                >(),
-              };
+              return { batch, claimed: [] };
             }
             const claimed = yield* db
               .update(paymentAttempts)
@@ -213,43 +214,21 @@ export class PaymentRefundRepository extends Context.Service<
                 )
               )
               .returning();
-            const reservations = yield* db
-              .select({
-                id: workspaceReservations.id,
-                correlationId: workspaceReservations.correlationId,
-              })
-              .from(workspaceReservations)
-              .where(
-                inArray(
-                  workspaceReservations.id,
-                  claimed.map(
-                    ({ workspaceReservationId }) => workspaceReservationId
-                  )
-                )
-              );
-            return {
-              batch,
-              claimed,
-              correlationIds: new Map(
-                reservations.map(({ id, correlationId }) => [id, correlationId])
-              ),
-            };
+            return { batch, claimed };
           })
         );
-        const previousCheckedAt = new Map(
-          batch.map(({ id, previousCheckedAt }) => [id, previousCheckedAt])
-        );
+        const checksById = new Map(batch.map((check) => [check.id, check]));
 
         return claimed.flatMap((row): ClaimedRefundCheck[] => {
           const attempt = toPaymentAttempt(row);
-          const correlationId = correlationIds.get(row.workspaceReservationId);
-          return correlationId && isNexiPaymentAttempt(attempt)
+          const check = checksById.get(row.id);
+          return check && isNexiPaymentAttempt(attempt)
             ? [
                 {
                   attempt,
-                  correlationId,
+                  correlationId: check.correlationId,
                   checkedAt: input.checkedAt,
-                  previousCheckedAt: previousCheckedAt.get(row.id) ?? null,
+                  previousCheckedAt: check.previousCheckedAt,
                 },
               ]
             : [];

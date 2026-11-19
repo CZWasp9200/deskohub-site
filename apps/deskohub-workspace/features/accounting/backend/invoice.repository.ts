@@ -431,10 +431,7 @@ export class InvoiceRepository extends Context.Service<
               .from(paymentAttempts)
               .innerJoin(
                 workspaceReservations,
-                eq(
-                  workspaceReservations.id,
-                  paymentAttempts.workspaceReservationId
-                )
+                eq(workspaceReservations.id, paymentAttempts.orderId)
               )
               .where(eq(paymentAttempts.id, paymentAttemptId))
               .limit(1)

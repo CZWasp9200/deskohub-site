@@ -1,14 +1,16 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { Effect } from "effect";
 import type { PaymentAttemptState, PaymentState } from "@/db/schema";
-import { paymentAttempts } from "@/db/schema";
+import { orders, paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
+import type { OrderId } from "@/features/order";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -24,8 +26,12 @@ describe.skipIf(!testDatabase)(
   () => {
     if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
+    const purchaseOrderIds: OrderId[] = [];
 
     afterAll(async () => {
+      await testDatabase.pool.query("delete from orders where id = any($1)", [
+        purchaseOrderIds,
+      ]);
       await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
@@ -121,6 +127,50 @@ describe.skipIf(!testDatabase)(
         repository.findByProviderOrderId(byId!.providerOrderId!)
       );
       expect(byOrder?.id).toBe(id);
+      expect(byOrder?.orderKind).toBe("reservation");
+    });
+
+    test("finds a Nexi attempt owned by an order without a reservation", async () => {
+      const providerOrderId = NexiOrderIdSchema.make(
+        `order-${crypto.randomUUID()}`
+      );
+      const orderId = await Effect.runPromise(
+        Effect.gen(function* () {
+          const [order] = yield* testDatabase.db
+            .insert(orders)
+            .values({
+              kind: "pass-purchase",
+              dotyposCustomerId: DotyposCustomerIdSchema.make(
+                "synthetic-pass-buyer"
+              ),
+              paymentState: "pending",
+              fulfillmentState: "not_started",
+            })
+            .returning({ id: orders.id });
+          const orderId = order!.id;
+          purchaseOrderIds.push(orderId);
+          yield* testDatabase.db.insert(paymentAttempts).values({
+            orderId,
+            provider: "nexi",
+            providerOrderId,
+            state: "created",
+            amountValue: 29_000,
+            amountExponent: 2,
+            currency: "CZK",
+          });
+          return orderId;
+        })
+      );
+
+      expect(
+        await run((repository) =>
+          repository.findByProviderOrderId(providerOrderId)
+        )
+      ).toMatchObject({
+        orderId,
+        orderKind: "pass-purchase",
+        workspaceReservationId: null,
+      });
     });
 
     test("finds nothing for an unknown id or Nexi order", async () => {

@@ -8,6 +8,7 @@ import { LatePaymentRecoveryRepository } from "../repositories/late-payment-reco
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { LatePaymentRecoveryQueueService } from "./late-payment-recovery-queue.service";
 import { LatePaymentVerificationService } from "./late-payment-verification.service";
+import { withReservationPaymentHandlers } from "./order-payment-handlers.test-utils";
 
 const expiredReservation = {
   id: "reservation-id",
@@ -18,6 +19,7 @@ const expiredReservation = {
 };
 
 const expiredAttempt = {
+  orderId: "reservation-id",
   id: "attempt-id",
   workspaceReservationId: "reservation-id",
   provider: "nexi" as const,
@@ -89,7 +91,7 @@ const makeHarness = (options: {
         Layer.mock(NexiService, {
           verifyPaymentOutcome: spies.verifyPaymentOutcome as never,
         })
-      )
+      ).pipe(withReservationPaymentHandlers)
     )
   );
   const run = () =>

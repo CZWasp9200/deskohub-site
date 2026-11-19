@@ -65,3 +65,8 @@ export const reservationOrderId = (
   const id: string = reservationId;
   return id as OrderId;
 };
+
+/** The reservation ID carried by an order already known to be a reservation. */
+export const reservationIdForOrder = (
+  orderId: OrderId
+): WorkspaceReservationId => workspaceReservationIdSchema.make(orderId);

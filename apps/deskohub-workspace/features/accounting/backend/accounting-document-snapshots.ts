@@ -14,7 +14,8 @@ import {
 } from "@/features/accounting/accounting-document-snapshot";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { Locale } from "@/features/i18n";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { OrderId } from "@/features/order";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import { type Money, moneyEquals, sameMoneyUnit } from "@/shared/money/money";
 import {
   type AccountingRecordReference,
@@ -62,7 +63,7 @@ export interface IAccountingDocumentSnapshots {
    */
   readonly prepare: (input: {
     readonly snapshot: AccountingDocumentSnapshot;
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly amount: Money;
     readonly locale: Locale;
     readonly reference: AccountingRecordReference;
@@ -113,7 +114,7 @@ export class AccountingDocumentSnapshots extends Context.Service<
       const prepare = Effect.fn("AccountingDocumentSnapshots.prepare")(
         function* (input: {
           readonly snapshot: AccountingDocumentSnapshot;
-          readonly workspaceReservationId: WorkspaceReservationId;
+          readonly orderId: OrderId;
           readonly amount: Money;
           readonly locale: Locale;
           readonly reference: AccountingRecordReference;
@@ -150,7 +151,7 @@ export class AccountingDocumentSnapshots extends Context.Service<
                 insert: (sealed) =>
                   db.insert(accountingDocumentSnapshots).values({
                     paymentAttemptId: attempt.paymentAttemptId,
-                    workspaceReservationId: input.workspaceReservationId,
+                    workspaceReservationId: snapshot.workspaceReservationId,
                     keyId: sealed.keyId,
                     encryptedSnapshot: sealed.ciphertext,
                   }),
@@ -179,7 +180,7 @@ const decodeAccountingDocumentSnapshot = Schema.decodeUnknownEffect(
 
 const acceptForAttempt = Effect.fnUntraced(function* (input: {
   readonly snapshot: AccountingDocumentSnapshot;
-  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly orderId: OrderId;
   readonly amount: Money;
   readonly locale: Locale;
   readonly reference: AccountingRecordReference;
@@ -196,7 +197,7 @@ const acceptForAttempt = Effect.fnUntraced(function* (input: {
   );
 
   if (
-    snapshot.workspaceReservationId !== input.workspaceReservationId ||
+    reservationOrderId(snapshot.workspaceReservationId) !== input.orderId ||
     snapshot.locale !== input.locale ||
     !moneyEquals(snapshot.quote.payment.expectedPrice, input.amount) ||
     !moneyReconciles(snapshot)

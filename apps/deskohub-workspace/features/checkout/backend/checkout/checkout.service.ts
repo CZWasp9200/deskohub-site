@@ -1,16 +1,11 @@
-import { randomUUID } from "node:crypto";
 import { DotyposService } from "@deskohub/dotypos";
 import {
   type HostedPaymentCustomer,
   type NexiCorrelationId,
-  type ExternalAPIError as NexiExternalAPIError,
-  type NetworkError as NexiNetworkError,
-  type NexiOrderId,
-  NexiOrderIdSchema,
   NexiService,
 } from "@deskohub/nexi";
 import { parsePhoneNumber } from "@deskohub/phone-number";
-import { Context, Data, Effect, Layer, Match, Schema } from "effect";
+import { Context, Effect, Layer, Match } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { CustomerAccountSections } from "@/features/account";
 import {
@@ -42,33 +37,27 @@ import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import { hasOfficeReservationEnded } from "@/features/reservation/office-reservation";
 import {
   getStoredWorkspaceReservationDetails,
+  reservationOrderId,
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import { hasReservationIntervalEnded } from "@/features/reservation/reservation-interval";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
-import {
-  getWorkspaceRuntimeCallbackOrigin,
-  type WorkspaceUrlConfigError,
-} from "@/shared/backend/config/workspace-url.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { type Money, moneyEquals } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { localDateTimeToInstant } from "@/shared/utils/temporal";
 import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
-import { ReservationFulfillment } from "../fulfillment/reservation-fulfillment.service";
-import { NexiAmountFromWorkspaceMoney } from "../payment/nexi-amount.codec";
-import { getNexiCurrencyOverride } from "../payment/nexi-currency";
 import { getNexiHostedPaymentCustomer } from "../payment/nexi-customer-info";
+import { startNexiPaymentSession } from "../payment/nexi-payment-session";
+import { OrderPaymentHandlers } from "../payment/order-payment-handlers.service";
 import { LegalEvidenceEventRepository } from "../repositories/legal-evidence-event.repository";
 import {
-  isNexiPaymentAttempt,
-  type PaymentAttempt,
   PaymentAttemptRepository,
   paymentAttemptLogFields,
 } from "../repositories/payment-attempt.repository";
-import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { formatWorkspaceReservationNote } from "../reservation/dotypos-reservation.adapter";
+import { CheckoutError } from "./checkout-error";
 import {
   CheckoutPricingService,
   type PaymentPriceAffirmation,
@@ -90,20 +79,8 @@ import {
   getReusableProviderRedirectUrl,
   isReusableAttemptState,
 } from "./reusable-payment-attempt";
-import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
-export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly code:
-    | "checkout_failed"
-    | "meeting_room_reservation_ended"
-    | "office_reservation_ended"
-    | "cowork_reservation_ended"
-    | "cowork_offer_replaced"
-    | "legal_consent_required"
-    | "early_performance_consent_required";
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export { CheckoutError } from "./checkout-error";
 
 type CheckoutRedirectResult = {
   readonly status: "redirect";
@@ -234,11 +211,10 @@ export class CheckoutService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(CustomerAccountSections.Live),
-    Layer.provide(ReservationFulfillment.Live),
     Layer.provide(PayableCheckout.Default),
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(CheckoutAnalytics.Live),
-    Layer.provide(PaymentLifecycleRepository.Live),
+    Layer.provide(OrderPaymentHandlers.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -248,76 +224,6 @@ export class CheckoutService extends Context.Service<
     Layer.provide(SealedStateKeys.Default)
   );
 }
-
-const generateNexiOrderId = (): NexiOrderId =>
-  NexiOrderIdSchema.make(
-    `D${BigInt(`0x${randomUUID().replaceAll("-", "")}`)
-      .toString(36)
-      .toUpperCase()}`
-  );
-
-const toCheckoutUrlError = (cause: WorkspaceUrlConfigError) =>
-  Effect.fail(
-    new CheckoutError({
-      code: "checkout_failed",
-      message: cause.message,
-      cause,
-    })
-  );
-
-const getCheckoutPayReturnUrl: (
-  locale: Locale,
-  workspaceReservationId: WorkspaceReservationId,
-  outcome?: "cancelled"
-) => Effect.Effect<string, CheckoutError> = Effect.fn(
-  "getCheckoutPayReturnUrl"
-)(
-  function* (locale, workspaceReservationId, outcome) {
-    const origin = yield* getWorkspaceRuntimeCallbackOrigin;
-
-    return yield* Effect.try({
-      try: () => {
-        const url = new URL(
-          `/${locale}/checkout/pay/return/${workspaceReservationId}`,
-          origin
-        );
-        if (outcome) url.searchParams.set("outcome", outcome);
-        appendVercelPreviewProtectionBypass(url);
-        return url.toString();
-      },
-      catch: (cause) =>
-        new CheckoutError({
-          code: "checkout_failed",
-          message: "Payment checkout return URL could not be created.",
-          cause,
-        }),
-    });
-  },
-  (effect) =>
-    effect.pipe(Effect.catchTag("WorkspaceUrlConfigError", toCheckoutUrlError))
-);
-
-const getNotificationUrl: Effect.Effect<string, CheckoutError> = Effect.gen(
-  function* () {
-    const origin = yield* getWorkspaceRuntimeCallbackOrigin;
-
-    return yield* Effect.try({
-      try: () => {
-        const url = new URL("/api/webhooks/nexi", origin);
-        appendVercelPreviewProtectionBypass(url);
-        return url.toString();
-      },
-      catch: (cause) =>
-        new CheckoutError({
-          code: "checkout_failed",
-          message: "Payment checkout notification URL could not be created.",
-          cause,
-        }),
-    });
-  }
-).pipe(Effect.catchTag("WorkspaceUrlConfigError", toCheckoutUrlError));
-
-const toNexiAmount = Schema.encodeEffect(NexiAmountFromWorkspaceMoney);
 
 /** A Pay state that doesn't open for the submitting page's locale. */
 const toInvalidPayStateError = (cause: PayStateTokenError) =>
@@ -378,15 +284,6 @@ const getHostedPaymentCheckoutResult = (input: {
     }),
   });
 
-const isDefinitiveHostedPaymentPageFailure = (
-  cause: NexiExternalAPIError | NexiNetworkError
-) =>
-  cause._tag === "ExternalAPIError" &&
-  cause.statusCode !== undefined &&
-  cause.statusCode >= 400 &&
-  cause.statusCode < 500 &&
-  ![408, 409, 425, 429].includes(cause.statusCode);
-
 function makeCheckoutServiceLayer(service: typeof CheckoutService) {
   return Layer.effect(
     service,
@@ -395,9 +292,8 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       const nexi = yield* NexiService;
       const reservations = yield* WorkspaceReservationRepository;
       const paymentAttempts = yield* PaymentAttemptRepository;
-      const paymentLifecycle = yield* PaymentLifecycleRepository;
+      const orderPaymentHandlers = yield* OrderPaymentHandlers;
       const legalEvidenceEvents = yield* LegalEvidenceEventRepository;
-      const paidFulfillment = yield* ReservationFulfillment;
       const checkoutAnalytics = yield* CheckoutAnalytics;
       const pricing = yield* CheckoutPricingService;
       const payableCheckout = yield* PayableCheckout;
@@ -407,46 +303,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         yield* SealedStateKeys
       );
 
-      const handleHostedPaymentPageCreationFailure = Effect.fn(
-        "checkout.handleHostedPaymentPageCreationFailure"
-      )(
-        (input: {
-          readonly cause: NexiExternalAPIError | NexiNetworkError;
-          readonly attempt: PaymentAttempt;
-          readonly workspaceReservationId: WorkspaceReservationId;
-        }) =>
-          Match.value(input.cause).pipe(
-            Match.when(
-              isDefinitiveHostedPaymentPageFailure,
-              Effect.fn(function* () {
-                const transition = yield* paymentLifecycle.markTerminal({
-                  id: input.attempt.id,
-                  workspaceReservationId: input.workspaceReservationId,
-                  state: "failed",
-                  failureCode: "nexi_hpp_create_failed",
-                  providerStatus: "hpp_create_failed",
-                });
-
-                if (transition.changed) {
-                  yield* checkoutAnalytics.paymentFailed({
-                    attempt: transition.attempt,
-                    failureReason: "nexi_hpp_create_failed",
-                    timestamp: transition.timestamp,
-                  });
-                }
-              })
-            ),
-            Match.orElse(() =>
-              Effect.logError(
-                "Ambiguous hosted payment page creation failure retained the active attempt",
-                {
-                  orderId: input.workspaceReservationId,
-                  paymentAttemptId: input.attempt.id,
-                  errorTag: input.cause._tag,
-                }
-              )
-            )
-          )
+      const provideNexiPaymentSession = Effect.provide(
+        Context.make(NexiService, nexi).pipe(
+          Context.add(OrderPaymentHandlers, orderPaymentHandlers),
+          Context.add(CheckoutAnalytics, checkoutAnalytics)
+        )
       );
 
       /** Payment starts only on an order still payable right before it. */
@@ -483,128 +344,27 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
           yield* reconfirmPayableCheckout(input.checkout);
 
-          const providerOrderId = generateNexiOrderId();
-          const nexiCurrency = getNexiCurrencyOverride();
-          const nexiAmount = yield* toNexiAmount(
-            nexiCurrency
-              ? { ...input.total, currency: nexiCurrency }
-              : input.total
-          ).pipe(
-            Effect.mapError(
-              (cause) =>
-                new CheckoutError({
-                  code: "checkout_failed",
-                  message: "Unsupported payment amount.",
-                  cause,
-                })
-            )
-          );
-          const notificationUrl = yield* getNotificationUrl;
-          const resultUrl = yield* getCheckoutPayReturnUrl(
-            input.locale,
-            input.workspaceReservationId
-          );
-          const cancelUrl = yield* getCheckoutPayReturnUrl(
-            input.locale,
-            input.workspaceReservationId,
-            "cancelled"
-          );
-          yield* Effect.annotateLogsScoped({
-            nexiAmount: nexiAmount.amount,
-            nexiCurrency: nexiAmount.currency,
-          });
-          yield* Effect.logDebug("Checkout provider session inputs prepared");
-
-          yield* ensureReservationHasNotEnded(input.reservation);
-
-          yield* reservations.recordPaymentReturnTarget({
-            id: input.workspaceReservationId,
-            paymentReturnTarget: input.returnTarget,
-          });
-
-          // Once the attempt exists, finish creating and attaching its hosted
-          // page even when the action deadline passes. Nexi has no idempotency
-          // key, so cutting the request off would leave an ambiguous `created`
-          // attempt; the Nexi request timeout still bounds this section.
+          const orderId = reservationOrderId(input.workspaceReservationId);
           const { attachedAttempt, hostedPaymentPage } =
-            yield* Effect.uninterruptible(
-              Effect.gen(function* () {
-                const attempt =
-                  yield* paymentLifecycle.createPendingNexiAttempt({
-                    workspaceReservationId: input.workspaceReservationId,
-                    providerOrderId,
-                    amount: input.total,
-                    commitment: input.commitment,
-                    locale: input.locale,
-                    accountingSnapshot: input.accountingSnapshot,
-                  });
-                if (!isNexiPaymentAttempt(attempt)) {
-                  return yield* new CheckoutError({
-                    code: "checkout_failed",
-                    message: "Nexi payment attempt configuration is invalid.",
-                  });
-                }
-                yield* Effect.annotateLogsScoped(
-                  paymentAttemptLogFields(attempt)
-                );
-                yield* Effect.logInfo("Checkout payment attempt created");
-
-                yield* Effect.logInfo(
-                  "Nexi hosted payment page creation started"
-                );
-                const hostedPaymentPage = yield* nexi
-                  .createHostedPaymentPage({
-                    orderId: attempt.providerOrderId,
-                    correlationId: input.correlationId,
-                    amount: nexiAmount.amount,
-                    currency: nexiAmount.currency,
-                    locale: input.locale,
-                    notificationUrl,
-                    resultUrl,
-                    cancelUrl,
-                    customer: input.customer,
-                  })
-                  .pipe(
-                    Effect.tapError((cause) =>
-                      handleHostedPaymentPageCreationFailure({
-                        cause,
-                        attempt,
-                        workspaceReservationId: input.workspaceReservationId,
-                      })
-                    )
-                  );
-                // Not the page itself: its URL and security token are secrets.
-                yield* Effect.annotateLogsScoped({
-                  providerOrderId: hostedPaymentPage.orderId,
+            yield* startNexiPaymentSession({
+              kind: input.checkout.kind,
+              orderId,
+              locale: input.locale,
+              correlationId: input.correlationId,
+              amount: input.total,
+              customer: input.customer,
+              beforeAttempt: Effect.gen(function* () {
+                yield* ensureReservationHasNotEnded(input.reservation);
+                yield* reservations.recordPaymentReturnTarget({
+                  id: input.workspaceReservationId,
+                  paymentReturnTarget: input.returnTarget,
                 });
-                yield* Effect.logInfo(
-                  "Nexi hosted payment page creation completed"
-                );
-
-                yield* Effect.logInfo(
-                  "Checkout hosted payment page attach started"
-                );
-                const attachedAttempt = yield* paymentLifecycle
-                  .attachProviderSession({
-                    id: attempt.id,
-                    securityToken: hostedPaymentPage.securityToken,
-                    providerRedirectUrl: hostedPaymentPage.hostedPage,
-                  })
-                  .pipe(
-                    Effect.tapError((cause) =>
-                      Effect.logError(
-                        "Checkout hosted payment page attach failed",
-                        {
-                          attempt,
-                          hostedPaymentPage,
-                          cause,
-                        }
-                      )
-                    )
-                  );
-                return { attachedAttempt, hostedPaymentPage };
-              })
-            );
+              }),
+              details: {
+                commitment: input.commitment,
+                accountingSnapshot: input.accountingSnapshot,
+              },
+            }).pipe(provideNexiPaymentSession);
           yield* checkoutAnalytics.paymentStarted({
             attempt: attachedAttempt,
             timestamp: attachedAttempt.updatedAt,
@@ -637,12 +397,22 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
         yield* ensureReservationHasNotEnded(input.reservation);
 
-        const transition = yield* paymentLifecycle.completeInternalPayment({
-          workspaceReservationId: input.workspaceReservationId,
+        const handler = orderPaymentHandlers.byKind[input.checkout.kind];
+        if (!handler) {
+          return yield* new CheckoutError({
+            code: "checkout_failed",
+            message: "The order kind does not support payment.",
+          });
+        }
+        const orderId = reservationOrderId(input.workspaceReservationId);
+        const transition = yield* handler.admitInternal({
+          orderId,
           amount: input.total,
-          commitment: input.commitment,
           locale: input.locale,
-          accountingSnapshot: input.accountingSnapshot,
+          details: {
+            commitment: input.commitment,
+            accountingSnapshot: input.accountingSnapshot,
+          },
         });
 
         if (transition.changed) {
@@ -652,7 +422,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           });
         }
 
-        yield* paidFulfillment.run(input.workspaceReservationId).pipe(
+        yield* handler.fulfill(orderId).pipe(
           Effect.catch((cause) =>
             Effect.logError(
               "Internal payment completed but paid fulfillment failed",
@@ -683,7 +453,14 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         readonly orderId: WorkspaceReservationId;
         readonly locale: Locale;
       }) {
-        yield* paidFulfillment.run(input.orderId).pipe(
+        const handler = orderPaymentHandlers.byKind.reservation;
+        if (!handler) {
+          return yield* new CheckoutError({
+            code: "checkout_failed",
+            message: "The order kind does not support payment.",
+          });
+        }
+        yield* handler.fulfill(reservationOrderId(input.orderId)).pipe(
           Effect.catch((cause) =>
             Effect.logError("Paid checkout fulfillment retry failed", {
               orderId: input.orderId,
