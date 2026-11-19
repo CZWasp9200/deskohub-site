@@ -4,6 +4,7 @@ import type { PaymentAttemptState, PaymentState } from "@/db/schema";
 import { PaymentTerminalTransitions } from "@/features/checkout/backend/repositories/payment-terminal-transitions";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
 import { readCheckoutRow } from "../integrations/database";
 import { E2EDatabase } from "../integrations/database.service";
@@ -43,7 +44,7 @@ export const retireRejectedAttempt = (
       PaymentTerminalTransitions.use((transitions) =>
         transitions.markTerminal({
           id: paymentAttemptId,
-          workspaceReservationId: orderId,
+          orderId: reservationOrderId(orderId),
           state: "failed",
           failureCode: nexiSandboxRejectedFailureCode,
         })

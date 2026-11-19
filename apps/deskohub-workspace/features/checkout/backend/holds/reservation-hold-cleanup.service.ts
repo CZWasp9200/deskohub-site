@@ -12,6 +12,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
 import {
@@ -201,7 +202,7 @@ function makeReservationHoldCleanupServiceLayer(
           const expired = yield* paymentLifecycle
             .markTerminal({
               id: paymentAttemptId,
-              workspaceReservationId: orderId,
+              orderId: reservationOrderId(orderId),
               state: "expired",
               failureCode: "payment_abandoned_after_provider_cutoff",
             })
@@ -255,7 +256,7 @@ function makeReservationHoldCleanupServiceLayer(
         );
         const result = yield* finalization
           .finalizePendingProviderPayment({
-            orderId: input.orderId,
+            orderId: reservationOrderId(input.orderId),
             paymentAttemptId: input.paymentAttemptId,
             ...(input.checkedAt && {
               abandonmentCheckedAt: input.checkedAt,

@@ -1,5 +1,6 @@
 import "@/shared/polyfills/temporal";
 import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
+import { withReservationPaymentHandlers } from "../payment/order-payment-handlers.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { expect, mock, test } from "bun:test";
@@ -58,6 +59,7 @@ const pendingReservation = {
 };
 
 const pendingAttempt = {
+  orderId,
   id: "attempt-stalled-nexi",
   workspaceReservationId: orderId,
   provider: "nexi" as const,
@@ -179,7 +181,7 @@ const loadStatusPageOnTestClock = (options: {
             }),
             SeatingMapReleaseGate.fromDecision(true),
             ReviewSandboxMock({})
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     ),

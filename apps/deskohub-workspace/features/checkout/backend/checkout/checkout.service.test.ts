@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { withReservationPaymentHandlers } from "../payment/order-payment-handlers.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -791,7 +792,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
               recordMany: recordLegalEvidence,
             }),
             TestSealedStateKeys
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     )
@@ -1830,7 +1831,7 @@ describe("CheckoutService", () => {
       paid: true,
     });
     expect(harness.completeInternalPayment).toHaveBeenCalledWith({
-      workspaceReservationId: "reservation-zero-total",
+      orderId: "reservation-zero-total",
       amount: money(0),
       commitment: fullyDiscountedCommitment,
       locale: "en-US",
@@ -3006,7 +3007,7 @@ describe("CheckoutService", () => {
     expect(harness.markTerminalForReservation).toHaveBeenCalledTimes(1);
     expect(harness.markTerminalForReservation).toHaveBeenCalledWith({
       id: "attempt-reservation-hpp-create-fails",
-      workspaceReservationId: "reservation-hpp-create-fails",
+      orderId: "reservation-hpp-create-fails",
       state: "failed",
       failureCode: "nexi_hpp_create_failed",
       providerStatus: "hpp_create_failed",

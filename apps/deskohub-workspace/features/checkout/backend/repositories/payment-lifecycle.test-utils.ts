@@ -21,6 +21,7 @@ import type { DiscountCandidate } from "@/features/discounts/provider";
 import { type Locale, m } from "@/features/i18n";
 import { referralInvitationDiscountBasisPoints } from "@/features/referrals/program";
 import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import type { WorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
@@ -122,7 +123,7 @@ export const admitPendingNexiPayment = (
       } as PreparedCustomerQuote,
     });
     return yield* repository.createPendingNexiAttempt({
-      workspaceReservationId: reservation.id,
+      orderId: reservationOrderId(reservation.id),
       providerOrderId: `order-${crypto.randomUUID()}` as never,
       amount: snapshot.quote.payment.expectedPrice,
       commitment: makeDiscountCommitment({

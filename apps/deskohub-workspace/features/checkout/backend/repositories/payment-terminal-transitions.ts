@@ -1,15 +1,17 @@
 import type { NexiOperationId, NexiWebhookEventId } from "@deskohub/nexi";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { paymentAttempts, workspaceReservations } from "@/db/schema";
+import { workspaceReservations } from "@/db/schema";
 import type { DatabaseQueryError } from "@/db/sql-constraint";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { PromotionClaims } from "@/features/discounts/promotion-claims";
+import type { OrderId } from "@/features/order";
 import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { reservationIdForOrder } from "@/features/reservation/persistence-contracts";
 import { toPaymentAttempt } from "./payment-attempt.repository";
+import { markPaymentAttemptTerminal } from "./payment-attempt-writes";
 import {
   findPaymentReservationCustomer,
   lifecycleStateError,
@@ -28,7 +30,7 @@ export interface IPaymentTerminalTransitions {
    */
   readonly markTerminal: (input: {
     readonly id: PaymentAttemptId;
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly state: "failed" | "cancelled" | "expired";
     readonly failureCode: string;
     readonly webhookEventId?: NexiWebhookEventId;
@@ -70,6 +72,7 @@ export class PaymentTerminalTransitions extends Context.Service<
         function* (
           input: Parameters<IPaymentTerminalTransitions["markTerminal"]>[0]
         ) {
+          const workspaceReservationId = reservationIdForOrder(input.orderId);
           const terminalAt = Temporal.Now.instant();
           const fromAttemptStates = input.fromAttemptStates ?? [
             "created",
@@ -80,37 +83,18 @@ export class PaymentTerminalTransitions extends Context.Service<
             Effect.gen(function* () {
               const dotyposCustomerId = yield* findPaymentReservationCustomer(
                 "markTerminal",
-                input.workspaceReservationId
+                workspaceReservationId
               );
               yield* ReferralInvitationLedger.lockFirstBooking({
                 dotyposCustomerId,
                 records: "nothing",
               });
 
-              const [attempt] = yield* db
-                .update(paymentAttempts)
-                .set({
-                  state: input.state,
-                  failureCode: input.failureCode,
-                  lastWebhookEventId: input.webhookEventId,
-                  lastProviderOperationId: input.providerOperationId,
-                  lastProviderStatus: input.providerStatus,
-                  updatedAt: terminalAt,
-                })
-                .where(
-                  and(
-                    eq(paymentAttempts.id, input.id),
-                    eq(
-                      paymentAttempts.workspaceReservationId,
-                      input.workspaceReservationId
-                    ),
-                    inArray(paymentAttempts.state, [
-                      ...fromAttemptStates,
-                      input.state,
-                    ])
-                  )
-                )
-                .returning();
+              const attempt = yield* markPaymentAttemptTerminal({
+                ...input,
+                fromAttemptStates,
+                terminalAt,
+              });
 
               if (!attempt) {
                 return yield* lifecycleStateError(
@@ -129,7 +113,7 @@ export class PaymentTerminalTransitions extends Context.Service<
                 })
                 .where(
                   and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
+                    eq(workspaceReservations.id, workspaceReservationId),
                     eq(workspaceReservations.reservationState, "held"),
                     eq(workspaceReservations.paymentState, "pending"),
                     eq(workspaceReservations.activePaymentAttemptId, input.id)
@@ -160,7 +144,7 @@ export class PaymentTerminalTransitions extends Context.Service<
                 .from(workspaceReservations)
                 .where(
                   and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
+                    eq(workspaceReservations.id, workspaceReservationId),
                     eq(workspaceReservations.paymentState, input.state),
                     eq(workspaceReservations.activePaymentAttemptId, input.id)
                   )

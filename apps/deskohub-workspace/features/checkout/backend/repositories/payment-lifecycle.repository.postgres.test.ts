@@ -1,3 +1,4 @@
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -633,7 +634,7 @@ const admit = (
   input: ReturnType<typeof makeOrdinaryAdmission>
 ) =>
   repository.createPendingNexiAttempt({
-    workspaceReservationId: reservation.id,
+    orderId: reservationOrderId(reservation.id),
     providerOrderId: `order-${uniqueId()}` as never,
     amount: input.admission.amount,
     commitment: input.admission.commitment,
@@ -854,7 +855,7 @@ describe.skipIf(!testDatabase)(
         const paid = await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -990,7 +991,7 @@ describe.skipIf(!testDatabase)(
 
         const internal = await Effect.runPromise(
           repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             amount: fullyCovered.admission.amount,
             commitment: fullyCovered.admission.commitment,
             locale: fullyCovered.locale,
@@ -1040,7 +1041,7 @@ describe.skipIf(!testDatabase)(
         const paidRepeat = await Effect.runPromise(
           repository.markPaid({
             id: ordinaryRepeat.id,
-            workspaceReservationId: laterReservation.id,
+            orderId: reservationOrderId(laterReservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1071,7 +1072,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: oldAttempt.id,
-              workspaceReservationId: oldReservation.id,
+              orderId: reservationOrderId(oldReservation.id),
               state,
               failureCode: "synthetic_terminal",
             })
@@ -1102,7 +1103,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: retryAttempt.id,
-              workspaceReservationId: retryReservation.id,
+              orderId: reservationOrderId(retryReservation.id),
               state: "failed",
               failureCode: "synthetic_retry_cleanup",
             })
@@ -1133,7 +1134,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: oldAttempt.id,
-            workspaceReservationId: oldReservation.id,
+            orderId: reservationOrderId(oldReservation.id),
             state: "failed",
             failureCode: "synthetic_first_failure",
           })
@@ -1198,7 +1199,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: retryAttempt.id,
-            workspaceReservationId: retryReservation.id,
+            orderId: reservationOrderId(retryReservation.id),
             state: "failed",
             failureCode: "synthetic_retry_cleanup",
           })
@@ -1226,7 +1227,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: oldAttempt.id,
-            workspaceReservationId: oldReservation.id,
+            orderId: reservationOrderId(oldReservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -1288,7 +1289,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: referralAttempt.id,
-            workspaceReservationId: referralReservation.id,
+            orderId: reservationOrderId(referralReservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1422,7 +1423,7 @@ describe.skipIf(!testDatabase)(
         const paid = await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1496,7 +1497,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1624,7 +1625,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               state,
               failureCode: "synthetic_terminal",
             })
@@ -1722,7 +1723,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: admitted.success.id,
-            workspaceReservationId: reservations[winner]!.id,
+            orderId: reservationOrderId(reservations[winner]!.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1783,7 +1784,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -1848,7 +1849,7 @@ describe.skipIf(!testDatabase)(
           const paid = await Effect.runPromise(
             repository.markPaid({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               paidAt: Temporal.Now.instant(),
             })
           );
@@ -1895,7 +1896,7 @@ describe.skipIf(!testDatabase)(
 
         const internal = await Effect.runPromise(
           repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             amount: fullyCovered.admission.amount,
             commitment: fullyCovered.admission.commitment,
             locale: fullyCovered.locale,
@@ -1946,7 +1947,7 @@ describe.skipIf(!testDatabase)(
         const payment = Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         ).finally(() => {
@@ -2006,7 +2007,7 @@ describe.skipIf(!testDatabase)(
           });
           const completeInternalPayment = () => {
             const payment = repository.completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: fullyCovered.admission.amount,
               commitment: fullyCovered.admission.commitment,
               locale: fullyCovered.locale,
@@ -2155,7 +2156,7 @@ describe.skipIf(!testDatabase)(
                 Effect.gen(function* () {
                   yield* db.execute(sql`set local lock_timeout = '7s'`);
                   const transition = yield* repository.completeInternalPayment({
-                    workspaceReservationId: reservation.id,
+                    orderId: reservationOrderId(reservation.id),
                     amount: fullyCovered.admission.amount,
                     commitment: fullyCovered.admission.commitment,
                     locale: fullyCovered.locale,
@@ -2227,7 +2228,7 @@ describe.skipIf(!testDatabase)(
             repository
               .markPaid({
                 id: attempt.id,
-                workspaceReservationId: reservation.id,
+                orderId: reservationOrderId(reservation.id),
                 paidAt: Temporal.Now.instant(),
               })
               .pipe(Effect.provide(flagLayer))
@@ -2279,7 +2280,7 @@ describe.skipIf(!testDatabase)(
         const internal = await Effect.runPromise(
           repository
             .completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: fullyCovered.admission.amount,
               commitment: fullyCovered.admission.commitment,
               locale: fullyCovered.locale,
@@ -2318,7 +2319,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -2382,7 +2383,7 @@ describe.skipIf(!testDatabase)(
           repository
             .markPaid({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               paidAt: Temporal.Now.instant(),
             })
             .pipe(Effect.provide(referralFeatureFlag(false)))
@@ -2702,7 +2703,7 @@ describe.skipIf(!testDatabase)(
     }) =>
       runResult((repository) =>
         repository.createPendingNexiAttempt({
-          workspaceReservationId: input.reservationId,
+          orderId: reservationOrderId(input.reservationId),
           providerOrderId: NexiOrderIdSchema.make(`order-${input.id}`),
           amount: input.snapshot.quote.payment.expectedPrice,
           commitment: input.commitment,
@@ -3368,7 +3369,7 @@ describe.skipIf(!testDatabase)(
         const result = await Effect.runPromise(
           Effect.result(
             repository.completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: admission.admission.amount,
               commitment: admission.admission.commitment,
               locale: admission.locale,
