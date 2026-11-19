@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { listTrophies } from "@/features/account/backend/trophies.server";
+import { AccountDataExport } from "@/features/account/components/account-data-export";
 import { AccountsUnavailable } from "@/features/account/components/accounts-unavailable";
 import { DeleteAccount } from "@/features/account/components/delete-account";
 import { ProfileForm } from "@/features/account/components/profile-form";
@@ -281,6 +282,7 @@ export default async function AccountPage({ params }: RouteProps_locale) {
         <AccountSection title={m["account.profile.title"]()}>
           <div className="max-w-xl space-y-8">
             <ProfileForm name={user.name} email={user.email} />
+            <AccountDataExport />
             <DeleteAccount hasMembership={membership.current !== null} />
           </div>
         </AccountSection>

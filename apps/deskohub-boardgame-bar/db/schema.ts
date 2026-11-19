@@ -30,6 +30,8 @@ export const authUser = authSchema.table(
     email: text("email").notNull(),
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
+    // cs-CZ or en-US; null until the account has a language.
+    locale: text("locale"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

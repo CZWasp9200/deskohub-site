@@ -1221,7 +1221,13 @@
       "confirm": "I understand the account will be deleted for good.",
       "submit": "Delete account for good",
       "deleting": "Deleting account…",
-      "failed": "We couldn't delete the account. Please try again."
+      "failed": "We couldn't delete the account. Please try again.",
+      "signInLinkSent": "You can delete the account only within 24 hours of signing in. We've emailed you a new sign-in link; once you're signed in, delete the account here."
+    },
+    "export": {
+      "title": "Your data",
+      "body": "You'll get a JSON file with your profile, memberships, event registrations, trophies and signed-in devices.",
+      "download": "Download data"
     }
   },
   "events": {

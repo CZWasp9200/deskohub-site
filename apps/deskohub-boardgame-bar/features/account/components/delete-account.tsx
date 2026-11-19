@@ -23,20 +23,20 @@ export function DeleteAccount({
   const locale = useLocale();
   const confirmId = useId();
   const [confirmed, setConfirmed] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [outcome, setOutcome] = useState<
+    "deleted" | "signInLinkSent" | "failed" | null
+  >(null);
 
-  const { execute, isExecuting, hasSucceeded } = useAction(deleteAccount, {
+  const { execute, isExecuting } = useAction(deleteAccount, {
     onSuccess: ({ data }) => {
-      if (!data?.deleted) {
-        setFailed(true);
-        return;
-      }
+      setOutcome(data?.status ?? "failed");
+      if (data?.status !== "deleted") return;
       router.push(getLocalizedHref("/", locale));
       router.refresh();
     },
-    onError: () => setFailed(true),
+    onError: () => setOutcome("failed"),
   });
-  const busy = isExecuting || hasSucceeded;
+  const busy = isExecuting || outcome === "deleted";
 
   return (
     <div className="rounded-md border border-red-400/30 p-4">
@@ -65,15 +65,23 @@ export function DeleteAccount({
         variant="outline"
         disabled={!confirmed || busy}
         onClick={() => {
-          setFailed(false);
-          execute({ confirmed: true });
+          setOutcome(null);
+          execute({
+            confirmed: true,
+            returnPath: getLocalizedHref("/account", locale),
+          });
         }}
         className="mt-4 border-red-400/60 bg-transparent text-red-300 hover:bg-red-500/10 hover:text-red-200"
       >
         {busy ? m["account.delete.deleting"]() : m["account.delete.submit"]()}
       </Button>
       <p role="alert" className="mt-2 text-sm text-red-400 empty:mt-0">
-        {failed ? m["account.delete.failed"]() : null}
+        {outcome === "failed" ? m["account.delete.failed"]() : null}
+      </p>
+      <p role="status" className="mt-2 text-sm text-gray-200 empty:mt-0">
+        {outcome === "signInLinkSent"
+          ? m["account.delete.signInLinkSent"]()
+          : null}
       </p>
     </div>
   );

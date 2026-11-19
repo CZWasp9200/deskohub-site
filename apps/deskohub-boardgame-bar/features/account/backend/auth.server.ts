@@ -3,15 +3,18 @@ import "server-only";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { EmailServiceTag } from "@deskohub/email";
 import { betterAuth } from "better-auth";
+import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { Effect } from "effect";
+import { z } from "zod";
 import { getAccountsDatabase } from "@/db/database.server";
 import { authTables } from "@/db/schema";
 import { env } from "@/env";
+import { locales } from "@/features/i18n";
 import { BoardgameEmailLayer } from "@/shared/backend/config/email.config";
 import { isDev } from "@/shared/utils/environment";
 import { resolveAuthAllowedHosts } from "./auth-hosts";
-import { buildSignInEmail } from "./sign-in-email";
+import { buildSignInEmail, callbackLocale } from "./sign-in-email";
 
 const SIGN_IN_LINK_LIFETIME_SECONDS = 600;
 
@@ -74,6 +77,17 @@ function makeAuth(
     }),
     // Sign-in is by emailed link only; there are no passwords to leak.
     emailAndPassword: { enabled: false },
+    user: {
+      additionalFields: {
+        // The language switcher saves it through authClient.updateUser.
+        locale: {
+          type: "string",
+          required: false,
+          validator: { input: z.enum(locales) },
+        },
+      },
+      deleteUser: { enabled: true },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
@@ -91,12 +105,14 @@ function makeAuth(
     databaseHooks: {
       user: {
         create: {
-          before: async (user) => ({
+          before: async (user, context) => ({
             data: {
               ...user,
               name:
                 user.name?.trim().slice(0, DISPLAY_NAME_MAX_LENGTH) ||
                 defaultDisplayName(user.email),
+              // The language of the page the first sign-in link returns to.
+              locale: callbackLocale(context?.query?.callbackURL ?? ""),
             },
           }),
         },
@@ -110,6 +126,9 @@ function makeAuth(
         rateLimit: { window: SIGN_IN_LINK_LIFETIME_SECONDS, max: 5 },
         sendMagicLink: ({ email, url }) => sendSignInEmail(email, url),
       }),
+      // Writes the cookies of auth.api calls made in Server Actions, such as
+      // the expired session cookies after deleting the account. Keep it last.
+      nextCookies(),
     ],
   });
 }

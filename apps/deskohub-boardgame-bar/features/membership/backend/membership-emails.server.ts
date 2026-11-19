@@ -5,7 +5,7 @@ import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { getAccountsDatabase } from "@/db/database.server";
 import { authUser, membershipPlans, memberships } from "@/db/schema";
-import { baseLocale } from "@/features/i18n";
+import { baseLocale, isLocale } from "@/features/i18n";
 import { BoardgameEmailLayer } from "@/shared/backend/config/email.config";
 import {
   buildMembershipActivatedEmail,
@@ -47,6 +47,7 @@ type DueMembership = {
   readonly id: number;
   readonly email: string;
   readonly name: string;
+  readonly locale: string | null;
   readonly planName: string;
   readonly startsAt: Date | null;
   readonly endsAt: Date | null;
@@ -93,6 +94,7 @@ export async function sendDueMembershipEmails(): Promise<
     id: memberships.id,
     email: authUser.email,
     name: authUser.name,
+    locale: authUser.locale,
     planName: membershipPlans.name,
     startsAt: memberships.startsAt,
     endsAt: memberships.endsAt,
@@ -168,8 +170,8 @@ export async function sendDueMembershipEmails(): Promise<
         planName: membership.planName,
         startsAt: membership.startsAt,
         endsAt: membership.endsAt,
-        // The member's language isn't stored; the bar's own language it is.
-        locale: baseLocale,
+        // Accounts without a saved language get the bar's own.
+        locale: isLocale(membership.locale) ? membership.locale : baseLocale,
       }),
       idempotencyKey: membershipEmailKey(membership.id, kind),
     });

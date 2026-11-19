@@ -1,42 +1,60 @@
 "use server";
 
-import { eq } from "drizzle-orm";
-import { cookies, headers } from "next/headers";
+import { APIError } from "better-auth";
+import { headers } from "next/headers";
 import { z } from "zod";
-import { getAccountsDatabase } from "@/db/database.server";
-import { authUser } from "@/db/schema";
 import { getAuth } from "@/features/account/backend/auth.server";
+import { safeReturnPath } from "@/features/account/sign-in-path";
 import { actionClient } from "@/shared/utils/safe-action-client";
 
 const deleteAccountSchema = z.object({
   // The customer ticked that they understand what gets deleted.
   confirmed: z.literal(true),
+  // The localized account page a fresh sign-in link returns to.
+  returnPath: z.string(),
 });
 
-/** Better Auth's cookies, with or without the `__Secure-` prefix. */
-const isAuthCookie = (name: string) =>
-  name.replace(/^__Secure-/, "").startsWith("better-auth.");
+type DeleteAccountResult =
+  | { readonly status: "deleted" }
+  | { readonly status: "signInLinkSent" }
+  | { readonly status: "failed" };
 
 /**
- * Deletes the signed-in customer's account. The database deletes everything
- * tied to the account with it (sessions, sign-in links, memberships, event
- * registrations and trophies), and the browser's sign-in cookies are cleared.
+ * Deletes the signed-in customer's account through Better Auth: the user
+ * with its sessions and sign-in accounts, and the session cookies. The
+ * database cascades memberships, event registrations and trophies. Sign-in
+ * links aren't tied to the user; they expire and the daily cleanup removes
+ * them.
+ *
+ * Better Auth only deletes from a session signed in within the last day
+ * (`session.freshAge`). An older session gets a fresh sign-in link back to
+ * the account page instead.
  */
 const _deleteAccount = actionClient
   .inputSchema(deleteAccountSchema)
-  .action(async () => {
+  .action(async ({ parsedInput }): Promise<DeleteAccountResult> => {
     const auth = getAuth();
-    const database = getAccountsDatabase();
-    const session = await auth?.api.getSession({ headers: await headers() });
-    if (!(auth && database && session)) return { deleted: false };
+    const requestHeaders = await headers();
+    const session = await auth?.api.getSession({ headers: requestHeaders });
+    if (!(auth && session)) return { status: "failed" };
 
-    await database.delete(authUser).where(eq(authUser.id, session.user.id));
-
-    const cookieStore = await cookies();
-    for (const cookie of cookieStore.getAll()) {
-      if (isAuthCookie(cookie.name)) cookieStore.delete(cookie.name);
+    try {
+      await auth.api.deleteUser({ body: {}, headers: requestHeaders });
+      return { status: "deleted" };
+    } catch (error) {
+      const sessionTooOld =
+        error instanceof APIError && error.body?.code === "SESSION_EXPIRED";
+      if (!sessionTooOld) throw error;
     }
-    return { deleted: true };
+
+    await auth.api.signInMagicLink({
+      body: {
+        email: session.user.email,
+        callbackURL: safeReturnPath(parsedInput.returnPath),
+      },
+      headers: requestHeaders,
+    });
+    return { status: "signInLinkSent" };
   });
 
 // Next.js only registers explicitly async exports as Server Actions, so

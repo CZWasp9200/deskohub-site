@@ -9,14 +9,20 @@ import { getLocaleFromPathname } from "@/features/i18n/utils/locale-url";
 import { siteConstants } from "@/shared/utils/constants";
 
 /**
- * The sign-in link carries the page the customer returns to
- * (`/cs-CZ/account`), so its locale is the language they were browsing in.
+ * The language of a sign-in callback (`/cs-CZ/account`), the one the customer
+ * was browsing in. The callback may be absolute or a bare path; only its
+ * pathname matters.
  */
-export function signInEmailLocale(signInUrl: string): Locale {
-  const callbackUrl = new URL(signInUrl).searchParams.get("callbackURL") ?? "";
-  // The callback may be absolute or a bare path; only its pathname matters.
+export function callbackLocale(callbackUrl: string): Locale {
   const pathname = new URL(callbackUrl, "https://placeholder.invalid").pathname;
   return getLocaleFromPathname(pathname) ?? baseLocale;
+}
+
+/** The sign-in link carries the page the customer returns to. */
+export function signInEmailLocale(signInUrl: string): Locale {
+  return callbackLocale(
+    new URL(signInUrl).searchParams.get("callbackURL") ?? ""
+  );
 }
 
 export function buildSignInEmail({

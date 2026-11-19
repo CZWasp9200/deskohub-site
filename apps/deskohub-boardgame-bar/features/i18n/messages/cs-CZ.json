@@ -1243,7 +1243,13 @@
       "confirm": "Rozumím, že se účet smaže natrvalo.",
       "submit": "Smazat účet natrvalo",
       "deleting": "Mažu účet…",
-      "failed": "Účet se nepodařilo smazat. Zkus to prosím znovu."
+      "failed": "Účet se nepodařilo smazat. Zkus to prosím znovu.",
+      "signInLinkSent": "Účet jde smazat jen do 24 hodin od přihlášení. Poslali jsme ti e-mailem nový přihlašovací odkaz, po přihlášení účet smažeš tady."
+    },
+    "export": {
+      "title": "Tvoje data",
+      "body": "Stáhneš si soubor JSON se svým profilem, členstvími, přihláškami na akce, trofejemi a přihlášenými zařízeními.",
+      "download": "Stáhnout data"
     }
   },
   "events": {

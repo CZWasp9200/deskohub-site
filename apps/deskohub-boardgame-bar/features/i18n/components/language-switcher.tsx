@@ -3,6 +3,7 @@
 import { track } from "@vercel/analytics";
 import { Languages } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
+import { authClient } from "@/features/account/auth.client";
 import { type Locale, locales, m, setLocale } from "@/features/i18n";
 import { setLocaleInPathname } from "@/features/i18n/utils/locale-url";
 import { useLocale } from "@/features/i18n/utils/use-locale";
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { siteConstants } from "@/shared/utils/constants";
 
 export function LanguageSwitcher() {
   const router = useRouter();
@@ -24,6 +26,11 @@ export function LanguageSwitcher() {
       from: currentLocale,
       to: newLocale,
     });
+    if (siteConstants.featureFlags.accounts) {
+      // Saves the language on a signed-in customer's account, so emails come
+      // in it. A signed-out visitor gets a 401 and nothing changes.
+      void authClient.updateUser({ locale: newLocale }).catch(() => undefined);
+    }
     const newPath = setLocaleInPathname(pathname, newLocale);
     setLocale(newLocale, { reload: false });
     document.documentElement.lang = newLocale;
