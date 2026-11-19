@@ -17,6 +17,7 @@ import {
   type IPaymentLifecycleRepository,
   PaymentLifecycleRepository,
 } from "../repositories/payment-lifecycle.repository";
+import { withReservationPaymentHandlers } from "./order-payment-handlers.test-utils";
 
 type NexiServiceType = typeof NexiServiceTag.Service;
 
@@ -50,6 +51,7 @@ const pendingReservation = {
 };
 
 const pendingAttempt = {
+  orderId: "reservation-id",
   id: "attempt-id",
   workspaceReservationId: "reservation-id",
   provider: "nexi" as const,
@@ -155,7 +157,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 paymentLifecycleLayer(),
                 recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, {} as NexiServiceType)
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -223,7 +225,7 @@ describe("ProviderPaymentFinalizationService", () => {
               paymentLifecycleLayer(),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -283,7 +285,7 @@ describe("ProviderPaymentFinalizationService", () => {
               paymentLifecycleLayer(),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -372,7 +374,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 }),
                 recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, nexi)
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -493,7 +495,7 @@ describe("ProviderPaymentFinalizationService", () => {
                     Effect.succeed(scenario.verification)
                   ),
                 })
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -557,7 +559,7 @@ describe("ProviderPaymentFinalizationService", () => {
                   Effect.succeed(buildVerification("success"))
                 ),
               })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -627,7 +629,7 @@ describe("ProviderPaymentFinalizationService", () => {
               Layer.mock(NexiService, {
                 verifyPaymentOutcome,
               })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -727,7 +729,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
               paymentLifecycleLayer({ markTerminal }),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, { getOrder, verifyPaymentOutcome })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),

@@ -41,7 +41,10 @@ import { getBookedSelection } from "@/features/reservation/booked-selection";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import type { StoredMeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import type { StoredOfficeReservationDetails } from "@/features/reservation/office-reservation";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  reservationOrderId,
+  type WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -863,10 +866,10 @@ const implementation = Effect.gen(function* () {
           )
         );
 
-        // Finalization loads the reservation and resolves its active attempt;
+        // Finalization resolves the order's handler and active attempt.
         // an order without one returns not_found and renders as stored.
         const result = yield* finalization.finalizePendingProviderPayment({
-          orderId: input.orderId,
+          orderId: reservationOrderId(input.orderId),
           verificationDeadline: refreshVerificationBudget,
         });
         yield* Effect.annotateLogsScoped(
@@ -888,7 +891,7 @@ const implementation = Effect.gen(function* () {
           } else {
             const latePayment =
               yield* latePaymentVerification.startRecoveryIfSettled({
-                orderId: input.orderId,
+                orderId: reservationOrderId(input.orderId),
                 verificationDeadline: remaining,
               });
             yield* Effect.annotateLogsScoped({ latePayment });

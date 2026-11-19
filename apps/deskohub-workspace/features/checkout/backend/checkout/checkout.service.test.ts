@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { withReservationPaymentHandlers } from "../payment/order-payment-handlers.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -791,7 +792,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
               recordMany: recordLegalEvidence,
             }),
             TestSealedStateKeys
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     )

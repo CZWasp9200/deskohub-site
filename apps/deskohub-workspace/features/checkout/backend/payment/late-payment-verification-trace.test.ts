@@ -13,6 +13,7 @@ import { LatePaymentRecoveryRepository } from "../repositories/late-payment-reco
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { LatePaymentRecoveryQueueService } from "./late-payment-recovery-queue.service";
 import { LatePaymentVerificationService } from "./late-payment-verification.service";
+import { withReservationPaymentHandlers } from "./order-payment-handlers.test-utils";
 
 type Methods = Record<
   string,
@@ -35,6 +36,7 @@ const expiredReservation = {
 };
 
 const expiredAttempt = {
+  orderId: "reservation-id",
   id: "attempt-id",
   workspaceReservationId: "reservation-id",
   provider: "nexi",
@@ -148,7 +150,7 @@ const startRecoveryIfSettled = async (
               record("recoveryQueue", collaborators.recoveryQueue)
             ),
             Layer.mock(NexiService, record("nexi", collaborators.nexi))
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     ),

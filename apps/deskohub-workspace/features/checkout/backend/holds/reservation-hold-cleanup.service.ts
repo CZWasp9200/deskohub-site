@@ -256,7 +256,7 @@ function makeReservationHoldCleanupServiceLayer(
         );
         const result = yield* finalization
           .finalizePendingProviderPayment({
-            orderId: input.orderId,
+            orderId: reservationOrderId(input.orderId),
             paymentAttemptId: input.paymentAttemptId,
             ...(input.checkedAt && {
               abandonmentCheckedAt: input.checkedAt,

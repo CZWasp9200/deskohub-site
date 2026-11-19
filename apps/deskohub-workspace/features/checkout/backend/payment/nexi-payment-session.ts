@@ -6,26 +6,29 @@ import {
   type NexiCorrelationId,
   type NexiOrderId,
   NexiOrderIdSchema,
-  type NexiService,
+  NexiService,
 } from "@deskohub/nexi";
 import { Effect, Schema } from "effect";
 import type { Locale } from "@/features/i18n";
-import type { OrderId } from "@/features/order";
+import type { OrderId, OrderKind } from "@/features/order";
 import {
   getWorkspaceRuntimeCallbackOrigin,
   type WorkspaceUrlConfigError,
 } from "@/shared/backend/config/workspace-url.config";
-import type { Money } from "@/shared/money/money";
+import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
 import { CheckoutError } from "../checkout/checkout-error";
 import { appendVercelPreviewProtectionBypass } from "../checkout/vercel-preview-protection-bypass";
 import {
   isNexiPaymentAttempt,
-  type PaymentAttempt,
   paymentAttemptLogFields,
 } from "../repositories/payment-attempt.repository";
-import type { IPaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { NexiAmountFromWorkspaceMoney } from "./nexi-amount.codec";
 import { getNexiCurrencyOverride } from "./nexi-currency";
+import type { PaymentAdmission } from "./order-payment-handler";
+import {
+  OrderPaymentHandlers,
+  type PaymentAdmissionDetailsFor,
+} from "./order-payment-handlers.service";
 
 const generateNexiOrderId = (): NexiOrderId =>
   NexiOrderIdSchema.make(
@@ -99,25 +102,24 @@ const toNexiAmount = Schema.encodeEffect(NexiAmountFromWorkspaceMoney);
 
 /** Starts Nexi for a prepared order using the lifecycle operations of its kind. */
 export const startNexiPaymentSession = Effect.fn("startNexiPaymentSession")(
-  function* <PrepareError, CreateError, FailureError>(
-    nexi: Pick<NexiService["Service"], "createHostedPaymentPage">,
-    input: {
-      readonly orderId: OrderId;
+  function* <Kind extends OrderKind, PrepareError>(
+    input: PaymentAdmission<PaymentAdmissionDetailsFor<Kind>> & {
+      readonly kind: Kind;
       readonly correlationId: NexiCorrelationId;
-      readonly locale: Locale;
-      readonly amount: Money;
       readonly customer: HostedPaymentCustomer;
       readonly beforeAttempt: Effect.Effect<void, PrepareError>;
-      readonly createAttempt: (
-        providerOrderId: NexiOrderId
-      ) => Effect.Effect<PaymentAttempt, CreateError>;
-      readonly onCreationFailure: (input: {
-        readonly cause: ExternalAPIError | NetworkError;
-        readonly attempt: PaymentAttempt;
-      }) => Effect.Effect<void, FailureError>;
-      readonly attachProviderSession: IPaymentLifecycleRepository["attachProviderSession"];
     }
   ) {
+    const { byKind } = yield* OrderPaymentHandlers;
+    const nexi = yield* NexiService;
+    const analytics = yield* CheckoutAnalytics;
+    const handler = byKind[input.kind];
+    if (!handler) {
+      return yield* new CheckoutError({
+        code: "checkout_failed",
+        message: "The order kind does not support payment.",
+      });
+    }
     const providerOrderId = generateNexiOrderId();
     const nexiCurrency = getNexiCurrencyOverride();
     const nexiAmount = yield* toNexiAmount(
@@ -156,7 +158,13 @@ export const startNexiPaymentSession = Effect.fn("startNexiPaymentSession")(
     // attempt; the Nexi request timeout still bounds this section.
     return yield* Effect.uninterruptible(
       Effect.gen(function* () {
-        const attempt = yield* input.createAttempt(providerOrderId);
+        const attempt = yield* handler.admitNexi({
+          orderId: input.orderId,
+          amount: input.amount,
+          locale: input.locale,
+          details: input.details,
+          providerOrderId,
+        });
         if (!isNexiPaymentAttempt(attempt)) {
           return yield* new CheckoutError({
             code: "checkout_failed",
@@ -180,8 +188,34 @@ export const startNexiPaymentSession = Effect.fn("startNexiPaymentSession")(
             customer: input.customer,
           })
           .pipe(
-            Effect.tapError((cause) =>
-              input.onCreationFailure({ cause, attempt })
+            Effect.tapError(
+              Effect.fnUntraced(function* (cause) {
+                if (!isDefinitiveHostedPaymentPageFailure(cause)) {
+                  yield* Effect.logError(
+                    "Ambiguous hosted payment page creation failure retained the active attempt",
+                    {
+                      orderId: input.orderId,
+                      paymentAttemptId: attempt.id,
+                      errorTag: cause._tag,
+                    }
+                  );
+                  return;
+                }
+                const transition = yield* handler.markTerminal({
+                  id: attempt.id,
+                  orderId: input.orderId,
+                  state: "failed",
+                  failureCode: "nexi_hpp_create_failed",
+                  providerStatus: "hpp_create_failed",
+                });
+                if (transition.changed) {
+                  yield* analytics.paymentFailed({
+                    attempt: transition.attempt,
+                    failureReason: "nexi_hpp_create_failed",
+                    timestamp: transition.timestamp,
+                  });
+                }
+              })
             )
           );
         // Not the page itself: its URL and security token are secrets.
@@ -191,7 +225,7 @@ export const startNexiPaymentSession = Effect.fn("startNexiPaymentSession")(
         yield* Effect.logInfo("Nexi hosted payment page creation completed");
 
         yield* Effect.logInfo("Checkout hosted payment page attach started");
-        const attachedAttempt = yield* input
+        const attachedAttempt = yield* handler
           .attachProviderSession({
             id: attempt.id,
             securityToken: hostedPaymentPage.securityToken,
@@ -210,3 +244,12 @@ export const startNexiPaymentSession = Effect.fn("startNexiPaymentSession")(
     );
   }
 );
+
+const isDefinitiveHostedPaymentPageFailure = (
+  cause: ExternalAPIError | NetworkError
+) =>
+  cause._tag === "ExternalAPIError" &&
+  cause.statusCode !== undefined &&
+  cause.statusCode >= 400 &&
+  cause.statusCode < 500 &&
+  ![408, 409, 425, 429].includes(cause.statusCode);

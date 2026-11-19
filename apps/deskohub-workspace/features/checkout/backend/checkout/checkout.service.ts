@@ -2,8 +2,6 @@ import { DotyposService } from "@deskohub/dotypos";
 import {
   type HostedPaymentCustomer,
   type NexiCorrelationId,
-  type ExternalAPIError as NexiExternalAPIError,
-  type NetworkError as NexiNetworkError,
   NexiService,
 } from "@deskohub/nexi";
 import { parsePhoneNumber } from "@deskohub/phone-number";
@@ -50,16 +48,14 @@ import { type Money, moneyEquals } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { localDateTimeToInstant } from "@/shared/utils/temporal";
 import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
-import { ReservationFulfillment } from "../fulfillment/reservation-fulfillment.service";
 import { getNexiHostedPaymentCustomer } from "../payment/nexi-customer-info";
 import { startNexiPaymentSession } from "../payment/nexi-payment-session";
+import { OrderPaymentHandlers } from "../payment/order-payment-handlers.service";
 import { LegalEvidenceEventRepository } from "../repositories/legal-evidence-event.repository";
 import {
-  type PaymentAttempt,
   PaymentAttemptRepository,
   paymentAttemptLogFields,
 } from "../repositories/payment-attempt.repository";
-import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { formatWorkspaceReservationNote } from "../reservation/dotypos-reservation.adapter";
 import { CheckoutError } from "./checkout-error";
 import {
@@ -215,11 +211,10 @@ export class CheckoutService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(CustomerAccountSections.Live),
-    Layer.provide(ReservationFulfillment.Live),
     Layer.provide(PayableCheckout.Default),
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(CheckoutAnalytics.Live),
-    Layer.provide(PaymentLifecycleRepository.Live),
+    Layer.provide(OrderPaymentHandlers.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -289,15 +284,6 @@ const getHostedPaymentCheckoutResult = (input: {
     }),
   });
 
-const isDefinitiveHostedPaymentPageFailure = (
-  cause: NexiExternalAPIError | NexiNetworkError
-) =>
-  cause._tag === "ExternalAPIError" &&
-  cause.statusCode !== undefined &&
-  cause.statusCode >= 400 &&
-  cause.statusCode < 500 &&
-  ![408, 409, 425, 429].includes(cause.statusCode);
-
 function makeCheckoutServiceLayer(service: typeof CheckoutService) {
   return Layer.effect(
     service,
@@ -306,9 +292,8 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       const nexi = yield* NexiService;
       const reservations = yield* WorkspaceReservationRepository;
       const paymentAttempts = yield* PaymentAttemptRepository;
-      const paymentLifecycle = yield* PaymentLifecycleRepository;
+      const orderPaymentHandlers = yield* OrderPaymentHandlers;
       const legalEvidenceEvents = yield* LegalEvidenceEventRepository;
-      const paidFulfillment = yield* ReservationFulfillment;
       const checkoutAnalytics = yield* CheckoutAnalytics;
       const pricing = yield* CheckoutPricingService;
       const payableCheckout = yield* PayableCheckout;
@@ -318,46 +303,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         yield* SealedStateKeys
       );
 
-      const handleHostedPaymentPageCreationFailure = Effect.fn(
-        "checkout.handleHostedPaymentPageCreationFailure"
-      )(
-        (input: {
-          readonly cause: NexiExternalAPIError | NexiNetworkError;
-          readonly attempt: PaymentAttempt;
-          readonly workspaceReservationId: WorkspaceReservationId;
-        }) =>
-          Match.value(input.cause).pipe(
-            Match.when(
-              isDefinitiveHostedPaymentPageFailure,
-              Effect.fn(function* () {
-                const transition = yield* paymentLifecycle.markTerminal({
-                  id: input.attempt.id,
-                  orderId: reservationOrderId(input.workspaceReservationId),
-                  state: "failed",
-                  failureCode: "nexi_hpp_create_failed",
-                  providerStatus: "hpp_create_failed",
-                });
-
-                if (transition.changed) {
-                  yield* checkoutAnalytics.paymentFailed({
-                    attempt: transition.attempt,
-                    failureReason: "nexi_hpp_create_failed",
-                    timestamp: transition.timestamp,
-                  });
-                }
-              })
-            ),
-            Match.orElse(() =>
-              Effect.logError(
-                "Ambiguous hosted payment page creation failure retained the active attempt",
-                {
-                  orderId: input.workspaceReservationId,
-                  paymentAttemptId: input.attempt.id,
-                  errorTag: input.cause._tag,
-                }
-              )
-            )
-          )
+      const provideNexiPaymentSession = Effect.provide(
+        Context.make(NexiService, nexi).pipe(
+          Context.add(OrderPaymentHandlers, orderPaymentHandlers),
+          Context.add(CheckoutAnalytics, checkoutAnalytics)
+        )
       );
 
       /** Payment starts only on an order still payable right before it. */
@@ -396,7 +346,8 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
           const orderId = reservationOrderId(input.workspaceReservationId);
           const { attachedAttempt, hostedPaymentPage } =
-            yield* startNexiPaymentSession(nexi, {
+            yield* startNexiPaymentSession({
+              kind: input.checkout.kind,
               orderId,
               locale: input.locale,
               correlationId: input.correlationId,
@@ -409,23 +360,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                   paymentReturnTarget: input.returnTarget,
                 });
               }),
-              createAttempt: (providerOrderId) =>
-                paymentLifecycle.createPendingNexiAttempt({
-                  orderId,
-                  providerOrderId,
-                  amount: input.total,
-                  commitment: input.commitment,
-                  locale: input.locale,
-                  accountingSnapshot: input.accountingSnapshot,
-                }),
-              onCreationFailure: ({ cause, attempt }) =>
-                handleHostedPaymentPageCreationFailure({
-                  cause,
-                  attempt,
-                  workspaceReservationId: input.workspaceReservationId,
-                }),
-              attachProviderSession: paymentLifecycle.attachProviderSession,
-            });
+              details: {
+                commitment: input.commitment,
+                accountingSnapshot: input.accountingSnapshot,
+              },
+            }).pipe(provideNexiPaymentSession);
           yield* checkoutAnalytics.paymentStarted({
             attempt: attachedAttempt,
             timestamp: attachedAttempt.updatedAt,
@@ -458,12 +397,22 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
         yield* ensureReservationHasNotEnded(input.reservation);
 
-        const transition = yield* paymentLifecycle.completeInternalPayment({
-          orderId: reservationOrderId(input.workspaceReservationId),
+        const handler = orderPaymentHandlers.byKind[input.checkout.kind];
+        if (!handler) {
+          return yield* new CheckoutError({
+            code: "checkout_failed",
+            message: "The order kind does not support payment.",
+          });
+        }
+        const orderId = reservationOrderId(input.workspaceReservationId);
+        const transition = yield* handler.admitInternal({
+          orderId,
           amount: input.total,
-          commitment: input.commitment,
           locale: input.locale,
-          accountingSnapshot: input.accountingSnapshot,
+          details: {
+            commitment: input.commitment,
+            accountingSnapshot: input.accountingSnapshot,
+          },
         });
 
         if (transition.changed) {
@@ -473,7 +422,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           });
         }
 
-        yield* paidFulfillment.run(input.workspaceReservationId).pipe(
+        yield* handler.fulfill(orderId).pipe(
           Effect.catch((cause) =>
             Effect.logError(
               "Internal payment completed but paid fulfillment failed",
@@ -504,7 +453,14 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         readonly orderId: WorkspaceReservationId;
         readonly locale: Locale;
       }) {
-        yield* paidFulfillment.run(input.orderId).pipe(
+        const handler = orderPaymentHandlers.byKind.reservation;
+        if (!handler) {
+          return yield* new CheckoutError({
+            code: "checkout_failed",
+            message: "The order kind does not support payment.",
+          });
+        }
+        yield* handler.fulfill(reservationOrderId(input.orderId)).pipe(
           Effect.catch((cause) =>
             Effect.logError("Paid checkout fulfillment retry failed", {
               orderId: input.orderId,
