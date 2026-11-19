@@ -18,6 +18,7 @@ import {
   tryWorkspaceE2ESync,
   type WorkspaceE2EError,
 } from "../errors";
+import { getWorkspaceE2EOfficeInvitees } from "../office";
 import { pollUntil } from "../polling";
 import { isPreviewPageAvailable } from "../preview-readiness";
 import { assert, log } from "../runtime";
@@ -102,6 +103,9 @@ export const makeOfficeE2ECases = ({
             config,
             data,
             datasourceConfig,
+            expectedOfficeInvitees: getWorkspaceE2EOfficeInvitees(
+              preparation.slot.seats
+            ),
             flow: {
               id: "office-paid-multi-day",
               toReservationPreparation: toReservationStep,
