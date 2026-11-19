@@ -6,6 +6,7 @@ import {
 } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
+import { formatCoworkReservationDisplayDate } from "@/features/reservation/cowork-reservation-display-date";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import {
   formatMeetingRoomReservationDisplayTimeValue,
@@ -40,7 +41,16 @@ const coworkDetails = (
   },
   {
     label: m.reservationEmailDateLabel({}, { locale }),
-    value: formatReservationDisplayDate(reservation.reservedFrom, locale),
+    value: formatCoworkReservationDisplayDate(
+      {
+        tier: details.entryTier,
+        interval: {
+          startsAt: reservation.reservedFrom,
+          endsAt: reservation.reservedUntil,
+        },
+      },
+      locale
+    ),
   },
   {
     label: m.reservationEmailCoffeeLabel({}, { locale }),
@@ -115,9 +125,43 @@ export const meetingRoomEmailDetails = (
     : []),
 ];
 
+/**
+ * Who is coming to an office booked with a people list, as its booker's
+ * confirmation lists them: the booker while they attend, then each invited
+ * address in order.
+ */
+export interface ReservationEmailPeople {
+  /** The booker's name, while they attend themselves. */
+  readonly contactName?: string;
+  readonly invitees: readonly string[];
+}
+
+const officePeopleDetail = (
+  people: ReservationEmailPeople,
+  locale: Locale
+): WorkspaceEmailDetail => {
+  const [first = "", ...lines] = [
+    ...(people.contactName === undefined
+      ? []
+      : [
+          m.officeInvitationPeopleYou({ name: people.contactName }, { locale }),
+        ]),
+    ...people.invitees,
+  ];
+  return {
+    label: m.officeInvitationPeopleLabel({}, { locale }),
+    value: first,
+    lines,
+    ...(people.invitees.length > 0 && {
+      note: m.officeInvitationPeopleNote({}, { locale }),
+    }),
+  };
+};
+
 const productDetails = (
   reservation: ReservationEmailReservation,
-  locale: Locale
+  locale: Locale,
+  people?: ReservationEmailPeople
 ): WorkspaceEmailDetail[] =>
   Match.value(reservation.reservationDetails).pipe(
     Match.discriminatorsExhaustive("kind")({
@@ -136,10 +180,12 @@ const productDetails = (
             locale
           ),
         },
-        {
-          label: m.reservationEmailSeatsLabel({}, { locale }),
-          value: String(reservation.seats),
-        },
+        people
+          ? officePeopleDetail(people, locale)
+          : {
+              label: m.reservationEmailSeatsLabel({}, { locale }),
+              value: String(reservation.seats),
+            },
       ],
     })
   );
@@ -150,9 +196,11 @@ const productDetails = (
  */
 export const reservationEmailDetails = (
   reservation: ReservationEmailReservation,
-  locale: Locale
+  locale: Locale,
+  /** Who is coming, for an office booked with a people list. */
+  people?: ReservationEmailPeople
 ): WorkspaceEmailDetail[] => [
-  ...productDetails(reservation, locale),
+  ...productDetails(reservation, locale, people),
   ...(reservation.dotyposReservationId
     ? [
         {

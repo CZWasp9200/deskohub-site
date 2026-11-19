@@ -12,9 +12,10 @@ import {
   Layer,
   Option,
 } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import { parseInstant } from "@/shared/utils/temporal";
 import {
@@ -22,6 +23,7 @@ import {
   type PaymentRefundRecordResult,
   PaymentRefundRepository,
   type RefundablePaymentAttempt,
+  type ReservationRefundAttempt,
 } from "../repositories/payment-refund.repository";
 
 /**
@@ -55,6 +57,18 @@ export interface IPaymentRefundService {
     input: RefundablePaymentAttempt
   ) => Effect.Effect<
     PaymentRefundReconciliationResult,
+    PaymentRefundReconciliationError
+  >;
+  /**
+   * Reconciles, one after another, each of the reservation's Nexi attempts
+   * still awaiting a refund (`reconcileAttempt`), then returns all its
+   * payment attempts as stored. Calls Nexi, so run it outside every
+   * database transaction.
+   */
+  readonly reconcileReservationRefunds: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly ReservationRefundAttempt[],
     PaymentRefundReconciliationError
   >;
   /**
@@ -183,6 +197,10 @@ export class PaymentRefundService extends Context.Service<
             yield* Effect.logWarning(
               "Nexi refund found for an attempt that cannot record it"
             ).pipe(withRefundOperations);
+          } else if (result === "below_target") {
+            yield* Effect.logInfo(
+              "Nexi refund is still below the refund owed"
+            ).pipe(withRefundOperations);
           } else {
             yield* Effect.logInfo("Nexi refund reconciled").pipe(
               withRefundOperations
@@ -204,6 +222,28 @@ export class PaymentRefundService extends Context.Service<
               paymentAttemptId: input.attempt.id,
               providerOrderId: input.attempt.providerOrderId,
             })
+          )
+      );
+
+      const reconcileReservationRefunds = Effect.fn(
+        "PaymentRefundService.reconcileReservationRefunds"
+      )(
+        function* (reservationId: WorkspaceReservationId) {
+          const required = yield* refunds.findRequiredRefunds(reservationId);
+          yield* Effect.forEach(required, reconcileAttempt, { discard: true });
+          return yield* refunds.findReservationAttempts(reservationId);
+        },
+        (effect, reservationId) =>
+          effect.pipe(
+            Effect.mapError((cause) =>
+              cause instanceof PaymentRefundReconciliationError
+                ? cause
+                : new PaymentRefundReconciliationError({
+                    message: "Reservation refund reconciliation failed.",
+                    cause,
+                  })
+            ),
+            Effect.annotateLogs({ reservationId })
           )
       );
 
@@ -336,6 +376,7 @@ export class PaymentRefundService extends Context.Service<
 
       return PaymentRefundService.of({
         reconcileAttempt,
+        reconcileReservationRefunds,
         reconcileRefunds,
       });
     })

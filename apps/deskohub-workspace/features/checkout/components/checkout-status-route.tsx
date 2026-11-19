@@ -20,9 +20,15 @@ import { CheckoutStatusPageSkeleton } from "@/features/checkout/components/check
 import { CheckoutStatusReferralCodeSettlement } from "@/features/checkout/components/checkout-status-referral-code-settlement";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
+import { loadOrderKind } from "@/features/order/backend/order-kind";
+import { resendReservationInvitation } from "@/features/reservation/actions/resend-reservation-invitation";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  type WorkspaceReservationId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
+import { readReservationWithdrawalEntry } from "@/features/withdrawal/backend/withdrawal-entry.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { RouteAutoRefresh } from "@/shared/components/route-auto-refresh";
 import {
@@ -85,66 +91,112 @@ async function CheckoutStatusContent({
 
   return runWithRequestLocale(async (locale) => {
     await connection();
-    const cookieStore = await cookies();
-    const requestHeaders = await headers();
-    const accessCookie = readReservationAccessCookie(cookieStore, orderId);
-    const rawSearchParams = await searchParams;
-    const decodedSearchParams = Option.getOrElse(
-      decodeCheckoutStatusSearchParams(rawSearchParams),
-      () => ({ outcome: undefined })
-    );
-    const returnOutcome = decodedSearchParams.outcome ?? "unknown";
-    const status = await Effect.gen(function* () {
-      const service = yield* CheckoutStatusService;
-      const authorization = yield* ReservationAuthorizationService;
-      return yield* loadCheckoutStatusPage(service, authorization, {
-        accessCookie,
-        locale,
-        orderId,
-        requestHeaders,
-        returnOutcome,
-      });
-    }).pipe(
-      Effect.tapError((cause) =>
-        Effect.logError("Checkout status load failed", {
-          orderId,
-          returnOutcome,
-          cause,
-        })
-      ),
-      Effect.provide(
-        Layer.mergeAll(
-          CheckoutStatusService.Live,
-          ReservationAuthorizationService.Live
-        )
-      ),
-      runWorkspaceEffect("checkout.status.load")
-    );
-    // A signed-out visitor, such as one following the link in the author's
-    // email, signs in and comes back instead of seeing "not found".
-    if (status.status === "not_found" && (await isSignedOut())) {
-      redirect(
-        getReservationStatusSignInPath(
+    switch (await loadOrderKind(orderId)) {
+      case "pass-purchase":
+        // Pass purchase orders have no status page yet.
+        return notFound();
+      case "reservation":
+      case undefined:
+        // Without an order row the reservation page still answers: it owns
+        // not-found, the signed-out sign-in redirect, and review sandbox
+        // orders, which have no order row.
+        return renderReservationStatus({
           locale,
           orderId,
-          decodedSearchParams.outcome
-        )
-      );
+          presentation,
+          searchParams,
+        });
     }
-    return (
-      <>
-        <RouteAutoRefresh
-          enabled={checkoutStatusTraits[status.status].autoRefresh}
-        />
-        <CheckoutStatusReferralCodeSettlement status={status.status} />
-        <CheckoutStatusPage
-          locale={locale}
-          presentation={presentation}
-          status={status}
-        />
-      </>
-    );
   });
+}
+
+async function renderReservationStatus({
+  locale,
+  orderId,
+  presentation,
+  searchParams,
+}: {
+  readonly locale: Locale;
+  readonly orderId: WorkspaceReservationId;
+  readonly presentation: CheckoutStatusPresentation;
+  readonly searchParams: Promise<SearchParamsRecord>;
+}) {
+  const cookieStore = await cookies();
+  const requestHeaders = await headers();
+  const accessCookie = readReservationAccessCookie(cookieStore, orderId);
+  const rawSearchParams = await searchParams;
+  const decodedSearchParams = Option.getOrElse(
+    decodeCheckoutStatusSearchParams(rawSearchParams),
+    () => ({ outcome: undefined })
+  );
+  const returnOutcome = decodedSearchParams.outcome ?? "unknown";
+  const loadStatus = Effect.gen(function* () {
+    const service = yield* CheckoutStatusService;
+    const authorization = yield* ReservationAuthorizationService;
+    return yield* loadCheckoutStatusPage(service, authorization, {
+      accessCookie,
+      locale,
+      orderId,
+      requestHeaders,
+      returnOutcome,
+    });
+  }).pipe(
+    Effect.tapError((cause) =>
+      Effect.logError("Checkout status load failed", {
+        orderId,
+        returnOutcome,
+        cause,
+      })
+    ),
+    Effect.provide(
+      Layer.mergeAll(
+        CheckoutStatusService.Live,
+        ReservationAuthorizationService.Live
+      )
+    )
+  );
+  const [status, withdrawal] = await Effect.all(
+    [
+      loadStatus,
+      readReservationWithdrawalEntry({ reservationId: orderId, locale }),
+    ],
+    { concurrency: "unbounded" }
+  ).pipe(runWorkspaceEffect("checkout.status.load"));
+  // A signed-out visitor, such as one following the link in the author's
+  // email, signs in and comes back instead of seeing "not found".
+  if (status.status === "not_found" && (await isSignedOut())) {
+    redirect(
+      getReservationStatusSignInPath(
+        locale,
+        orderId,
+        decodedSearchParams.outcome
+      )
+    );
+  }
+  return (
+    <>
+      <RouteAutoRefresh
+        enabled={checkoutStatusTraits[status.status].autoRefresh}
+      />
+      <CheckoutStatusReferralCodeSettlement
+        status={status.status}
+        {...(status.status === "reservation_cancelled" && {
+          paymentStatus: status.paymentStatus,
+        })}
+      />
+      <CheckoutStatusPage
+        locale={locale}
+        presentation={presentation}
+        resendInvitation={resendReservationInvitation}
+        status={status}
+        withdrawal={
+          withdrawal.status === "offered" && status.status !== "fulfilled"
+            ? { status: "none" }
+            : withdrawal
+        }
+      />
+    </>
+  );
 }
 
 const isSignedOut = () =>

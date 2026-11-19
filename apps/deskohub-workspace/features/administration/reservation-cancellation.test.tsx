@@ -16,7 +16,10 @@ import {
   within,
 } from "@testing-library/react";
 import { RouteLocaleProvider } from "@/features/i18n/route-locale";
-import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
+import {
+  workspaceRouterRefresh,
+  workspaceUseAction,
+} from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -45,6 +48,7 @@ type ActionOptions = {
 let actionOptions: ActionOptions | undefined;
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   cancelAdministrationReservation: mock(),
 }));
 
@@ -85,6 +89,11 @@ const renderCancellation = async (
   props?: Partial<{
     canCancel: boolean;
     reservationId: string;
+    invoice: {
+      invoiceNumber: string;
+      state: "live" | "cancelled";
+      customerNotice: "owed" | "not_owed";
+    } | null;
   }>,
   locale: "cs-CZ" | "en-US" = "en-US"
 ) => {
@@ -95,6 +104,7 @@ const renderCancellation = async (
     <RouteLocaleProvider locale={locale}>
       <ReservationCancellation
         canCancel={true}
+        invoice={null}
         reservationId={fixtureReservationId}
         {...props}
       />
@@ -138,6 +148,7 @@ describe("ReservationCancellation", () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0][0]).toEqual({
+      confirmedConsequences: { invoice: false, customerNotice: false },
       reservationId: fixtureReservationId,
       sendCancellationEmail: true,
     });
@@ -156,6 +167,7 @@ describe("ReservationCancellation", () => {
 
     await submitDialog(view);
     expect(execute.mock.calls[0][0]).toEqual({
+      confirmedConsequences: { invoice: false, customerNotice: false },
       reservationId: fixtureReservationId,
       sendCancellationEmail: false,
     });
@@ -248,5 +260,87 @@ describe("ReservationCancellation", () => {
     });
     expect(view.getByRole("dialog")).toBeDefined();
     expect(view.queryByRole("status")).toBeNull();
+  });
+
+  const invoiceWarning = (invoiceNumber: string) =>
+    m.administrationReservationCancellationInvoiceWarning(
+      { invoiceNumber },
+      { locale: "en-US" }
+    );
+  const noticeWarning =
+    m.administrationReservationCancellationInvoiceNoticeWarning(
+      {},
+      { locale: "en-US" }
+    );
+
+  test.each([
+    { customerNotice: "not_owed" as const },
+    { customerNotice: "owed" as const },
+  ])(
+    "warns that the live invoice is cancelled too and confirms what it warned about (notice $customerNotice)",
+    async ({ customerNotice }) => {
+      withActionOptions();
+      const view = await renderCancellation({
+        invoice: { invoiceNumber: "2026000007", state: "live", customerNotice },
+      });
+      await openDialog(view);
+      const dialog = within(view.getByRole("dialog"));
+
+      expect(dialog.queryByText(invoiceWarning("2026000007"))).not.toBeNull();
+      expect(dialog.queryByText(noticeWarning) !== null).toBe(
+        customerNotice === "owed"
+      );
+
+      await submitDialog(view);
+      expect(execute.mock.calls[0][0]).toMatchObject({
+        confirmedConsequences: {
+          invoice: true,
+          customerNotice: customerNotice === "owed",
+        },
+      });
+    }
+  );
+
+  test("shows no invoice warning for an invoice that is already cancelled", async () => {
+    withActionOptions();
+    const view = await renderCancellation({
+      invoice: {
+        invoiceNumber: "2026000007",
+        state: "cancelled",
+        customerNotice: "owed",
+      },
+    });
+    await openDialog(view);
+    const dialog = within(view.getByRole("dialog"));
+
+    expect(dialog.queryByText(invoiceWarning("2026000007"))).toBeNull();
+    expect(dialog.queryByText(noticeWarning)).toBeNull();
+    await submitDialog(view);
+    expect(execute.mock.calls[0][0]).toMatchObject({
+      confirmedConsequences: { invoice: false, customerNotice: false },
+    });
+  });
+
+  test("refreshes the page after a refusal so the current invoice warning shows", async () => {
+    withActionOptions();
+    workspaceRouterRefresh.mockClear();
+    const view = await renderCancellation();
+    await openDialog(view);
+    await submitDialog(view);
+
+    act(() => {
+      actionOptions?.onError({
+        error: {
+          serverError:
+            m.administrationReservationCancellationErrorConfirmationStale(
+              {},
+              { locale: "en-US" }
+            ),
+        },
+      });
+    });
+
+    expect(workspaceRouterRefresh).toHaveBeenCalled();
+    expect(view.getByRole("dialog")).toBeDefined();
   });
 });

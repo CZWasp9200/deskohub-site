@@ -259,6 +259,36 @@ test.skipIf(!chromiumAvailable)(
         reservedDesk
       )
     ).toBe(false);
+
+    // Another radio group on the form is never read as the monitor choice.
+    const otherGroup =
+      '<input checked name="otherChoice" type="radio" value="other" />';
+    expect(
+      await isPrefilledOn(
+        cowork(openSpace, coffeeSwitch(true), otherGroup),
+        openSpace
+      )
+    ).toBe(true);
+    expect(
+      await isPrefilledOn(
+        cowork(
+          reservedDesk,
+          workstationSwitch(true),
+          otherGroup + monitor("2x27-qhd")
+        ),
+        reservedDesk
+      )
+    ).toBe(true);
+    expect(
+      await isPrefilledOn(
+        cowork(
+          reservedDesk,
+          workstationSwitch(true),
+          otherGroup + monitor("2x27-qhd", false)
+        ),
+        reservedDesk
+      )
+    ).toBe(false);
   }
 );
 
@@ -271,13 +301,13 @@ const officeSlot: OfficeCheckoutSlot = {
 };
 
 test.skipIf(!chromiumAvailable)(
-  "checks restored office range, seats, and contact only when carried in",
+  "checks restored office range, people, and contact only when carried in",
   async () => {
     const data = makeOfficeCheckoutData(origin, officeSlot);
-    const selection = ({ dayCount = "2", seats = "2" } = {}) => `
+    const selection = ({ dayCount = "2", people = "2" } = {}) => `
       <input name="startsOn" value="2099-09-01" />
       <input name="dayCount" type="number" value="${dayCount}" />
-      <input checked name="seats" type="radio" value="${seats}" />`;
+      <span data-office-people-count>${people} of 6</span>`;
     const otherContact = makeOfficeCheckoutData(
       origin,
       officeSlot,
@@ -294,8 +324,18 @@ test.skipIf(!chromiumAvailable)(
       )
     ).toBe(false);
     expect(
-      await isPrefilledOn(selection({ seats: "1" }) + contactHtml(data), data)
+      await isPrefilledOn(selection({ people: "1" }) + contactHtml(data), data)
     ).toBe(false);
+    // A link or a reload carries no people: the contact alone is expected.
+    expect(
+      await isPrefilledOn(
+        selection({ people: "1" }) + contactHtml(data),
+        data,
+        {
+          officePeople: "contact-only",
+        }
+      )
+    ).toBe(true);
 
     // A selection link carries no contact, so another contact and checked
     // consent pass only when the contact is not expected.

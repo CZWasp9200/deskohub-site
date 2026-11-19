@@ -1,175 +1,79 @@
 import type {
-  CustomerOrderFulfillmentStatus,
-  CustomerOrderPaymentStatus,
-  CustomerOrderStatus,
+  CustomerBookedSelection,
+  CustomerOrderState,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Match, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { type Href, useFocusEffect, useRouter } from "expo-router";
-import { useCallback } from "react";
+import { DateTime, Match, Option } from "effect";
+import { AsyncResult } from "effect/reactivity";
+import { useFocusEffect, useRouter } from "expo-router";
+import CalendarPlus from "lucide-react-native/icons/calendar-plus";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import Download from "lucide-react-native/icons/download";
+import FileText from "lucide-react-native/icons/file-text";
+import Mail from "lucide-react-native/icons/mail";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import Search from "lucide-react-native/icons/search";
+import Undo2 from "lucide-react-native/icons/undo-2";
+import { type ReactNode, useCallback } from "react";
 import { StyleSheet, View } from "react-native";
-import { AsyncView } from "../../customer-api/async-view";
-import { CustomerViewError } from "../../customer-api/customer-view-error";
+import { bookAgainHref, reservationsHref } from "../../booking/booking-routes";
+import { AsyncView, viewErrorOf } from "../../customer-api/async-view";
+import { accountAtom } from "../../customer-api/customer-data-runtime";
+import {
+  type CustomerRequestFailure,
+  CustomerViewError,
+} from "../../customer-api/customer-view-error";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
+import {
+  DownloadShareFailure,
+  downloadShareFailureOf,
+} from "../../customer-api/share-downloaded-file";
 import type { AppLocale } from "../../i18n/app-locale";
-import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
-import { theme } from "../../theme";
+import { openContactPage } from "../../routing/open-contact-page";
+import { Card } from "../../ui/card";
 import { Button, LiveMessage } from "../../ui/controls";
+import { EmptyState } from "../../ui/empty-state";
+import { Icon } from "../../ui/icon";
 import { ListGroup, ListRow } from "../../ui/list";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
-import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
-import { bookingEntryEnabled } from "./booking-entry";
+import { color, space } from "../../ui/tokens";
+import { AccessPinButton } from "./access-pin-button";
 import {
-  InvoiceShareFailure,
-  invoiceShareAtom,
-  invoiceShareFailureOf,
-} from "./invoice-share";
+  BookingSteps,
+  BookingTicket,
+  BookingTicketSkeleton,
+} from "./booking-ticket";
 import {
-  offersAccessLink,
-  offersInvoice,
-  orderStatusTraits,
-} from "./order-status-kind";
+  type BookingTicketModel,
+  orderCheckingOf,
+  orderTicketModel,
+} from "./booking-ticket-model";
+import { ticketBadge, ticketSteps } from "./booking-ticket-text";
+import { type BookingEvent, calendarShareAtom } from "./calendar-event";
+import { establishmentAtom } from "./establishment";
+import { invoiceShareAtom } from "./invoice-share";
+import { OrderPeopleSection } from "./order-people-section";
+import { offersAccessLink, offersInvoice } from "./order-status-kind";
 import { focusGained, focusLost, orderStatusAtoms } from "./order-status-state";
-import { reservationKindTitle } from "./reservation-labels";
-import { reservationPeriodText } from "./reservation-period";
+import { orderTicketView, reservationOfOrderAtom } from "./order-ticket-view";
+import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
-
-const statusCopy = (status: CustomerOrderStatus, locale: AppLocale) =>
-  ({
-    created: () => ({
-      title: m.reservations_order_created_title({}, { locale }),
-      body: m.reservations_order_created_body({}, { locale }),
-    }),
-    pending: () => ({
-      title: m.reservations_order_pending_title({}, { locale }),
-      body: m.reservations_order_pending_body({}, { locale }),
-    }),
-    payment_pending_delayed: () => ({
-      title: m.reservations_order_payment_pending_delayed_title({}, { locale }),
-      body: m.reservations_order_payment_pending_delayed_body({}, { locale }),
-    }),
-    paid_waiting_fulfillment: () => ({
-      title: m.reservations_order_paid_waiting_fulfillment_title(
-        {},
-        { locale }
-      ),
-      body: m.reservations_order_paid_waiting_fulfillment_body({}, { locale }),
-    }),
-    paid_fulfillment_delayed: () => ({
-      title: m.reservations_order_paid_fulfillment_delayed_title(
-        {},
-        { locale }
-      ),
-      body: m.reservations_order_paid_fulfillment_delayed_body({}, { locale }),
-    }),
-    paid_awaiting_delivery: () => ({
-      title: m.reservations_order_paid_awaiting_delivery_title({}, { locale }),
-      body: m.reservations_order_paid_awaiting_delivery_body({}, { locale }),
-    }),
-    paid_delivery_delayed: () => ({
-      title: m.reservations_order_paid_delivery_delayed_title({}, { locale }),
-      body: m.reservations_order_paid_delivery_delayed_body({}, { locale }),
-    }),
-    fulfilled: () => ({
-      title: m.reservations_order_fulfilled_title({}, { locale }),
-      body: m.reservations_order_fulfilled_body({}, { locale }),
-    }),
-    fulfillment_failed: () => ({
-      title: m.reservations_order_fulfillment_failed_title({}, { locale }),
-      body: m.reservations_order_fulfillment_failed_body({}, { locale }),
-    }),
-    payment_failed: () => ({
-      title: m.reservations_order_payment_failed_title({}, { locale }),
-      body: m.reservations_order_payment_failed_body({}, { locale }),
-    }),
-    cancelled: () => ({
-      title: m.reservations_order_cancelled_title({}, { locale }),
-      body: m.reservations_order_cancelled_body({}, { locale }),
-    }),
-    expired: () => ({
-      title: m.reservations_order_expired_title({}, { locale }),
-      body: m.reservations_order_expired_body({}, { locale }),
-    }),
-    late_payment_checking: () => ({
-      title: m.reservations_order_late_payment_checking_title({}, { locale }),
-      body: m.reservations_order_late_payment_checking_body({}, { locale }),
-    }),
-    late_payment_refund: () => ({
-      title: m.reservations_order_late_payment_refund_title({}, { locale }),
-      body: m.reservations_order_late_payment_refund_body({}, { locale }),
-    }),
-    late_payment_review: () => ({
-      title: m.reservations_order_late_payment_review_title({}, { locale }),
-      body: m.reservations_order_late_payment_review_body({}, { locale }),
-    }),
-  })[status]();
-
-const paymentLabel = (status: CustomerOrderPaymentStatus, locale: AppLocale) =>
-  ({
-    not_started: () => m.reservations_order_payment_not_started({}, { locale }),
-    pending: () => m.reservations_order_payment_pending({}, { locale }),
-    paid: () => m.reservations_order_payment_paid({}, { locale }),
-    failed: () => m.reservations_order_payment_failed({}, { locale }),
-    cancelled: () => m.reservations_order_payment_cancelled({}, { locale }),
-    expired: () => m.reservations_order_payment_expired({}, { locale }),
-  })[status]();
-
-const confirmationLabel = (
-  status: CustomerOrderFulfillmentStatus,
-  locale: AppLocale
-) =>
-  ({
-    not_started: () =>
-      m.reservations_order_confirmation_not_started({}, { locale }),
-    processing: () =>
-      m.reservations_order_confirmation_processing({}, { locale }),
-    awaiting_delivery: () =>
-      m.reservations_order_confirmation_awaiting_delivery({}, { locale }),
-    fulfilled: () =>
-      m.reservations_order_confirmation_fulfilled({}, { locale }),
-    failed: () => m.reservations_order_confirmation_failed({}, { locale }),
-  })[status]();
-
-const statusErrorMessage =
-  (locale: AppLocale) =>
-  (error: CustomerViewError): string | undefined =>
-    CustomerViewError.$is("NotFound")(error)
-      ? m.reservations_order_not_found({}, { locale })
-      : undefined;
-
-/** What the screen says about refreshing, besides a failed read. */
-const refreshNote = (state: StatusRefreshState, locale: AppLocale) =>
-  state.reading
-    ? m.reservations_refresh_reading({}, { locale })
-    : AutomaticRefresh.$match(state.automatic, {
-        After: () => m.reservations_refresh_scheduled({}, { locale }),
-        Stopped: ({ reason }) =>
-          Match.value(reason).pipe(
-            Match.when("budget", () =>
-              m.reservations_refresh_paused({}, { locale })
-            ),
-            Match.when("exhausted", () =>
-              m.reservations_refresh_ended({}, { locale })
-            ),
-            // A settled order needs no note; a failed read has its notice.
-            Match.orElse(() => undefined)
-          ),
-      });
+import { usePaymentRecovery } from "./use-payment-recovery";
+import { WhenWithdrawable } from "./withdrawal-offer";
 
 const invoiceFailureMessage = (
-  failure: InvoiceShareFailure,
+  failure: DownloadShareFailure,
   locale: AppLocale
 ) =>
-  InvoiceShareFailure.$match(failure, {
+  DownloadShareFailure.$match(failure, {
     Share: () => m.reservations_invoice_share_failed({}, { locale }),
     Download: ({ error }) =>
       Match.value(error).pipe(
@@ -187,31 +91,81 @@ const invoiceFailureMessage = (
       ),
   });
 
-function InvoiceAction({
-  orderId,
+/** Calendar, invoice and Contact us: the quiet rows under a confirmed ticket. */
+function MoreActions({
+  order,
+  event,
+  withdrawn = false,
 }: {
-  readonly orderId: CustomerReservationOrderId;
+  readonly order: CustomerOrderState;
+  /** Withdrawn from already: no second withdrawal. */
+  readonly withdrawn?: boolean;
+  /** The booking as a calendar event; none while its times are unknown. */
+  readonly event: BookingEvent | undefined;
 }) {
   const locale = useAppLocale();
-  const result = useAtomValue(invoiceShareAtom(orderId));
-  const share = useAtomSet(invoiceShareAtom(orderId));
-  const failure = AsyncResult.isFailure(result)
-    ? invoiceShareFailureOf(result.cause)
+  const router = useRouter();
+  const invoice = useAtomValue(invoiceShareAtom(order.orderId));
+  const shareInvoice = useAtomSet(invoiceShareAtom(order.orderId));
+  const calendar = useAtomValue(calendarShareAtom(order.orderId));
+  const shareEvent = useAtomSet(calendarShareAtom(order.orderId));
+  const failure = AsyncResult.isFailure(invoice)
+    ? downloadShareFailureOf(invoice.cause)
     : undefined;
   return (
     <>
       <ListGroup>
+        {event !== undefined && (
+          <ListRow
+            kind="action"
+            icon={CalendarPlus}
+            label={m.reservations_add_to_calendar({}, { locale })}
+            trailing="none"
+            disabled={calendar.waiting}
+            onPress={() => shareEvent(event)}
+          />
+        )}
+        {offersInvoice(order) && (
+          <ListRow
+            kind="action"
+            icon={FileText}
+            label={m.reservations_invoice_row({}, { locale })}
+            trailing={<Icon icon={Download} size={20} color={color.ink3} />}
+            disabled={invoice.waiting}
+            onPress={() => shareInvoice()}
+          />
+        )}
         <ListRow
           kind="action"
-          label={m.reservations_invoice_action({}, { locale })}
-          disabled={result.waiting}
-          onPress={() => share()}
+          icon={Mail}
+          label={m.reservations_contact({}, { locale })}
+          trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
+          onPress={() => openContactPage()}
         />
+        {!withdrawn && !order.reservationCancelled && (
+          <WhenWithdrawable orderId={order.orderId}>
+            <ListRow
+              kind="action"
+              destructive
+              icon={Undo2}
+              label={m.reservationWithdrawalAction({}, { locale })}
+              trailing={
+                <Icon icon={ChevronRight} size={20} color={color.ink3} />
+              }
+              onPress={() =>
+                router.push({
+                  pathname: "/reservations/[orderId]/withdraw",
+                  params: { orderId: order.orderId },
+                })
+              }
+            />
+          </WhenWithdrawable>
+        )}
       </ListGroup>
       <LiveMessage
         role="status"
         message={
-          result.waiting
+          invoice.waiting
             ? m.reservations_invoice_preparing({}, { locale })
             : undefined
         }
@@ -224,151 +178,275 @@ function InvoiceAction({
             : invoiceFailureMessage(failure, locale)
         }
       />
+      <LiveMessage
+        role="alert"
+        message={
+          AsyncResult.isFailure(calendar)
+            ? m.reservations_calendar_share_failed({}, { locale })
+            : undefined
+        }
+      />
     </>
   );
 }
 
-function OrderStatusContent({
-  state,
-  onRefresh,
+/** A quiet Contact us under a ticket whose booking needs help or ended. */
+function ContactLink() {
+  const locale = useAppLocale();
+  return (
+    <Button
+      variant="quiet"
+      icon={Mail}
+      label={m.reservations_contact({}, { locale })}
+      onPress={() => openContactPage()}
+    />
+  );
+}
+
+/** What stands under the perforation for the ticket's state. */
+function TicketStub({
+  model,
+  order,
+  booked,
+  accessHint,
+  checking,
+  onCheckAgain,
+  paymentPageAction,
+  retryPaymentAction,
 }: {
-  readonly state: StatusRefreshState;
-  readonly onRefresh: () => void;
+  readonly model: BookingTicketModel;
+  readonly order: CustomerOrderState;
+  /** What the order books, for Book again. */
+  readonly booked: CustomerBookedSelection | undefined;
+  readonly accessHint: string | undefined;
+  /** A read the customer asked for is under way. */
+  readonly checking: boolean;
+  readonly onCheckAgain: () => void;
+  /** Opens the order's payment page again. */
+  readonly paymentPageAction: ReactNode;
+  /** Pays the order again, its details kept. */
+  readonly retryPaymentAction: ReactNode;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
-  const { order } = state;
-  const copy = statusCopy(order.status, locale);
-  const tone = orderStatusTraits[order.status].tone;
-  // The status changes while the screen is open: announce the new one.
-  useLiveRegionAnnouncement(copy.title, "polite");
-  // The last read's own failure; a 429 reads as "temporarily limited".
-  const failureMessage = Option.getOrUndefined(
-    Option.map(
-      state.failure,
-      (failure) =>
-        statusErrorMessage(locale)(failure) ??
-        sharedViewErrorMessage(failure, locale) ??
-        m.account_error_unexpected({}, { locale })
-    )
-  );
-  const setupStartsAt = Option.flatMap(
-    Option.fromUndefinedOr(order.setupStartsAt),
-    parseInstant
-  );
-
-  return (
-    <>
-      <View
-        style={[styles.status, { borderColor: toneColor[tone] }]}
-        aria-live="polite"
-      >
-        <Text role="heading" style={styles.statusTitle}>
-          {copy.title}
+  const { stub } = model;
+  switch (stub._tag) {
+    case "AccessPin":
+      return offersAccessLink(order) ? (
+        <>
+          <AccessPinButton orderId={order.orderId} />
+          {accessHint !== undefined && (
+            <Text variant="hint" style={styles.centred}>
+              {accessHint}
+            </Text>
+          )}
+        </>
+      ) : null;
+    case "BookAgain":
+      return (
+        <>
+          {stub.refundNote && (
+            <Text variant="bodySmall" tone="default">
+              {m.reservations_refund_note({}, { locale })}
+            </Text>
+          )}
+          <Button
+            icon={RotateCcw}
+            label={m.reservations_book_again({}, { locale })}
+            onPress={() => router.push(bookAgainHref(booked))}
+          />
+        </>
+      );
+    case "RetryPayment":
+      return retryPaymentAction;
+    case "Withdrawn":
+      return (
+        <Text variant="bodySmall" tone="default">
+          {m.withdrawal_ticket_note(
+            { amount: formatMoney(stub.refundAmount, locale) },
+            { locale }
+          )}
         </Text>
-        <Text style={styles.statusBody}>{copy.body}</Text>
-      </View>
-      {/* Kept mounted so assistive tech announces each change. */}
-      <Notice tone="warning" message={failureMessage} />
-      <LiveMessage role="status" message={refreshNote(state, locale)} />
-      <View style={styles.refresh}>
-        <Button
-          variant="secondary"
-          label={m.reservations_refresh({}, { locale })}
-          disabled={!canRefreshManually(state)}
-          onPress={onRefresh}
-        />
-      </View>
-
-      <ListGroup>
-        <ListRow
-          label={m.reservations_order_space({}, { locale })}
-          value={reservationKindTitle(order.kind, locale)}
-        />
-        <ListRow
-          label={m.reservations_order_when({}, { locale })}
-          value={reservationPeriodText(order, locale)}
-          wrapValue
-        />
-        {Option.isSome(setupStartsAt) && (
-          <ListRow
-            label={m.reservations_setup_from(
-              { time: formatInstant(setupStartsAt.value, locale, "time") },
-              { locale }
-            )}
-          />
-        )}
-        <ListRow
-          label={m.reservations_order_total({}, { locale })}
-          value={
-            order.total === undefined
-              ? m.reservations_value_unavailable({}, { locale })
-              : formatMoney(order.total, locale)
-          }
-        />
-        <ListRow
-          label={m.reservations_order_payment({}, { locale })}
-          value={paymentLabel(order.paymentStatus, locale)}
-        />
-        <ListRow
-          label={m.reservations_order_confirmation({}, { locale })}
-          value={confirmationLabel(order.fulfillmentStatus, locale)}
-        />
-      </ListGroup>
-
-      {offersAccessLink(order) && (
-        <ListGroup>
-          <ListRow
-            label={m.reservations_order_access({}, { locale })}
-            onPress={() =>
-              router.push(
-                `/reservations/${encodeURIComponent(order.orderId)}/access` as Href
-              )
-            }
-          />
-        </ListGroup>
-      )}
-      {offersInvoice(order) && <InvoiceAction orderId={order.orderId} />}
-      {bookingEntryEnabled &&
-        orderStatusTraits[order.status].offersNewReservation && (
-          <ListGroup>
-            <ListRow
-              label={m.reservations_book({}, { locale })}
-              onPress={() => router.push("/book" as Href)}
-            />
-          </ListGroup>
-        )}
-    </>
-  );
+      );
+    case "Steps":
+      return (
+        <>
+          <BookingSteps steps={ticketSteps(stub.steps, locale)} />
+          {Option.match(stub.action, {
+            onNone: () => null,
+            onSome: (action) =>
+              ({
+                "check-again": (
+                  <Button
+                    icon={RotateCcw}
+                    label={m.reservations_check_again({}, { locale })}
+                    busy={checking}
+                    onPress={onCheckAgain}
+                  />
+                ),
+                contact: (
+                  <Button
+                    icon={Mail}
+                    label={m.reservations_contact({}, { locale })}
+                    onPress={() => openContactPage()}
+                  />
+                ),
+                "payment-page": paymentPageAction,
+              })[action],
+          })}
+        </>
+      );
+  }
 }
 
-/**
- * The status card while the first read is under way. That read refreshes the
- * order with the payment gateway and takes a moment, notably right after the
- * return from payment; a lone spinner on the empty screen read as blank.
- */
-function OrderStatusPending() {
+function OrderTicket({
+  state,
+  onCheckAgain,
+  onPaymentPageLeft,
+}: {
+  readonly state: StatusRefreshState;
+  readonly onCheckAgain: () => void;
+  /** The customer came back from the payment page: follow the payment. */
+  readonly onPaymentPageLeft: () => void;
+}) {
   const locale = useAppLocale();
+  const { order } = state;
+  const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
+  const booked = bookedSelectionOf(order, reservation);
+  const recovery = usePaymentRecovery(order, booked, {
+    onCheckAgain,
+    onPaymentPageLeft,
+  });
+  const model = orderTicketModel(
+    order,
+    orderCheckingOf(state.automatic),
+    recovery.offer
+  );
+  const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
+  const view = orderTicketView({
+    order,
+    model,
+    reservation,
+    establishment,
+    now: DateTime.nowUnsafe(),
+    locale,
+  });
+  const withdrawn = model.stub._tag === "Withdrawn";
+  const badge = ticketBadge(model.badge, locale);
+  // The status changes while the screen is open: announce the new one.
+  useLiveRegionAnnouncement(
+    view.lead?.kind === "reason"
+      ? `${badge.label}. ${view.lead.text}`
+      : badge.label,
+    "polite"
+  );
+  // A payment action's answer, else the last read's own failure; a 429
+  // reads as "temporarily limited".
+  const failureMessage =
+    recovery.notice ??
+    Option.getOrUndefined(
+      Option.map(
+        state.failure,
+        (failure) =>
+          sharedViewErrorMessage(failure, locale) ??
+          m.account_error_unexpected({}, { locale })
+      )
+    );
   return (
-    <View
-      style={[styles.status, styles.pending, { borderColor: toneColor.info }]}
-    >
-      <LoadingIndicator
-        size="section"
-        tone="brand"
-        label={m.account_loading({}, { locale })}
-      />
-      <Text role="heading" style={styles.pendingTitle}>
-        {m.reservations_refresh_reading({}, { locale })}
-      </Text>
+    <View style={styles.stack}>
+      {/* Kept mounted so assistive tech announces each change. */}
+      <Notice tone="warning" message={failureMessage} />
+      <BookingTicket
+        lead={view.lead}
+        badge={badge}
+        date={view.date}
+        dateTone={model.dim ? "dim" : "strong"}
+        badgePlacement={withdrawn ? "inline" : "header"}
+        title={view.title}
+        lines={view.lines}
+        meta={view.meta}
+      >
+        <TicketStub
+          model={model}
+          order={order}
+          booked={booked}
+          accessHint={view.accessHint}
+          checking={state.reading}
+          onCheckAgain={onCheckAgain}
+          paymentPageAction={
+            <Button
+              label={m.booking_checkout_payment_reopen({}, { locale })}
+              busy={recovery.reopening}
+              disabled={recovery.busy}
+              onPress={recovery.reopen}
+            />
+          }
+          retryPaymentAction={
+            <Button
+              icon={RotateCcw}
+              label={m.booking_checkout_retry_pay({}, { locale })}
+              busy={recovery.retrying}
+              disabled={recovery.busy}
+              onPress={recovery.retry}
+            />
+          }
+        />
+      </BookingTicket>
+      {order.people !== undefined && (
+        <OrderPeopleSection order={order} people={order.people} />
+      )}
+      {model.followUp === "more-actions" && (
+        <MoreActions order={order} event={view.event} withdrawn={withdrawn} />
+      )}
+      {model.followUp === "contact" && <ContactLink />}
     </View>
   );
 }
 
+/** The order isn't the signed-in account's: say whose account this is. */
+function OrderNotFound() {
+  const locale = useAppLocale();
+  const router = useRouter();
+  const account = AsyncResult.value(useAtomValue(accountAtom));
+  return (
+    <Card>
+      <EmptyState
+        icon={Search}
+        title={m.reservations_not_found_title({}, { locale })}
+        body={Option.match(account, {
+          onNone: () => m.reservations_order_not_found({}, { locale }),
+          onSome: ({ email }) =>
+            m.reservations_not_found_body({ email }, { locale }),
+        })}
+        live="polite"
+      >
+        <Button
+          label={m.reservations_go_to_list({}, { locale })}
+          onPress={() => router.dismissTo(reservationsHref)}
+        />
+        <Button
+          variant="quiet"
+          label={m.reservations_contact({}, { locale })}
+          onPress={() => openContactPage()}
+        />
+      </EmptyState>
+    </Card>
+  );
+}
+
+/** The first read found no order the account may see. */
+const isNotFound = <E extends CustomerRequestFailure>(
+  result: AsyncResult.AsyncResult<unknown, E>
+) =>
+  AsyncResult.isFailure(result) &&
+  Option.isNone(AsyncResult.value(result)) &&
+  CustomerViewError.$is("NotFound")(viewErrorOf(result.cause));
+
 /**
- * An order's status (GET status, which refreshes the order and spends the
- * read budget): what happens next, the order summary, and its actions. It
- * keeps itself up to date while focused and in the foreground.
+ * An order as its booking ticket (GET status, which refreshes the order and
+ * spends the read budget): where it stands, and the one thing to do next.
+ * It keeps itself up to date while focused and in the foreground; pulling
+ * down checks again once it has stopped checking on its own.
  */
 export function OrderStatusScreen({
   orderId,
@@ -395,44 +473,53 @@ export function OrderStatusScreen({
     ? retry
     : () => tap((taps) => taps + 1);
   const refreshable = Option.match(AsyncResult.value(result), {
-    onNone: () => false,
+    onNone: () => AsyncResult.isFailure(result),
     onSome: canRefreshManually,
   });
 
+  // Automatic reads show in the steps; the pull indicator is for the reads
+  // the customer asked for.
+  const pulled = Option.match(AsyncResult.value(result), {
+    onNone: () => result.waiting,
+    onSome: (state) =>
+      state.reading && AutomaticRefresh.$is("Stopped")(state.automatic),
+  });
+  const shown = AsyncResult.isSuccess(result)
+    ? AsyncResult.success(result.value, { waiting: pulled })
+    : result;
+
   return (
     <ScrollScreen
-      refreshing={result.waiting}
+      refreshing={pulled && !AsyncResult.isInitial(result)}
       onRefresh={refreshable ? refresh : undefined}
     >
-      <AsyncView
-        result={result}
-        onRetry={retry}
-        errorMessage={statusErrorMessage(locale)}
-        loading={<OrderStatusPending />}
-      >
-        {(state) => <OrderStatusContent state={state} onRefresh={refresh} />}
-      </AsyncView>
+      {isNotFound(result) ? (
+        <OrderNotFound />
+      ) : (
+        <AsyncView
+          result={shown}
+          onRetry={retry}
+          loading={
+            <BookingTicketSkeleton
+              label={m.account_loading({}, { locale })}
+              stub="button"
+            />
+          }
+        >
+          {(state) => (
+            <OrderTicket
+              state={state}
+              onCheckAgain={refresh}
+              onPaymentPageLeft={() => setFocus(focusGained("after-payment"))}
+            />
+          )}
+        </AsyncView>
+      )}
     </ScrollScreen>
   );
 }
 
-const toneColor = {
-  info: theme.colors.info,
-  warning: theme.colors.warning,
-  error: theme.colors.danger,
-} as const;
-
 const styles = StyleSheet.create({
-  status: {
-    gap: theme.spacing.sm,
-    padding: theme.spacing.md,
-    borderLeftWidth: 4,
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.surface,
-  },
-  statusTitle: { ...theme.type.heading, color: theme.colors.text },
-  statusBody: { ...theme.type.body, color: theme.colors.textMuted },
-  pending: { flexDirection: "row", alignItems: "center" },
-  pendingTitle: { ...theme.type.heading, color: theme.colors.text, flex: 1 },
-  refresh: { alignItems: "flex-start" },
+  stack: { gap: space.lg },
+  centred: { textAlign: "center" },
 });

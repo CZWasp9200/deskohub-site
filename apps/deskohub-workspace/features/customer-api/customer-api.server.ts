@@ -2,8 +2,8 @@ import "server-only";
 
 import { WorkspaceCustomerApi } from "@deskohub/workspace-customer-api";
 import { Layer } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { RequestBudget } from "@/shared/backend/request-budget/request-budget.service";
@@ -18,6 +18,7 @@ import { CustomerAccountLayers } from "./customer-account-layers";
 import { CustomerBookingCatalogLayers } from "./customer-booking-catalog-layers";
 import { CustomerBookingCheckoutLayers } from "./customer-booking-checkout-layers";
 import { CustomerBookingApiHandlers } from "./customer-booking-handlers";
+import { CustomerCompaniesApiHandlers } from "./customer-company-handlers";
 import { CustomerInvoicesApiHandlers } from "./customer-invoice-handlers";
 import {
   CustomerRequestOriginCheckLive,
@@ -44,7 +45,8 @@ export const makeWorkspaceCustomerApiLayer = () =>
           Layer.fresh(CustomerAccountApiHandlers),
           Layer.fresh(CustomerReservationsApiHandlers),
           Layer.fresh(CustomerBookingApiHandlers),
-          Layer.fresh(CustomerInvoicesApiHandlers)
+          Layer.fresh(CustomerInvoicesApiHandlers),
+          Layer.fresh(CustomerCompaniesApiHandlers)
         )
       ),
       Layer.provide(

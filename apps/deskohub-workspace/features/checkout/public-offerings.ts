@@ -1,5 +1,6 @@
 import { Match } from "effect";
 import type { AdvertisedPriceRequest } from "@/features/checkout/advertised-price";
+import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
 import { workspaceMeetingRoomCatalog } from "@/features/checkout/meeting-room-product-catalog";
 import {
   getCoworkTierCoffeeAddon,
@@ -21,6 +22,7 @@ import {
   getWorkspaceOfficeProductTitle,
   getWorkspaceProductMonitorTitle,
   getWorkspaceProductTierTitle,
+  workspaceProductTierCardMessages,
   workspaceProductTierMessages,
 } from "@/features/checkout/product-catalog.i18n";
 import {
@@ -60,6 +62,12 @@ type PublicOfferingAddOn = {
   }>;
 };
 
+/** A key fact about a space: how many it holds, or what it is equipped with. */
+type PublicOfferingFact = {
+  readonly kind: "capacity" | "equipment";
+  readonly text: string;
+};
+
 type PublicOfferingCopy = {
   readonly name: string;
   readonly description: string;
@@ -73,6 +81,8 @@ export type PublicCatalogOffering = PublicOfferingCopy &
     | {
         readonly kind: "cowork";
         readonly tier: WorkspaceCoworkCurrentTier;
+        /** The tier in one line, as the booking page's offer card says it. */
+        readonly summary: string;
         /** Per Prague calendar day. */
         readonly price: Money;
         readonly addOns: ReadonlyArray<PublicOfferingAddOn>;
@@ -81,6 +91,8 @@ export type PublicCatalogOffering = PublicOfferingCopy &
         readonly kind: "meeting-room";
         readonly duration: MeetingRoomReservationDuration;
         readonly durationLabel: string;
+        /** The room's key facts, worded as the room's page lists them. */
+        readonly facts: ReadonlyArray<PublicOfferingFact>;
         /** Per booking of the duration. */
         readonly price: Money;
       }
@@ -138,6 +150,11 @@ export type PublicOfferingAdvertisedPrice = {
   readonly discount: Money;
   /** The last Prague day the sale can be booked, while one with an end runs. */
   readonly saleLastDay?: string;
+  /**
+   * While a sale runs: its discounts in the order they apply, which together
+   * make up `discount`.
+   */
+  readonly discounts?: ReadonlyArray<CheckoutSummaryDiscount>;
 };
 
 /** The advertised price a quote's payment gives its smallest booking. */
@@ -154,6 +171,12 @@ export const getPublicOfferingAdvertisedPrice = (
     price: payment.expectedPrice,
     discount,
     ...(saleLastDay && { saleLastDay }),
+    ...(payment.discounts.length > 0 && {
+      discounts: payment.discounts.map((applied) => ({
+        discount: applied.discount,
+        amount: applied.amount,
+      })),
+    }),
   };
 };
 
@@ -267,6 +290,7 @@ const getCoworkOffering = (
     tier,
     name: getWorkspaceProductTierTitle(tier, locale),
     description: workspaceProductTierMessages[tier].description({}, { locale }),
+    summary: workspaceProductTierCardMessages[tier].description({}, { locale }),
     usage: {
       "open-space": () =>
         m.publicOfferingOpenSpaceUsage(
@@ -320,6 +344,9 @@ const getMeetingRoomOffering = (
   name: getWorkspaceMeetingRoomProductTitle(locale),
   description: m.reservationTierMeetingRoomDescription({}, { locale }),
   usage: m.publicOfferingMeetingRoomUsage({}, { locale }),
+  facts: [
+    { kind: "capacity", text: m.meetingRoomFactCapacity({}, { locale }) },
+  ],
   price: getWorkspaceMeetingRoomPriceForDuration(duration),
 });
 

@@ -12,7 +12,7 @@ import type {
   EmailMessage,
 } from "@deskohub/email/types/email.types";
 import { generateQrCodePngBuffer } from "@deskohub/qr-code";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { env } from "@/env";
 import {
   CustomerEmailLocaleService,
@@ -30,11 +30,13 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import {
   type EmailKind,
   emailKindTags,
 } from "@/shared/backend/email/email-kind";
+import type { RenderedWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
   internalWorkspaceEmailRecipientFor,
   workspaceEmailRecipient,
@@ -51,6 +53,7 @@ import {
   renderReservationAuthorEmail,
   renderReservationCancellationEmail,
   renderReservationNotificationEmail,
+  renderReservationRestorationEmail,
 } from "./reservation-emails";
 
 export interface IWorkspaceReservationEmailService {
@@ -67,6 +70,20 @@ export interface IWorkspaceReservationEmailService {
   }) => Effect.Effect<EmailDeliveryId, EmailSendError>;
   readonly sendCancellationEmail: (input: {
     readonly reservation: WorkspaceReservationDetails;
+  }) => Effect.Effect<void, EmailSendError>;
+  /**
+   * Tells the customer that an administrator restored their cancelled
+   * reservation. When the restoration issued a new access code, the email
+   * links the access page that shows it.
+   */
+  readonly sendRestorationEmail: (input: {
+    readonly reservation: WorkspaceReservationDetails;
+    /**
+     * Whether the restoration issued a new access code in place of one whose
+     * removal was confirmed; the email then tells the customer that the
+     * earlier code no longer works.
+     */
+    readonly accessReissued: boolean;
   }) => Effect.Effect<void, EmailSendError>;
 }
 
@@ -150,6 +167,12 @@ export const createCustomerEmailLocaleResolver =
         )
       )
     );
+
+const accessUrlError = (cause: unknown) =>
+  new EmailServiceError(
+    "Workspace reservation access URL could not be created.",
+    cause
+  );
 
 const getCustomerName = (customer: DotyposCustomer) =>
   getCustomerDisplayName(customer) ||
@@ -292,48 +315,100 @@ export class WorkspaceReservationEmailService extends Context.Service<
       const networkDetailsService =
         yield* WorkspaceCheckoutNetworkDetailsService;
       const emailLocaleService = yield* CustomerEmailLocaleService;
+      const invitations = yield* ReservationInvitations;
       const resolveCustomerEmailLocale =
         createCustomerEmailLocaleResolver(emailLocaleService);
+
+      // Idempotent provider retries resend the same key, so each token must
+      // be a pure function of the reservation and its locale; anchor
+      // issuance at the reservation's immutable start.
+      const createProtectedReservationUrl = Effect.fn(
+        "WorkspaceReservationEmailService.createProtectedReservationUrl"
+      )(function* (
+        reservation: WorkspaceReservationDetails,
+        linkLocale: Locale,
+        getPath: typeof getReservationAccessPath
+      ) {
+        const origin = yield* getWorkspaceRuntimeCallbackOrigin;
+        const accessToken = yield* createReservationAccessToken(
+          { orderId: reservation.id, locale: linkLocale },
+          { now: () => reservation.reservedFrom.epochMilliseconds }
+        );
+        return new URL(
+          getPath({
+            locale: linkLocale,
+            orderId: reservation.id,
+            accessToken,
+            setBypassCookie: true,
+          }),
+          origin
+        ).toString();
+      });
 
       const createCustomerAccessUrls = Effect.fn(
         "WorkspaceReservationEmailService.createCustomerAccessUrls"
       )(function* (reservation: WorkspaceReservationDetails, locale: Locale) {
-        const origin = yield* getWorkspaceRuntimeCallbackOrigin;
-        // Idempotent provider retries resend the same key, so each token must
-        // be a pure function of the reservation and its locale; anchor
-        // issuance at the reservation's immutable start.
-        const createLink = Effect.fn(function* (
-          linkLocale: Locale,
-          getPath: typeof getReservationAccessPath
-        ) {
-          const accessToken = yield* createReservationAccessToken(
-            { orderId: reservation.id, locale: linkLocale },
-            { now: () => reservation.reservedFrom.epochMilliseconds }
-          );
-          return new URL(
-            getPath({
-              locale: linkLocale,
-              orderId: reservation.id,
-              accessToken,
-              setBypassCookie: true,
-            }),
-            origin
-          ).toString();
-        });
-
         return {
           // The access link only needs its token and URL to agree, and the
           // proxy exchanges it before any locale decision, so it follows the
           // email language.
-          accessUrl: yield* createLink(locale, getReservationAccessPath),
+          accessUrl: yield* createProtectedReservationUrl(
+            reservation,
+            locale,
+            getReservationAccessPath
+          ),
           // The invoice page issues the invoice in the reservation's locale
           // and validates it against the URL, so its link keeps that locale
           // even when the email follows the customer's saved preference.
-          invoiceUrl: yield* createLink(
+          invoiceUrl: yield* createProtectedReservationUrl(
+            reservation,
             getReservationLocale(reservation.locale),
             getReservationInvoicePath
           ),
         };
+      });
+
+      /**
+       * Sends an administrator's notice about one reservation to its
+       * customer, in the customer's email language.
+       */
+      const sendCustomerNotice = Effect.fn(
+        "WorkspaceReservationEmailService.sendCustomerNotice"
+      )(function* (input: {
+        readonly reservation: WorkspaceReservationDetails;
+        readonly category: string;
+        readonly render: (
+          locale: Locale
+        ) => Effect.Effect<
+          RenderedWorkspaceEmail & { readonly subject: string },
+          EmailSendError
+        >;
+      }) {
+        const { reservation } = input;
+        const locale = yield* resolveCustomerEmailLocale(reservation);
+        const customerEmail = reservation.customer.email?.trim();
+        if (!customerEmail) {
+          return yield* new EmailServiceError(
+            "Workspace reservation customer email is missing."
+          );
+        }
+        const rendered = yield* input.render(locale);
+        const message: EmailMessage = {
+          from: emailConfig.defaultFrom,
+          to: { email: customerEmail },
+          replyTo: workspaceEmailRecipient,
+          subject: rendered.subject,
+          html: rendered.html,
+          text: rendered.text,
+          tags: [input.category],
+          metadata: {
+            deploymentEnvironment: env.VERCEL_ENV,
+            source: "workspace-reservation-administration",
+            workspaceReservationId: reservation.id,
+            dotyposReservationId: reservation.dotyposReservationId,
+          },
+        };
+        yield* emailService.send(message).pipe(Effect.asVoid);
       });
 
       const sendAuthorEmail = (input: {
@@ -385,37 +460,38 @@ export class WorkspaceReservationEmailService extends Context.Service<
       return {
         sendCancellationEmail: Effect.fn(
           "WorkspaceReservationEmailService.sendCancellationEmail"
-        )(function* ({ reservation }) {
-          const locale = yield* resolveCustomerEmailLocale(reservation);
-          const customerEmail = reservation.customer.email?.trim();
-          if (!customerEmail) {
-            return yield* Effect.fail(
-              new EmailServiceError(
-                "Workspace reservation customer email is missing."
-              )
-            );
-          }
-          const rendered = yield* renderReservationCancellationEmail({
-            locale,
+        )(({ reservation }) =>
+          sendCustomerNotice({
             reservation,
-          });
-          const message: EmailMessage = {
-            from: emailConfig.defaultFrom,
-            to: { email: customerEmail },
-            replyTo: workspaceEmailRecipient,
-            subject: rendered.subject,
-            html: rendered.html,
-            text: rendered.text,
-            tags: ["workspace-reservation-cancellation"],
-            metadata: {
-              deploymentEnvironment: env.VERCEL_ENV,
-              source: "workspace-reservation-administration",
-              workspaceReservationId: reservation.id,
-              dotyposReservationId: reservation.dotyposReservationId,
-            },
-          };
-          yield* emailService.send(message).pipe(Effect.asVoid);
-        }),
+            category: "workspace-reservation-cancellation",
+            render: (locale) =>
+              renderReservationCancellationEmail({ locale, reservation }),
+          })
+        ),
+        sendRestorationEmail: Effect.fn(
+          "WorkspaceReservationEmailService.sendRestorationEmail"
+        )(({ reservation, accessReissued }) =>
+          sendCustomerNotice({
+            reservation,
+            category: "workspace-reservation-restoration",
+            render: Effect.fn(function* (locale) {
+              // The same access link as the confirmation's, in the email
+              // language; the access page shows the newly issued code.
+              const accessUrl = accessReissued
+                ? yield* createProtectedReservationUrl(
+                    reservation,
+                    locale,
+                    getReservationAccessPath
+                  ).pipe(Effect.mapError(accessUrlError))
+                : undefined;
+              return yield* renderReservationRestorationEmail({
+                locale,
+                reservation,
+                ...(accessUrl && { accessUrl }),
+              });
+            }),
+          })
+        ),
         sendPaidReservationEmails: Effect.fn(
           "WorkspaceReservationEmailService.sendPaidReservationEmails"
         )(function* (input) {
@@ -431,15 +507,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
           const { accessUrl, invoiceUrl } = yield* createCustomerAccessUrls(
             reservation,
             locale
-          ).pipe(
-            Effect.mapError(
-              (cause) =>
-                new EmailServiceError(
-                  "Workspace reservation access URL could not be created.",
-                  cause
-                )
-            )
-          );
+          ).pipe(Effect.mapError(accessUrlError));
           const metadata = {
             deploymentEnvironment: env.VERCEL_ENV,
             source: paidFulfillmentSource,
@@ -475,11 +543,13 @@ export class WorkspaceReservationEmailService extends Context.Service<
               ).pipe(Effect.as(undefined))
             )
           );
+          const people = yield* invitations.bookerPeople(reservation);
           const renderedCustomerEmail = yield* renderCustomerReservationEmail({
             locale,
             reservation,
             accessUrl,
             invoiceUrl,
+            ...(Option.isSome(people) && { people: people.value }),
             network: {
               ssid: networkDetails.ssid,
               password: networkDetails.password,
@@ -514,6 +584,9 @@ export class WorkspaceReservationEmailService extends Context.Service<
                 })
               )
             );
+
+          // Each invited person gets their own invitation once the booker's
+          // confirmation is out; a failed one never fails fulfillment.
 
           const confirmableAuthor = getConfirmableAuthor(
             input.author,

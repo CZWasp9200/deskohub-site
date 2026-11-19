@@ -13,8 +13,8 @@ import {
   References,
   Schema,
 } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import { dotyposApiTimeoutDefaultMilliseconds } from "../api-timeout";
 import {
   DotyposRuntimeConfigSchema,
@@ -2989,6 +2989,375 @@ describe("DotyposService reservations", () => {
         (call) => getMethod(call as FetchCall) === "PATCH"
       )
     ).toBe(false);
+  });
+});
+
+describe("DotyposService reservation restore", () => {
+  /** The booking `reservation()` holds by default. */
+  const expectedBooking = {
+    customerId: dotyposCustomerId("customer-id"),
+    tableId: dotyposTableId("table-id"),
+    startDate: new Date("2026-06-20T10:00:00.000Z"),
+    endDate: new Date("2026-06-20T12:00:00.000Z"),
+    seats: 2,
+  };
+
+  /** A version read: the reservation fields it answers, a 404 or a 503. */
+  type RestoreRead = Partial<Reservation> | 404 | 503;
+  type RestorePatch = "success" | "transport" | 503 | 412;
+
+  /**
+   * Serves version reads in order (the last one repeats) under ETags v1, then
+   * v2 unless `readEtags` names them, and PATCHes in order.
+   */
+  const restoreFetch = (
+    reads: readonly RestoreRead[],
+    patches: readonly RestorePatch[] = [],
+    readEtags?: readonly string[]
+  ) => {
+    const seen = {
+      reads: 0,
+      ifMatch: [] as Array<string | null>,
+      bodies: [] as unknown[],
+    };
+    const fetchMock = mockDotyposFetch(async (request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "/signin/token") return tokenResponse();
+      if (url.pathname !== "/clouds/cloud-id/reservations/reservation-id") {
+        return new Response("Not found", { status: 404 });
+      }
+      if (request.method === "GET") {
+        const read = reads[Math.min(seen.reads, reads.length - 1)] ?? 503;
+        const etag =
+          readEtags?.[seen.reads] ?? `v${Math.min(seen.reads + 1, 2)}`;
+        seen.reads += 1;
+        if (read === 404) return new Response("Not found", { status: 404 });
+        if (read === 503) return new Response("Unavailable", { status: 503 });
+        return Response.json(reservation(read), {
+          headers: { ETag: `"reservation-${etag}"` },
+        });
+      }
+      if (request.method === "PATCH") {
+        const patch = patches[seen.ifMatch.length];
+        seen.ifMatch.push(request.headers.get("if-match"));
+        seen.bodies.push(await request.json());
+        if (patch === "success") {
+          return Response.json(reservation({ status: "CONFIRMED" }));
+        }
+        if (patch === "transport") throw new TypeError("fetch failed");
+        return new Response(null, { status: patch ?? 500 });
+      }
+      return new Response("Not found", { status: 404 });
+    });
+    return { fetchMock, seen };
+  };
+
+  const restore = (
+    fetchMock: typeof globalThis.fetch,
+    booking: typeof expectedBooking = expectedBooking
+  ) =>
+    runWithServiceRetryingInstantly(
+      Effect.gen(function* () {
+        const dotypos = yield* DotyposService;
+        return yield* dotypos
+          .restoreCancelledReservation({
+            reservationId: dotyposReservationId("reservation-id"),
+            expectedBooking: booking,
+          })
+          .pipe(Effect.result);
+      }),
+      fetchMock
+    );
+
+  test("restores a CANCELLED reservation that holds the expected booking with an ETag-protected patch", async () => {
+    const { fetchMock, seen } = restoreFetch(
+      [{ status: "CANCELLED" }],
+      ["success"]
+    );
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: {
+        _tag: "Restored",
+        reservation: { id: "reservation-id", status: "CONFIRMED" },
+      },
+    });
+    expect(seen.ifMatch).toEqual(['"reservation-v1"']);
+    expect(seen.bodies).toEqual([{ status: "CONFIRMED" }]);
+  });
+
+  test("compares booking bounds as instants, whatever offset Dotypos answers in", async () => {
+    const { fetchMock, seen } = restoreFetch(
+      [
+        {
+          status: "CANCELLED",
+          startDate: "2026-06-20T12:00:00+02:00",
+          endDate: "2026-06-20T14:00:00.000+02:00",
+        },
+      ],
+      ["success"]
+    );
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: { _tag: "Restored" },
+    });
+    expect(seen.ifMatch).toHaveLength(1);
+  });
+
+  test("answers an already CONFIRMED reservation that holds the booking without patching", async () => {
+    const { fetchMock, seen } = restoreFetch([{ status: "CONFIRMED" }]);
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: {
+        _tag: "AlreadyConfirmed",
+        reservation: { id: "reservation-id", status: "CONFIRMED" },
+      },
+    });
+    expect(seen.ifMatch).toEqual([]);
+  });
+
+  test("refuses a NEW reservation without patching", async () => {
+    const { fetchMock, seen } = restoreFetch([{ status: "NEW" }]);
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "DotyposReservationNotRestorable",
+        reservationId: "reservation-id",
+        reason: "not-cancelled",
+        status: "NEW",
+        changedFields: [],
+      },
+    });
+    expect(seen.ifMatch).toEqual([]);
+  });
+
+  test.each([
+    { field: "customer", change: { _customerId: "other-customer" } },
+    { field: "table", change: { _tableId: "other-table" } },
+    { field: "start", change: { startDate: "2026-06-20T09:30:00.000Z" } },
+    { field: "end", change: { endDate: "2026-06-20T12:30:00.000Z" } },
+    { field: "seats", change: { seats: "3" } },
+  ] as const)(
+    "refuses a $field change without patching, CANCELLED or CONFIRMED",
+    async ({ field, change }) => {
+      const results = await Promise.all(
+        (["CANCELLED", "CONFIRMED"] as const).map(async (status) => {
+          const { fetchMock, seen } = restoreFetch([{ status, ...change }]);
+          const result = await restore(fetchMock);
+          return { result, patches: seen.ifMatch.length };
+        })
+      );
+
+      for (const [index, status] of (
+        ["CANCELLED", "CONFIRMED"] as const
+      ).entries()) {
+        expect(results[index]).toMatchObject({
+          result: {
+            _tag: "Failure",
+            failure: {
+              _tag: "DotyposReservationNotRestorable",
+              reason: "booking-changed",
+              status,
+              changedFields: [field],
+            },
+          },
+          patches: 0,
+        });
+      }
+    }
+  );
+
+  test("fails a reservation Dotypos no longer has as not found", async () => {
+    const { fetchMock, seen } = restoreFetch([404]);
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "DotyposRejected",
+        reason: "not-found",
+        operation: "restoreCancelledReservation",
+        request: "reservation.version",
+        httpStatus: 404,
+      },
+    });
+    expect(seen.ifMatch).toEqual([]);
+  });
+
+  test("rejects an invalid expected booking before calling Dotypos", async () => {
+    const { fetchMock } = restoreFetch([{ status: "CANCELLED" }]);
+
+    const results = await Promise.all([
+      restore(fetchMock, {
+        ...expectedBooking,
+        startDate: new Date("invalid"),
+      }),
+      restore(fetchMock, { ...expectedBooking, seats: 0 }),
+      restore(fetchMock, {
+        ...expectedBooking,
+        endDate: expectedBooking.startDate,
+      }),
+    ]);
+
+    for (const result of results) {
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposRejected",
+          reason: "invalid-request",
+          operation: "restoreCancelledReservation",
+        },
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  type RestoreSettlementRow = {
+    readonly label: string;
+    readonly reads: readonly RestoreRead[];
+    readonly readEtags?: readonly string[];
+    readonly patches: readonly RestorePatch[];
+    readonly expected: Record<string, unknown>;
+    readonly expectedReads: number;
+    readonly expectedIfMatch: readonly string[];
+  };
+
+  const restoreSettlementRows: readonly RestoreSettlementRow[] = [
+    {
+      label: "a plain 412 on the first PATCH is a version conflict",
+      reads: [{ status: "CANCELLED" }],
+      patches: [412],
+      expected: {
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposVersionConflict",
+          operation: "restoreCancelledReservation",
+          request: "reservation.patch",
+          httpStatus: 412,
+        },
+      },
+      expectedReads: 1,
+      expectedIfMatch: ['"reservation-v1"'],
+    },
+    {
+      label: "503 then 412 settles as restored when the reread is CONFIRMED",
+      reads: [{ status: "CANCELLED" }, { status: "CONFIRMED" }],
+      patches: [503, 412],
+      expected: { _tag: "Success", success: { _tag: "Restored" } },
+      expectedReads: 2,
+      expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
+    },
+    {
+      label:
+        "transport failure then 412 patches again under the fresh ETag when the reread is CANCELLED",
+      reads: [{ status: "CANCELLED" }, { status: "CANCELLED" }],
+      patches: ["transport", 412, "success"],
+      expected: { _tag: "Success", success: { _tag: "Restored" } },
+      expectedReads: 2,
+      expectedIfMatch: [
+        '"reservation-v1"',
+        '"reservation-v1"',
+        '"reservation-v2"',
+      ],
+    },
+    {
+      label:
+        "a CANCELLED reread under the replayed ETag stays uncertain without another PATCH",
+      reads: [{ status: "CANCELLED" }, { status: "CANCELLED" }],
+      readEtags: ["v1", "v1"],
+      patches: [503, 412],
+      expected: {
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          operation: "restoreCancelledReservation",
+          request: "reservation.patch",
+          httpStatus: 412,
+        },
+      },
+      expectedReads: 2,
+      expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
+    },
+    {
+      label: "a NEW reread stays uncertain, since the replay may have landed",
+      reads: [{ status: "CANCELLED" }, { status: "NEW" }],
+      patches: [503, 412],
+      expected: {
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          operation: "restoreCancelledReservation",
+          request: "reservation.patch",
+          httpStatus: 412,
+        },
+      },
+      expectedReads: 2,
+      expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
+    },
+    {
+      label:
+        "a reread that books another table stays uncertain, since the replay may have landed",
+      reads: [
+        { status: "CANCELLED" },
+        { status: "CONFIRMED", _tableId: "other-table" },
+      ],
+      patches: [503, 412],
+      expected: {
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          request: "reservation.patch",
+          httpStatus: 412,
+        },
+      },
+      expectedReads: 2,
+      expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
+    },
+    {
+      label: "a failed settling reread stays uncertain",
+      reads: [{ status: "CANCELLED" }, 503],
+      patches: [503, 412],
+      expected: {
+        _tag: "Failure",
+        failure: {
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          request: "reservation.version",
+          httpStatus: 503,
+        },
+      },
+      expectedReads: 5,
+      expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
+    },
+  ];
+
+  test.each([...restoreSettlementRows])("settlement: $label", async (row) => {
+    const { fetchMock, seen } = restoreFetch(
+      row.reads,
+      row.patches,
+      row.readEtags
+    );
+
+    const result = await restore(fetchMock);
+
+    expect(result).toMatchObject(row.expected);
+    expect(seen.reads).toBe(row.expectedReads);
+    expect(seen.ifMatch).toEqual([...row.expectedIfMatch]);
   });
 });
 
@@ -7506,6 +7875,31 @@ describe("DotyposService ID reads", () => {
         );
         expect(peak).toBe(concurrency);
       }
+    }
+  );
+
+  test.each(["customers", "reservations"] as const)(
+    "%s reads every batch at once without a concurrency option",
+    async (resource) => {
+      let open = 0;
+      let peak = 0;
+      const fetchMock = mockDotyposFetch(async (request) => {
+        if (new URL(request.url).pathname === "/signin/token")
+          return tokenResponse();
+        open++;
+        peak = Math.max(peak, open);
+        await Promise.resolve();
+        open--;
+        return Response.json({ data: [] });
+      });
+      const ids = Array.from({ length: 301 }, (_, i) => `id-${i}`);
+      await runWithService(
+        Effect.flatMap(DotyposService, (dotypos) =>
+          read(dotypos, resource, ids)
+        ),
+        fetchMock
+      );
+      expect(peak).toBe(Math.ceil(ids.length / dotyposIdReadBatchSize));
     }
   );
 });

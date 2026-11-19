@@ -1,8 +1,9 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import { scheduleTask } from "@effect/atom-react";
 import { Effect, Layer } from "effect";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
 import {
   type CustomerDataServices,
   customerDataLayer,
@@ -15,7 +16,7 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import type { SampleAccountKind } from "../../customer-api/testing/sample-fixtures";
 import { sequentialBookingIds } from "../booking-ids.service.mock";
-import type { CheckoutRequest } from "../checkout/checkout-flow";
+import type { BookingRequest } from "../checkout/checkout-flow";
 import type { CheckoutDetails } from "../checkout/checkout-state";
 import {
   type BookingServices,
@@ -87,7 +88,9 @@ export const makeFakeCheckout = async (kind: SampleAccountKind = "linked") => {
     never,
     CustomerDataServices
   > = Layer.mergeAll(browser.layer, referral.layer, sequentialBookingIds());
+  // React's scheduler, as the app's `RegistryProvider` schedules.
   const registry = AtomRegistry.make({
+    scheduleTask,
     initialValues: [
       Atom.initialValue(
         customerDataLayer,
@@ -127,9 +130,10 @@ export const makeFakeCheckout = async (kind: SampleAccountKind = "linked") => {
       date: booking.dateIn(20),
       coffee: true,
     }
-  ): CheckoutRequest => {
+  ): BookingRequest => {
     const summary = sampleSummary({ lines: pricedLines(selection) });
     return {
+      _tag: "Booking",
       locale: "en-US",
       selection,
       advertisedPriceToken: booking.issueQuoteToken(selection),

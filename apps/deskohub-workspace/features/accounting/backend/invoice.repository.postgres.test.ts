@@ -31,7 +31,10 @@ import {
   type InvoiceBuyer,
   type InvoiceNumber,
 } from "@/features/accounting/invoice";
-import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
+import {
+  type InvoiceId,
+  manualInvoiceInputSchema,
+} from "@/features/accounting/manual-invoice";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   type PaymentAttemptId,
@@ -59,6 +62,7 @@ import {
   type IInvoiceRepository,
   InvoiceRepository,
 } from "./invoice.repository";
+import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
 
 // Listing reads every invoice in the table, so the suite owns its database:
 // invoices other suites commit, under other keys, never reach it.
@@ -502,7 +506,7 @@ describe.skipIf(!testDatabase)(
       );
 
       const found = await runRepository((repository) =>
-        repository.findByReservationId(fixture.reservationId)
+        repository.findLiveByReservationId(fixture.reservationId)
       );
 
       expect(found).toMatchObject({
@@ -523,7 +527,7 @@ describe.skipIf(!testDatabase)(
         const fixture = await createPaidFixture(options);
 
         const found = await runRepository((repository) =>
-          repository.findByReservationId(fixture.reservationId)
+          repository.findLiveByReservationId(fixture.reservationId)
         );
 
         expect(found).toBeNull();
@@ -917,5 +921,333 @@ describe.skipIf(!testDatabase)(
         ).toBeNull();
       });
     });
+  }
+);
+
+const cancelIssuedInvoice = async (invoiceId: InvoiceId) => {
+  const administrator = await Effect.runPromise(
+    workspaceFixtures(testDatabase!.db).account("invoice-repository-canceller")
+  );
+  const baseLayer = Layer.merge(
+    testDatabase!.layer,
+    Layer.succeed(
+      AccountingSnapshotKeyService,
+      AccountingSnapshotKeyService.of(makeKeyService())
+    )
+  );
+  return Effect.runPromise(
+    Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+      transaction(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          cancellations.record({
+            invoiceId,
+            cause: "reservation_cancellation",
+            actor: { source: "admin-ui", administrator },
+            confirmedCustomerNotice: true,
+          })
+        )
+      )
+    ).pipe(
+      Effect.provide(
+        Layer.merge(
+          baseLayer,
+          InvoiceCancellationRepository.Default.pipe(Layer.provide(baseLayer))
+        )
+      )
+    )
+  );
+};
+
+const setReservationState = (fixture: PaidFixture, state: string) =>
+  testDatabase!.pool.query(
+    "update workspace_reservations set reservation_state = $2 where id = $1",
+    [fixture.reservationId, state]
+  );
+
+// Inserts an invoice row directly, as only the database's own rules would
+// stop it; the document is opaque to those rules.
+const insertRawInvoice = (
+  fixture: PaidFixture,
+  replacesInvoiceId: string | null
+) =>
+  testDatabase!.pool
+    .query(
+      `insert into invoices
+         (workspace_reservation_id, payment_attempt_id, dotypos_customer_id,
+          invoice_number, numbering_year, numbering_sequence, key_id,
+          encrypted_document, issued_at, replaces_invoice_id)
+       values ($1, $2, $3, $4, 2026, $5, 'K202608', '\\x00',
+               '2026-06-01T12:00:00Z', $6)`,
+      [
+        fixture.reservationId,
+        fixture.paymentAttemptId,
+        fixture.dotyposCustomerId,
+        `WS-FV-RAW-${randomUUID()}`,
+        1_000_000_000 + Math.floor(Math.random() * 1e9),
+        replacesInvoiceId,
+      ]
+    )
+    .then(
+      () => null,
+      (error: { readonly code?: string }) => error.code
+    );
+
+describe.skipIf(!testDatabase)(
+  "InvoiceRepository replacement chain on disposable Postgres",
+  () => {
+    test("issues a linked replacement with a new number once the reservation's invoice is cancelled", async () => {
+      const fixture = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      await cancelIssuedInvoice(original.invoice.id);
+
+      const replacement = await issue(fixture.paymentAttemptId);
+      const retry = await issue(fixture.paymentAttemptId);
+
+      expect(replacement.changed).toBe(true);
+      expect(replacement.invoice.id).not.toBe(original.invoice.id);
+      expect(replacement.invoice.invoiceNumber).not.toBe(
+        original.invoice.invoiceNumber
+      );
+      expect(replacement.invoice).toMatchObject({
+        workspaceReservationId: fixture.reservationId,
+        paymentAttemptId: fixture.paymentAttemptId,
+        replacesInvoiceId: original.invoice.id,
+        replacedByInvoiceId: null,
+        cancellation: null,
+        archivedAt: null,
+      });
+      expect(replacement.invoice.document.invoiceNumber).toBe(
+        replacement.invoice.invoiceNumber
+      );
+      expect(retry).toEqual({ invoice: replacement.invoice, changed: false });
+
+      const reads = await runRepository((repository) =>
+        Effect.all({
+          predecessor: repository.findById(original.invoice.id),
+          liveByReservation: repository.findLiveByReservationId(
+            fixture.reservationId
+          ),
+          latestByReservation: repository.findLatestByReservationId(
+            fixture.reservationId
+          ),
+          liveByAttempt: repository.findLiveByPaymentAttemptId(
+            fixture.paymentAttemptId
+          ),
+          latestByAttempt: repository.findLatestByPaymentAttemptId(
+            fixture.paymentAttemptId
+          ),
+        })
+      );
+      expect(reads.predecessor).toMatchObject({
+        invoiceNumber: original.invoice.invoiceNumber,
+        replacesInvoiceId: null,
+        replacedByInvoiceId: replacement.invoice.id,
+        cancellation: { cause: "reservation_cancellation" },
+      });
+      expect(reads.predecessor?.document).toEqual(original.invoice.document);
+      for (const read of [
+        reads.liveByReservation,
+        reads.latestByReservation,
+        reads.liveByAttempt,
+        reads.latestByAttempt,
+      ]) {
+        expect(read?.id).toBe(replacement.invoice.id);
+      }
+    });
+
+    test("reads a reservation whose only invoice is cancelled as latest but not live", async () => {
+      const fixture = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      await cancelIssuedInvoice(original.invoice.id);
+
+      const reads = await runRepository((repository) =>
+        Effect.all([
+          repository.findLiveByReservationId(fixture.reservationId),
+          repository.findLiveByPaymentAttemptId(fixture.paymentAttemptId),
+          repository.findLatestByReservationId(fixture.reservationId),
+          repository.findLatestByPaymentAttemptId(fixture.paymentAttemptId),
+        ])
+      );
+
+      expect(reads.map((invoice) => invoice?.id ?? null)).toEqual([
+        null,
+        null,
+        original.invoice.id,
+        original.invoice.id,
+      ]);
+    });
+
+    test.each(["cancelling", "cancelled"])(
+      "refuses to issue while the reservation is %s",
+      async (state) => {
+        const fixture = await createPaidFixture();
+        const original = await issue(fixture.paymentAttemptId);
+        await cancelIssuedInvoice(original.invoice.id);
+        await setReservationState(fixture, state);
+        const before = await readCounters();
+
+        expect(await issueFailure(fixture.paymentAttemptId)).toMatchObject({
+          _tag: "InvoiceEligibilityError",
+          reason: "reservation_cancelled",
+          paymentAttemptId: fixture.paymentAttemptId,
+        });
+        expect(await readCounters()).toEqual(before);
+      }
+    );
+
+    test("still returns the live invoice of a reservation that is being cancelled", async () => {
+      const fixture = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      await setReservationState(fixture, "cancelling");
+
+      expect(await issue(fixture.paymentAttemptId)).toEqual({
+        invoice: original.invoice,
+        changed: false,
+      });
+    });
+
+    test("the database keeps at most one live invoice per reservation", async () => {
+      const fixture = await createPaidFixture();
+      const other = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      const otherOriginal = await issue(other.paymentAttemptId);
+
+      // A second root, and a replacement of a live invoice.
+      expect(await insertRawInvoice(fixture, null)).toBe("23505");
+      expect(await insertRawInvoice(fixture, original.invoice.id)).toBe(
+        "23503"
+      );
+
+      await cancelIssuedInvoice(original.invoice.id);
+      await cancelIssuedInvoice(otherOriginal.invoice.id);
+      // A replacement on another reservation.
+      expect(await insertRawInvoice(other, original.invoice.id)).toBe("23503");
+
+      // Two replacements of one cancelled invoice.
+      expect(await insertRawInvoice(fixture, original.invoice.id)).toBeNull();
+      expect(await insertRawInvoice(fixture, original.invoice.id)).toBe(
+        "23505"
+      );
+    });
+
+    test("follows the chain's links, not issue times, to the invoice it replaces", async () => {
+      const fixture = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      await cancelIssuedInvoice(original.invoice.id);
+      // A replacement whose issue time precedes its predecessor's, as a
+      // clock step back would leave it, is cancelled in turn.
+      expect(await insertRawInvoice(fixture, original.invoice.id)).toBeNull();
+      const [skewed] = (
+        await testDatabase!.pool.query<{ id: string }>(
+          "select id from invoices where replaces_invoice_id = $1",
+          [original.invoice.id]
+        )
+      ).rows;
+      await testDatabase!.pool.query(
+        `insert into invoice_cancellations
+           (invoice_id, cancelled_at, cause, actor_account_email, source)
+         values ($1, now(), 'reservation_cancellation', 'synthetic administrator', 'admin-ui')`,
+        [skewed!.id]
+      );
+
+      const replacement = await issue(fixture.paymentAttemptId);
+
+      expect(replacement).toMatchObject({
+        changed: true,
+        invoice: { replacesInvoiceId: skewed!.id },
+      });
+      const latest = await runRepository((repository) =>
+        Effect.all([
+          repository.findLatestByReservationId(fixture.reservationId),
+          repository.findLatestByPaymentAttemptId(fixture.paymentAttemptId),
+        ])
+      );
+      expect(latest.map((invoice) => invoice?.id)).toEqual([
+        replacement.invoice.id,
+        replacement.invoice.id,
+      ]);
+    });
+
+    // The invoice's key is read between the lookup and the decrypting read,
+    // so a key service that commits a change there races the two reads.
+    const keysChangingBetweenReads = (change: () => Promise<unknown>) => {
+      const keys = makeKeyService();
+      let changed = false;
+      return {
+        ...keys,
+        getById: (keyId) =>
+          Effect.promise(async () => {
+            if (changed) return;
+            changed = true;
+            await change();
+          }).pipe(Effect.andThen(keys.getById(keyId))),
+      } satisfies IAccountingSnapshotKeyService;
+    };
+
+    test.each([
+      [
+        "findLiveByPaymentAttemptId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLiveByPaymentAttemptId(fixture.paymentAttemptId),
+      ],
+      [
+        "findLiveByReservationId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLiveByReservationId(fixture.reservationId),
+      ],
+    ] as const)(
+      "%s reads an invoice cancelled while it loads as no live invoice",
+      async (_finder, find) => {
+        const fixture = await createPaidFixture();
+        const original = await issue(fixture.paymentAttemptId);
+
+        const read = await runRepository(
+          find(fixture),
+          keysChangingBetweenReads(() =>
+            cancelIssuedInvoice(original.invoice.id)
+          )
+        );
+
+        expect(read).toBeNull();
+        expect(
+          await runRepository((repository) =>
+            repository.findById(original.invoice.id)
+          )
+        ).toMatchObject({
+          cancellation: { cause: "reservation_cancellation" },
+        });
+      }
+    );
+
+    test.each([
+      [
+        "findLatestByPaymentAttemptId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLatestByPaymentAttemptId(fixture.paymentAttemptId),
+      ],
+      [
+        "findLatestByReservationId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLatestByReservationId(fixture.reservationId),
+      ],
+    ] as const)(
+      "%s follows a replacement issued while it loads",
+      async (_finder, find) => {
+        const fixture = await createPaidFixture();
+        const original = await issue(fixture.paymentAttemptId);
+        await cancelIssuedInvoice(original.invoice.id);
+        let replacementId: string | undefined;
+
+        const read = await runRepository(
+          find(fixture),
+          keysChangingBetweenReads(async () => {
+            replacementId = (await issue(fixture.paymentAttemptId)).invoice.id;
+          })
+        );
+
+        expect(read?.id).toBe(replacementId!);
+        expect(read?.replacesInvoiceId).toBe(original.invoice.id);
+      }
+    );
   }
 );

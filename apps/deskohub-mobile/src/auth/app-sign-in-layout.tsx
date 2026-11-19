@@ -20,6 +20,7 @@ export function AppSignInLayout({
   onUseDifferentEmail,
   useDifferentEmailDisabled = false,
   children,
+  childrenPlacement = "centred",
   action,
 }: {
   readonly title: string;
@@ -28,8 +29,10 @@ export function AppSignInLayout({
   /** Starts over with another address; without it the link isn't shown. */
   readonly onUseDifferentEmail?: () => void;
   readonly useDifferentEmailDisabled?: boolean;
-  /** The step's field block, centred in the free space. */
+  /** The step's field block, centred in the free space by default. */
   readonly children?: ReactNode;
+  /** `under-text`: the block starts right under the heading (board 19). */
+  readonly childrenPlacement?: "centred" | "under-text";
   /** The step's primary action, at the bottom. */
   readonly action?: ReactNode;
 }) {
@@ -74,7 +77,11 @@ export function AppSignInLayout({
             </Pressable>
           )}
         </View>
-        <View style={styles.spacer} />
+        <View
+          style={
+            childrenPlacement === "centred" ? styles.spacer : styles.underText
+          }
+        />
         {children !== undefined && <View>{children}</View>}
         <View style={styles.spacer} />
         {action}
@@ -102,4 +109,5 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   spacer: { flexGrow: 1, minHeight: space.xxl },
+  underText: { height: space.xxl },
 });

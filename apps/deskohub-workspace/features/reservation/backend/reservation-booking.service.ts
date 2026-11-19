@@ -23,15 +23,13 @@ import type { CustomerAccountId } from "@/features/account/customer-account";
 import { CheckoutAnalytics } from "@/features/checkout/backend/analytics";
 import {
   type AdvertisementAffirmation,
-  buildCheckoutPayPath,
-  buildSignedPayState,
   CheckoutPricingService,
   getPriceVerdictChangedKeys,
   openSubmittedAdvertisedPriceState,
-  type PayStateLinkOptions,
+  PayState,
   type PreparedCustomerQuote,
   type PriceVerdict,
-  sealPayStateForUrl,
+  toPayStateHoldExpiresAt,
 } from "@/features/checkout/backend/checkout";
 import {
   deriveCheckoutAttemptKeys,
@@ -43,8 +41,12 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
+import type {
+  CheckoutSummary,
+  CheckoutSummaryChangedKeys,
+} from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
+import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
@@ -69,6 +71,10 @@ import {
   BookingAgent,
 } from "@/features/reservation/backend/booking-agent";
 import {
+  ensureCoworkStayOffered,
+  OvernightStayReleaseGate,
+} from "@/features/reservation/backend/overnight-stay-release-gate";
+import {
   getAgentHoldBookedAt,
   getDotyposCustomerId,
   type ReservationHold,
@@ -80,6 +86,8 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { ReservationPrePaymentOutcome } from "@/features/reservation/reservation-analytics";
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { getReservationCustomerProfile } from "@/features/reservation/reservation-customer-profile";
+import { ReservationInviteeEmailKeys } from "@/features/reservation-invitees/backend/reservation-invitee-email-keys.service";
+import { sealOfficePeople } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -90,6 +98,10 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import {
+  getOfficeAccessEndsAt,
+  validateSubmittedOfficePeople,
+} from "./office-people-submission";
 
 /**
  * One submission a server caller prepares Pay for. Beside the site's tools,
@@ -150,6 +162,7 @@ const bookingCapabilities = [
   SealedStateKeys,
   ReferralReleaseGate,
   OfficeReleaseGate,
+  OvernightStayReleaseGate,
 ] as const;
 
 type BookingCapabilities =
@@ -164,7 +177,8 @@ type BookingCapabilities =
   | ReviewSandbox
   | SealedStateKeys
   | ReferralReleaseGate
-  | OfficeReleaseGate;
+  | OfficeReleaseGate
+  | OvernightStayReleaseGate;
 
 /** Reservation submissions, booked into a hold and a Pay page. */
 export class ReservationBooking extends Context.Service<
@@ -185,7 +199,7 @@ export class ReservationBooking extends Context.Service<
   );
 
   /**
-   * The live booking, with the referral and office release gates left to the
+   * The live booking, with the referral, office and overnight-stay release gates left to the
    * caller: a request that decides them once, such as the customer HTTP API,
    * passes the gates it built, so booking shares that request's decisions.
    */
@@ -250,6 +264,7 @@ const quotePreparedReservation = Effect.fn(
   "preparePayState.quotePreparedReservation"
 )(function* (input: {
   readonly advertisement: PreparedAdvertisement;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly referralCodePrefill: CanonicalPromotionCode | undefined;
@@ -263,6 +278,7 @@ const quotePreparedReservation = Effect.fn(
 
   const verdict = yield* pricing.quoteForCustomer({
     advertisement: input.advertisement,
+    displayedOfficePrice: input.displayedOfficePrice,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     ...referral,
@@ -290,6 +306,8 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
     readonly reservationId: WorkspaceReservationId;
     readonly checkoutSessionId: CheckoutSessionId;
     readonly bookedAt: Temporal.Instant;
+    /** The hold deadline stored with the reservation; the Pay state signs it. */
+    readonly holdExpiresAt: Temporal.Instant;
     readonly changedKeys?: CheckoutSummaryChangedKeys;
     /**
      * The customer the quote was priced for, when the booking carries the
@@ -303,10 +321,7 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
      */
     readonly stableLink?: boolean;
   }) {
-    const linkOptions: PayStateLinkOptions = input.stableLink
-      ? { issuedAt: input.bookedAt, deterministic: true }
-      : {};
-    const state = yield* buildSignedPayState(
+    const payState = yield* PayState.issue(
       {
         ...input.prepared,
         locale: input.locale,
@@ -314,30 +329,34 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
         bookedAt: instantStringSchema.make(
           temporalInstantToIsoString(input.bookedAt)
         ),
+        holdExpiresAt: toPayStateHoldExpiresAt(input.holdExpiresAt),
         checkoutSessionId: input.checkoutSessionId,
         changedKeys: input.changedKeys,
       },
-      linkOptions
-    );
-    const sealedState = yield* sealPayStateForUrl(state, linkOptions);
-    const redirectUrl = buildCheckoutPayPath(input.locale, sealedState, {
-      orderId: input.reservationId,
-    });
-    // The Pay page accepts its sealed state until this instant.
-    const expiresAt = temporalInstantToIsoString(
-      Temporal.Instant.fromEpochMilliseconds(state.exp * 1000)
+      input.stableLink ? { stableAt: input.bookedAt } : {}
     );
     const referralApplied =
       input.referralCustomer !== undefined &&
       hasCheckoutReferralBenefit({
-        discounts: state.quote.payment.discounts,
+        discounts: input.prepared.quote.payment.discounts,
         dotyposCustomerId: input.referralCustomer,
       });
     const issued = {
       orderId: input.reservationId,
-      redirectUrl,
-      payStateToken: sealedState.token,
-      expiresAt,
+      redirectUrl: payState.payUrl,
+      payStateToken: payState.payStateToken,
+      // The Pay page accepts its sealed state until this instant.
+      expiresAt: payState.expiresAt,
+      ...(input.prepared.reservation.kind === "office" && {
+        preparedOffice: {
+          startsOn: input.prepared.reservation.startsOn,
+          endsOn: input.prepared.reservation.endsOn,
+          seats: input.prepared.reservation.seats,
+          total: input.prepared.quote.payment.expectedPrice,
+          regularPrice: input.prepared.quote.payment.undiscountedPrice,
+          discount: getReservationQuoteDiscount(input.prepared.quote.payment),
+        },
+      }),
       ...(referralApplied && { referralApplied: true as const }),
     };
 
@@ -528,6 +547,9 @@ const bookSubmission = Effect.fn("prepareWorkspacePayState")(function* (
         Match.tag("UndeliverableContactEmailError", () =>
           captureOutcome("validation")
         ),
+        Match.tag("OfficePeopleRejectedError", () =>
+          captureOutcome("validation")
+        ),
         Match.tag("CheckoutAttemptUnavailableError", () =>
           captureOutcome("reservation_conflict")
         ),
@@ -693,7 +715,10 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         yield* Ref.set(inReviewSandbox, reviewAccount);
         yield* Match.value(input.reservation).pipe(
           Match.discriminatorsExhaustive("kind")({
-            cowork: () => Effect.void,
+            cowork: (cowork) =>
+              ensureCoworkStayOffered(
+                "stay" in cowork ? cowork.stay : undefined
+              ),
             "meeting-room": () => Effect.void,
             office: () => ensureOfficeReservationsEnabled,
           })
@@ -729,6 +754,12 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const reservation = accountCustomer
           ? { ...input.reservation, ...accountCustomer.contact }
           : input.reservation;
+        // The contact is final here, so the list is checked against the
+        // address the reservation books under.
+        const officePeople = yield* validateSubmittedOfficePeople(
+          input.people,
+          reservation
+        );
         const advertiseAt = (at: Temporal.Instant) =>
           prepareAdvertisement({ ...input, reservation, bookedAt: at });
         // Submission locks the price: calendar sales are evaluated at this
@@ -743,6 +774,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           checkoutSessionId: input.checkoutSessionId,
           checkoutAttemptId: input.checkoutAttemptId,
           reservation,
+          people: officePeople,
         });
         yield* Effect.annotateLogsScoped({
           locale: input.locale,
@@ -779,6 +811,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
 
         const prepared = yield* quotePreparedReservation({
           advertisement,
+          displayedOfficePrice: input.displayedOfficePrice,
           dotyposCustomerId,
           locale: input.locale,
           referralCodePrefill,
@@ -799,6 +832,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           const anchoredAdvertisement = yield* advertiseAt(at);
           return yield* quotePreparedReservation({
             advertisement: anchoredAdvertisement,
+            displayedOfficePrice: input.displayedOfficePrice,
             dotyposCustomerId: customerId,
             locale: input.locale,
             referralCodePrefill,
@@ -808,6 +842,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const toHeldResult = Effect.fn("preparePayState.toHeldResult")(
           function* (held: {
             readonly reservation: WorkspaceReservation;
+            readonly holdExpiresAt: Temporal.Instant;
             readonly checkoutSessionId: CheckoutSessionId;
             readonly prepared: typeof prepared;
           }) {
@@ -821,6 +856,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: held.reservation.id,
                 checkoutSessionId: held.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: held.holdExpiresAt,
                 changedKeys: held.prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
               });
@@ -843,6 +879,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
               reservationId: held.reservation.id,
               checkoutSessionId: held.checkoutSessionId,
               bookedAt: holdBookedAt,
+              holdExpiresAt: held.holdExpiresAt,
               changedKeys: anchored.prepared.changedKeys,
               referralCustomer: referralCustomerFor(anchored.pricedFor),
               stableLink: true,
@@ -860,8 +897,17 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             "Workspace reservation with a pending payment kept for a repeated agent request",
             { reservationId: pending.reservation.id }
           );
+          const { reservationHoldExpiresAt } = pending.reservation;
+          // Payment never starts without a stored deadline; one missing
+          // leaves no hold to link to.
+          if (reservationHoldExpiresAt === null) {
+            return yield* new AgentBookingPaymentInProgressError({
+              reservationId: pending.reservation.id,
+            });
+          }
           const pendingResult = yield* toHeldResult({
             reservation: pending.reservation,
+            holdExpiresAt: reservationHoldExpiresAt,
             checkoutSessionId: pending.checkoutSessionId,
             prepared,
           });
@@ -887,6 +933,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             ? Effect.succeed(prepared)
             : quotePreparedReservation({
                 advertisement,
+                displayedOfficePrice: input.displayedOfficePrice,
                 dotyposCustomerId: reused.pricedFor,
                 locale: input.locale,
                 referralCodePrefill,
@@ -896,13 +943,25 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             Effect.flatMap((reusedPrepared) =>
               toHeldResult({
                 reservation: reused.reservation,
+                holdExpiresAt: reused.reservation.reservationHoldExpiresAt,
                 checkoutSessionId: reused.checkoutSessionId,
                 prepared: reusedPrepared,
               })
             )
           );
 
+        const sealedOfficePeople =
+          officePeople && reservation.kind === "office"
+            ? {
+                valid: officePeople,
+                sealed: yield* sealOfficePeople(
+                  officePeople,
+                  getOfficeAccessEndsAt(reservation)
+                ).pipe(Effect.provide(ReservationInviteeEmailKeys.Live)),
+              }
+            : undefined;
         const hold = yield* holds.holdForAttempt({
+          ...(sealedOfficePeople && { officePeople: sealedOfficePeople }),
           checkout: {
             sessionId: input.checkoutSessionId,
             attemptId: input.checkoutAttemptId,
@@ -944,6 +1003,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: created.reservationId,
                 checkoutSessionId: created.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: created.reservationHoldExpiresAt,
                 changedKeys: prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
                 stableLink: Option.isSome(bookingAgent),

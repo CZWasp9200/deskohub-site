@@ -72,18 +72,20 @@ type CoworkPageRequest = Parameters<
 const loadCoworkReservationContent = ({
   checkoutAccount = { status: "signed-out" },
   initialReservation,
+  pageData = { overnightStayOffered: false },
   replacementToken = "signed-replacement-token",
   ...request
 }: Omit<CoworkPageRequest, "checkoutAccount" | "pageData"> & {
   readonly checkoutAccount?: CoworkPageRequest["checkoutAccount"];
   readonly initialReservation?: NormalizedCoworkReservationOrder;
+  readonly pageData?: CoworkPageRequest["pageData"];
   readonly replacementToken?: string;
 }) =>
   Effect.runPromise(
     coworkReservationPage
       .loadContent({
         checkoutAccount,
-        pageData: undefined,
+        pageData,
         ...request,
         ...(initialReservation && {
           restoredReservation: {
@@ -390,6 +392,45 @@ test("preloads the selection resolved from reservation query values", async () =
       date: "2099-08-01",
     },
   ]);
+});
+
+describe("a linked overnight stay", () => {
+  const overnightLink = {
+    entryTier: "reserved-desk",
+    date: "2099-08-01",
+    stay: "overnight",
+  };
+
+  test("opens on the overnight stay and preloads its availability while the release is open", async () => {
+    const form = await renderCoworkReservationForm({
+      locale: "en-US",
+      pageData: { overnightStayOffered: true },
+      searchParams: overnightLink,
+    });
+
+    expect(form.initialValues).toMatchObject({
+      entryTier: "reserved-desk",
+      date: "2099-08-01",
+      stay: "overnight",
+    });
+    expect(preloads.availabilityPreloads[0].queries).not.toHaveLength(0);
+    for (const query of preloads.availabilityPreloads[0].queries) {
+      expect(query).toMatchObject({ stay: "overnight" });
+    }
+  });
+
+  test("opens on a day stay while the release is closed", async () => {
+    const form = await renderCoworkReservationForm({
+      locale: "en-US",
+      pageData: { overnightStayOffered: false },
+      searchParams: overnightLink,
+    });
+
+    expect(form.initialValues.stay).toBeUndefined();
+    for (const query of preloads.availabilityPreloads[0].queries) {
+      expect(query).not.toHaveProperty("stay");
+    }
+  });
 });
 
 test("offers the restart state for a legacy basic reservation in en-US", async () => {

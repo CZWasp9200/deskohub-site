@@ -4,8 +4,9 @@ import type {
   PaymentState,
   ReservationState,
 } from "@/db/schema";
+import { canCancelReservation } from "@/features/reservation/reservation-cancellation-policy";
 import {
-  canCancelReservation,
+  canRestoreReservation,
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
   getAdministrationReservationStatusNoteFields,
@@ -208,6 +209,56 @@ describe("administration reservation status", () => {
     }
   );
 
+  const restorable = {
+    dotyposReservationId: "dotypos-reservation",
+    failureCode: null,
+    paymentState: "paid",
+    reservationCancelledAt: Temporal.Instant.from("2026-11-02T10:00:00Z"),
+    reservationConfirmedAt: Temporal.Instant.from("2026-11-01T10:00:00Z"),
+    reservationHoldExpiredAt: null,
+    reservationState: "cancelled",
+  } satisfies Parameters<typeof canRestoreReservation>[0];
+
+  test("allows restoring a paid, confirmed reservation that was cancelled", () => {
+    expect(
+      canRestoreReservation(restorable, { hasActiveSuccessor: false })
+    ).toBe(true);
+  });
+
+  test.each([
+    ["a cancellation in progress", { reservationState: "cancelling" }],
+    ["a failed cancellation", { reservationState: "cancellation_failed" }],
+    ["a confirmed reservation", { reservationState: "confirmed" }],
+    ["an unpaid hold", { paymentState: "cancelled" }],
+    ["a forced pending-payment cancellation", { paymentState: "pending" }],
+    ["a hold that was never confirmed", { reservationConfirmedAt: null }],
+    ["a cancellation without its instant", { reservationCancelledAt: null }],
+    [
+      "an expired hold",
+      {
+        reservationHoldExpiredAt: Temporal.Instant.from("2026-11-01T11:00:00Z"),
+      },
+    ],
+    [
+      "a recorded failure",
+      { failureCode: "payment_abandoned_after_provider_cutoff" },
+    ],
+    ["a reservation Dotypos doesn't know", { dotyposReservationId: " " }],
+  ] as const)("refuses restoring %s", (_case, change) => {
+    expect(
+      canRestoreReservation(
+        { ...restorable, ...change },
+        { hasActiveSuccessor: false }
+      )
+    ).toBe(false);
+  });
+
+  test("refuses restoring a reservation its checkout session superseded", () => {
+    expect(
+      canRestoreReservation(restorable, { hasActiveSuccessor: true })
+    ).toBe(false);
+  });
+
   test("keeps cancellation states ahead of fulfillment states", () => {
     expect(status("cancelled", "cancelled", "failed")).toEqual({
       group: "cancelled",
@@ -219,6 +270,28 @@ describe("administration reservation status", () => {
       code: "cancellation_issue",
       label: "Cancellation issue",
     });
+  });
+
+  test("names a reservation the customer withdrew from, before or after its cancellation", () => {
+    for (const reservationState of [
+      "confirmed",
+      "cancelling",
+      "cancellation_failed",
+      "cancelled",
+    ] as const) {
+      expect(
+        getAdministrationReservationStatus({
+          fulfillmentState: "fulfilled",
+          paymentState: "paid",
+          reservationState,
+          withdrawn: true,
+        })
+      ).toEqual({
+        group: "cancelled",
+        code: "withdrawn",
+        label: "Withdrawn by customer",
+      });
+    }
   });
 
   test("labels a locally abandoned payment instead of a generic cancellation", () => {

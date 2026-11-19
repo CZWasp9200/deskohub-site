@@ -35,7 +35,7 @@ import {
   type Redacted,
   Schema,
 } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import type { WorkspaceAdminApiClient } from "../api/workspace-admin-api-client.service";
 import {
   confirmationFlag,
@@ -49,7 +49,7 @@ import { pollUntil } from "../polling";
 type Api = WorkspaceAdminApiClient["Service"];
 type AccessToken = Redacted.Redacted<CliAccessTokenType>;
 
-const campaignIdArgument = Argument.string("campaign-id").pipe(
+const campaignIdArgument = Argument.String("campaign-id").pipe(
   Argument.withSchema(AdministrationCampaignId)
 );
 
@@ -162,7 +162,7 @@ const automationsFlowGetCommand = Command.make(
   "get",
   {
     campaignId: campaignIdArgument,
-    output: Flag.string("output").pipe(
+    output: Flag.String("output").pipe(
       Flag.optional,
       Flag.withDescription("Write the flow JSON to this file")
     ),
@@ -204,7 +204,7 @@ const automationsFlowSetCommand = Command.make(
   "set",
   {
     campaignId: campaignIdArgument,
-    flowFile: Flag.string("flow-file").pipe(
+    flowFile: Flag.String("flow-file").pipe(
       Flag.withDescription(
         "JSON file with the flow's trigger and steps; unknown keys are refused"
       )
@@ -381,7 +381,7 @@ const automationsActivateCommand = Command.make(
   "activate",
   {
     campaignId: campaignIdArgument,
-    preview: Flag.string("preview").pipe(
+    preview: Flag.String("preview").pipe(
       Flag.withSchema(AutomationPreviewId),
       Flag.optional,
       Flag.withDescription(
@@ -558,7 +558,7 @@ const automationsVersionsCommand = Command.make(
   "versions",
   {
     campaignId: campaignIdArgument,
-    versionNumber: Argument.integer("version").pipe(
+    versionNumber: Argument.Int("version").pipe(
       Argument.withSchema(AutomationVersionNumber),
       Argument.optional,
       Argument.withDescription("Show this version's frozen flow and content")
@@ -637,42 +637,42 @@ const automationsRunsCommand = Command.make(
   "runs",
   {
     campaignId: campaignIdArgument,
-    state: Flag.choice("state", AutomationRunState.literals).pipe(
+    state: Flag.Literals("state", AutomationRunState.literals).pipe(
       Flag.optional,
       Flag.withDescription("Only runs in this state")
     ),
-    step: Flag.string("step").pipe(
+    step: Flag.String("step").pipe(
       Flag.withSchema(AutomationStepId),
       Flag.optional,
       Flag.withDescription("Only runs at this step, or that ended at it")
     ),
-    outcome: Flag.choice("outcome", AutomationRunOutcome.literals).pipe(
+    outcome: Flag.Literals("outcome", AutomationRunOutcome.literals).pipe(
       Flag.optional,
       Flag.withDescription("Only ended runs with this outcome")
     ),
-    skipReason: Flag.choice(
+    skipReason: Flag.Literals(
       "skip-reason",
       AdministrationCampaignRecipientSkipReason.literals
     ).pipe(
       Flag.optional,
       Flag.withDescription("Only runs skipped for this reason")
     ),
-    version: Flag.integer("version").pipe(
+    version: Flag.Int("version").pipe(
       Flag.withSchema(AutomationVersionNumber),
       Flag.optional,
       Flag.withDescription("Only runs of this version")
     ),
-    customer: Flag.string("customer").pipe(
+    customer: Flag.String("customer").pipe(
       Flag.withSchema(AdministrationDotyposCustomerId),
       Flag.optional,
       Flag.withDescription("Only this customer's runs")
     ),
-    cursor: Flag.string("cursor").pipe(
+    cursor: Flag.String("cursor").pipe(
       Flag.withSchema(AutomationPageCursor),
       Flag.optional,
       Flag.withDescription("Continue after a previous page")
     ),
-    limit: Flag.integer("limit").pipe(
+    limit: Flag.Int("limit").pipe(
       Flag.withSchema(
         Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))
       ),
@@ -736,7 +736,7 @@ const formatRunDetail = (run: AutomationRunDetailType) =>
 const automationsRunCommand = Command.make(
   "run",
   {
-    runId: Argument.string("run-id").pipe(Argument.withSchema(AutomationRunId)),
+    runId: Argument.String("run-id").pipe(Argument.withSchema(AutomationRunId)),
   },
   ({ runId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
@@ -788,7 +788,7 @@ const automationsStatsCommand = Command.make(
   "stats",
   {
     campaignId: campaignIdArgument,
-    version: Flag.integer("version").pipe(
+    version: Flag.Int("version").pipe(
       Flag.withSchema(AutomationVersionNumber),
       Flag.optional,
       Flag.withDescription("Count only this version's runs")

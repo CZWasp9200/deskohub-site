@@ -16,7 +16,7 @@ file($name, $body) where {
       $use <: r"^(?:spawnSync|execSync|execFileSync)$",
       register_diagnostic(
         span = $use,
-        message = "Run subprocesses with runCommand or commandOutput from scripts/shared/command; Bun 1.4.2 synchronous spawns can hang bun test workers.",
+        message = "Run subprocesses with runCommand or commandOutput from scripts/shared/command; synchronous spawns can still hang bun test workers in Bun 1.4.4.",
         severity = "error"
       )
     }

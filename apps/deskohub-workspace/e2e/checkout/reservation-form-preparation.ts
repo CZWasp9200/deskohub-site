@@ -2,6 +2,7 @@ import {
   getMeetingRoomReservationDurationKey,
   isMeetingRoomWholeDayReservationDuration,
 } from "@/features/reservation/meeting-room-reservation-duration";
+import { getWorkspaceE2EOfficeInvitees } from "../office";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutData } from "../types";
 import { getOfficeDayCount } from "./prefilled-reservation";
@@ -29,6 +30,8 @@ export type ReservationSelection =
     }
   | {
       readonly dayCount: number;
+      /** The people added by email; the contact takes the remaining seat. */
+      readonly invitees: ReadonlyArray<string>;
       readonly kind: "office";
       readonly seats: number;
       readonly startsOn: string;
@@ -113,6 +116,7 @@ export const toReservationSelection = (
       }
       return {
         dayCount: getOfficeDayCount(data.office),
+        invitees: getWorkspaceE2EOfficeInvitees(data.office.seats),
         kind: "office",
         seats: data.office.seats,
         startsOn: data.office.startsOn,
@@ -347,7 +351,10 @@ export const prepareReservationForm = ({
       const price = document.querySelector(
         `[data-reservation-type-price="${desiredTier}"]`
       );
-      const dateTrigger = document.querySelector(
+      // The calendar button shares the date field's container; other
+      // dialog openers, such as the agent booking banner above the form,
+      // come earlier in the page.
+      const dateTrigger = dateInput.parentElement?.querySelector(
         'button[aria-haspopup="dialog"]'
       );
       if (
@@ -391,8 +398,14 @@ export const prepareReservationForm = ({
       }
     }
     if (desiredMonitorOption !== null) {
+      // Only the monitor's own radio group, so another radio group on the
+      // form with the same value is never chosen.
       const findMonitorInput = () =>
-        [...document.querySelectorAll('input[type="radio"]')].find(
+        [
+          ...document.querySelectorAll(
+            'input[type="radio"][name="monitorOption"]'
+          ),
+        ].find(
           (candidate): candidate is HTMLInputElement =>
             candidate instanceof HTMLInputElement &&
             candidate.value === desiredMonitorOption
@@ -694,20 +707,26 @@ export const prepareReservationForm = ({
       "office start date"
     );
     setField('input[name="dayCount"]', String(expected.dayCount));
-    const seatsOption = document.querySelector(
-      `input[name="seats"][value="${expected.seats}"]`
-    );
-    if (!(seatsOption instanceof HTMLInputElement)) {
-      throw new Error("office seat option not found");
+    // Each person takes a seat: the contact's own row, then one address each.
+    for (const invitee of expected.invitees) {
+      setField("[data-office-invitee-email]", invitee);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const addInvitee = document.querySelector("[data-office-invitee-add]");
+      if (!(addInvitee instanceof HTMLButtonElement)) {
+        throw new Error("office invitee Add button not found");
+      }
+      addInvitee.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
     }
-    seatsOption.click();
 
     let priceRetryAttempted = false;
     await waitUntil(
       () => {
         const startsOn = document.querySelector('input[name="startsOn"]');
         const dayCount = document.querySelector('input[name="dayCount"]');
-        const seats = document.querySelector('input[name="seats"]:checked');
+        const peopleCount = document.querySelector(
+          "[data-office-people-count]"
+        );
         const submit = document.querySelector(actionSelector);
         const priceRetry = document.querySelector(
           "#reservation-advertised-price-retry"
@@ -725,8 +744,9 @@ export const prepareReservationForm = ({
           startsOn.value === expected.startsOn &&
           dayCount instanceof HTMLInputElement &&
           dayCount.value === String(expected.dayCount) &&
-          seats instanceof HTMLInputElement &&
-          seats.value === String(expected.seats) &&
+          peopleCount instanceof HTMLElement &&
+          Number.parseInt(peopleCount.textContent ?? "", 10) ===
+            expected.seats &&
           submit instanceof HTMLButtonElement &&
           !submit.disabled
         );

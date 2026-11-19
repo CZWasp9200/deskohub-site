@@ -48,6 +48,17 @@ function MockNextLink({
 }
 
 mock.module("next/link", () => ({ default: MockNextLink }));
+// The link's dialog has its own tests; here it marks where it's offered.
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({
+    ReservationWithdrawalLink: ({ orderId }: { readonly orderId: string }) => (
+      <button data-withdrawal-order={orderId} type="button">
+        {m.reservationWithdrawalAction({}, { locale: "en-US" })}
+      </button>
+    ),
+  })
+);
 
 const { ReservationHistory } = await import("./reservation-history");
 
@@ -249,22 +260,15 @@ describe("ReservationHistory", () => {
       ).toBeTruthy();
     }
 
-    expect(
-      view
-        .getByRole("button", {
-          name: m.accountReservationCheckIn({}, { locale: "en-US" }),
-        })
-        .hasAttribute("disabled")
-    ).toBe(true);
     expect(view.queryByRole("button", { name: /nfc/i })).toBeNull();
     expect(
       view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeTruthy();
     expect(
       view.queryByRole("button", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       })
     ).toBeNull();
 
@@ -301,7 +305,7 @@ describe("ReservationHistory", () => {
     expect(row?.textContent).toContain("Aug 21, 2026");
 
     const link = view.getByRole("link", {
-      name: m.accountReservationView({}, { locale: "en-US" }),
+      name: m.reservationView({}, { locale: "en-US" }),
     });
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe(
@@ -477,11 +481,11 @@ describe("ReservationHistory", () => {
     (locale) => {
       const view = renderHistory(locale, linkedHistory);
       const pinLink = view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale }),
+        name: m.reservationShowPinCode({}, { locale }),
       });
       const pinHref = pinLink.getAttribute("href");
       const detailLink = view.getByRole("link", {
-        name: m.accountReservationView({}, { locale }),
+        name: m.reservationView({}, { locale }),
       });
 
       expect(pinLink.tagName).toBe("A");
@@ -508,13 +512,13 @@ describe("ReservationHistory", () => {
       },
     });
     const pinButton = view.getByRole("button", {
-      name: m.accountReservationShowPinCode({}, { locale }),
+      name: m.reservationShowPinCode({}, { locale }),
     });
 
     expect(pinButton.hasAttribute("disabled")).toBe(true);
     expect(
       view.queryByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale }),
+        name: m.reservationShowPinCode({}, { locale }),
       })
     ).toBeNull();
     expect(pinButton.nextElementSibling?.tagName).toBe("P");
@@ -542,7 +546,7 @@ describe("ReservationHistory", () => {
     expect(
       view
         .getByRole("button", {
-          name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
         })
         .hasAttribute("disabled")
     ).toBe(true);
@@ -566,7 +570,7 @@ describe("ReservationHistory", () => {
 
     expect(
       view.queryByRole("link", {
-        name: m.accountReservationView({}, { locale: "en-US" }),
+        name: m.reservationView({}, { locale: "en-US" }),
       })
     ).toBeNull();
     expect(view.container.querySelector("li a")).toBeNull();
@@ -585,7 +589,7 @@ describe("ReservationHistory", () => {
         </UnsavedChangesProvider>
       );
       const link = view.getByRole("link", {
-        name: m.accountReservationView({}, { locale: "en-US" }),
+        name: m.reservationView({}, { locale: "en-US" }),
       });
       const event = new MouseEvent("click", {
         bubbles: true,
@@ -615,7 +619,7 @@ describe("ReservationHistory", () => {
         </UnsavedChangesProvider>
       );
       const pinLink = view.getByRole("link", {
-        name: m.accountReservationShowPinCode({}, { locale: "en-US" }),
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
       });
       const event = new MouseEvent("click", {
         bubbles: true,
@@ -764,6 +768,55 @@ describe("ReservationHistory", () => {
       }
     });
   }
+
+  test("offers withdrawal only on reservations the customer can withdraw from now", () => {
+    const withdrawalLinks = (current: CustomerReservationSummary[]) => {
+      const view = renderHistory("en-US", {
+        kind: "available",
+        groups: { current, past: [], unavailable: [] },
+      });
+      const orders = view
+        .queryAllByRole("button", {
+          name: m.reservationWithdrawalAction({}, { locale: "en-US" }),
+        })
+        .map((link) => link.getAttribute("data-withdrawal-order"));
+      cleanup();
+      return [...new Set(orders)].toSorted();
+    };
+    const periodEndsAt = "2026-09-20T22:00:00Z";
+    const linked = (id: string) => ({
+      id,
+      workspaceReservationId: workspaceReservationIdSchema.make(id),
+    });
+
+    expect(
+      withdrawalLinks([
+        reservation({
+          ...linked("eligible-featured"),
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+        reservation({
+          ...linked("eligible-compact"),
+          startsAt: "2026-09-25T12:00:00Z",
+          endsAt: "2026-09-25T14:00:00Z",
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+      ])
+    ).toEqual(["eligible-compact", "eligible-featured"]);
+    expect(
+      withdrawalLinks([
+        reservation({
+          ...linked("period-over"),
+          withdrawal: { eligible: false, periodEndsAt },
+        }),
+        reservation(linked("not-offered")),
+        reservation({
+          id: "provider-only",
+          withdrawal: { eligible: true, periodEndsAt },
+        }),
+      ])
+    ).toEqual([]);
+  });
 
   test("keeps the profile page usable when the reservation provider is unavailable", () => {
     const locale = "en-US";

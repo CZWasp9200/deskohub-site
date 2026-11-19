@@ -4,19 +4,18 @@ import type {
   NexiOrderId,
   NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Context, Effect, Layer } from "effect";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   discountApplications,
-  type PaymentAttemptState,
+  latePaymentRecoveries,
   paymentAttempts,
   type WorkspaceReservationRow,
   workspaceReservations,
 } from "@/db/schema";
-import { postgresUuidV7 } from "@/db/uuid-v7";
 import {
   type AccountingDocumentSnapshot,
   getAccountingDocumentSnapshotFirstServiceDate,
@@ -41,35 +40,29 @@ import {
 } from "@/features/discounts/promotion-claims";
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import type { Locale } from "@/features/i18n";
+import type { OrderId } from "@/features/order";
 import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  reservationIdForOrder,
+  type WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import { type Money, moneyEquals, moneyWithValue } from "@/shared/money/money";
 import {
   type PaymentAttempt,
   toPaymentAttempt,
 } from "./payment-attempt.repository";
-
-export type PaymentLifecycleReference =
-  | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
-  | { readonly type: "providerOrderId"; readonly id: NexiOrderId }
-  | {
-      readonly type: "workspaceReservationId";
-      readonly id: WorkspaceReservationId;
-    };
-
-export class PaymentLifecycleStateError extends Data.TaggedError(
-  "PaymentLifecycleStateError"
-)<{
-  readonly operation: string;
-  readonly paymentReference: PaymentLifecycleReference;
-  readonly message: string;
-}> {}
-
-interface PaymentLifecycleTransition {
-  readonly attempt: PaymentAttempt;
-  readonly changed: boolean;
-  readonly timestamp: Temporal.Instant;
-}
+import {
+  insertPaymentAttempt,
+  markPaymentAttemptPaid,
+} from "./payment-attempt-writes";
+import {
+  findPaymentReservationCustomer,
+  lifecycleStateError,
+  type NonTerminalPaymentAttemptState,
+  PaymentLifecycleStateError,
+  type PaymentLifecycleTransition,
+} from "./payment-lifecycle-state";
+import { PaymentTerminalTransitions } from "./payment-terminal-transitions";
 
 export type PaymentLifecycleRepositoryError =
   | AccountingRecordUnavailable
@@ -83,7 +76,7 @@ export const administrationForcedPaymentCancellationFailureCode =
 
 export interface IPaymentLifecycleRepository {
   readonly createPendingNexiAttempt: (input: {
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly providerOrderId: NexiOrderId;
     readonly amount: Money;
     readonly commitment: DiscountCommitment;
@@ -91,7 +84,7 @@ export interface IPaymentLifecycleRepository {
     readonly accountingSnapshot: AccountingDocumentSnapshot;
   }) => Effect.Effect<PaymentAttempt, PaymentLifecycleRepositoryError>;
   readonly completeInternalPayment: (input: {
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly amount: Money;
     readonly commitment: DiscountCommitment;
     readonly locale: Locale;
@@ -110,7 +103,7 @@ export interface IPaymentLifecycleRepository {
   >;
   readonly markPaid: (input: {
     readonly id: PaymentAttemptId;
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly webhookEventId?: NexiWebhookEventId;
     readonly providerOperationId?: NexiOperationId;
     readonly providerStatus?: string;
@@ -121,7 +114,7 @@ export interface IPaymentLifecycleRepository {
   >;
   readonly markTerminal: (input: {
     readonly id: PaymentAttemptId;
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly state: "failed" | "cancelled" | "expired";
     readonly failureCode: string;
     readonly webhookEventId?: NexiWebhookEventId;
@@ -139,34 +132,46 @@ export interface IPaymentLifecycleRepository {
   >;
 }
 
-type NonTerminalPaymentAttemptState = Extract<
-  PaymentAttemptState,
-  "created" | "pending"
->;
+/**
+ * A payment that settled late on one of the order's earlier attempts is
+ * being recovered or was refunded: the order admits no new payment, so a
+ * retry never charges it again while that recovery decides.
+ */
+const noLatePaymentRecovery = notExists(
+  sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
+);
 
 export class PaymentLifecycleRepository extends Context.Service<
   PaymentLifecycleRepository,
   IPaymentLifecycleRepository
 >()("@deskohub-workspace/checkout/PaymentLifecycleRepository") {
+  /**
+   * The repository over the Workspace database and the accounting snapshots.
+   * It composes `PaymentTerminalTransitions` over the same database itself:
+   * that module is a part of this one, split out so its interface needs only
+   * the database, not a capability callers configure.
+   */
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
       const accountingSnapshots = yield* AccountingDocumentSnapshots;
+      const terminalTransitions = yield* PaymentTerminalTransitions;
 
       const createPendingNexiAttempt = Effect.fn(
         "PaymentLifecycleRepository.createPendingNexiAttempt"
       )(function* (input: {
-        readonly workspaceReservationId: WorkspaceReservationId;
+        readonly orderId: OrderId;
         readonly providerOrderId: NexiOrderId;
         readonly amount: Money;
         readonly commitment: DiscountCommitment;
         readonly locale: Locale;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
       }) {
+        const workspaceReservationId = reservationIdForOrder(input.orderId);
         const accountingSnapshot = yield* accountingSnapshots.prepare({
           snapshot: input.accountingSnapshot,
-          workspaceReservationId: input.workspaceReservationId,
+          orderId: input.orderId,
           amount: input.amount,
           locale: input.locale,
           reference: { type: "providerOrderId", id: input.providerOrderId },
@@ -183,7 +188,7 @@ export class PaymentLifecycleRepository extends Context.Service<
           Effect.gen(function* () {
             const dotyposCustomerId = yield* findPaymentReservationCustomer(
               "createPendingNexiAttempt",
-              input.workspaceReservationId
+              workspaceReservationId
             );
             yield* ReferralInvitationLedger.lockFirstBooking({
               dotyposCustomerId,
@@ -202,7 +207,8 @@ export class PaymentLifecycleRepository extends Context.Service<
               .from(workspaceReservations)
               .where(
                 and(
-                  eq(workspaceReservations.id, input.workspaceReservationId),
+                  eq(workspaceReservations.id, workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -237,30 +243,18 @@ export class PaymentLifecycleRepository extends Context.Service<
 
             yield* admitFirstBookingPayment({
               dotyposCustomerId: reservation.dotyposCustomerId,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
               admitsInvitation: claimedApplications.referral !== undefined,
               operation: "createPendingNexiAttempt",
             });
 
-            const [attemptRow] = yield* db
-              .insert(paymentAttempts)
-              .values({
-                id: postgresUuidV7,
-                workspaceReservationId: input.workspaceReservationId,
-                provider: "nexi",
-                providerOrderId: input.providerOrderId,
-                state: "created",
-                amountValue: input.amount.value,
-                amountExponent: input.amount.exponent,
-                currency: input.amount.currency,
-              })
-              .returning();
-
-            if (!attemptRow) {
-              return yield* Effect.die(
-                "Payment attempt insert returned no row."
-              );
-            }
+            const attemptRow = yield* insertPaymentAttempt({
+              workspaceReservationId,
+              orderId: input.orderId,
+              amount: input.amount,
+              provider: "nexi",
+              providerOrderId: input.providerOrderId,
+            });
 
             yield* accountingSnapshot.record({
               paymentAttemptId: attemptRow.id,
@@ -277,7 +271,8 @@ export class PaymentLifecycleRepository extends Context.Service<
               })
               .where(
                 and(
-                  eq(workspaceReservations.id, input.workspaceReservationId),
+                  eq(workspaceReservations.id, workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -305,13 +300,13 @@ export class PaymentLifecycleRepository extends Context.Service<
             const applicationRows = yield* persistDiscountApplications({
               commitment,
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
             });
             yield* reserveCommittedClaims({
               claimedApplications,
               applicationRows,
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
               locale: input.locale,
               reservationCustomerId: reservation.dotyposCustomerId,
               reservationExpiresAt: reservation.reservationHoldExpiresAt,
@@ -326,20 +321,21 @@ export class PaymentLifecycleRepository extends Context.Service<
       const completeInternalPayment = Effect.fn(
         "PaymentLifecycleRepository.completeInternalPayment"
       )(function* (input: {
-        readonly workspaceReservationId: WorkspaceReservationId;
+        readonly orderId: OrderId;
         readonly amount: Money;
         readonly commitment: DiscountCommitment;
         readonly locale: Locale;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
       }) {
+        const workspaceReservationId = reservationIdForOrder(input.orderId);
         const accountingSnapshot = yield* accountingSnapshots.prepare({
           snapshot: input.accountingSnapshot,
-          workspaceReservationId: input.workspaceReservationId,
+          orderId: input.orderId,
           amount: input.amount,
           locale: input.locale,
           reference: {
             type: "workspaceReservationId",
-            id: input.workspaceReservationId,
+            id: workspaceReservationId,
           },
         });
         const commitment = getDiscountCommitmentPayload(input.commitment);
@@ -357,7 +353,7 @@ export class PaymentLifecycleRepository extends Context.Service<
             "completeInternalPayment",
             {
               type: "workspaceReservationId",
-              id: input.workspaceReservationId,
+              id: workspaceReservationId,
             },
             "Internal payments require an exactly zero payable amount."
           );
@@ -367,7 +363,7 @@ export class PaymentLifecycleRepository extends Context.Service<
           Effect.gen(function* () {
             const dotyposCustomerId = yield* findPaymentReservationCustomer(
               "completeInternalPayment",
-              input.workspaceReservationId
+              workspaceReservationId
             );
             yield* ReferralInvitationLedger.lockFirstBooking({
               dotyposCustomerId,
@@ -391,7 +387,7 @@ export class PaymentLifecycleRepository extends Context.Service<
                 reservationState: workspaceReservations.reservationState,
               })
               .from(workspaceReservations)
-              .where(eq(workspaceReservations.id, input.workspaceReservationId))
+              .where(eq(workspaceReservations.id, workspaceReservationId))
               .limit(1)
               .for("update");
 
@@ -408,7 +404,7 @@ export class PaymentLifecycleRepository extends Context.Service<
                 "completeInternalPayment",
                 {
                   type: "workspaceReservationId",
-                  id: input.workspaceReservationId,
+                  id: workspaceReservationId,
                 },
                 "Internal payments can only complete a current held unpaid reservation."
               );
@@ -416,32 +412,18 @@ export class PaymentLifecycleRepository extends Context.Service<
 
             yield* admitFirstBookingPayment({
               dotyposCustomerId: reservation.dotyposCustomerId,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
               admitsInvitation: claimedApplications.referral !== undefined,
               operation: "completeInternalPayment",
             });
 
-            const [attemptRow] = yield* db
-              .insert(paymentAttempts)
-              .values({
-                id: postgresUuidV7,
-                workspaceReservationId: input.workspaceReservationId,
-                provider: "internal",
-                providerOrderId: null,
-                state: "paid",
-                amountValue: input.amount.value,
-                amountExponent: input.amount.exponent,
-                currency: input.amount.currency,
-                createdAt: paidAt,
-                updatedAt: paidAt,
-              })
-              .returning();
-
-            if (!attemptRow) {
-              return yield* Effect.die(
-                "Internal payment attempt insert returned no row."
-              );
-            }
+            const attemptRow = yield* insertPaymentAttempt({
+              workspaceReservationId,
+              orderId: input.orderId,
+              amount: input.amount,
+              provider: "internal",
+              paidAt,
+            });
 
             yield* accountingSnapshot.record({
               paymentAttemptId: attemptRow.id,
@@ -460,7 +442,8 @@ export class PaymentLifecycleRepository extends Context.Service<
               })
               .where(
                 and(
-                  eq(workspaceReservations.id, input.workspaceReservationId),
+                  eq(workspaceReservations.id, workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -483,13 +466,13 @@ export class PaymentLifecycleRepository extends Context.Service<
             const applicationRows = yield* persistDiscountApplications({
               commitment,
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
             });
             const claimedAt = yield* reserveCommittedClaims({
               claimedApplications,
               applicationRows,
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
               locale: input.locale,
               reservationCustomerId: reservation.dotyposCustomerId,
               reservationExpiresAt: reservation.reservationHoldExpiresAt,
@@ -497,7 +480,7 @@ export class PaymentLifecycleRepository extends Context.Service<
             });
             yield* redeemInternalPaymentClaims({
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
+              workspaceReservationId,
               claimedAt,
             });
 
@@ -550,17 +533,18 @@ export class PaymentLifecycleRepository extends Context.Service<
       const markPaid = Effect.fn("PaymentLifecycleRepository.markPaid")(
         function* (input: {
           readonly id: PaymentAttemptId;
-          readonly workspaceReservationId: WorkspaceReservationId;
+          readonly orderId: OrderId;
           readonly webhookEventId?: NexiWebhookEventId;
           readonly providerOperationId?: NexiOperationId;
           readonly providerStatus?: string;
           readonly paidAt: Temporal.Instant;
         }) {
+          const workspaceReservationId = reservationIdForOrder(input.orderId);
           return yield* transaction(
             Effect.gen(function* () {
               const dotyposCustomerId = yield* findPaymentReservationCustomer(
                 "markPaid",
-                input.workspaceReservationId
+                workspaceReservationId
               );
               yield* ReferralInvitationLedger.lockFirstBooking({
                 dotyposCustomerId,
@@ -568,35 +552,11 @@ export class PaymentLifecycleRepository extends Context.Service<
               });
               yield* ReferralInvitationLedger.ensureFirstPaid({
                 dotyposCustomerId,
-                workspaceReservationId: input.workspaceReservationId,
+                workspaceReservationId,
                 paymentAttemptId: input.id,
               });
 
-              const [attempt] = yield* db
-                .update(paymentAttempts)
-                .set({
-                  state: "paid",
-                  lastWebhookEventId: input.webhookEventId,
-                  lastProviderOperationId: input.providerOperationId,
-                  lastProviderStatus: input.providerStatus,
-                  failureCode: null,
-                  updatedAt: input.paidAt,
-                })
-                .where(
-                  and(
-                    eq(paymentAttempts.id, input.id),
-                    eq(
-                      paymentAttempts.workspaceReservationId,
-                      input.workspaceReservationId
-                    ),
-                    inArray(paymentAttempts.state, [
-                      "created",
-                      "pending",
-                      "paid",
-                    ])
-                  )
-                )
-                .returning();
+              const attempt = yield* markPaymentAttemptPaid(input);
 
               if (!attempt) {
                 return yield* lifecycleStateError(
@@ -616,7 +576,7 @@ export class PaymentLifecycleRepository extends Context.Service<
                 })
                 .where(
                   and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
+                    eq(workspaceReservations.id, workspaceReservationId),
                     eq(workspaceReservations.reservationState, "held"),
                     eq(workspaceReservations.paymentState, "pending"),
                     eq(workspaceReservations.activePaymentAttemptId, input.id)
@@ -631,7 +591,7 @@ export class PaymentLifecycleRepository extends Context.Service<
                 });
                 yield* ReferralInvitationLedger.redeem({
                   paymentAttemptId: input.id,
-                  workspaceReservationId: input.workspaceReservationId,
+                  workspaceReservationId,
                   redeemedAt: input.paidAt,
                 });
                 return {
@@ -646,7 +606,7 @@ export class PaymentLifecycleRepository extends Context.Service<
                 .from(workspaceReservations)
                 .where(
                   and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
+                    eq(workspaceReservations.id, workspaceReservationId),
                     eq(workspaceReservations.paymentState, "paid"),
                     eq(workspaceReservations.activePaymentAttemptId, input.id)
                   )
@@ -667,7 +627,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               });
               yield* ReferralInvitationLedger.redeem({
                 paymentAttemptId: input.id,
-                workspaceReservationId: input.workspaceReservationId,
+                workspaceReservationId,
                 redeemedAt: input.paidAt,
               });
               return {
@@ -681,138 +641,10 @@ export class PaymentLifecycleRepository extends Context.Service<
       );
 
       const markTerminal = Effect.fn("PaymentLifecycleRepository.markTerminal")(
-        function* (input: {
-          readonly id: PaymentAttemptId;
-          readonly workspaceReservationId: WorkspaceReservationId;
-          readonly state: "failed" | "cancelled" | "expired";
-          readonly failureCode: string;
-          readonly webhookEventId?: NexiWebhookEventId;
-          readonly providerOperationId?: NexiOperationId;
-          readonly providerStatus?: string;
-          readonly fromAttemptStates?: readonly NonTerminalPaymentAttemptState[];
-        }) {
-          const terminalAt = Temporal.Now.instant();
-          const fromAttemptStates = input.fromAttemptStates ?? [
-            "created",
-            "pending",
-          ];
-
-          return yield* transaction(
-            Effect.gen(function* () {
-              const dotyposCustomerId = yield* findPaymentReservationCustomer(
-                "markTerminal",
-                input.workspaceReservationId
-              );
-              yield* ReferralInvitationLedger.lockFirstBooking({
-                dotyposCustomerId,
-                records: "nothing",
-              });
-
-              const [attempt] = yield* db
-                .update(paymentAttempts)
-                .set({
-                  state: input.state,
-                  failureCode: input.failureCode,
-                  lastWebhookEventId: input.webhookEventId,
-                  lastProviderOperationId: input.providerOperationId,
-                  lastProviderStatus: input.providerStatus,
-                  updatedAt: terminalAt,
-                })
-                .where(
-                  and(
-                    eq(paymentAttempts.id, input.id),
-                    eq(
-                      paymentAttempts.workspaceReservationId,
-                      input.workspaceReservationId
-                    ),
-                    inArray(paymentAttempts.state, [
-                      ...fromAttemptStates,
-                      input.state,
-                    ])
-                  )
-                )
-                .returning();
-
-              if (!attempt) {
-                return yield* lifecycleStateError(
-                  "markTerminal",
-                  { type: "paymentAttemptId", id: input.id },
-                  "Only a non-terminal or matching terminal attempt can mark a reservation terminal."
-                );
-              }
-
-              const [reservation] = yield* db
-                .update(workspaceReservations)
-                .set({
-                  paymentState: input.state,
-                  failureCode: input.failureCode,
-                  updatedAt: terminalAt,
-                })
-                .where(
-                  and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
-                    eq(workspaceReservations.reservationState, "held"),
-                    eq(workspaceReservations.paymentState, "pending"),
-                    eq(workspaceReservations.activePaymentAttemptId, input.id)
-                  )
-                )
-                .returning({ updatedAt: workspaceReservations.updatedAt });
-
-              if (reservation) {
-                yield* PromotionClaims.release({
-                  paymentAttemptId: input.id,
-                  releasedAt: terminalAt,
-                  releaseReason: input.failureCode,
-                });
-                yield* ReferralInvitationLedger.release({
-                  paymentAttemptId: input.id,
-                  releasedAt: terminalAt,
-                  releaseReason: input.failureCode,
-                });
-                return {
-                  attempt: toPaymentAttempt(attempt),
-                  changed: true,
-                  timestamp: reservation.updatedAt,
-                };
-              }
-
-              const [consistent] = yield* db
-                .select({ updatedAt: workspaceReservations.updatedAt })
-                .from(workspaceReservations)
-                .where(
-                  and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
-                    eq(workspaceReservations.paymentState, input.state),
-                    eq(workspaceReservations.activePaymentAttemptId, input.id)
-                  )
-                )
-                .limit(1);
-
-              if (!consistent) {
-                return yield* lifecycleStateError(
-                  "markTerminal",
-                  { type: "paymentAttemptId", id: input.id },
-                  "Only the active pending attempt on a held reservation can mark payment terminal."
-                );
-              }
-
-              yield* PromotionClaims.release({
-                paymentAttemptId: input.id,
-                releasedAt: terminalAt,
-                releaseReason: input.failureCode,
-              });
-              yield* ReferralInvitationLedger.release({
-                paymentAttemptId: input.id,
-                releasedAt: terminalAt,
-                releaseReason: input.failureCode,
-              });
-              return {
-                attempt: toPaymentAttempt(attempt),
-                changed: false,
-                timestamp: consistent.updatedAt,
-              };
-            })
-          );
+        function* (
+          input: Parameters<IPaymentLifecycleRepository["markTerminal"]>[0]
+        ) {
+          return yield* terminalTransitions.markTerminal(input);
         }
       );
 
@@ -824,7 +656,7 @@ export class PaymentLifecycleRepository extends Context.Service<
         markTerminal,
       } satisfies IPaymentLifecycleRepository;
     })
-  );
+  ).pipe(Layer.provide(PaymentTerminalTransitions.Default));
 
   /** `Default` over the accounting storage and the Workspace database. */
   static Live = this.Default.pipe(
@@ -834,43 +666,13 @@ export class PaymentLifecycleRepository extends Context.Service<
   );
 }
 
-/** Reads the reservation's customer, whose first-booking lock comes next. */
-const findPaymentReservationCustomer = Effect.fnUntraced(function* (
-  operation:
-    | "createPendingNexiAttempt"
-    | "completeInternalPayment"
-    | "markPaid"
-    | "markTerminal",
-  workspaceReservationId: WorkspaceReservationId
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [reservationIdentity] = yield* db
-    .select({
-      dotyposCustomerId: workspaceReservations.dotyposCustomerId,
-    })
-    .from(workspaceReservations)
-    .where(eq(workspaceReservations.id, workspaceReservationId))
-    .limit(1);
-  if (!reservationIdentity) {
-    return yield* lifecycleStateError(
-      operation,
-      {
-        type: "workspaceReservationId",
-        id: workspaceReservationId,
-      },
-      "The payment reservation was not found."
-    );
-  }
-  return reservationIdentity.dotyposCustomerId;
-});
-
 /**
  * The internal payment that already completed the reservation for this
  * amount, which a repeated completion returns unchanged.
  */
 const findCompletedInternalPayment = Effect.fnUntraced(function* (
   input: {
-    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly orderId: OrderId;
     readonly amount: Money;
   },
   reservation:
@@ -894,10 +696,7 @@ const findCompletedInternalPayment = Effect.fnUntraced(function* (
     .where(
       and(
         eq(paymentAttempts.id, reservation.activePaymentAttemptId),
-        eq(
-          paymentAttempts.workspaceReservationId,
-          input.workspaceReservationId
-        ),
+        eq(paymentAttempts.orderId, input.orderId),
         eq(paymentAttempts.provider, "internal"),
         eq(paymentAttempts.state, "paid")
       )
@@ -1094,17 +893,6 @@ export const validateInternalPaymentCommitment = Effect.fn(
 
   return claimedApplication;
 });
-
-const lifecycleStateError = (
-  operation: string,
-  paymentReference: PaymentLifecycleReference,
-  message: string
-) =>
-  new PaymentLifecycleStateError({
-    operation: `PaymentLifecycleRepository.${operation}`,
-    paymentReference,
-    message,
-  });
 
 /**
  * Admits the payment under the referral first-booking rules, reporting an

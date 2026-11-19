@@ -3,11 +3,14 @@ import {
   customerProfileSchemas,
 } from "@deskohub/workspace-customer-api";
 import { Option, Schema } from "effect";
+import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
+import type { ReservationOnSiteDetails } from "@/features/reservation/backend/reservation-on-site-details";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 
 /*
  * The profile schemas are the customer API's, so the account forms and the
@@ -118,6 +121,16 @@ export type CustomerReservationSummary = {
     readonly accessStartsAt: string;
     readonly accessEndsAt: string;
   };
+  /**
+   * The online withdrawal entry point of a paid, confirmed booking the
+   * account authored, while the withdrawal function is released.
+   */
+  readonly withdrawal?: WithdrawalAvailability;
+  /**
+   * The table and Wi-Fi of a confirmed website booking, as its confirmation
+   * email sends them, when the history's caller provides them.
+   */
+  readonly onSite?: ReservationOnSiteDetails;
 };
 
 export type CustomerReservationGroups = {
@@ -150,6 +163,11 @@ export interface CustomerInvoiceHistoryItem {
     readonly dueDate: string | null;
   };
   readonly pdfPath: string;
+  /** The corrective document that cancelled the invoice, else `null`. */
+  readonly correctiveDocument: {
+    readonly documentNumber: CorrectiveDocumentNumber;
+    readonly pdfPath: string;
+  } | null;
 }
 
 /**

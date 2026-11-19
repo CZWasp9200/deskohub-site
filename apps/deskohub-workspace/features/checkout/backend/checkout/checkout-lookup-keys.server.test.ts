@@ -1,3 +1,7 @@
+import {
+  InviteeEmail,
+  type ValidOfficePeople,
+} from "@/features/office/office-people";
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
@@ -211,6 +215,37 @@ describe("checkout attempt key", () => {
       deriveAttemptKey(laterMeetingRoom),
     ];
     expect(new Set(keys).size).toBe(3);
+  });
+
+  test("binds an office's people list, in order, only when one is sent", () => {
+    const officeDay = Temporal.Now.plainDateISO().add({ days: 7 }).toString();
+    const office = decodeReservation({
+      kind: "office",
+      ...contact,
+      startsOn: officeDay,
+      endsOn: officeDay,
+      seats: 3,
+    });
+    const first = InviteeEmail.make(testEmailAddress("attempt-key-first"));
+    const second = InviteeEmail.make(testEmailAddress("attempt-key-second"));
+    const keyFor = (people?: ValidOfficePeople) =>
+      withKeyRing(originalKey)(
+        deriveCheckoutAttemptKeys({
+          checkoutSessionId,
+          checkoutAttemptId,
+          reservation: office,
+          ...(people && { people }),
+        })
+      ).current;
+
+    const keys = [
+      keyFor(),
+      keyFor({ contactAttends: true, invitees: [first, second] }),
+      keyFor({ contactAttends: true, invitees: [second, first] }),
+      keyFor({ contactAttends: false, invitees: [first, second] }),
+    ];
+    expect(new Set(keys).size).toBe(4);
+    expect(keyFor()).toBe(deriveAttemptKey(office));
   });
 
   test("changes when reservation purpose or billing identity changes", () => {

@@ -1,10 +1,12 @@
 import Check from "lucide-react-native/icons/check";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { Icon } from "../../ui/icon";
+import { shrinkToFitLine } from "../../ui/shrink-to-fit";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
+import { type ContentWidth, useContentColumn } from "../../ui/viewport";
 
 /** A step of the booking flow, in order. */
 export type BookingStep = "choose" | "details" | "pay";
@@ -28,11 +30,14 @@ export function BookingSteps({
   current,
   raised = false,
   locale,
+  contentWidth = "wide",
 }: {
   readonly current: BookingStep;
   readonly raised?: boolean;
   readonly locale: AppLocale;
+  readonly contentWidth?: ContentWidth;
 }) {
+  const column = useContentColumn(contentWidth);
   const currentIndex = steps.indexOf(current);
   return (
     <View
@@ -46,7 +51,7 @@ export function BookingSteps({
         },
         { locale }
       )}
-      style={[styles.steps, raised && styles.raised]}
+      style={[styles.steps, column, raised && styles.raised]}
     >
       {steps.map((step, index) => {
         const done = index < currentIndex;
@@ -59,7 +64,7 @@ export function BookingSteps({
               <Text
                 variant="badge"
                 tone={index === currentIndex ? "default" : "muted"}
-                {...stepNameFit}
+                {...shrinkToFitLine}
                 style={styles.nameText}
               >
                 {stepName(step, locale)}
@@ -72,19 +77,6 @@ export function BookingSteps({
     </View>
   );
 }
-
-/**
- * A step name never truncates: at large font sizes it shrinks to fit its
- * third natively, and wraps on the web, which can't shrink text to fit.
- */
-const stepNameFit =
-  Platform.OS === "web"
-    ? {}
-    : ({
-        numberOfLines: 1,
-        adjustsFontSizeToFit: true,
-        minimumFontScale: 0.5,
-      } as const);
 
 const styles = StyleSheet.create({
   steps: {

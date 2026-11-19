@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
+import {
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions,
+} from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import { getManualInvoiceCreationRequestJson } from "./invoice-administration.service";
 import { getManualInvoiceCreationRequestDigest } from "./manual-invoice-creation-requests.service";
 
-const decodeInput = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
-  onExcessProperty: "error",
-});
+const decodeInput = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+);
 
 const request = {
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21",

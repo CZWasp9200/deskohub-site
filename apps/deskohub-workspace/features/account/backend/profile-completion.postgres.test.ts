@@ -1,4 +1,5 @@
 import { testEmailAddress } from "@deskohub/test-email";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -212,7 +213,9 @@ const completionLayer = (options: {
   const featureFlag =
     options.featureFlag ??
     ReferralReleaseGate.fromDecision(options.referralsEnabled ?? true);
-  const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const links = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(database)
   );
@@ -396,7 +399,7 @@ const startPayment = async (
       Effect.runPromise(
         lifecycle.markPaid({
           id: attempt.id,
-          workspaceReservationId: reservation.id,
+          orderId: reservationOrderId(reservation.id),
           paidAt: Temporal.Now.instant(),
         })
       ),
@@ -571,7 +574,7 @@ describe.skipIf(!testDatabase)(
           referrer.promotionCodeId,
         ]);
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
       }
 
       expect(await retrySignupReferral(account)).toEqual({

@@ -4,7 +4,7 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   useIsFocused,
   useNavigation,
@@ -12,9 +12,9 @@ import {
   useRoute,
 } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import type { TextInputInstance } from "react-native";
 import { useSettledResultReset } from "../../customer-api/settled-result-reset";
 import type { AppLocale } from "../../i18n/app-locale";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import { m } from "../../i18n/messages";
 import { ConfirmDialog } from "../../ui/confirm-dialog";
 import type {
@@ -23,7 +23,7 @@ import type {
   ProfileDraft,
   ProfileTextField,
 } from "./profile-draft";
-import type { ProfileFieldRefs } from "./profile-fields";
+import type { FocusableField, ProfileFieldRefs } from "./profile-fields";
 import {
   currentDraft,
   type EditedProfile,
@@ -44,9 +44,11 @@ export function useProfileForm(account: {
   /** The account's saved language, whose phone region the Workspace reads. */
   readonly locale: string | null;
 }) {
+  const deviceCountry = useDeviceCountry();
   const edited: EditedProfile = {
     profile: account.profile,
     phoneRegion: accountPhoneRegion(account.locale),
+    deviceCountry,
   };
   const [edits, setEdits] = useAtom(profileEditsAtom);
   const result = useAtomValue(saveProfileAtom);
@@ -63,6 +65,8 @@ export function useProfileForm(account: {
     draft,
     state,
     unsaved: hasUnsavedChanges(edits, edited),
+    /** Changes several fields at once, as an applied company lookup does. */
+    change,
     setField: (field: ProfileTextField, value: string) =>
       change({ [field]: value }),
     setBillingKind: (billingKind: BillingChoice) => change({ billingKind }),
@@ -81,7 +85,7 @@ export function useFocusFirstInvalid<F extends CompletionTextField>(
   fields: ReadonlyArray<F>
 ) {
   const inputs: ProfileFieldRefs = useRef(
-    new Map<CompletionTextField, TextInputInstance | null>()
+    new Map<CompletionTextField, FocusableField | null>()
   );
   const focused = useIsFocused();
   const refusal = state._tag === "Invalid" ? state : undefined;
@@ -185,7 +189,6 @@ export function UnsavedChangesGuard({
     <ConfirmDialog
       visible={guard.asking}
       title={m.profile_unsaved_title({}, { locale })}
-      body={m.profile_unsaved_body({}, { locale })}
       confirmLabel={m.profile_unsaved_discard({}, { locale })}
       cancelLabel={m.profile_unsaved_keep({}, { locale })}
       destructive

@@ -1,8 +1,4 @@
-import type {
-  AsyncResult,
-  Atom,
-  AtomRegistry,
-} from "effect/unstable/reactivity";
+import type { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { settle } from "../../../customer-api/testing/customer-data-test-registry";
 
 /** The settled value of a booking read the test expects to succeed. */

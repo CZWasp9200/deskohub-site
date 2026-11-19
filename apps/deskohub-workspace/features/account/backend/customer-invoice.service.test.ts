@@ -4,17 +4,37 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
+import { SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { SqlError } from "effect/unstable/sql";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
-import { getCustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
+import {
+  type CorrectiveDocument,
+  correctiveDocumentNumberSchema,
+  makeCorrectiveDocument,
+} from "@/features/accounting/corrective-document";
+import {
+  getCustomerInvoiceStatus,
+  getCustomerInvoiceSummary,
+} from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
-import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
+import { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
+import {
+  type InvoiceId,
+  invoiceIdSchema,
+} from "@/features/accounting/manual-invoice";
+import {
+  getWorkspaceMeetingRoomProductTitle,
+  getWorkspaceOfficeProductTitle,
+  getWorkspaceProductTierTitle,
+} from "@/features/checkout/product-catalog.i18n";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
   CustomerAccountAccessError,
@@ -52,6 +72,10 @@ const dueInvoice: Invoice = {
   issuedAt: Temporal.Instant.from("2026-08-20T10:00:00Z"),
   // Due 2026-09-01.
   document: makeTestManualInvoiceDocument("en-US", "450.50"),
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
 const coworkDocument = makeCoworkInvoiceDocument("en-US");
 const paidInvoice: Invoice = {
@@ -62,7 +86,40 @@ const paidInvoice: Invoice = {
   invoiceNumber: coworkDocument.invoiceNumber,
   issuedAt: Temporal.Instant.from("2026-08-10T10:00:00Z"),
   document: coworkDocument,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
+
+const correctiveDocumentNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000007");
+/** Cancelled and then hidden from the administration's invoice list. */
+const cancelledInvoice: Invoice = {
+  ...paidInvoice,
+  id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb25"),
+  cancellation: {
+    cancelledAt: Temporal.Instant.from("2026-08-25T09:00:00Z"),
+    cause: "invoice_cancellation",
+    correctiveDocumentNumber,
+  },
+  archivedAt: Temporal.Instant.from("2026-08-26T09:00:00Z"),
+};
+const correctiveDocument: CorrectiveDocument = makeCorrectiveDocument({
+  invoice: cancelledInvoice,
+  cause: "invoice_cancellation",
+  actor: {
+    source: "admin-ui",
+    administrator: {
+      accountId: customerAccountIdSchema.make(
+        "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a02"
+      ),
+      email: testEmailAddress("administrator"),
+    },
+  },
+  documentNumber: correctiveDocumentNumber,
+  issuedAt: Temporal.Instant.from("2026-08-25T09:00:00Z"),
+});
 
 // 22:30 UTC on 2026-09-01 is already 2026-09-02 in Prague, so the due
 // invoice is overdue only by the Prague date.
@@ -77,6 +134,9 @@ type Fixture = {
   find: (
     invoiceId: string
   ) => Effect.Effect<Invoice | null, AccountingRecordUnavailable>;
+  correctiveDocument: (
+    invoiceId: InvoiceId
+  ) => Effect.Effect<CorrectiveDocument | null, InvoiceCancellationError>;
 };
 
 let fixture: Fixture;
@@ -96,7 +156,14 @@ beforeEach(() => {
     }),
     list: Effect.succeed([dueInvoice, paidInvoice]),
     find: (invoiceId) =>
-      Effect.succeed(invoiceId === dueInvoice.id ? dueInvoice : null),
+      Effect.succeed(
+        [dueInvoice, cancelledInvoice].find(({ id }) => id === invoiceId) ??
+          null
+      ),
+    correctiveDocument: (invoiceId) =>
+      Effect.succeed(
+        invoiceId === cancelledInvoice.id ? correctiveDocument : null
+      ),
   };
 });
 
@@ -130,6 +197,13 @@ const serviceLayer = () =>
             Effect.suspend(() => {
               events.push(`find:${customerId}:${invoiceId}`);
               return fixture.find(invoiceId);
+            }),
+        }),
+        Layer.mock(InvoiceCancellationRepository, {
+          loadCorrectiveDocument: (invoiceId) =>
+            Effect.suspend(() => {
+              events.push(`corrective:${invoiceId}`);
+              return fixture.correctiveDocument(invoiceId);
             }),
         })
       )
@@ -227,11 +301,18 @@ const deniedAuthorities: readonly (readonly [
 
 describe("CustomerInvoiceService.list", () => {
   test("summarizes the account's own invoices on the Prague date", async () => {
-    const summaries = await run((service) => service.list);
+    const summaries = await run((service) => service.list({ locale: "en-US" }));
 
+    const paid = getCustomerInvoiceSummary(paidInvoice, pragueToday);
     expect(summaries).toEqual([
       getCustomerInvoiceSummary(dueInvoice, pragueToday),
-      getCustomerInvoiceSummary(paidInvoice, pragueToday),
+      {
+        ...paid,
+        reservation: paid.reservation && {
+          ...paid.reservation,
+          productName: getWorkspaceProductTierTitle("open-space", "en-US"),
+        },
+      },
     ]);
     expect(summaries[0]?.paymentStatus).toBe("overdue");
     expect(events).toEqual([
@@ -241,8 +322,98 @@ describe("CustomerInvoiceService.list", () => {
     ]);
   });
 
+  test("lists a cancelled invoice marked cancelled with its corrective document, also once it is hidden from the administration", async () => {
+    fixture.list = Effect.succeed([dueInvoice, cancelledInvoice]);
+
+    const [live, cancelled] = await run((service) =>
+      service.list({ locale: "en-US" })
+    );
+
+    expect(live?.cancellation).toBeNull();
+    expect(live && getCustomerInvoiceStatus(live)).toBe("overdue");
+    expect(cancelled).toMatchObject({
+      id: cancelledInvoice.id,
+      invoiceNumber: cancelledInvoice.invoiceNumber,
+      paymentStatus: "paid",
+      cancellation: { correctiveDocumentNumber },
+    });
+    expect(cancelled && getCustomerInvoiceStatus(cancelled)).toBe("cancelled");
+  });
+  test.each(["en-US", "cs-CZ"] as const)(
+    "says what each order-backed invoice was for, named by the %s catalog",
+    async (locale) => {
+      const orderInvoice = (
+        suffix: string,
+        document: Invoice["document"]
+      ): Invoice => ({
+        ...paidInvoice,
+        id: invoiceIdSchema.make(`018f47d2-8f7c-7c5e-9f9a-6ef21f90cc${suffix}`),
+        workspaceReservationId: `reservation-${suffix}`,
+        invoiceNumber: document.invoiceNumber,
+        document,
+      });
+      const office = makeOfficeInvoiceDocument(locale);
+      fixture.list = Effect.succeed([
+        orderInvoice("01", makeCoworkInvoiceDocument(locale)),
+        orderInvoice("02", makeMeetingRoomInvoiceDocument(locale)),
+        orderInvoice("03", office),
+        dueInvoice,
+      ]);
+
+      const [cowork, meetingRoom, officeSummary, manual] = await run(
+        (service) => service.list({ locale })
+      );
+
+      expect(cowork?.reservation).toMatchObject({
+        product: { kind: "cowork", tier: "open-space" },
+        productName: getWorkspaceProductTierTitle("open-space", locale),
+        seats: null,
+      });
+      expect(meetingRoom?.reservation).toMatchObject({
+        product: { kind: "meeting-room" },
+        productName: getWorkspaceMeetingRoomProductTitle(locale),
+        seats: null,
+      });
+      expect(officeSummary?.reservation).toMatchObject({
+        product: { kind: "office" },
+        productName: getWorkspaceOfficeProductTitle(locale),
+        seats: "seats" in office.reservation ? office.reservation.seats : -1,
+      });
+      // A cowork day invoices the whole Prague day, whatever hours it opens.
+      const coworkDay = Temporal.PlainDate.from(
+        "date" in coworkDocument.reservation
+          ? coworkDocument.reservation.date
+          : ""
+      );
+      const pragueMidnight = (day: Temporal.PlainDate) =>
+        day.toZonedDateTime({ timeZone: "Europe/Prague" }).toInstant();
+      expect(
+        Temporal.Instant.from(cowork?.reservation?.startsAt ?? "")
+      ).toEqual(pragueMidnight(coworkDay));
+      expect(Temporal.Instant.from(cowork?.reservation?.endsAt ?? "")).toEqual(
+        pragueMidnight(coworkDay.add({ days: 1 }))
+      );
+      for (const summary of [meetingRoom, officeSummary]) {
+        expect(summary?.reservation?.startsAt).toBeString();
+        expect(summary?.reservation?.endsAt).toBeString();
+      }
+      expect(manual?.reservation).toBeNull();
+      // The names come from the catalog alone: the list reads nothing else.
+      expect(events).toEqual([
+        "resolve",
+        `activity:${accountId}`,
+        `list:${dotyposCustomerId}`,
+      ]);
+    }
+  );
+
   test("re-authorizes on every call", async () => {
-    await run((service) => Effect.andThen(service.list, service.list));
+    await run((service) =>
+      Effect.andThen(
+        service.list({ locale: "en-US" }),
+        service.list({ locale: "en-US" })
+      )
+    );
 
     expect(events.filter((event) => event === "resolve")).toHaveLength(2);
     expect(
@@ -255,7 +426,9 @@ describe("CustomerInvoiceService.list", () => {
     async (_, denial, refusal) => {
       Object.assign(fixture, denial);
 
-      const error = await runFailure((service) => service.list);
+      const error = await runFailure((service) =>
+        service.list({ locale: "en-US" })
+      );
 
       expect(error).toEqual(
         new CustomerInvoicesUnavailableError({ account: refusal })
@@ -267,7 +440,9 @@ describe("CustomerInvoiceService.list", () => {
   test("fails to load when the session can't be read", async () => {
     fixture.standing = testResolvedStandings["Dotypos lookup unavailable"];
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "account.authority" })
@@ -286,7 +461,9 @@ describe("CustomerInvoiceService.list", () => {
       })
     );
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "account.authority" })
@@ -303,7 +480,9 @@ describe("CustomerInvoiceService.list", () => {
       })
     );
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "invoice.read" })
@@ -361,6 +540,83 @@ describe("CustomerInvoiceService.pdf", () => {
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "invoice.read" })
     );
+  });
+});
+
+describe("CustomerInvoiceService.correctiveDocumentPdf", () => {
+  test("renders the corrective document of the account's own cancelled invoice, named by its number", async () => {
+    const file = await run((service) =>
+      service.correctiveDocumentPdf(cancelledInvoice.id)
+    );
+
+    expect(file.fileName).toBe(`${correctiveDocumentNumber}.pdf`);
+    expect(new TextDecoder().decode(file.bytes.subarray(0, 5))).toBe("%PDF-");
+    expect(events).toEqual([
+      "resolve",
+      `activity:${accountId}`,
+      `find:${dotyposCustomerId}:${cancelledInvoice.id}`,
+      `corrective:${cancelledInvoice.id}`,
+    ]);
+  });
+
+  test("is not found for an invoice that isn't cancelled, without loading a document", async () => {
+    const error = await runFailure((service) =>
+      service.correctiveDocumentPdf(dueInvoice.id)
+    );
+
+    expect(error).toEqual(new CustomerInvoiceNotFoundError());
+    expect(events.some((event) => event.startsWith("corrective:"))).toBe(false);
+  });
+
+  test("is not found for another customer's invoice or an unknown id", async () => {
+    fixture.find = () => Effect.succeed(null);
+
+    for (const invoiceId of [cancelledInvoice.id, "not-an-invoice-id"]) {
+      const error = await runFailure((service) =>
+        service.correctiveDocumentPdf(invoiceId)
+      );
+      expect(error).toEqual(new CustomerInvoiceNotFoundError());
+    }
+    expect(events.some((event) => event.startsWith("corrective:"))).toBe(false);
+  });
+
+  test.each(deniedAuthorities)(
+    "is unavailable to %s without reading the invoice",
+    async (_, denial, refusal) => {
+      Object.assign(fixture, denial);
+
+      const error = await runFailure((service) =>
+        service.correctiveDocumentPdf(cancelledInvoice.id)
+      );
+
+      expect(error).toEqual(
+        new CustomerInvoicesUnavailableError({ account: refusal })
+      );
+      expect(events.some((event) => event.startsWith("find:"))).toBe(false);
+    }
+  );
+
+  test("fails to load without the cause when the corrective document can't be read or is missing", async () => {
+    for (const correctiveDocumentRead of [
+      Effect.fail(
+        new InvoiceCancellationError({
+          code: "document_unavailable",
+          invoiceId: cancelledInvoice.id,
+          message: "synthetic decryption failure",
+        })
+      ),
+      Effect.succeed(null),
+    ]) {
+      fixture.correctiveDocument = () => correctiveDocumentRead;
+
+      const error = await runFailure((service) =>
+        service.correctiveDocumentPdf(cancelledInvoice.id)
+      );
+
+      expect(error).toEqual(
+        new CustomerInvoicesLoadError({ code: "corrective-document.read" })
+      );
+    }
   });
 });
 

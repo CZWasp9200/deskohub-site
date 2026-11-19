@@ -23,8 +23,13 @@ import {
   HttpClient,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { DatabaseClient } from "@/db/database-client";
+import type {
+  DiscountCodeClaimState,
+  PaymentState,
+  ReferralInvitationClaimState,
+} from "@/db/schema";
 import {
   accountingDocumentSnapshots,
   discountApplications,
@@ -337,9 +342,7 @@ export const validateDiscountApplications = (
           subtotal_after_currency: discountApplications.subtotalAfterCurrency,
           expires_at: discountApplications.expiresAt,
           countdown_starts_at: discountApplications.countdownStartsAt,
-          redemption_state: sql<
-            string | null
-          >`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
+          redemption_state: sql<DiscountCodeClaimState | null>`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
           redeemed_at: sql<Date | null>`coalesce(${discountCodeRedemptions.redeemedAt}, ${voucherRedemptions.redeemedAt})`,
         })
         .from(discountApplications)
@@ -384,7 +387,7 @@ export interface DiscountApplicationRow {
   readonly expires_at: Date | Temporal.Instant | null;
   readonly label: string;
   readonly redeemed_at: Date | Temporal.Instant | null;
-  readonly redemption_state: string | null;
+  readonly redemption_state: DiscountCodeClaimState | null;
   readonly sequence: number;
   readonly subtotal_after_currency: string;
   readonly subtotal_after_exponent: number;
@@ -512,7 +515,7 @@ export const assertNoDiscountPaymentState = (
               )
               .where(eq(discountApplications.workspaceReservationId, orderId)),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         )
       );
 
@@ -789,10 +792,10 @@ export type ReferralInvitationPaymentRecord = {
   readonly claims: readonly {
     readonly applicationId: string;
     readonly paymentAttemptId: string;
-    readonly state: string;
+    readonly state: ReferralInvitationClaimState;
   }[];
   readonly dotyposCustomerId: string | null;
-  readonly paymentState: string;
+  readonly paymentState: PaymentState;
 };
 
 export const readReferralInvitationPayment = (
@@ -930,7 +933,7 @@ export const readCleanupCheckoutRows = (
     return yield* Effect.forEach(
       reservations,
       ({ id }) => readCheckoutRowFromDatabase(db, id),
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     ).pipe(
       Effect.map((rows) =>
         rows.filter(
@@ -1013,137 +1016,6 @@ export const markPaymentTerminalForE2E = (
       "assert terminal checkout row exists",
       () => {
         assert(row, "terminal checkout row missing");
-        return row;
-      }
-    );
-  });
-
-const nexiSandboxRejectedFailureCode = "workspace_e2e_nexi_sandbox_rejected";
-
-// Unpaid terminal payment states from which checkout starts a new attempt.
-const isRestartablePaymentState = (state: string | null) =>
-  state === "failed" || state === "cancelled" || state === "expired";
-
-// Releases every reserved claim of a rejected attempt with the columns a
-// terminal payment release writes, so a fresh attempt can claim them again.
-// Referral invitations allow one active claim per invited customer, so a
-// still-reserved invitation would block the restarted attempt's admission.
-export const releaseRejectedAttemptClaims = (
-  db: Pick<DatabaseClient, "update">,
-  paymentAttemptId: PaymentAttemptId,
-  releaseReason: string,
-  releasedAt: Temporal.Instant
-) => {
-  const releasedClaim = {
-    releaseReason,
-    releasedAt,
-    state: "released",
-    updatedAt: releasedAt,
-  } as const;
-  return [
-    db
-      .update(discountCodeRedemptions)
-      .set(releasedClaim)
-      .where(
-        and(
-          eq(discountCodeRedemptions.paymentAttemptId, paymentAttemptId),
-          eq(discountCodeRedemptions.state, "reserved")
-        )
-      ),
-    db
-      .update(voucherRedemptions)
-      .set(releasedClaim)
-      .where(
-        and(
-          eq(voucherRedemptions.paymentAttemptId, paymentAttemptId),
-          eq(voucherRedemptions.state, "reserved")
-        )
-      ),
-    db
-      .update(referralInvitationClaims)
-      .set(releasedClaim)
-      .where(
-        and(
-          eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
-          eq(referralInvitationClaims.state, "reserved")
-        )
-      ),
-  ] as const;
-};
-
-// Retires a payment attempt the Nexi sandbox rejected before authorization the
-// way a provider failure would: the attempt and the reservation payment fail
-// while the hold stays, and the attempt's discount-code, voucher, and referral
-// invitation claims are released.
-// Reopening the checkout pay page then starts a fresh attempt and Nexi order.
-export const retireRejectedPaymentAttemptForE2E = (
-  orderId: WorkspaceReservationId,
-  paymentAttemptId: PaymentAttemptId
-): Effect.Effect<CheckoutRow, WorkspaceE2EError, E2EDatabase> =>
-  Effect.gen(function* () {
-    const { db } = yield* E2EDatabase;
-    const failureCode = nexiSandboxRejectedFailureCode;
-    const now = Temporal.Now.instant();
-
-    yield* runDatabaseOperation(
-      "retire rejected payment attempt",
-      db.transaction((tx) =>
-        Effect.gen(function* () {
-          yield* tx
-            .update(paymentAttempts)
-            .set({ state: "failed", failureCode, updatedAt: now })
-            .where(
-              and(
-                eq(paymentAttempts.id, paymentAttemptId),
-                eq(paymentAttempts.workspaceReservationId, orderId),
-                inArray(paymentAttempts.state, ["created", "pending"])
-              )
-            );
-
-          yield* tx
-            .update(workspaceReservations)
-            .set({ paymentState: "failed", failureCode, updatedAt: now })
-            .where(
-              and(
-                eq(workspaceReservations.id, orderId),
-                eq(
-                  workspaceReservations.activePaymentAttemptId,
-                  paymentAttemptId
-                ),
-                eq(workspaceReservations.reservationState, "held"),
-                eq(workspaceReservations.paymentState, "pending")
-              )
-            );
-
-          for (const release of releaseRejectedAttemptClaims(
-            tx,
-            paymentAttemptId,
-            failureCode,
-            now
-          )) {
-            yield* release;
-          }
-        })
-      )
-    );
-
-    const row = yield* readCheckoutRowFromDatabase(db, orderId);
-    return yield* tryWorkspaceE2ESync(
-      "assert rejected payment attempt retired",
-      () => {
-        assert(row, "retired checkout row missing");
-        // The app may already have failed the attempt from a Nexi
-        // notification; any unpaid terminal state lets checkout start afresh.
-        assert(
-          row.payment_attempt_id === paymentAttemptId &&
-            isRestartablePaymentState(row.payment_attempt_state) &&
-            isRestartablePaymentState(row.payment_state),
-          "rejected payment attempt was not retired"
-        );
-        assert(
-          row.reservation_state === "held",
-          "reservation hold ended before the payment could restart"
-        );
         return row;
       }
     );
@@ -1435,11 +1307,8 @@ export const markFulfillmentFailedForE2E = (
     );
   });
 
-const terminalUnpaidPaymentStates: ReadonlySet<string> = new Set([
-  "failed",
-  "cancelled",
-  "expired",
-]);
+const terminalUnpaidPaymentStates: ReadonlySet<PaymentState> =
+  new Set<PaymentState>(["failed", "cancelled", "expired"]);
 
 export const getPreviewFulfillmentMarkerDiagnosticCode = (
   row: CheckoutRow | undefined
@@ -1739,9 +1608,7 @@ const assertInternalDiscountState = (
           subtotal_before_value: discountApplications.subtotalBeforeValue,
           applied_amount_value: discountApplications.appliedAmountValue,
           subtotal_after_value: discountApplications.subtotalAfterValue,
-          redemption_state: sql<
-            string | null
-          >`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
+          redemption_state: sql<DiscountCodeClaimState | null>`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
           redeemed_at: sql<Date | null>`coalesce(${discountCodeRedemptions.redeemedAt}, ${voucherRedemptions.redeemedAt})`,
         })
         .from(discountApplications)
@@ -1768,7 +1635,7 @@ const assertInternalDiscountState = (
 
 interface InternalDiscountApplicationRow {
   readonly applied_amount_value: number;
-  readonly redemption_state: string | null;
+  readonly redemption_state: DiscountCodeClaimState | null;
   readonly redeemed_at: Date | Temporal.Instant | null;
   readonly subtotal_after_value: number;
   readonly subtotal_before_value: number;
@@ -1943,7 +1810,7 @@ const assertNoLocalPii = (
               )
             ),
         ],
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       )
     );
 

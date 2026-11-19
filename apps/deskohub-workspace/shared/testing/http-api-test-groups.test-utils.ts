@@ -1,9 +1,5 @@
 import { Effect, Layer } from "effect";
-import {
-  type HttpApi,
-  HttpApiBuilder,
-  type HttpApiGroup,
-} from "effect/unstable/httpapi";
+import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/http-api";
 
 /** A group's handler builder, seen without its endpoint types. */
 interface UntypedHandlers {
@@ -20,22 +16,33 @@ interface UntypedHandlers {
  */
 export const unhandledHttpApiGroups = <
   ApiId extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
 >(
   api: HttpApi.HttpApi<ApiId, Groups>,
   handled: ReadonlyArray<string>
-): Layer.Layer<never> =>
-  Object.entries(api.groups)
-    .filter(([name]) => !handled.includes(name))
-    .map((entry) => unhandledGroup(api, entry))
+): Layer.Layer<never> => {
+  const groups: Array<HttpApiGroup.Top> = [];
+  HttpApi.reflect(api, {
+    onGroup: ({ group }) => {
+      groups.push(group);
+    },
+    onEndpoint: () => undefined,
+  });
+  return groups
+    .filter(({ identifier }) => !handled.includes(identifier))
+    .map((group) => unhandledGroup(api, [group.identifier, group]))
     .reduce<Layer.Layer<never>>(
       (merged, group) => Layer.merge(merged, group),
       Layer.empty
     );
+};
 
-const unhandledGroup = <ApiId extends string, Groups extends HttpApiGroup.Any>(
+const unhandledGroup = <
+  ApiId extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<ApiId, Groups>,
-  [name, group]: readonly [string, HttpApiGroup.Any]
+  [name, group]: readonly [string, HttpApiGroup.Constraint]
 ): Layer.Layer<never> =>
   HttpApiBuilder.group(api, name as never, (handlers) => {
     let builder: UntypedHandlers = handlers as never;

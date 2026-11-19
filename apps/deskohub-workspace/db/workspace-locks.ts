@@ -1,6 +1,7 @@
 import { Effect, Order } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceTransaction } from "./database.service";
 import type { DatabaseQueryError } from "./sql-constraint";
 import {
@@ -26,6 +27,12 @@ const customerAccount = (accountId: CustomerAccountId): TransactionLock =>
     rank: 20,
     pair: ["customer-account", accountId],
   });
+
+const reservationInviteeNotices = (orderId: WorkspaceReservationId) => ({
+  name: "reservationInviteeNotices",
+  rank: 55,
+  pair: ["reservation-invitee-notices", orderId] as const,
+});
 
 /**
  * Advisory locks held until the current Workspace transaction ends. Take them
@@ -89,6 +96,8 @@ export const WorkspaceLocks = {
   /** A single `hashtext` key, sharing the one-bigint space with `checkoutSession`. */
   manualInvoiceIssue: (invoiceId: string): TransactionLock =>
     take({ name: "manualInvoiceIssue", rank: 52, hashed: invoiceId }),
+  reservationInviteeNotices: (orderId: WorkspaceReservationId) =>
+    take(reservationInviteeNotices(orderId)),
   automationFireEntry: (campaignId: string): TransactionLock =>
     take({
       name: "automationFireEntry",
@@ -139,10 +148,27 @@ export const WorkspaceLockSections = {
       rank: 0,
       pair: ["sign-in-email", addressDigest],
     }),
+  /**
+   * Serializes the workflows that change an order's hold or settle its
+   * payments outside a checkout: hold cleanup and late-payment recovery. Each
+   * holds it across its provider calls, so one never sees the other's
+   * half-done release. It ranks below every transaction lock those workflows
+   * take (the referral locks first), so none of them needs a bounded wait;
+   * a workflow that also needs the customer account section enters that
+   * inside this one.
+   */
+  reservationOrder: (orderId: WorkspaceReservationId) =>
+    holdSection({
+      name: "reservationOrder",
+      rank: 5,
+      pair: ["reservation-order", orderId],
+    }),
   customerAccount: (accountId: CustomerAccountId) =>
     holdSection({
       name: "customerAccount",
       rank: 20,
       pair: ["customer-account", accountId],
     }),
+  reservationInviteeNotices: (orderId: WorkspaceReservationId) =>
+    holdSection(reservationInviteeNotices(orderId)),
 } as const;

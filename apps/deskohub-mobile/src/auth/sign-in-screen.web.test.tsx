@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { parseJSON } from "better-auth/client";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { act, type ReactElement, type ReactNode } from "react";
 import { View } from "react-native";
 import { AppLocaleProvider } from "../i18n/locale-context";
@@ -12,12 +12,16 @@ import { Button, Screen, TextField } from "../ui/controls";
 import { find, findAll } from "../ui/testing/element-tree";
 import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
+import { AppSignInFinishedInAppStep } from "./app-sign-in-finished-in-app-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import { nativeReturnUri } from "./auth-callback";
 import type { AuthSessionState } from "./auth-session-state";
+import { ReauthenticationShield } from "./reauthentication-shield";
 import {
   clearNativeHandoffRequest,
+  loadNativeHandoffRequest,
   saveNativeHandoffRequest,
 } from "./web-native-request-store";
 
@@ -51,7 +55,12 @@ const refused = (error: Readonly<Record<string, unknown>>): Answer => ({
 /** What the fake server answers next, per request. */
 let emailAnswers: Array<Answer> = [];
 let codeAnswers: Array<Answer> = [];
+let statusAnswers: Array<Answer> = [];
+let statusAsked: Array<unknown> = [];
+/** The hand-off mint's answer when a test holds it; else a server failure. */
+let mintAnswer: Promise<Answer> | undefined;
 let emailsSent = 0;
+let emailedTo: Array<string> = [];
 const next = (answers: Array<Answer>) => {
   const answer = answers.shift();
   if (!answer) throw new Error("The test gave the server no answer.");
@@ -60,11 +69,17 @@ const next = (answers: Array<Answer>) => {
 
 mock.module("./auth-client.web", () => ({
   authClient: {
-    $fetch: async () => refused({ status: 500 }),
+    $fetch: async (path: string, init?: { readonly body?: unknown }) => {
+      if (path === "/native-handoff/mint" && mintAnswer) return mintAnswer;
+      if (path !== "/sign-in-attempt/status") return refused({ status: 500 });
+      statusAsked.push(init?.body);
+      return statusAnswers.shift() ?? ok({ completed: false });
+    },
     getSession: async () => ok(null),
     signIn: {
-      magicLink: async () => {
+      magicLink: async ({ email }: { readonly email: string }) => {
         emailsSent += 1;
+        emailedTo.push(email);
         // Better Auth's client parses answers with its own JSON parser,
         // which revives ISO 8601 strings into Dates.
         return parseJSON<Answer>(JSON.stringify(next(emailAnswers)));
@@ -87,16 +102,22 @@ const codesOn = (nextSignInEmailAt?: number) =>
     }),
   });
 
-const openedByApp = () =>
-  saveNativeHandoffRequest(
-    {
-      codeChallenge: "c".repeat(43),
-      state: "s".repeat(43),
-      returnUri: nativeReturnUri,
-      reauthenticate: false,
-    },
-    Date.now()
-  );
+const appRequest = {
+  codeChallenge: "c".repeat(43),
+  state: "s".repeat(43),
+  returnUri: nativeReturnUri,
+  reauthenticate: false,
+} as const;
+
+const openedByApp = () => saveNativeHandoffRequest(appRequest, Date.now());
+
+/** The app asks to confirm its account before deleting it. */
+const appReauthentication = {
+  ...appRequest,
+  reauthenticate: true,
+  loginHint: testEmailAddress("app-account"),
+  purpose: "delete-account",
+} as const;
 
 /** The tree the page returns on its latest render. */
 let shown: ReactNode = null;
@@ -133,14 +154,33 @@ describe("the web SignInScreen", () => {
     session = { status: "signed-out" };
     emailAnswers = [];
     codeAnswers = [];
+    statusAnswers = [];
+    statusAsked = [];
+    mintAnswer = undefined;
     emailsSent = 0;
+    emailedTo = [];
     passkeyOption.mockClear();
     clearNativeHandoffRequest();
   });
   afterEach(async () => {
     await render(null);
     clearNativeHandoffRequest();
+    if (closeWindow) window.close = closeWindow;
   });
+
+  // The page asks about its sign-in attempts on its regular tick and at once
+  // when it comes back into view; the tests bring it back.
+  let closeWindow: typeof window.close | undefined;
+  const closeTab = mock(() => undefined);
+  beforeEach(() => {
+    closeTab.mockClear();
+    closeWindow = window.close;
+    window.close = closeTab;
+  });
+  const comesBackIntoView = () =>
+    runInPage(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
 
   test("without the app's request it keeps its own page, passkey option included", async () => {
     await show();
@@ -157,6 +197,55 @@ describe("the web SignInScreen", () => {
     await show();
     shownStep(AppSignInEmailStep);
     expect(passkeyOption).not.toHaveBeenCalled();
+  });
+
+  test("the app's reauthentication confirms its account: shield, locked address, no passkey", async () => {
+    saveNativeHandoffRequest(appReauthentication, Date.now());
+    // The browser may hold someone else's session; the app's account wins.
+    session = {
+      status: "signed-in",
+      user: { id: "other", email: testEmailAddress("browser") },
+      signedInAt: new Date(Date.now() - 60 * 60_000),
+    };
+    await show();
+    const step = shownStep(AppSignInEmailStep);
+    const heading = appSignInEmailHeading(appReauthentication, "en-US");
+    expect(step.title).toBe(heading.title);
+    expect(step.body).toBe(heading.body);
+    expect((step.illustration as ReactElement).type).toBe(
+      ReauthenticationShield
+    );
+    expect(step.email).toMatchObject({
+      value: appReauthentication.loginHint,
+      locked: true,
+    });
+    expect(passkeyOption).not.toHaveBeenCalled();
+
+    // Typing can't move the code to another address.
+    await runInPage(() =>
+      shownStep(AppSignInEmailStep).email.onChange(testEmailAddress("else"))
+    );
+    expect(shownStep(AppSignInEmailStep).email.value).toBe(
+      appReauthentication.loginHint
+    );
+    emailAnswers.push(codesOn());
+    await runInPage(() => shownStep(AppSignInEmailStep).onSubmit());
+    await settle(() => (shown as ReactElement).type === AppSignInCodeStep);
+    expect(emailedTo).toEqual([appReauthentication.loginHint]);
+
+    // Starting over keeps the address locked.
+    await runInPage(() => shownStep(AppSignInCodeStep).onUseDifferentEmail());
+    expect(shownStep(AppSignInEmailStep).email).toMatchObject({
+      value: appReauthentication.loginHint,
+      locked: true,
+    });
+  });
+
+  test("an ordinary sign-in from the app shows no shield", async () => {
+    openedByApp();
+    await show();
+    expect(shownStep(AppSignInEmailStep).illustration).toBeUndefined();
+    expect(shownStep(AppSignInEmailStep).email.locked).toBe(false);
   });
 
   test("an invalid address shows at the field and sends nothing", async () => {
@@ -290,6 +379,98 @@ describe("the web SignInScreen", () => {
     await runInPage(() => shownStep(AppSignInEmailStep).onSubmit());
     await settle(() => (shown as ReactElement).type === AppSignInLinkStep);
     expect(shownStep(AppSignInLinkStep).email).toBe(testEmailAddress("link"));
+  });
+
+  const attempt = "a".repeat(43);
+  const codeWithAttempt = () =>
+    ok({ status: true, signInCode: true, signInAttempt: attempt });
+
+  test("once the email's link signed in in the app, the page forgets the request, closes, and says so if it stays", async () => {
+    await toCode(codeWithAttempt());
+    statusAnswers.push(ok({ completed: true }));
+
+    await comesBackIntoView();
+    await settle(
+      () => (shown as ReactElement).type === AppSignInFinishedInAppStep
+    );
+
+    expect(statusAsked).toEqual([{ attempts: [attempt] }]);
+    expect(closeTab).toHaveBeenCalledTimes(1);
+    expect(Option.isNone(loadNativeHandoffRequest(Date.now()))).toBe(true);
+  });
+
+  test("while the link hasn't signed in, the code step stays and its code still checks", async () => {
+    await toCode(codeWithAttempt());
+    await comesBackIntoView();
+    await settle(() => statusAsked.length === 1);
+    shownStep(AppSignInCodeStep);
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(Option.isSome(loadNativeHandoffRequest(Date.now()))).toBe(true);
+
+    codeAnswers.push(refused({ status: 400, code: "INVALID_OTP" }));
+    await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("000000"));
+    await settle(() => shownStep(AppSignInCodeStep).invalid);
+  });
+
+  test("a page handing off itself stops asking, so it never closes mid hand-off", async () => {
+    await toCode(codeWithAttempt());
+    session = {
+      status: "signed-in",
+      user: { id: "user", email: testEmailAddress("app") },
+      signedInAt: new Date(),
+    };
+    await show();
+    let answerMint: (answer: Answer) => void = () => undefined;
+    mintAnswer = new Promise((resolve) => {
+      answerMint = resolve;
+    });
+    await runInPage(() => shownStep(AppSignInContinueStep).onContinue());
+    await settle(() => shownStep(AppSignInContinueStep).continuing);
+
+    statusAnswers.push(ok({ completed: true }));
+    await comesBackIntoView();
+
+    expect(statusAsked).toEqual([]);
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(Option.isSome(loadNativeHandoffRequest(Date.now()))).toBe(true);
+    answerMint(refused({ status: 500 }));
+  });
+
+  test("a resend asks about every email of the visit; starting over forgets them", async () => {
+    await toCode(codeWithAttempt());
+    const second = "b".repeat(43);
+    emailAnswers.push(
+      ok({ status: true, signInCode: true, signInAttempt: second })
+    );
+    await runInPage(() => shownStep(AppSignInCodeStep).onResend());
+    await settle(
+      () => shownStep(AppSignInCodeStep).notice?.tone === "positive"
+    );
+    await comesBackIntoView();
+    await settle(() => statusAsked.length === 1);
+    expect(statusAsked).toEqual([{ attempts: [attempt, second] }]);
+
+    await runInPage(() => shownStep(AppSignInCodeStep).onUseDifferentEmail());
+    await comesBackIntoView();
+    expect(statusAsked.length).toBe(1);
+  });
+
+  test("a page the app didn't open never asks", async () => {
+    await show();
+    emailAnswers.push(codeWithAttempt());
+    await runInPage(() =>
+      find(shown as ReactElement, TextField)?.props.onChangeText?.(
+        testEmailAddress("web")
+      )
+    );
+    await runInPage(() => find(shown as ReactElement, Button)?.props.onPress());
+    await settle(
+      () =>
+        find(shown as ReactElement, TextField)?.props.autoComplete ===
+        "one-time-code"
+    );
+    await comesBackIntoView();
+    expect(statusAsked).toEqual([]);
   });
 
   test("a fresh browser session continues as its account", async () => {

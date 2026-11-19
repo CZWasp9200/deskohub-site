@@ -90,6 +90,11 @@ mock.module("@/features/account/avatar-actions", () => ({
     }),
 }));
 
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({ ReservationWithdrawalLink: () => null })
+);
+
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
     signIn: { magicLink: () => Promise.resolve({ error: null }) },
@@ -421,6 +426,9 @@ describe("SignedInAccount for a linked account", () => {
         savings: [],
       },
       shareUrl: "https://workspace.example/account?ref=RFL12345",
+      discountPerInvitee: "5",
+      invitationDiscount: "15",
+      savingsCurrency: "CZK",
     });
     const renderLinked = (discount: string) =>
       withAccountLayout(
@@ -683,6 +691,9 @@ describe("SignedInAccount for a linked account", () => {
                 savings: [],
               },
               shareUrl: "https://workspace.example/account?ref=RFL12345",
+              discountPerInvitee: "5",
+              invitationDiscount: "15",
+              savingsCurrency: "CZK",
             },
             signupReferral: { status: "applied" },
           })}

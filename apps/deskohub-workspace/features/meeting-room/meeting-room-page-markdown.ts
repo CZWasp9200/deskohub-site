@@ -35,7 +35,6 @@ export const meetingRoomPageMarkdown = (
     markdownParagraph(m.meetingRoomHeroIntro({}, { locale })),
     markdownList([
       markdownListItem(m.meetingRoomFactCapacity({}, { locale })),
-      markdownListItem(m.meetingRoomFactTv({}, { locale })),
       markdownListItem(m.meetingRoomFactPrivacy({}, { locale })),
     ]),
     markdownParagraph(

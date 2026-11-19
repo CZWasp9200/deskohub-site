@@ -1,17 +1,20 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { paymentAttempts } from "@/db/schema";
+import { makeDatabaseClient } from "@/db/database-client";
+import { orders, paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
+import type { OrderId } from "@/features/order";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { PaymentRefundRepository } from "./payment-refund.repository";
@@ -23,8 +26,12 @@ describe.skipIf(!testDatabase)(
   () => {
     if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
+    const purchaseOrderIds: OrderId[] = [];
 
     afterAll(async () => {
+      await testDatabase.pool.query("delete from orders where id = any($1)", [
+        purchaseOrderIds,
+      ]);
       await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
@@ -53,6 +60,7 @@ describe.skipIf(!testDatabase)(
     const insertCheckout = async (input: {
       readonly attemptState: "paid" | "expired";
       readonly refundState: "not_required" | "required";
+      readonly refundTargetValue?: number;
       readonly createdAt?: Temporal.Instant;
     }) => {
       const id = crypto.randomUUID();
@@ -76,6 +84,9 @@ describe.skipIf(!testDatabase)(
             failureCode: "payment_abandoned_after_provider_cutoff",
           }),
           refundState: input.refundState,
+          ...(input.refundTargetValue !== undefined && {
+            refundTargetValue: input.refundTargetValue,
+          }),
           ...(input.createdAt && { createdAt: input.createdAt }),
           amountValue: 29_000,
           amountExponent: 2,
@@ -141,6 +152,48 @@ describe.skipIf(!testDatabase)(
       );
       return attempts;
     };
+
+    test("leaves payments without a reservation outside the reservation refund batch", async () => {
+      const [order] = await Effect.runPromise(
+        testDatabase.db
+          .insert(orders)
+          .values({
+            kind: "pass-purchase",
+            dotyposCustomerId: DotyposCustomerIdSchema.make(
+              "synthetic-pass-buyer"
+            ),
+            paymentState: "paid",
+            paidAt: Temporal.Now.instant(),
+            fulfillmentState: "not_started",
+          })
+          .returning({ id: orders.id })
+      );
+      purchaseOrderIds.push(order!.id);
+      const [attempt] = await Effect.runPromise(
+        testDatabase.db
+          .insert(paymentAttempts)
+          .values({
+            orderId: order!.id,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(
+              `order-${crypto.randomUUID()}`
+            ),
+            state: "paid",
+            refundState: "required",
+            amountValue: 29_000,
+            amountExponent: 2,
+            currency: "CZK",
+          })
+          .returning({ id: paymentAttempts.id })
+      );
+      const reservationAttempt = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+      });
+
+      expect(await claimedIds({ limit: 1 })).toEqual([reservationAttempt]);
+      expect((await readAttempt(attempt!.id))?.refundCheckedAt).toBeNull();
+    });
 
     test("lists paid attempts awaiting a refund and recent paid attempts without a full refund", async () => {
       const awaiting = await insertCheckout({
@@ -316,11 +369,16 @@ describe.skipIf(!testDatabase)(
       // Statistics taken while payment_attempts was empty make Postgres pick a
       // nested-loop semi-join that re-runs the claim subquery for every row it
       // updates. These settings force that plan on a dedicated connection.
-      const rescanningPool = makeDatabasePool({
+      const rescanningPool = await openDatabasePool({
         connectionString: process.env.WORKSPACE_TEST_DATABASE_URL ?? "",
-        max: 1,
-        options:
-          "-c enable_hashjoin=off -c enable_mergejoin=off -c enable_hashagg=off -c enable_material=off -c enable_sort=off",
+        maxConnections: 1,
+        startupParameters: {
+          enable_hashjoin: "off",
+          enable_mergejoin: "off",
+          enable_hashagg: "off",
+          enable_material: "off",
+          enable_sort: "off",
+        },
       });
       try {
         const db = await Effect.runPromise(makeDatabaseClient(rescanningPool));
@@ -352,7 +410,7 @@ describe.skipIf(!testDatabase)(
 
         expect(batch).toHaveLength(limit);
       } finally {
-        await rescanningPool.end();
+        await rescanningPool.close();
       }
     });
 
@@ -377,6 +435,61 @@ describe.skipIf(!testDatabase)(
       const attempt = await readAttempt(paymentAttemptId);
       expect(attempt?.refundedAmountValue).toBe(29_000);
       expect(attempt?.refundedAt?.equals(laterRefundAt)).toBe(true);
+    });
+
+    test("keeps a partial refund required until Nexi reaches the amount owed", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+        refundTargetValue: 19_334,
+      });
+
+      expect(await record(paymentAttemptId, 10_000)).toBe("below_target");
+      expect(await readAttempt(paymentAttemptId)).toMatchObject({
+        refundState: "required",
+        refundTargetValue: 19_334,
+        refundedAmountValue: 10_000,
+      });
+      expect(await record(paymentAttemptId, 5000)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundedAmountValue).toBe(
+        10_000
+      );
+
+      expect(await record(paymentAttemptId, 19_334)).toBe("recorded");
+      expect(await readAttempt(paymentAttemptId)).toMatchObject({
+        refundState: "refunded",
+        refundTargetValue: 19_334,
+        refundedAmountValue: 19_334,
+      });
+    });
+
+    test("keeps a full withdrawal's refund required until Nexi refunds all of it", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+        refundTargetValue: 29_000,
+      });
+
+      expect(await record(paymentAttemptId, 2900)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "required"
+      );
+      expect(await record(paymentAttemptId, 29_000)).toBe("recorded");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "refunded"
+      );
+    });
+
+    test("settles an owed refund without a target on any successful refund", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+      });
+
+      expect(await record(paymentAttemptId, 1000)).toBe("recorded");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "refunded"
+      );
     });
 
     test("accepts a refund reported for a paid attempt nobody marked for refund", async () => {

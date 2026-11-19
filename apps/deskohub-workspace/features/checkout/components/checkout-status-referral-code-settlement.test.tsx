@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import type { PaymentState } from "@/db/schema";
 import { testLinkedAccount } from "@/features/account/backend/account-operations.test-utils";
 import {
   peeking,
@@ -22,6 +23,7 @@ const runSettlement = async (
     readonly cookie?: string;
     readonly settled?: boolean;
     readonly writable?: boolean;
+    readonly paymentStatus?: PaymentState;
   } = {}
 ) => {
   const cookie = {
@@ -39,7 +41,7 @@ const runSettlement = async (
     "./checkout-status-referral-code-settlement"
   );
   const settled = await Effect.runPromise(
-    isRememberedReferralSettledByStatus(status).pipe(
+    isRememberedReferralSettledByStatus(status, options.paymentStatus).pipe(
       Effect.provide(
         RememberedReferral.inMemory(cookie, {
           writable: options.writable,
@@ -61,6 +63,16 @@ const runSettlement = async (
 };
 
 describe("isRememberedReferralSettledByStatus", () => {
+  test.each(["paid", "pending"] as const)(
+    "keeps the payment outcome of a cancelled reservation (%s)",
+    async (paymentStatus) => {
+      const { settled } = await runSettlement("reservation_cancelled", {
+        paymentStatus,
+      });
+      expect(settled).toBe(paymentStatus === "paid");
+    }
+  );
+
   test.each([
     "paid_waiting_fulfillment",
     "paid_fulfillment_delayed",

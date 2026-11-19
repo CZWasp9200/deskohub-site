@@ -1,35 +1,35 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { Effect, Layer, Predicate } from "effect";
 import { RedirectType, redirect } from "next/navigation";
 import { env } from "@/env";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
-  buildCheckoutPayPathFromToken,
   CheckoutReferralService,
-  PayableReservationService,
+  PayableCheckout,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import {
+  type ApplyDiscountCodeResult,
+  applyDiscountCodeToPayState,
+  getDiscountCodeChangeDeadline,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
+import {
+  type ApplyDiscountCodeInput,
+  applyDiscountCodeSchema,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code-input";
 import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-referral-notice";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
-import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
+import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
-import {
-  type ApplyDiscountCodeInput,
-  applyDiscountCodeSchema,
-} from "./apply-discount-code-input";
-import {
-  type ApplyDiscountCodeResult,
-  applyDiscountCodeToPayState,
-  getApplyDiscountCodeDeadline,
-} from "./apply-discount-code-to-pay-state";
+import { getDiscountCodeRejectedPayPath } from "./discount-code-pay-path";
 
 /** What the site's discount-code entry can answer. */
 export type ApplyDiscountCodeActionResult =
@@ -60,7 +60,8 @@ const applyDiscountCodeOnSite = Effect.fn("checkout.applyDiscountCodeOnSite")(
             Layer.provideMerge(
               Layer.mergeAll(
                 CheckoutPricingService.Live,
-                PayableReservationService.Live,
+                PayableCheckout.Live,
+                WorkspaceReservationRepository.Live,
                 ReferralService.Live,
                 CheckoutReferralService.Live,
                 CurrentCustomerAccount.Live,
@@ -86,7 +87,7 @@ const applyDiscountCodeOnSite = Effect.fn("checkout.applyDiscountCodeOnSite")(
 const applyDiscountCodeAction = defineWorkspaceAction(
   {
     operation: "checkout.apply-discount-code",
-    deadline: getApplyDiscountCodeDeadline(env.VERCEL_ENV),
+    deadline: getDiscountCodeChangeDeadline(env.VERCEL_ENV),
     schema: applyDiscountCodeSchema,
   },
   applyDiscountCodeOnSite
@@ -133,25 +134,6 @@ const getReplacementPayPath = (
     ? (addCheckoutReferralAppliedMarker(freshPayUrl, locale) ?? freshPayUrl)
     : freshPayUrl;
 
-/**
- * The original pay state with the field error for the result. Server Action
- * arguments are client-controlled, so never build a redirect path from an
- * unvalidated locale segment.
- */
-const getRejectedPayPath = (
-  locale: Locale,
-  payStateToken: string,
-  status: ApplyDiscountCodeActionResult["status"] | undefined
-) =>
-  buildCheckoutPayPathFromToken(
-    isLocale(locale) ? locale : defaultLocale,
-    payStateToken,
-    {
-      discountCodeError: getDiscountCodeRejection(status),
-      discountCodeErrorId: randomUUID(),
-    }
-  );
-
 export async function applyDiscountCodeForm(
   locale: Locale,
   payStateToken: string,
@@ -174,7 +156,11 @@ export async function applyDiscountCodeForm(
   }
 
   redirect(
-    getRejectedPayPath(locale, payStateToken, data?.status),
+    getDiscountCodeRejectedPayPath(
+      locale,
+      payStateToken,
+      getDiscountCodeRejection(data?.status)
+    ),
     RedirectType.replace
   );
 }

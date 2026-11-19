@@ -2,12 +2,14 @@ import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { Temporal } from "@js-temporal/polyfill";
 import { Context, Effect, Option, Schema } from "effect";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiMiddleware,
   HttpApiSchema,
   HttpApiSecurity,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   AdministrationOperationVariants,
@@ -25,7 +27,7 @@ import {
   MinimumDhwVersion,
   OutdatedDhwRefusal,
 } from "./dhw-version";
-import { fieldWithDefault } from "./response-fields";
+import { fieldWithDefault, nullableField } from "./response-fields";
 import { WORKSPACE_SITE_TIME_ZONE } from "./site-time-zone";
 
 export const WORKSPACE_ADMIN_API_VERSION = "v1" as const;
@@ -115,7 +117,6 @@ export const AdministrationStandaloneAccessCodeCleanupTarget = Schema.Struct({
   identifier: "AdministrationStandaloneAccessCodeCleanupTarget",
   description:
     "The single ambiguous standalone access-code creation attempt the operator must inspect in the lock provider, identified by attempt id and stored access-code name; a later confirmation names this exact attempt.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCleanupTarget =
   typeof AdministrationStandaloneAccessCodeCleanupTarget.Type;
@@ -285,21 +286,21 @@ export const GrantedCliSession = Schema.Struct({
 }).pipe(HttpApiSchema.status("Created"));
 export type GrantedCliSession = typeof GrantedCliSession.Type;
 
-export class CliGrantRejected extends Schema.TaggedErrorClass<CliGrantRejected>()(
+export class CliGrantRejected extends Schema.TaggedError<CliGrantRejected>()(
   "CliGrantRejected",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Unauthorized"));
 }
 
-export class CliAuthenticationRateLimited extends Schema.TaggedErrorClass<CliAuthenticationRateLimited>()(
+export class CliAuthenticationRateLimited extends Schema.TaggedError<CliAuthenticationRateLimited>()(
   "CliAuthenticationRateLimited",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("TooManyRequests"));
 }
 
-export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUnauthorized>()(
+export class CliSessionUnauthorized extends Schema.TaggedError<CliSessionUnauthorized>()(
   "CliSessionUnauthorized",
   { message: Schema.String }
 ) {
@@ -307,19 +308,19 @@ export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUn
 }
 
 /**
- * The campaign port's stable error code, when the failure came from it.
- * Older servers omit it.
+ * A stable error code, when the failure has one: the campaign port's, or an
+ * invoice cancellation or archive refusal's. Older servers omit it.
  */
 const cliErrorCode = Schema.optionalKey(Schema.String);
 
-export class CliServiceUnavailable extends Schema.TaggedErrorClass<CliServiceUnavailable>()(
+export class CliServiceUnavailable extends Schema.TaggedError<CliServiceUnavailable>()(
   "CliServiceUnavailable",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("ServiceUnavailable"));
 }
 
-export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotFound>()(
+export class CliResourceNotFound extends Schema.TaggedError<CliResourceNotFound>()(
   "CliResourceNotFound",
   { message: Schema.String, code: cliErrorCode }
 ) {
@@ -327,21 +328,21 @@ export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotF
 }
 
 /** Request content the server can't accept, such as an unparsable body. */
-export class CliInputInvalid extends Schema.TaggedErrorClass<CliInputInvalid>()(
+export class CliInputInvalid extends Schema.TaggedError<CliInputInvalid>()(
   "CliInputInvalid",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("BadRequest"));
 }
 
-export class CliMutationRejected extends Schema.TaggedErrorClass<CliMutationRejected>()(
+export class CliMutationRejected extends Schema.TaggedError<CliMutationRejected>()(
   "CliMutationRejected",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationInProgress>()(
+export class CliMutationInProgress extends Schema.TaggedError<CliMutationInProgress>()(
   "CliMutationInProgress",
   {
     message: Schema.String,
@@ -351,14 +352,14 @@ export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationIn
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationUncertain extends Schema.TaggedErrorClass<CliMutationUncertain>()(
+export class CliMutationUncertain extends Schema.TaggedError<CliMutationUncertain>()(
   "CliMutationUncertain",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorClass<CliStandaloneAccessCodeCleanupRequired>()(
+export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedError<CliStandaloneAccessCodeCleanupRequired>()(
   "CliStandaloneAccessCodeCleanupRequired",
   {
     message: Schema.String,
@@ -368,7 +369,7 @@ export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorCl
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeReconciled extends Schema.TaggedErrorClass<CliStandaloneAccessCodeReconciled>()(
+export class CliStandaloneAccessCodeReconciled extends Schema.TaggedError<CliStandaloneAccessCodeReconciled>()(
   "CliStandaloneAccessCodeReconciled",
   { message: Schema.String }
 ) {
@@ -419,10 +420,14 @@ export type AdministratorActor = {
 };
 
 /**
- * How an administrator reached the administration API: a `dhw` session, or an
- * AI assistant the administrator connected, identified by its OAuth client.
+ * How an administrator reached an administration operation: the Admin UI, a
+ * `dhw` session, or an AI assistant the administrator connected, identified
+ * by its OAuth client. Only the latter two reach the administration API.
  */
 export type AdministrationChannel =
+  | {
+      readonly _tag: "AdminUi";
+    }
   | {
       readonly _tag: "CliSession";
       readonly sessionId: CliSessionId;
@@ -481,10 +486,10 @@ export class AdministrationActionRecord extends HttpApiMiddleware.Service<
  */
 export const requiresDhw =
   (minimum: DhwVersion, refusal?: (typeof OutdatedDhwRefusal)["Service"]) =>
-  <Endpoint extends HttpApiEndpoint.Any>(
+  <Endpoint extends HttpApiEndpoint.Constraint>(
     endpoint: Endpoint
   ): HttpApiEndpoint.AddMiddleware<Endpoint, CliClientCompatibility> => {
-    const required = (endpoint as unknown as HttpApiEndpoint.AnyWithProps)
+    const required = (endpoint as unknown as HttpApiEndpoint.Top)
       .annotate(MinimumDhwVersion, Option.some(minimum))
       .middleware(CliClientCompatibility);
     return (
@@ -526,11 +531,11 @@ export type AdministrationOperationGroup<
  * minimum `dhw`.
  */
 const assertAdministrationOperationEndpoint = (
-  declared: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  declared: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top,
   checksFirst: boolean
 ) => {
-  const reference = `${declared.identifier}.${endpoint.name}`;
+  const reference = `${declared.identifier}.${endpoint.identifier}`;
   const checksOwn = (endpoint.middlewares as ReadonlySet<unknown>).has(
     CliClientCompatibility
   );
@@ -562,7 +567,7 @@ const assertAdministrationOperationEndpoint = (
  * own in a group that checks every endpoint's first.
  */
 export const administrationOperationGroup = <
-  Group extends HttpApiGroup.Any,
+  Group extends HttpApiGroup.Constraint,
   const Options extends AdministrationOperationGroupOptions = Record<
     never,
     never
@@ -571,7 +576,7 @@ export const administrationOperationGroup = <
   group: Group,
   options?: Options
 ): AdministrationOperationGroup<Group, Options> => {
-  const declared = group as unknown as HttpApiGroup.AnyWithProps;
+  const declared = group as unknown as HttpApiGroup.Top;
   const checksFirst = options?.checkDhwVersionBeforeAuthentication ?? false;
   for (const endpoint of Object.values(declared.endpoints)) {
     assertAdministrationOperationEndpoint(declared, endpoint, checksFirst);
@@ -587,7 +592,7 @@ export const administrationOperationGroup = <
   return middleware
     .reduce(
       (served, service) =>
-        served.middleware(service) as unknown as HttpApiGroup.AnyWithProps,
+        served.middleware(service) as unknown as HttpApiGroup.Top,
       declared
     )
     .prefix("/api/v1/cli") as never;
@@ -853,8 +858,6 @@ export const AdministrationInvoiceCreateInput = Schema.Struct({
       price: Schema.Trim.check(Schema.isPattern(/^[+-]?\d+(?:\.\d+)?$/)),
     })
   ).check(Schema.isMinLength(1)),
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationInvoiceCreateInput =
   typeof AdministrationInvoiceCreateInput.Type;
@@ -868,8 +871,6 @@ export const AdministrationInvoiceCreateFileInput = Schema.Struct({
   currency: AdministrationInvoiceCreateInput.fields.currency,
   variableSymbol: AdministrationInvoiceCreateInput.fields.variableSymbol,
   lines: AdministrationInvoiceCreateInput.fields.lines,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationInvoiceCreateFileInput =
   typeof AdministrationInvoiceCreateFileInput.Type;
@@ -886,6 +887,8 @@ export const AdministrationInvoiceSort = Schema.Literals([
 export type AdministrationInvoiceSort = typeof AdministrationInvoiceSort.Type;
 
 export const AdministrationInvoiceQuery = Schema.Struct({
+  /** Also list archived (hidden) invoices; the list leaves them out by default. */
+  includeArchived: Schema.optional(Schema.Boolean),
   sort: Schema.optional(AdministrationInvoiceSort),
   direction: Schema.optional(AdministrationReservationSortDirection),
   page: Schema.optional(
@@ -909,6 +912,59 @@ export const AdministrationInvoicePaymentStatus = Schema.Literals([
 ]);
 export type AdministrationInvoicePaymentStatus =
   typeof AdministrationInvoicePaymentStatus.Type;
+
+/** A cancellation notice's state per audience; `not_owed` until one is claimed. */
+const AdministrationInvoiceNoticeState = Schema.Literals([
+  "not_owed",
+  "processing",
+  "accepted",
+  "failed",
+]);
+
+export const AdministrationInvoiceNotices = Schema.Struct({
+  customer: AdministrationInvoiceNoticeState,
+  internal: AdministrationInvoiceNoticeState,
+  needsAttention: Schema.Boolean,
+});
+export type AdministrationInvoiceNotices =
+  typeof AdministrationInvoiceNotices.Type;
+
+/**
+ * Who cancelled an invoice, when, through which channel and why, and the
+ * corrective document (credit note) that reverses it.
+ */
+export const AdministrationInvoiceCancellation = Schema.Struct({
+  cancelledAt: Schema.String,
+  cause: Schema.Literals(["invoice_cancellation", "reservation_cancellation"]),
+  source: Schema.Literals(["admin-ui", "dhw-cli", "assistant"]),
+  /** The administrator's login email when they cancelled. */
+  actor: Schema.String,
+  correctiveDocumentNumber: Schema.String,
+  correctiveDocumentIssuedAt: Schema.String,
+  /** Unprefixed; the proxy opens it in the operator's language. */
+  correctiveDocumentPdfUrl: Schema.String,
+  notices: AdministrationInvoiceNotices,
+});
+export type AdministrationInvoiceCancellation =
+  typeof AdministrationInvoiceCancellation.Type;
+
+/** What cancelling a live invoice would do; the server rechecks it. */
+export const AdministrationInvoiceCancellationPlan = Schema.Struct({
+  /** `owed`: the invoice was sent to the customer, who gets a cancellation notice. */
+  customerNotice: Schema.Literals(["owed", "not_owed"]),
+  /**
+   * `cancels_reservation`: the invoice bills a live reservation, which is
+   * cancelled with it; `cancellation_in_progress` refuses until that ends.
+   */
+  reservation: Schema.Literals([
+    "none",
+    "cancels_reservation",
+    "already_cancelled",
+    "cancellation_in_progress",
+  ]),
+});
+export type AdministrationInvoiceCancellationPlan =
+  typeof AdministrationInvoiceCancellationPlan.Type;
 
 export const AdministrationInvoiceListItem = Schema.Struct({
   id: AdministrationInvoiceId,
@@ -938,6 +994,14 @@ export const AdministrationInvoiceListItem = Schema.Struct({
     internal: AdministrationInvoiceDeliveryState,
   }),
   needsAttention: Schema.Boolean,
+  /** Null while the invoice is live, and from servers that predate cancellation. */
+  cancellation: nullableField(AdministrationInvoiceCancellation),
+  /** When the cancelled invoice was hidden from the Admin UI list. */
+  archivedAt: nullableField(Schema.String),
+  /** The cancelled invoice of the same reservation that this one replaces. */
+  replacesInvoiceId: nullableField(AdministrationInvoiceId),
+  /** The invoice that replaced this cancelled one. */
+  replacedByInvoiceId: nullableField(AdministrationInvoiceId),
 });
 export type AdministrationInvoiceListItem =
   typeof AdministrationInvoiceListItem.Type;
@@ -978,6 +1042,8 @@ export const AdministrationInvoiceDetail = Schema.Struct({
   ),
   buyer: AdministrationInvoiceBuyer,
   pdfUrl: Schema.String,
+  /** Null once the invoice is cancelled, and from servers that predate cancellation. */
+  cancellationPlan: nullableField(AdministrationInvoiceCancellationPlan),
 });
 export type AdministrationInvoiceDetail =
   typeof AdministrationInvoiceDetail.Type;
@@ -995,9 +1061,56 @@ export const AdministrationInvoiceRetryResult = Schema.Struct({
   invoiceId: AdministrationInvoiceId,
   changed: Schema.Boolean,
   needsAttention: Schema.Boolean,
+  /**
+   * Set when the invoice is cancelled: its cancellation notices were retried
+   * instead of the invoice email. Null when the invoice email was retried,
+   * and from servers that predate cancellation.
+   */
+  notices: nullableField(AdministrationInvoiceNotices),
 });
 export type AdministrationInvoiceRetryResult =
   typeof AdministrationInvoiceRetryResult.Type;
+
+/**
+ * Cancels an invoice. `confirmedCustomerNotice` confirms the notice the plan
+ * showed. An invoice billing a live reservation also needs `reservation`: the
+ * choice a reservation cancellation takes, and both are cancelled together.
+ */
+export const AdministrationInvoiceCancellationInput = Schema.Struct({
+  confirmedCustomerNotice: Schema.Boolean,
+  reservation: Schema.optionalKey(
+    Schema.Struct({
+      sendCancellationEmail: Schema.Boolean,
+    })
+  ),
+});
+export type AdministrationInvoiceCancellationInput =
+  typeof AdministrationInvoiceCancellationInput.Type;
+
+export const AdministrationInvoiceCancellationResult = Schema.Struct({
+  invoiceId: AdministrationInvoiceId,
+  outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+  cancellation: AdministrationInvoiceCancellation,
+  /** Set when the invoice's reservation was cancelled with it. */
+  reservation: nullableField(
+    Schema.Struct({
+      reservationId: AdministrationWorkspaceReservationId,
+      outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+      email: Schema.Literals(["not_requested", "sent", "failed"]),
+    })
+  ),
+});
+export type AdministrationInvoiceCancellationResult =
+  typeof AdministrationInvoiceCancellationResult.Type;
+
+export const AdministrationInvoiceArchiveResult = Schema.Struct({
+  invoiceId: AdministrationInvoiceId,
+  archivedAt: Schema.String,
+  /** False when the invoice was already archived. */
+  changed: Schema.Boolean,
+});
+export type AdministrationInvoiceArchiveResult =
+  typeof AdministrationInvoiceArchiveResult.Type;
 
 export const AdministrationInvoicePdf = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
@@ -1041,6 +1154,20 @@ export const AdministrationReservationStatusFilter = Schema.Literals([
 export type AdministrationReservationStatusFilter =
   typeof AdministrationReservationStatusFilter.Type;
 
+/**
+ * The reservation states an admin list can filter by: every shared state,
+ * plus `needs_attention`, the operator queue of reservations owing a refund
+ * or with a customer withdrawal whose settlement keeps failing. Campaign
+ * audiences keep the shared states, so stored audiences stay readable by
+ * released `dhw` binaries.
+ */
+export const AdministrationReservationListStatusFilter = Schema.Literals([
+  ...AdministrationReservationStatusFilter.literals,
+  "needs_attention",
+]);
+export type AdministrationReservationListStatusFilter =
+  typeof AdministrationReservationListStatusFilter.Type;
+
 export const AdministrationReservationQuery = Schema.Struct({
   customerId: Schema.optional(AdministrationDotyposCustomerId),
   date: Schema.optional(administrationCalendarDate),
@@ -1049,7 +1176,7 @@ export const AdministrationReservationQuery = Schema.Struct({
     Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))
   ),
   sort: Schema.optional(AdministrationReservationSort),
-  status: Schema.optional(AdministrationReservationStatusFilter),
+  status: Schema.optional(AdministrationReservationListStatusFilter),
   type: Schema.optional(AdministrationReservationFamily),
 });
 export type AdministrationReservationQuery =
@@ -1150,6 +1277,17 @@ export const AdministrationPaymentAttempt = Schema.Struct({
 export type AdministrationPaymentAttempt =
   typeof AdministrationPaymentAttempt.Type;
 
+const withdrawalSettlement = Schema.Literals([
+  "settled",
+  "in_progress",
+  "needs_attention",
+]);
+
+const reservationWithdrawalSummary = Schema.Struct({
+  refundAmount: AdministrationMoney,
+  settlement: withdrawalSettlement,
+});
+
 export const AdministrationReservationSummary = Schema.Struct({
   id: AdministrationWorkspaceReservationId,
   customerId: AdministrationDotyposCustomerId,
@@ -1171,6 +1309,7 @@ export const AdministrationReservationSummary = Schema.Struct({
     group: AdministrationReservationStatusGroup,
     label: Schema.String,
   }),
+  withdrawal: Schema.optionalKey(reservationWithdrawalSummary),
   statusNote: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
   latestPayment: Schema.NullOr(AdministrationPaymentAttempt),
@@ -1577,7 +1716,6 @@ export const AdministrationStandaloneAccessCodeCreateInput = Schema.Struct({
     identifier: "AdministrationStandaloneAccessCodeCreateInput",
     description:
       "Strict standalone access-code creation request; site-local times are interpreted in the Workspace site time zone.",
-    parseOptions: { errors: "all", onExcessProperty: "error" },
   });
 export type AdministrationStandaloneAccessCodeCreateInput =
   typeof AdministrationStandaloneAccessCodeCreateInput.Type;
@@ -1594,7 +1732,6 @@ export const AdministrationStandaloneAccessCodeCreateRequest = Schema.Struct({
   identifier: "AdministrationStandaloneAccessCodeCreateRequest",
   description:
     "CLI standalone access-code creation request; the client-generated attempt identifier is also the CLI mutation-ledger request identifier. The provider-credential-removed confirmation names the exact earlier attempt the operator verified as removed or absent.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCreateRequest =
   typeof AdministrationStandaloneAccessCodeCreateRequest.Type;
@@ -1617,7 +1754,6 @@ export const AdministrationStandaloneAccessCodeCreationOutcome = Schema.Union([
   identifier: "AdministrationStandaloneAccessCodeCreationOutcome",
   description:
     "Standalone access-code creation outcome; the created variant discloses the one-time PIN, the already-created replay variant structurally cannot.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCreationOutcome =
   typeof AdministrationStandaloneAccessCodeCreationOutcome.Type;
@@ -1639,6 +1775,79 @@ export const AdministrationReservationAuthor = Schema.Union([
 ]);
 export type AdministrationReservationAuthor =
   typeof AdministrationReservationAuthor.Type;
+
+const administrationWithdrawalStep = Schema.Struct({
+  step: Schema.Literals([
+    "receipt",
+    "operator_notice",
+    "contract_cancellation",
+  ]),
+  status: Schema.Literals(["done", "failed", "pending"]),
+  doneAt: Schema.NullOr(Schema.String),
+  attempts: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(0)
+  ),
+  failureCode: Schema.NullOr(Schema.String),
+  retryAt: Schema.NullOr(Schema.String),
+});
+
+export const AdministrationReservationWithdrawal = Schema.Struct({
+  ...reservationWithdrawalSummary.fields,
+  submittedAt: Schema.String,
+  paidAmount: AdministrationMoney,
+  refundBasis: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("full") }),
+    Schema.Struct({
+      kind: Schema.Literal("partial"),
+      unit: Schema.Literals(["day", "hour"]),
+      unstarted: Schema.Number,
+      total: Schema.Number,
+    }),
+  ]),
+  steps: Schema.Array(administrationWithdrawalStep),
+});
+export type AdministrationReservationWithdrawal =
+  typeof AdministrationReservationWithdrawal.Type;
+
+/** `in_progress` means this attempt could not acquire or keep the claim. */
+export const AdministrationWithdrawalRetryResult = Schema.Struct({
+  outcome: Schema.Literals([
+    "settled",
+    "failed",
+    "already_settled",
+    "in_progress",
+  ]),
+  withdrawal: AdministrationReservationWithdrawal,
+});
+export type AdministrationWithdrawalRetryResult =
+  typeof AdministrationWithdrawalRetryResult.Type;
+
+/** What restoring a cancelled reservation would do. */
+export const AdministrationReservationRestoration = Schema.Struct({
+  /** The cancellation email reached the customer; a restoration email can follow. */
+  cancellationEmailRecorded: Schema.Boolean,
+  /** The reservation hasn't ended, so restoring issues a new access code. */
+  issuesNewAccess: Schema.Boolean,
+  /**
+   * The reservation's invoice was cancelled with it, so restoring issues and
+   * sends a new invoice; the cancelled one and its credit note stay. False
+   * when that invoice can't be opened, and from servers that predate invoice
+   * reissue.
+   */
+  issuesNewInvoice: fieldWithDefault(Schema.Boolean, false),
+  /** Some payment awaits a refund Nexi hasn't recorded; restoring clears it. */
+  clearsRefundRequirement: Schema.Boolean,
+  /** What Nexi already refunded, in total; null when nothing was refunded. */
+  refundedPayment: Schema.NullOr(
+    Schema.Struct({
+      amount: AdministrationMoney,
+      coverage: Schema.Literals(["full", "partial"]),
+    })
+  ),
+});
+export type AdministrationReservationRestoration =
+  typeof AdministrationReservationRestoration.Type;
 
 export const AdministrationReservationDetail = Schema.Struct({
   /**
@@ -1664,6 +1873,33 @@ export const AdministrationReservationDetail = Schema.Struct({
     customerId: AdministrationDotyposCustomerId,
   }),
   canCancel: Schema.Boolean,
+  withdrawal: Schema.NullOr(AdministrationReservationWithdrawal).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+  ),
+  /**
+   * The reservation's latest invoice; null without one, and from servers
+   * that predate invoice cancellation.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      id: AdministrationInvoiceId,
+      invoiceNumber: Schema.String,
+      /** `live` is cancelled with the reservation. */
+      state: Schema.Literals(["live", "cancelled"]),
+      /** Hidden from the Admin UI; it stays readable through the API. */
+      archived: Schema.Boolean,
+      /** `owed`: cancelling emails the customer a cancellation notice. */
+      customerNotice: Schema.Literals(["owed", "not_owed"]),
+    })
+  ),
+  /** False from servers that predate restoring reservations. */
+  canRestore: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(false))
+  ),
+  /** Null when `canRestore` is false. */
+  restoration: Schema.NullOr(AdministrationReservationRestoration).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+  ),
 });
 export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
@@ -1671,8 +1907,17 @@ export type AdministrationReservationDetail =
 export const AdministrationReservationCancellationInput = Schema.Struct({
   force: Schema.optionalKey(Schema.Boolean),
   sendCancellationEmail: Schema.Boolean,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
+  /**
+   * The invoice consequences the operator confirmed. When given, the server
+   * refuses a cancellation whose consequences changed since; released `dhw`
+   * binaries omit it.
+   */
+  confirmedConsequences: Schema.optionalKey(
+    Schema.Struct({
+      invoice: Schema.Boolean,
+      customerNotice: Schema.Boolean,
+    })
+  ),
 });
 export type AdministrationReservationCancellationInput =
   typeof AdministrationReservationCancellationInput.Type;
@@ -1680,9 +1925,56 @@ export type AdministrationReservationCancellationInput =
 export const AdministrationReservationCancellationResult = Schema.Struct({
   outcome: Schema.Literals(["cancelled", "already_cancelled"]),
   email: Schema.Literals(["not_requested", "sent", "failed"]),
+  /**
+   * The reservation's invoice cancelled with it; null when it had no live
+   * invoice, and from servers that predate invoice cancellation.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+      invoiceId: AdministrationInvoiceId,
+      invoiceNumber: Schema.String,
+      correctiveDocumentNumber: Schema.String,
+      notices: AdministrationInvoiceNotices,
+    })
+  ),
 });
 export type AdministrationReservationCancellationResult =
   typeof AdministrationReservationCancellationResult.Type;
+
+export const AdministrationReservationRestorationInput = Schema.Struct({
+  /** Restore although Nexi already refunded some or all of the payment. */
+  acknowledgeRefundedPayment: Schema.Boolean,
+  /** Send the restoration email; honoured only when the cancellation email was recorded. */
+  sendRestorationEmail: Schema.Boolean,
+});
+export type AdministrationReservationRestorationInput =
+  typeof AdministrationReservationRestorationInput.Type;
+
+export const AdministrationReservationRestorationResult = Schema.Struct({
+  outcome: Schema.Literals(["restored", "already_confirmed"]),
+  email: Schema.Literals(["not_requested", "sent", "failed", "not_available"]),
+  /** `failed` keeps the restore; retrying access recovers the grant. */
+  access: Schema.Literals(["issued", "failed", "not_needed"]),
+  /**
+   * The new invoice issued for the one cancelled with the reservation; null
+   * when none was owed, and from servers that predate invoice reissue. A
+   * failure keeps the restore; the number is set when the invoice was issued
+   * but not sent. `retrying`: Workspace retries it. `failed`: nothing retries
+   * it on its own; the customer can request it from the invoice link, and
+   * restoring again issues it. `not_issued`: the cancelled invoice could not
+   * be opened, so none was issued.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      outcome: Schema.Literals(["issued", "retrying", "failed", "not_issued"]),
+      invoiceId: Schema.NullOr(AdministrationInvoiceId),
+      invoiceNumber: Schema.NullOr(Schema.String),
+    })
+  ),
+});
+export type AdministrationReservationRestorationResult =
+  typeof AdministrationReservationRestorationResult.Type;
 
 export const AdministrationReservationProductDetailsBackfillInput =
   Schema.Struct({
@@ -1690,8 +1982,6 @@ export const AdministrationReservationProductDetailsBackfillInput =
     dryRun: Schema.Boolean,
     /** The previous batch's `nextCursor`, or null for the first batch. */
     after: Schema.NullOr(AdministrationWorkspaceReservationId),
-  }).annotate({
-    parseOptions: { errors: "all", onExcessProperty: "error" },
   });
 export type AdministrationReservationProductDetailsBackfillInput =
   typeof AdministrationReservationProductDetailsBackfillInput.Type;
@@ -2353,9 +2643,7 @@ export const AdministrationDiscountMutation = Schema.Union([
     customerId: AdministrationDotyposCustomerId,
     discountGroupId: Schema.NullOr(AdministrationDotyposDiscountGroupId),
   }),
-]).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-});
+]);
 export type AdministrationDiscountMutation =
   typeof AdministrationDiscountMutation.Type;
 
@@ -2648,6 +2936,7 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         ],
       }
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
       .annotate(
         AdministrationOperationBehavior,
         destructiveOperation({
@@ -2659,6 +2948,47 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
   )
   .add(
     HttpApiEndpoint.post(
+      "restoreReservation",
+      "/reservations/:reservationId/restoration",
+      {
+        params: { reservationId: AdministrationWorkspaceReservationId },
+        payload: AdministrationReservationRestorationInput,
+        success: AdministrationReservationRestorationResult,
+        error: [
+          CliMutationRejected.schema,
+          CliResourceNotFound.schema,
+          CliServiceUnavailable.schema,
+        ],
+      }
+    )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: false,
+          preview: readPreview("administration.getReservation"),
+        })
+      )
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "retryReservationWithdrawal",
+      "/reservations/:reservationId/withdrawal/retry",
+      {
+        params: { reservationId: AdministrationWorkspaceReservationId },
+        success: AdministrationWithdrawalRetryResult,
+        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+      }
+    ).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: false,
+        preview: readPreview("administration.getReservation"),
+      })
+    )
+  )
+  .add(
+    HttpApiEndpoint.post(
       "backfillReservationProductDetails",
       "/reservations/product-details-backfill",
       {
@@ -2666,10 +2996,12 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         success: AdministrationReservationProductDetailsBackfillBatch,
         error: CliServiceUnavailable.schema,
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true, preview: dryRunPreview })
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({ idempotent: true, preview: dryRunPreview })
+      )
   )
   .add(
     HttpApiEndpoint.post(
@@ -2680,8 +3012,6 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         payload: Schema.Struct({
           requestId: CliMutationRequestId,
           mutation: AdministrationReservationAccessMutation,
-        }).annotate({
-          parseOptions: { errors: "all", onExcessProperty: "error" },
         }),
         success: AdministrationReservationAccessGrant,
         error: [
@@ -2691,10 +3021,12 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliServiceUnavailable.schema,
         ],
       }
-    ).annotate(
-      AdministrationOperationVariants,
-      reservationAccessMutationOperations
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationVariants,
+        reservationAccessMutationOperations
+      )
   )
   .add(
     HttpApiEndpoint.get("findReservation", "/reservations/find", {
@@ -2827,6 +3159,19 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
     }).annotate(AdministrationOperationBehavior, readOperation)
   )
   .add(
+    // The corrective document (credit note) of a cancelled invoice, archived
+    // or not; an invoice that isn't cancelled has none.
+    HttpApiEndpoint.get(
+      "getInvoiceCorrectiveDocumentPdf",
+      "/invoices/:invoiceId/corrective-document/pdf",
+      {
+        params: { invoiceId: AdministrationInvoiceId },
+        success: AdministrationInvoicePdf,
+        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+      }
+    ).annotate(AdministrationOperationBehavior, readOperation)
+  )
+  .add(
     HttpApiEndpoint.get(
       "getInvoiceCreationDefaults",
       "/invoices/creation-defaults",
@@ -2840,7 +3185,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       payload: AdministrationInvoiceCreateInput,
       success: AdministrationInvoicePdf,
       error: [CliMutationRejected.schema, CliServiceUnavailable.schema],
-    }).annotate(AdministrationOperationBehavior, readOperation)
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(AdministrationOperationBehavior, readOperation)
   )
   .add(
     HttpApiEndpoint.post("createInvoice", "/invoices", {
@@ -2851,13 +3198,15 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliMutationRejected.schema,
         CliServiceUnavailable.schema,
       ],
-    }).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({
-        idempotent: true,
-        preview: readPreview("administration.previewInvoice"),
-      })
-    )
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: readPreview("administration.previewInvoice"),
+        })
+      )
   )
   .add(
     HttpApiEndpoint.post("createStandaloneAccessCode", "/access-codes", {
@@ -2871,10 +3220,13 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliStandaloneAccessCodeCleanupRequired.schema,
         CliStandaloneAccessCodeReconciled.schema,
       ],
-    }).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true })
-    )
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(HttpApi.SuccessParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({ idempotent: true })
+      )
   )
   .add(
     HttpApiEndpoint.post("resendInvoice", "/invoices/:invoiceId/resend", {
@@ -2894,6 +3246,50 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
     )
   )
   .add(
+    // Issues the corrective document and sends the notices the plan in
+    // `getInvoice` shows; a replay answers `already_cancelled` and sends
+    // nothing again. Refusals carry a code: reservation_confirmation_required,
+    // confirmation_stale, reservation_cancellation_in_progress (409), and
+    // document_unavailable (503).
+    HttpApiEndpoint.post("cancelInvoice", "/invoices/:invoiceId/cancellation", {
+      params: { invoiceId: AdministrationInvoiceId },
+      payload: AdministrationInvoiceCancellationInput,
+      success: AdministrationInvoiceCancellationResult,
+      error: [
+        CliMutationRejected.schema,
+        CliResourceNotFound.schema,
+        CliServiceUnavailable.schema,
+      ],
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: readPreview("administration.getInvoice"),
+        })
+      )
+  )
+  .add(
+    // Hides a cancelled invoice from the Admin UI; the API still reads it.
+    // A live invoice is refused with the code not_cancelled.
+    HttpApiEndpoint.post("archiveInvoice", "/invoices/:invoiceId/archive", {
+      params: { invoiceId: AdministrationInvoiceId },
+      success: AdministrationInvoiceArchiveResult,
+      error: [
+        CliMutationRejected.schema,
+        CliResourceNotFound.schema,
+        CliServiceUnavailable.schema,
+      ],
+    }).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: true,
+        preview: readPreview("administration.getInvoice"),
+      })
+    )
+  )
+  .add(
     HttpApiEndpoint.get("listSessions", "/sessions", {
       success: Schema.Array(CliSessionAdministration),
     }).annotate(AdministrationOperationBehavior, readOperation)
@@ -2903,8 +3299,6 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       payload: Schema.Struct({
         requestId: CliMutationRequestId,
         mutation: AdministrationDiscountMutation,
-      }).annotate({
-        parseOptions: { errors: "all", onExcessProperty: "error" },
       }),
       success: AdministrationDiscountMutationResult,
       error: [
@@ -2912,7 +3306,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliMutationRejected.schema,
         CliResourceNotFound.schema,
       ],
-    }).annotate(AdministrationOperationVariants, discountMutationOperations)
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(AdministrationOperationVariants, discountMutationOperations)
   )
   .add(
     HttpApiEndpoint.patch("renameSession", "/sessions/:sessionId", {

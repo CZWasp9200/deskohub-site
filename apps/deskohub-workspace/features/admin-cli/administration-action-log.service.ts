@@ -54,7 +54,7 @@ export class AdministrationActionLog extends Context.Service<
             outcome: "started",
             actorAccountId: caller.actor.accountId,
             actorAccountEmail: caller.actor.email,
-            ...channelColumns(caller.channel),
+            ...(yield* channelColumns(caller.channel)),
           })
           .returning({ id: administrationActions.id });
         return row
@@ -94,9 +94,10 @@ const channelColumns = (
 ) =>
   Match.value(channel).pipe(
     Match.tagsExhaustive({
-      CliSession: ({ sessionId }) => ({ cliSessionId: sessionId }),
-      AssistantConnection: ({ connectionId }) => ({
-        assistantConnectionId: connectionId,
-      }),
+      AdminUi: () => Effect.succeed({}),
+      CliSession: ({ sessionId }) =>
+        Effect.succeed({ cliSessionId: sessionId }),
+      AssistantConnection: ({ connectionId }) =>
+        Effect.succeed({ assistantConnectionId: connectionId }),
     })
   );

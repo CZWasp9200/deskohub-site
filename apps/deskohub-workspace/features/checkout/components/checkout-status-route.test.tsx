@@ -5,7 +5,9 @@ import { Context, Effect, Layer } from "effect";
 import type { ReactNode } from "react";
 import { prerender } from "react-dom/static";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
+import type { OrderKind } from "@/features/order";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
+import type { ReservationWithdrawalEntry } from "@/features/withdrawal/withdrawal-read-model";
 
 mock.module("server-only", () => ({}));
 let connections = 0;
@@ -133,21 +135,44 @@ mock.module(
   })
 );
 
+// The reservation's withdrawal entry, and the reservations it was read for.
+let withdrawalEntry: ReservationWithdrawalEntry = { status: "none" };
+const withdrawalEntryReads: string[] = [];
+mock.module("@/features/withdrawal/backend/withdrawal-entry.server", () => ({
+  readReservationWithdrawalEntry: (input: { readonly reservationId: string }) =>
+    Effect.sync(() => {
+      withdrawalEntryReads.push(input.reservationId);
+      return withdrawalEntry;
+    }),
+}));
+const { resendReservationInvitation } = await import(
+  "@/features/reservation/actions/resend-reservation-invitation"
+);
 mock.module("@/features/checkout/components/checkout-status-page", () => ({
   CheckoutStatusPage: ({
     locale,
     presentation,
+    resendInvitation,
     status,
+    withdrawal,
   }: {
     readonly locale: string;
     readonly presentation: string;
+    readonly resendInvitation?: typeof resendReservationInvitation;
     readonly status: CheckoutStatusViewModel;
+    readonly withdrawal?: ReservationWithdrawalEntry;
   }) => (
     <article
       data-locale={locale}
       data-order={status.orderId}
       data-presentation={presentation}
       data-status={status.status}
+      data-withdrawal={withdrawal?.status}
+      data-resend-action={
+        resendInvitation === resendReservationInvitation
+          ? "connected"
+          : undefined
+      }
     />
   ),
 }));
@@ -201,6 +226,15 @@ mock.module("@/features/checkout/components/checkout-flow-layout", () => ({
   }) => <main data-flow-step={activeStepKey}>{children}</main>,
 }));
 
+let orderKind: OrderKind | undefined = "reservation";
+const orderKindReads: string[] = [];
+mock.module("@/features/order/backend/order-kind", () => ({
+  loadOrderKind: async (id: string) => {
+    orderKindReads.push(id);
+    return orderKind;
+  },
+}));
+
 const { CheckoutStatusRoute } = await import("./checkout-status-route");
 const { getReservationStatusSignInPath } = signIn;
 
@@ -248,10 +282,30 @@ const renderRoute = async ({
 describe("CheckoutStatusRoute", () => {
   afterEach(() => {
     loadCalls.length = 0;
+    orderKind = "reservation";
+    orderKindReads.length = 0;
     readCookieNames.length = 0;
     connections = 0;
     signedOut = false;
     signedOutReads = 0;
+    withdrawalEntry = { status: "none" };
+    withdrawalEntryReads.length = 0;
+  });
+
+  test("shows a recorded withdrawal and offers withdrawal on a confirmed reservation only", async () => {
+    loadResult = Effect.succeed(statusOf("fulfilled"));
+    withdrawalEntry = {
+      status: "withdrawn",
+      refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+    };
+    expect((await renderRoute()).html).toContain('data-withdrawal="withdrawn"');
+    expect(withdrawalEntryReads).toEqual([orderId]);
+
+    withdrawalEntry = { status: "offered" };
+    expect((await renderRoute()).html).toContain('data-withdrawal="offered"');
+
+    loadResult = Effect.succeed(statusOf("pending"));
+    expect((await renderRoute()).html).toContain('data-withdrawal="none"');
   });
 
   test("loads the order's status with its access cookie and request headers", async () => {
@@ -310,6 +364,13 @@ describe("CheckoutStatusRoute", () => {
     expect(html).toContain('data-presentation="modal"');
   });
 
+  test("connects the reservation invitation Server Action to status", async () => {
+    const { errors, html } = await renderRoute();
+
+    expect(errors).toEqual([]);
+    expect(html).toContain('data-resend-action="connected"');
+  });
+
   test("sends a signed-out visitor of an unknown order to sign in and back", async () => {
     loadResult = Effect.succeed(statusOf("not_found"));
     signedOut = true;
@@ -341,12 +402,35 @@ describe("CheckoutStatusRoute", () => {
     expect(html).toContain('data-status="not_found"');
   });
 
+  test("serves the reservation status for an order id no order has", async () => {
+    orderKind = undefined;
+    loadResult = Effect.succeed(statusOf("not_found"));
+
+    const { errors, html } = await renderRoute();
+
+    expect(orderKindReads).toEqual([orderId]);
+    expect(loadCalls).toHaveLength(1);
+    expect(errors).toEqual([]);
+    expect(html).toContain('data-status="not_found"');
+  });
+
+  test("answers a pass purchase order with not found without loading a reservation status", async () => {
+    orderKind = "pass-purchase";
+
+    const { errors } = await renderRoute();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(NotFoundSignal);
+    expect(loadCalls).toEqual([]);
+  });
+
   test("answers an invalid order id with not found before loading", async () => {
     const { errors, html } = await renderRoute({ order: "" });
 
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(NotFoundSignal);
     expect(loadCalls).toEqual([]);
+    expect(orderKindReads).toEqual([]);
     expect(html).toContain('data-flow-step="complete"');
     expect(html).toContain('data-skeleton="page"');
   });

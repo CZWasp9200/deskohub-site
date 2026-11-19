@@ -1,63 +1,258 @@
 import type {
+  CustomerEstablishment,
+  CustomerInvitedReservation,
   CustomerReservationAccess,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { type Duration, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { useIsFocused } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { DateTime, Option } from "effect";
+import { AsyncResult } from "effect/reactivity";
+import {
+  type NativeStackHeaderProps,
+  Stack,
+  useIsFocused,
+  useRouter,
+} from "expo-router";
+import CalendarPlus from "lucide-react-native/icons/calendar-plus";
+import Check from "lucide-react-native/icons/check";
+import Clock from "lucide-react-native/icons/clock";
+import Copy from "lucide-react-native/icons/copy";
+import DoorOpen from "lucide-react-native/icons/door-open";
+import Lock from "lucide-react-native/icons/lock";
+import Mail from "lucide-react-native/icons/mail";
+import MapPin from "lucide-react-native/icons/map-pin";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { bookKindHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView } from "../../customer-api/async-view";
-import type { AppLocale } from "../../i18n/app-locale";
-import { formatInstant } from "../../i18n/date-time-format";
+import { isSameWorkspaceDay } from "../../i18n/date-time-format";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { theme } from "../../theme";
-import { Button, LiveMessage } from "../../ui/controls";
+import { systemConfirmsCopy } from "../../platform/clipboard-confirmation";
+import { openContactPage } from "../../routing/open-contact-page";
+import { Card } from "../../ui/card";
+import { Button } from "../../ui/controls";
+import { EmptyState } from "../../ui/empty-state";
+import { Icon } from "../../ui/icon";
+import { ListGroup, ListRow } from "../../ui/list";
+import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
+import { StackHeader } from "../../ui/navigation";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
+import { useToast } from "../../ui/toast";
+import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
+import {
+  accessPinBox,
+  accessPinBoxSize,
+  accessPinGroups,
+  wideAccessPinBox,
+} from "./access-pin-groups";
 import { useAccessPinView } from "./access-pin-view";
 import {
+  AccessScreenState,
   accessCountdownAtom,
   accessErrorMessage,
+  accessHeaderTone,
+  accessScreenStateOf,
   accessWindowKey,
-  copyAccessCodeAtom,
+  copyAddressAtom,
+  copyPinWithFeedbackAtom,
   reservationAccessAtom,
   shownAccess,
+  showsCopied,
 } from "./access-screen-state";
+import { type AccessWindow, accessWindowOf } from "./access-window";
 import {
-  type AccessWindowState,
-  accessWindowOf,
-  Countdown,
-  countdownOf,
-} from "./access-window";
+  type AccessChip,
+  AccessWindowSpan,
+  accessChipOf,
+  accessChipText,
+  accessDateTimeText,
+  accessWindowSpanOf,
+} from "./access-window-text";
+import { shortDate } from "./booking-ticket-text";
+import { calendarShareAtom } from "./calendar-event";
+import {
+  establishmentAddressLines,
+  establishmentAtom,
+  establishmentCopyText,
+  openDirections,
+} from "./establishment";
+import { invitedReservationOfOrderAtom } from "./invited-reservations";
+import { orderStatusAtoms } from "./order-status-state";
+import { reservationOfOrderAtom } from "./order-ticket-view";
+import { reservationProductTitle } from "./reservation-labels";
+import type { ReservationListRow } from "./reservation-list-model";
+import { reservationsListAtom } from "./reservations-list-state";
+
+/** The PIN the loading state holds room for: the shortest the lock issues. */
+const placeholderGroups = accessPinGroups("0000000");
+const widePinCardPadding = space.xxl;
 
 /**
- * An order's door PIN (GET access): the code in large digits, a copy
- * action, when the lock accepts it, and a live countdown to the window's
- * start or end. Pull to read it again.
+ * What the screen knows of the booking besides its PIN: the space and its
+ * times, from the account's own history, else from an invitation, which
+ * also names who booked it.
  */
+interface AccessBooking
+  extends Pick<ReservationListRow, "product" | "startsAt" | "endsAt"> {
+  /** The booker's name on an invited person's screen. */
+  readonly bookedBy: Option.Option<string>;
+}
+
+const accessBookingOf = (
+  own: Option.Option<ReservationListRow>,
+  invited: Option.Option<CustomerInvitedReservation>
+): Option.Option<AccessBooking> =>
+  Option.orElse(
+    Option.map(own, ({ product, startsAt, endsAt }) => ({
+      product,
+      startsAt,
+      endsAt,
+      bookedBy: Option.none<string>(),
+    })),
+    () =>
+      Option.map(invited, (found) => ({
+        product: found.product,
+        startsAt: found.accessStartsAt,
+        endsAt: found.accessEndsAt,
+        bookedBy: Option.fromNullishOr(found.bookedBy.name),
+      }))
+  );
+
+/**
+ * The PIN's header in each tone: navy over the PIN, the paper canvas's
+ * without one. Back from a PIN a link opened on a cold start, with nothing
+ * behind it in the app, goes to the Reservations list.
+ */
+export const accessStackHeader = {
+  navy: (props: NativeStackHeaderProps) => (
+    <StackHeader {...props} tone="navy" backFallback={reservationsHref} />
+  ),
+  paper: (props: NativeStackHeaderProps) => (
+    <StackHeader {...props} backFallback={reservationsHref} />
+  ),
+  paperWide: (props: NativeStackHeaderProps) => (
+    <StackHeader
+      {...props}
+      backFallback={reservationsHref}
+      contentWidth="wide"
+    />
+  ),
+} as const;
+
 export function ReservationAccessScreen({
   orderId,
 }: {
   readonly orderId: CustomerReservationOrderId;
 }) {
   const locale = useAppLocale();
-  const access = shownAccess(useAtomValue(reservationAccessAtom(orderId)));
+  const { isExpanded, isWide } = useViewport();
+  const read = shownAccess(useAtomValue(reservationAccessAtom(orderId)));
   const refresh = useAtomRefresh(reservationAccessAtom(orderId));
+  const own = useAtomValue(reservationOfOrderAtom(orderId));
+  const invited = useAtomValue(invitedReservationOfOrderAtom(orderId));
+  const booking = accessBookingOf(own, invited);
+  const state = accessScreenStateOf(read);
+  const refreshing = !AsyncResult.isInitial(read) && read.waiting;
+  const headerTone = isWide ? "paper" : accessHeaderTone(state);
+  const header = (
+    <Stack.Screen
+      options={{
+        header: isExpanded
+          ? accessStackHeader.paperWide
+          : accessStackHeader[headerTone],
+      }}
+    />
+  );
+  if (AccessScreenState.$is("NoPin")(state)) {
+    return (
+      <>
+        {header}
+        <ScrollScreen refreshing={refreshing} onRefresh={refresh}>
+          <NoPin
+            orderId={orderId}
+            inOwnHistory={Option.isSome(own)}
+            invited={Option.isSome(invited)}
+          />
+        </ScrollScreen>
+      </>
+    );
+  }
+  const name = Option.getOrUndefined(
+    Option.map(booking, (found) =>
+      reservationProductTitle(found.product, locale)
+    )
+  );
   return (
-    <ScrollScreen
-      refreshing={!AsyncResult.isInitial(access) && access.waiting}
-      onRefresh={refresh}
-    >
+    <>
+      {header}
       <AsyncView
-        result={access}
+        result={read}
         onRetry={refresh}
         errorMessage={(error) => accessErrorMessage(error, locale)}
+        loading={
+          <AccessLayout
+            hero={
+              <PinHero name={name}>
+                <PinDigits groups={placeholderGroups} placeholder />
+              </PinHero>
+            }
+          >
+            <LoadingWindow />
+          </AccessLayout>
+        }
       >
-        {(value) => <AccessDetails orderId={orderId} access={value} />}
+        {(access) => (
+          <AccessDetails
+            orderId={orderId}
+            access={access}
+            name={name}
+            booking={booking}
+            refreshing={refreshing}
+            onRefresh={refresh}
+          />
+        )}
       </AsyncView>
+    </>
+  );
+}
+
+function AccessLayout({
+  hero,
+  children,
+  refreshing,
+  onRefresh,
+}: {
+  readonly hero: ReactNode;
+  readonly children: ReactNode;
+  readonly refreshing?: boolean;
+  readonly onRefresh?: () => void;
+}) {
+  const { isExpanded, isWide } = useViewport();
+  return (
+    <ScrollScreen
+      contentWidth={isExpanded ? "wide" : "form"}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+      <View style={[styles.accessLayout, isExpanded && styles.expandedLayout]}>
+        <View
+          style={[
+            isExpanded && styles.expandedPane,
+            !isWide && styles.compactHeroPane,
+          ]}
+        >
+          {hero}
+        </View>
+        <View style={[styles.detailsPane, isExpanded && styles.expandedPane]}>
+          {children}
+        </View>
+      </View>
     </ScrollScreen>
   );
 }
@@ -65,205 +260,745 @@ export function ReservationAccessScreen({
 function AccessDetails({
   orderId,
   access,
+  name,
+  booking,
+  refreshing,
+  onRefresh,
 }: {
   readonly orderId: CustomerReservationOrderId;
   readonly access: CustomerReservationAccess;
+  readonly name: string | undefined;
+  readonly booking: Option.Option<AccessBooking>;
+  readonly refreshing: boolean;
+  readonly onRefresh: () => void;
 }) {
   const locale = useAppLocale();
-  const focused = useIsFocused();
-  useAccessPinView(focused);
+  const router = useRouter();
+  useAccessPinView(useIsFocused());
+  const window = accessWindowOf(access);
   const windowState = Option.flatten(
     AsyncResult.value(
       useAtomValue(accessCountdownAtom(accessWindowKey(access)))
     )
   );
-  const [copied, copy] = useAtom(copyAccessCodeAtom(orderId));
-  const ended = Option.exists(windowState, (state) => state._tag === "Ended");
+  const chip = Option.getOrUndefined(
+    Option.map(Option.all([windowState, window]), ([state, parsed]) =>
+      accessChipOf(state, parsed, DateTime.nowUnsafe())
+    )
+  );
+  const ended = chip?._tag === "Ended";
   return (
-    <>
-      <View style={styles.card}>
-        <AccessCode code={access.code} ended={ended} />
-        {Option.isSome(windowState) && (
-          <CountdownLine state={windowState.value} locale={locale} />
-        )}
-        <Text style={styles.window}>
-          {Option.match(accessWindowOf(access), {
-            onNone: () =>
-              m.reservations_access_window_unavailable({}, { locale }),
-            onSome: ({ startsAt, endsAt }) =>
-              m.reservations_access_window(
-                {
-                  start: formatInstant(startsAt, locale, "date-time"),
-                  end: formatInstant(endsAt, locale, "date-time"),
-                },
-                { locale }
-              ),
-          })}
-        </Text>
-      </View>
-      {/* Kept mounted so the window's end is announced when it comes, or
-          on return when it ended while another screen was in front. */}
-      <Notice
-        tone="warning"
-        message={
-          ended && focused
-            ? m.reservations_access_expired({}, { locale })
-            : undefined
-        }
-      />
-      <Button
-        label={m.reservations_access_copy({}, { locale })}
-        variant="secondary"
-        onPress={() => copy(access.code)}
-        disabled={copied.waiting}
-      />
-      <LiveMessage
-        role="status"
-        message={
-          AsyncResult.isSuccess(copied) && !copied.waiting
-            ? m.reservations_access_copied({}, { locale })
-            : undefined
-        }
-      />
-      <Notice
-        tone="error"
-        message={
-          AsyncResult.isFailure(copied)
-            ? m.reservations_access_copy_failed({}, { locale })
-            : undefined
-        }
-      />
-    </>
+    <AccessLayout
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      hero={
+        <PinHero
+          name={name}
+          chip={chip}
+          action={
+            ended ? undefined : <CopyPin orderId={orderId} code={access.code} />
+          }
+        >
+          <PinDigits groups={accessPinGroups(access.code)} ended={ended} />
+        </PinHero>
+      }
+    >
+      {ended ? (
+        <Button
+          icon={RotateCcw}
+          label={m.reservations_book_again({}, { locale })}
+          onPress={() =>
+            router.push(
+              bookKindHref(
+                Option.getOrUndefined(
+                  Option.map(booking, (found) => found.product.kind)
+                )
+              )
+            )
+          }
+        />
+      ) : (
+        <WindowAndPlace orderId={orderId} window={window} booking={booking} />
+      )}
+    </AccessLayout>
   );
 }
 
-/** The PIN in large digits, read out by assistive tech one digit at a time. */
-function AccessCode({
-  code,
-  ended,
+function PinHero({
+  name,
+  chip,
+  action,
+  children,
 }: {
-  readonly code: string;
-  readonly ended: boolean;
+  readonly name: string | undefined;
+  readonly chip?: AccessChip | undefined;
+  readonly action?: ReactNode;
+  readonly children: ReactNode;
 }) {
   const locale = useAppLocale();
-  const characters = Array.from(code);
+  const { isWide } = useViewport();
+  const how = action !== undefined && (
+    <View style={[styles.how, isWide && styles.wideHow]}>
+      <Icon icon={DoorOpen} size={16} color={color.onNavyMuted} />
+      <Text
+        variant="hint"
+        style={[styles.howText, isWide && styles.wideHowText]}
+      >
+        {m.reservations_access_how({}, { locale })}
+      </Text>
+    </View>
+  );
+  return (
+    <View style={[styles.hero, isWide ? styles.wideHero : styles.compactHero]}>
+      <View style={isWide && styles.heroHeading}>
+        <Text variant="lead" style={[styles.name, isWide && styles.wideName]}>
+          {name ?? " "}
+        </Text>
+        {isWide && chip !== undefined && <StatusChip chip={chip} />}
+      </View>
+      {children}
+      {!isWide && how}
+      {!isWide && chip !== undefined && <StatusChip chip={chip} />}
+      {action !== undefined && (
+        <View style={isWide ? styles.heroFooter : styles.heroAction}>
+          {isWide && how}
+          {action}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The PIN in boxes, in groups: the boxes grow with the font size, and the
+ * groups wrap whole when the PIN no longer fits one line
+ * (`accessPinBoxSize`). Assistive tech
+ * reads it one digit at a time; a placeholder holds the room while loading.
+ */
+function PinDigits({
+  groups,
+  ended = false,
+  placeholder = false,
+}: {
+  readonly groups: ReadonlyArray<string>;
+  readonly ended?: boolean;
+  readonly placeholder?: boolean;
+}) {
+  const locale = useAppLocale();
+  const { availableWidth, fontScale, isExpanded, isWide } = useViewport();
+  const [measuredWidth, setMeasuredWidth] = useState<number>();
+  const gutter = isWide ? wideGutter : space.gutter;
+  const contentWidth = Math.min(
+    availableWidth - 2 * gutter,
+    contentColumnWidth[isExpanded ? "wide" : "form"]
+  );
+  // Bound the last measurement by the new pane width during live resize.
+  const paneWidth = isExpanded ? (contentWidth - space.xxl) / 2 : contentWidth;
+  const digitWidth = paneWidth - (isWide ? 2 * widePinCardPadding : 0);
+  const available = Math.min(digitWidth, measuredWidth ?? digitWidth);
+  const size = accessPinBoxSize(groups, available, fontScale, isWide);
+  const { digitGap, groupGap } = isWide ? wideAccessPinBox : accessPinBox;
+  const box = {
+    borderRadius: size.radius,
+    height: size.height,
+    width: size.width,
+  };
   return (
     <View
-      accessible
-      accessibilityRole="text"
-      aria-label={m.reservations_access_code_label(
-        { digits: characters.join(" ") },
-        { locale }
-      )}
-      style={styles.code}
+      accessible={!placeholder}
+      accessibilityRole={placeholder ? undefined : "text"}
+      aria-hidden={placeholder}
+      aria-label={
+        placeholder
+          ? undefined
+          : m.reservations_access_code_label(
+              { digits: Array.from(groups.join("")).join(" ") },
+              { locale }
+            )
+      }
+      onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}
+      style={[styles.pin, { columnGap: groupGap }, isWide && styles.widePin]}
     >
-      {characters.map((character, index) => (
+      {groups.map((group, groupIndex) => (
         <View
           aria-hidden
           importantForAccessibility="no-hide-descendants"
-          // biome-ignore lint/suspicious/noArrayIndexKey: PIN digits are positional and may repeat.
-          key={`${index}-${character}`}
-          style={styles.digit}
+          // biome-ignore lint/suspicious/noArrayIndexKey: PIN groups are positional.
+          key={groupIndex}
+          style={[styles.group, { columnGap: digitGap }]}
         >
-          <Text
-            maxFontSizeMultiplier={2}
-            style={[styles.digitText, ended && styles.digitTextEnded]}
-          >
-            {character}
-          </Text>
+          {Array.from(group).map((digit, index) => (
+            <View
+              // biome-ignore lint/suspicious/noArrayIndexKey: PIN digits are positional and may repeat.
+              key={index}
+              style={[placeholder ? styles.boxEmpty : styles.box, box]}
+            >
+              {!placeholder && (
+                <Text
+                  numeric
+                  allowFontScaling={false}
+                  style={[
+                    styles.digit,
+                    {
+                      fontSize: size.fontSize,
+                      lineHeight: Math.round(size.fontSize * 1.1),
+                    },
+                    ended && styles.digitEnded,
+                  ]}
+                >
+                  {digit}
+                </Text>
+              )}
+              {/* Android draws no line-through in the brand face, so an
+                  ended PIN's strike is its own line across the digit. */}
+              {ended && !placeholder && <View style={styles.strike} />}
+            </View>
+          ))}
         </View>
       ))}
     </View>
   );
 }
 
-/** How long until the window opens or closes; an ended window shows none. */
-function CountdownLine({
-  state,
-  locale,
+function CopyPin({
+  orderId,
+  code,
 }: {
-  readonly state: AccessWindowState;
-  readonly locale: AppLocale;
+  readonly orderId: CustomerReservationOrderId;
+  readonly code: string;
 }) {
+  const locale = useAppLocale();
+  const { isWide } = useViewport();
+  const [copied, copy] = useAtom(copyPinWithFeedbackAtom(orderId));
+  const done = showsCopied(copied);
+  const label = done
+    ? m.reservations_access_copied({}, { locale })
+    : m.reservations_access_copy({}, { locale });
+  useLiveRegionAnnouncement(
+    done ? m.reservations_access_copied({}, { locale }) : undefined,
+    "polite"
+  );
+  useLiveRegionAnnouncement(
+    AsyncResult.isFailure(copied)
+      ? m.reservations_access_copy_failed({}, { locale })
+      : undefined,
+    "assertive"
+  );
+  return (
+    <Pressable
+      role="button"
+      aria-label={label}
+      disabled={copied.waiting && !done}
+      onPress={() => copy(code)}
+      style={({ pressed }) => [
+        isWide ? styles.copyButton : styles.iconButton,
+        pressed && styles.onNavyPressed,
+      ]}
+    >
+      <Icon
+        icon={done ? Check : Copy}
+        size={done ? 24 : 20}
+        color={done ? color.positive : color.white}
+      />
+      {isWide && (
+        <Text variant="label" style={styles.copyLabel}>
+          {label}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+function StatusChip({ chip }: { readonly chip: AccessChip }) {
+  const locale = useAppLocale();
+  const { isWide } = useViewport();
+  const tone = {
+    Starts: styles.chipSoon,
+    Active: styles.chipLive,
+    Ended: styles.chipOver,
+  }[chip._tag];
+  const ink = {
+    Starts: color.white,
+    Active: color.onPositive,
+    Ended: color.onNavyMuted,
+  }[chip._tag];
+  return (
+    <View style={isWide ? styles.wideChipRow : styles.chipRow}>
+      <View style={[styles.chip, tone]}>
+        {chip._tag === "Starts" && <Icon icon={Clock} size={16} color={ink} />}
+        {chip._tag === "Active" && <View aria-hidden style={styles.liveDot} />}
+        <Text variant="label" numeric style={[styles.chipText, { color: ink }]}>
+          {accessChipText(chip, locale)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** The window's rows, the address, Get directions and Add to calendar. */
+function WindowAndPlace({
+  orderId,
+  window,
+  booking,
+}: {
+  readonly orderId: CustomerReservationOrderId;
+  readonly window: Option.Option<AccessWindow>;
+  readonly booking: Option.Option<AccessBooking>;
+}) {
+  const locale = useAppLocale();
+  const { isWide } = useViewport();
+  const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
+  const [calendar, shareEvent] = useAtom(calendarShareAtom(orderId));
+  const event = Option.getOrUndefined(
+    Option.flatMap(booking, (found) =>
+      Option.map(
+        Option.all([
+          Option.flatMap(Option.fromNullishOr(found.startsAt), DateTime.make),
+          Option.flatMap(Option.fromNullishOr(found.endsAt), DateTime.make),
+        ]),
+        ([start, end]) => ({
+          orderId,
+          title: reservationProductTitle(found.product, locale),
+          start,
+          end,
+          location: Option.getOrUndefined(
+            Option.map(establishment, (place) => place.formattedAddress)
+          ),
+        })
+      )
+    )
+  );
+  const rows: ReadonlyArray<readonly [string, ReactNode]> = [
+    ...Option.match(window, {
+      onNone: () => [],
+      onSome: (parsed) =>
+        AccessWindowSpan.$match(
+          isWide &&
+            !Option.exists(booking, ({ product }) => product.kind === "office")
+            ? AccessWindowSpan.Times({
+                from: parsed.startsAt,
+                until: parsed.endsAt,
+              })
+            : accessWindowSpanOf(parsed),
+          {
+            // One day is For; several are From and Through, dates only.
+            Days: ({ first, last }) =>
+              isSameWorkspaceDay(first, last)
+                ? [
+                    [
+                      m.reservations_access_for({}, { locale }),
+                      shortDate(first, locale),
+                    ] as const,
+                  ]
+                : [
+                    [
+                      m.reservations_access_from({}, { locale }),
+                      shortDate(first, locale),
+                    ] as const,
+                    [
+                      m.reservations_access_through({}, { locale }),
+                      shortDate(last, locale),
+                    ] as const,
+                  ],
+            Times: ({ from, until }) => [
+              [
+                m.reservations_access_from({}, { locale }),
+                accessDateTimeText(from, locale, "start"),
+              ] as const,
+              [
+                m.reservations_access_until({}, { locale }),
+                accessDateTimeText(until, locale, "end"),
+              ] as const,
+            ],
+          }
+        ),
+    }),
+    ...Option.match(establishment, {
+      onNone: () => [],
+      onSome: (place) => [
+        [
+          m.reservations_access_where({}, { locale }),
+          <AddressValue key="where" place={place} />,
+        ] as const,
+      ],
+    }),
+    ...Option.match(
+      Option.flatMap(booking, ({ bookedBy }) => bookedBy),
+      {
+        onNone: () => [],
+        onSome: (bookedBy) => [
+          [m.reservations_access_booked_by({}, { locale }), bookedBy] as const,
+        ],
+      }
+    ),
+  ];
   return (
     <>
-      {state._tag === "Upcoming" && (
-        <Text style={styles.countdown}>
-          {m.reservations_access_starts_in(
-            { duration: countdownText(state.startsIn, locale) },
-            { locale }
-          )}
-        </Text>
+      {rows.length > 0 && (
+        <Card padding="none">
+          <View style={styles.rows}>
+            {rows.map(([label, value], index) => (
+              <Fragment key={label}>
+                {index > 0 && <View style={styles.divider} />}
+                <View style={[styles.row, isWide && styles.wideRow]}>
+                  <Text
+                    variant="rowValue"
+                    tone="muted"
+                    style={[styles.rowLabel, isWide && styles.wideRowLabel]}
+                  >
+                    {label}
+                  </Text>
+                  {typeof value === "string" ? (
+                    <Text
+                      variant="rowValue"
+                      numeric
+                      style={[styles.rowValue, isWide && styles.wideRowValue]}
+                    >
+                      {value}
+                    </Text>
+                  ) : (
+                    value
+                  )}
+                </View>
+              </Fragment>
+            ))}
+          </View>
+        </Card>
       )}
-      {state._tag === "Open" && (
-        <Text style={[styles.countdown, styles.countdownOpen]}>
-          {m.reservations_access_valid_for(
-            { duration: countdownText(state.remaining, locale) },
-            { locale }
+      <View style={!isWide && rows.length > 0 && styles.actionsAfterCard}>
+        <ListGroup>
+          {Option.isSome(establishment) && (
+            <ListRow
+              kind="action"
+              icon={MapPin}
+              label={m.reservations_access_directions({}, { locale })}
+              trailing="external"
+              onPress={() => openDirections(establishment.value)}
+            />
           )}
-        </Text>
-      )}
+          {event !== undefined && (
+            <ListRow
+              kind="action"
+              icon={CalendarPlus}
+              label={m.reservations_add_to_calendar({}, { locale })}
+              trailing="none"
+              disabled={calendar.waiting}
+              onPress={() => shareEvent(event)}
+            />
+          )}
+        </ListGroup>
+      </View>
+      <Notice
+        tone="error"
+        message={
+          AsyncResult.isFailure(calendar)
+            ? m.reservations_calendar_share_failed({}, { locale })
+            : undefined
+        }
+      />
     </>
   );
 }
 
-const countdownText = (duration: Duration.Duration, locale: AppLocale) =>
-  Countdown.$match(countdownOf(duration), {
-    Days: ({ days, hours }) =>
-      m.reservations_access_duration_days({ days, hours }, { locale }),
-    Hours: ({ hours, minutes }) =>
-      m.reservations_access_duration_hours({ hours, minutes }, { locale }),
-    Minutes: ({ minutes, seconds }) =>
-      m.reservations_access_duration_minutes({ minutes, seconds }, { locale }),
-    Seconds: ({ seconds }) =>
-      m.reservations_access_duration_seconds({ seconds }, { locale }),
-  });
+/** The address in postal format; a tap copies it, confirmed in place. */
+function AddressValue({ place }: { readonly place: CustomerEstablishment }) {
+  const locale = useAppLocale();
+  const { isWide } = useViewport();
+  const [copied, copy] = useAtom(copyAddressAtom);
+  const done = showsCopied(copied);
+  const [street, city] = establishmentAddressLines(place);
+  const toast = useToast();
+  // Android 13+ confirms a copy itself; elsewhere the toast says it.
+  const confirmedBySystem = systemConfirmsCopy(Platform);
+  useLiveRegionAnnouncement(
+    done && confirmedBySystem
+      ? m.reservations_access_address_copied({}, { locale })
+      : undefined,
+    "polite"
+  );
+  useEffect(() => {
+    if (done && !confirmedBySystem) {
+      toast.show({
+        message: m.reservations_access_address_copied({}, { locale }),
+        tone: "confirmation",
+      });
+    }
+  }, [done, confirmedBySystem, toast, locale]);
+  return (
+    <Pressable
+      role="button"
+      aria-label={`${m.reservations_access_copy_address({}, { locale })}: ${place.formattedAddress}`}
+      onPress={() => copy(establishmentCopyText(place))}
+      style={({ pressed }) => [
+        styles.address,
+        isWide && styles.wideAddress,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={[styles.addressLines, isWide && styles.wideAddressLines]}>
+        <Text variant="rowValue" style={!isWide && styles.rowValue}>
+          {street}
+        </Text>
+        <Text variant="rowValue" style={!isWide && styles.rowValue}>
+          {city}
+        </Text>
+      </View>
+      <View style={[styles.addressIcon, isWide && styles.wideAddressIcon]}>
+        <Icon
+          icon={done ? Check : Copy}
+          size={16}
+          color={done ? color.positiveInk : color.ink2}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+/** The window's card in the loading state: skeleton lines in its place. */
+function LoadingWindow() {
+  return (
+    <Card>
+      <View style={styles.skeleton}>
+        <Skeleton width="50%" height={14} />
+        <Skeleton width="80%" height={14} />
+        <Skeleton width="60%" height={14} />
+      </View>
+    </Card>
+  );
+}
+
+/** No PIN for the order: why, Contact us, and the way back. */
+function NoPin({
+  orderId,
+  inOwnHistory,
+  invited,
+}: {
+  readonly orderId: CustomerReservationOrderId;
+  readonly inOwnHistory: boolean;
+  readonly invited: boolean;
+}) {
+  const locale = useAppLocale();
+  const router = useRouter();
+  const history = useAtomValue(reservationsListAtom);
+  const status = useAtomValue(orderStatusAtoms.status(orderId));
+  const freshOwnHistory =
+    inOwnHistory &&
+    Option.exists(AsyncResult.value(history), (list) =>
+      Option.isNone(list.savedAt)
+    );
+  // The status screen's read can establish access before history catches up.
+  const returnToStatus =
+    !invited && (freshOwnHistory || AsyncResult.isSuccess(status));
+  return (
+    <Card padding="none">
+      <EmptyState
+        icon={Lock}
+        title={m.reservations_access_no_pin_title({}, { locale })}
+        body={m.reservations_access_no_pin_body({}, { locale })}
+        live="polite"
+      >
+        <View style={styles.actions}>
+          <Button
+            icon={Mail}
+            label={m.reservations_contact({}, { locale })}
+            onPress={() => openContactPage()}
+          />
+          <Button
+            variant="quiet"
+            label={
+              returnToStatus
+                ? m.reservations_access_back_to_booking({}, { locale })
+                : m.account_section_reservations({}, { locale })
+            }
+            onPress={() =>
+              router.dismissTo(
+                returnToStatus
+                  ? {
+                      pathname: "/reservations/[orderId]",
+                      params: { orderId },
+                    }
+                  : reservationsHref
+              )
+            }
+          />
+        </View>
+      </EmptyState>
+    </Card>
+  );
+}
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    gap: theme.spacing.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.lg,
+  accessLayout: { gap: space.lg },
+  expandedLayout: { flexDirection: "row", gap: space.xxl },
+  expandedPane: { flex: 1, minWidth: 0 },
+  // Extend the narrow PIN band to the screen edges under the navy header.
+  compactHeroPane: { marginHorizontal: -space.gutter, marginTop: -space.sm },
+  detailsPane: { gap: space.md },
+  hero: { backgroundColor: color.navy },
+  compactHero: {
+    paddingBottom: 28,
+    paddingHorizontal: space.gutter,
   },
-  // Boxes size to their digit, so large accessibility text grows them and
-  // wraps the row instead of overlapping digits.
-  code: {
+  wideHero: {
+    ...shadow.card,
+    borderRadius: radius.card,
+    flexGrow: 1,
+    padding: widePinCardPadding,
+  },
+  heroHeading: {
+    alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: theme.spacing.sm,
-    justifyContent: "center",
+    gap: space.sm,
+    justifyContent: "space-between",
   },
-  digit: {
+  name: {
+    color: color.onNavyMuted,
+    paddingHorizontal: touchTarget,
+    paddingTop: space.xl,
+    textAlign: "center",
+  },
+  wideName: {
+    color: color.white,
+    flexShrink: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    textAlign: "left",
+  },
+  heroFooter: {
     alignItems: "center",
-    backgroundColor: theme.colors.surfacePressed,
-    borderRadius: theme.radius.md,
+    borderColor: color.onNavyBorder,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.md,
+    justifyContent: "space-between",
+    paddingTop: space.lg,
+  },
+  heroAction: { position: "absolute", right: space.sm, top: space.xs },
+  iconButton: {
+    alignItems: "center",
+    borderRadius: touchTarget / 2,
+    height: touchTarget,
     justifyContent: "center",
-    minWidth: 40,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm + theme.spacing.xs,
+    width: touchTarget,
   },
-  digitText: {
-    color: theme.colors.accent,
-    fontSize: 34,
-    fontVariant: ["tabular-nums"],
-    fontWeight: "600",
+  copyButton: {
+    alignItems: "center",
+    borderColor: color.onNavyMuted,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: space.sm,
+    maxWidth: "100%",
+    minHeight: touchTarget,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
   },
-  digitTextEnded: { color: theme.colors.textMuted },
-  countdown: {
-    color: theme.colors.text,
-    fontVariant: ["tabular-nums"],
-    textAlign: "center",
-    ...theme.type.body,
-    fontWeight: "600",
+  copyLabel: { color: color.white, flexShrink: 1 },
+  onNavyPressed: { backgroundColor: "rgba(255, 255, 255, 0.12)" },
+  pressed: { opacity: 0.7 },
+  pin: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    paddingTop: 14,
+    rowGap: space.md,
   },
-  countdownOpen: { color: theme.colors.accent },
-  window: {
-    color: theme.colors.textMuted,
-    textAlign: "center",
-    ...theme.type.caption,
+  widePin: {
+    alignContent: "center",
+    flexGrow: 1,
+    paddingBottom: space.xxxl,
+    paddingTop: space.xxxl,
   },
+  group: { flexDirection: "row" },
+  box: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: color.onNavyBorder,
+    borderWidth: 1,
+    justifyContent: "center",
+  },
+  boxEmpty: { backgroundColor: "rgba(255, 255, 255, 0.08)" },
+  digit: { color: color.white, fontWeight: "700", textAlign: "center" },
+  digitEnded: { color: "rgba(255, 255, 255, 0.38)" },
+  strike: {
+    backgroundColor: "rgba(255, 255, 255, 0.38)",
+    height: 2,
+    left: "22%",
+    position: "absolute",
+    right: "22%",
+    top: "46%",
+  },
+  how: {
+    alignItems: "center",
+    columnGap: space.sm,
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: space.md,
+  },
+  howText: { color: color.onNavyMuted, flexShrink: 1, textAlign: "center" },
+  wideHow: {
+    flexBasis: 156,
+    flexGrow: 1,
+    flexShrink: 1,
+    justifyContent: "flex-start",
+    marginTop: 0,
+    minWidth: 0,
+  },
+  wideHowText: { textAlign: "left" },
+  chipRow: { alignItems: "center", marginTop: space.lg },
+  wideChipRow: { flexShrink: 1, maxWidth: "100%" },
+  chip: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    columnGap: space.sm,
+    flexDirection: "row",
+    maxWidth: "100%",
+    minHeight: 32,
+    paddingHorizontal: 14,
+    paddingVertical: space.xs + space.xxs,
+  },
+  chipSoon: { backgroundColor: "rgba(255, 255, 255, 0.12)" },
+  chipLive: { backgroundColor: color.positive },
+  chipOver: { backgroundColor: "rgba(255, 255, 255, 0.12)" },
+  chipText: { flexShrink: 1, textAlign: "center" },
+  liveDot: {
+    backgroundColor: color.positiveInk,
+    borderRadius: 4,
+    height: 8,
+    width: 8,
+  },
+  rows: { paddingHorizontal: space.lg, paddingVertical: space.xs },
+  row: {
+    columnGap: space.lg,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    paddingVertical: space.md,
+  },
+  divider: { backgroundColor: color.divider, height: 1 },
+  rowLabel: { flexShrink: 0 },
+  rowValue: { flexShrink: 1, marginLeft: "auto", textAlign: "right" },
+  wideRow: { flexWrap: "nowrap", justifyContent: "flex-start" },
+  wideRowLabel: { flexBasis: "16%", minWidth: 64 },
+  wideRowValue: { flex: 1, marginLeft: 0, minWidth: 0, textAlign: "left" },
+  address: {
+    alignItems: "flex-start",
+    columnGap: space.sm,
+    flexDirection: "row",
+    flexShrink: 1,
+    marginLeft: "auto",
+  },
+  addressLines: { alignItems: "flex-end", flexShrink: 1 },
+  addressIcon: { paddingTop: space.xs },
+  wideAddress: { flex: 1, marginLeft: 0, minHeight: touchTarget, minWidth: 0 },
+  wideAddressLines: { alignItems: "flex-start", flex: 1, minWidth: 0 },
+  wideAddressIcon: { paddingTop: 0 },
+  skeleton: { gap: space.md },
+  actions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
+  // Board 24 has 16 between the window card and the actions; the screen's
+  // column adds 12 between its children.
+  actionsAfterCard: { marginTop: space.lg - space.md },
 });

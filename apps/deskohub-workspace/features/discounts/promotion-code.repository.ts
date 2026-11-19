@@ -2,7 +2,10 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import { discountCodes, promotionCodes, vouchers } from "@/db/schema";
 import type {
   CanonicalPromotionCode,
@@ -109,12 +112,16 @@ export class PromotionCodeRepository extends Context.Service<
         readonly codeId: DiscountCodeId;
         readonly dotyposCustomerId: DotyposCustomerId;
       }) {
-        const [audience, uses] = yield* Effect.all(
-          [
-            readPromotionAudience({ db, ...input }),
-            readDiscountCodeUses({ db, ...input }),
-          ],
-          { concurrency: "inherit" }
+        const [audience, uses] = yield* Effect.flatMap(
+          workspaceStatementConcurrency,
+          (concurrency) =>
+            Effect.all(
+              [
+                readPromotionAudience({ db, ...input }),
+                readDiscountCodeUses({ db, ...input }),
+              ],
+              { concurrency }
+            )
         );
         return yield* Schema.decodeUnknownEffect(
           discountCodeAvailabilitySchema,
@@ -153,12 +160,16 @@ export class PromotionCodeRepository extends Context.Service<
         readonly voucherId: VoucherId;
         readonly dotyposCustomerId: DotyposCustomerId;
       }) {
-        const [audience, uses] = yield* Effect.all(
-          [
-            readPromotionAudience({ db, ...input }),
-            readVoucherUses({ db, ...input }),
-          ],
-          { concurrency: "inherit" }
+        const [audience, uses] = yield* Effect.flatMap(
+          workspaceStatementConcurrency,
+          (concurrency) =>
+            Effect.all(
+              [
+                readPromotionAudience({ db, ...input }),
+                readVoucherUses({ db, ...input }),
+              ],
+              { concurrency }
+            )
         );
         return yield* Schema.decodeUnknownEffect(voucherAvailabilitySchema, {
           errors: "all",

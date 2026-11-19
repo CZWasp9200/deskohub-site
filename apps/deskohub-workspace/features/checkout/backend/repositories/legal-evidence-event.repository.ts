@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -9,6 +9,7 @@ import { type LegalEvidenceEvent, legalEvidenceEvents } from "@/db/schema";
 import { postgresUuidV7 } from "@/db/uuid-v7";
 import { legalEvidenceSchema } from "@/features/checkout/legal-evidence";
 import {
+  reservationOrderId,
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
@@ -89,6 +90,10 @@ const getLegalEvidenceEventRecord = (
   parsed: typeof legalEvidenceEventInputSchema.Type
 ) => ({
   workspaceReservationId: parsed.workspaceReservationId,
+  orderId:
+    parsed.workspaceReservationId === undefined
+      ? undefined
+      : reservationOrderId(parsed.workspaceReservationId),
   documentKey: parsed.evidence.documentKey,
   documentPath: parsed.evidence.document.path,
   documentHash: parsed.evidence.documentHash,
@@ -181,9 +186,15 @@ export class LegalEvidenceEventRepository extends Context.Service<
             })
             .from(legalEvidenceEvents)
             .where(
-              equalsAny(
-                legalEvidenceEvents.workspaceReservationId,
-                input.workspaceReservationIds
+              and(
+                equalsAny(
+                  legalEvidenceEvents.orderId,
+                  input.workspaceReservationIds.map(reservationOrderId)
+                ),
+                eq(
+                  legalEvidenceEvents.workspaceReservationId,
+                  legalEvidenceEvents.orderId
+                )
               )
             )
             .orderBy(

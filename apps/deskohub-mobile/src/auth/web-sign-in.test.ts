@@ -45,6 +45,13 @@ let emailRequested: () => void = () => undefined;
 /** The return URIs the page asked the server to mint a handoff for. */
 let mintedFor: Array<string> = [];
 
+/** The sign-in status bodies the page sent, and the server's next answer. */
+let statusAsked: Array<unknown> = [];
+let statusAnswer: {
+  readonly data: unknown;
+  readonly error: Readonly<Record<string, unknown>> | null;
+} = { data: { completed: false }, error: null };
+
 /**
  * An answer body as Better Auth's client hands it over: parsed by its own
  * JSON parser, which revives ISO 8601 strings into `Date`s.
@@ -57,6 +64,10 @@ mock.module("./auth-client.web", () => ({
       path: string,
       { body }: { readonly body: { readonly return_uri: string } }
     ) => {
+      if (path === "/sign-in-attempt/status") {
+        statusAsked.push(body);
+        return statusAnswer;
+      }
       if (path !== "/native-handoff/mint") throw new Error(path);
       mintedFor.push(body.return_uri);
       return {
@@ -122,6 +133,7 @@ mock.module("./auth-client.web", () => ({
 
 const {
   finishSignIn,
+  isSignInAttemptCompleted,
   completeWebCodeSignIn,
   completeWebMagicLink,
   completeWebPasskeySignIn,
@@ -131,11 +143,14 @@ const {
   reauthenticationExpectation,
   sendSignInEmail,
   signInEmailField,
+  appAccountEmail,
 } = await import("./web-sign-in");
 const {
   clearReauthenticatingUser,
   loadReauthentication,
   loadReauthenticatingUser,
+  saveReauthenticatingUser,
+  takeCompletedReauthentication,
 } = await import("./web-reauthentication-store");
 
 /** A browser `localStorage`, or one that refuses access. */
@@ -170,6 +185,8 @@ afterEach(() => {
 
 beforeEach(() => {
   mintedFor = [];
+  statusAsked = [];
+  statusAnswer = { data: { completed: false }, error: null };
   namedLocales = [];
   signOuts = 0;
   linkAccount = "bob";
@@ -283,6 +300,25 @@ describe("signInEmailField", () => {
     }
   });
 
+  test("locks the app's reauthentication to the account the app named", () => {
+    const other = { id: "bob", email: testEmailAddress("bob") };
+    for (const pageSession of [
+      undefined,
+      { user: undefined },
+      { user: other },
+    ]) {
+      for (const reauthenticating of [true, false]) {
+        expect(
+          signInEmailField({
+            reauthenticating,
+            pageSession,
+            appAccountEmail: user.email,
+          })
+        ).toEqual({ kind: "locked", email: user.email });
+      }
+    }
+  });
+
   test("leaves the address free with no account to keep", () => {
     expect(
       signInEmailField({
@@ -293,6 +329,31 @@ describe("signInEmailField", () => {
     expect(
       signInEmailField({ reauthenticating: false, pageSession: { user } })
     ).toEqual({ kind: "free" });
+  });
+});
+
+describe("appAccountEmail", () => {
+  const request = {
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    state: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    returnUri: "deskohub://auth/callback",
+    reauthenticate: true,
+    loginHint: testEmailAddress("ada"),
+  };
+
+  test("is the account an app reauthentication names", () => {
+    expect(appAccountEmail(Option.some(request))).toBe(request.loginHint);
+  });
+
+  test("is absent without an app reauthentication naming one", () => {
+    const { loginHint: _, ...withoutHint } = request;
+    for (const nativeRequest of [
+      Option.none(),
+      Option.some(withoutHint),
+      Option.some({ ...request, reauthenticate: false }),
+    ]) {
+      expect(appAccountEmail(nativeRequest)).toBeUndefined();
+    }
   });
 });
 
@@ -421,6 +482,7 @@ describe("prepareReauthenticationEmail", () => {
       Option.some({
         userId: "ada",
         returnPath: Option.some("/account/passkeys"),
+        purpose: undefined,
       })
     );
     clearReauthenticatingUser();
@@ -576,6 +638,34 @@ describe("completeWebPasskeySignIn", () => {
     expect(signOuts).toBe(0);
     expect(loadReauthenticatingUser(Date.now())).toEqual(Option.none());
   });
+  test("a confirmed reauthentication for a purpose lets its screen continue once", async () => {
+    useStorage(true);
+    saveReauthenticatingUser(
+      {
+        userId: "ada",
+        returnPath: "/account/danger",
+        purpose: "delete-account",
+      },
+      Date.now()
+    );
+    // The sign-in page stores the account again before its email.
+    await Effect.runPromise(
+      prepareReauthenticationEmail(
+        { kind: "account", userId: "ada" },
+        "/account/danger"
+      )
+    );
+    expect(
+      await reasonOfPasskey({ kind: "account", userId: "ada" })
+    ).toBeUndefined();
+    const take = () =>
+      takeCompletedReauthentication(
+        { userId: "ada", purpose: "delete-account" },
+        Date.now()
+      );
+    expect(take()).toBe(true);
+    expect(take()).toBe(false);
+  });
 });
 
 describe("prepareNativeHandoffEmail", () => {
@@ -728,6 +818,7 @@ describe("sendSignInEmail", () => {
       signInCode: true,
       sentAt: now,
       nextSignInEmailAt: Option.some(Date.parse(nextAt)),
+      signInAttempt: Option.none(),
     });
   });
 
@@ -753,6 +844,7 @@ describe("sendSignInEmail", () => {
       signInCode: true,
       sentAt: now,
       nextSignInEmailAt: Option.none(),
+      signInAttempt: Option.none(),
     });
   });
 
@@ -773,6 +865,7 @@ describe("sendSignInEmail", () => {
       signInCode: false,
       sentAt: now,
       nextSignInEmailAt: Option.none(),
+      signInAttempt: Option.none(),
     });
   });
 
@@ -785,7 +878,18 @@ describe("sendSignInEmail", () => {
       signInCode: false,
       sentAt: now,
       nextSignInEmailAt: Option.none(),
+      signInAttempt: Option.none(),
     });
+  });
+
+  test("reports the email's sign-in attempt, and none without a usable one", async () => {
+    const attempt = "a".repeat(43);
+    emailSent = { status: true, signInCode: true, signInAttempt: attempt };
+    expect((await send()).signInAttempt).toEqual(Option.some(attempt));
+    for (const signInAttempt of ["", 42, null]) {
+      emailSent = { status: true, signInCode: true, signInAttempt };
+      expect((await send()).signInAttempt).toEqual(Option.none());
+    }
   });
 
   test("takes only a literal yes as a code", async () => {
@@ -841,5 +945,28 @@ describe("sendSignInEmail", () => {
         carriesInstant: false,
       });
     }
+  });
+});
+
+describe("isSignInAttemptCompleted", () => {
+  const attempts = ["a".repeat(43), "b".repeat(43)];
+  const ask = () => Effect.runPromiseExit(isSignInAttemptCompleted(attempts));
+
+  test("asks about every attempt and takes a clear yes", async () => {
+    statusAnswer = { data: { completed: true }, error: null };
+    expect(await ask()).toEqual(Exit.succeed(true));
+    expect(statusAsked).toEqual([{ attempts }]);
+  });
+
+  test("takes anything but a clear yes as not yet", async () => {
+    for (const data of [{ completed: false }, { completed: "true" }, null]) {
+      statusAnswer = { data, error: null };
+      expect(await ask()).toEqual(Exit.succeed(false));
+    }
+  });
+
+  test("fails on a refused answer, which the page ignores", async () => {
+    statusAnswer = { data: null, error: { status: 429 } };
+    expect(Exit.isFailure(await ask())).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import { GamesService } from "./service";
 
 describe("GamesService", () => {

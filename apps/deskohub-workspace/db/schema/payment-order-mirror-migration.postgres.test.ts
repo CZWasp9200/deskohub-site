@@ -3,12 +3,19 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Effect } from "effect";
 import type { Pool } from "pg";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import {
+  type DatabasePool,
+  makeDatabaseClient,
+  makeDatabasePool,
+} from "@/db/database-client";
+import { workspaceReservations } from "@/db/schema";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   fixtureReservationAuthorId,
   type ReservationFixtureInput,
@@ -51,6 +58,39 @@ type ScratchDatabase = {
 };
 
 /**
+ * Seeds with today's fixtures, which name every reservation column today's
+ * schema has: the columns the database before the migration lacks are added
+ * as plain nullable columns for the seed and dropped again right after it, so
+ * the later migrations that create them still run.
+ */
+const seedWithLaterReservationColumns = async <A>(
+  pool: Pool,
+  seed: () => Promise<A>
+) => {
+  const { rows } = await pool.query<{ readonly column_name: string }>(
+    "select column_name from information_schema.columns where table_name = 'workspace_reservations'"
+  );
+  const present = new Set(rows.map((row) => row.column_name));
+  const later = Object.values(getTableColumns(workspaceReservations))
+    .map((column) => column.name)
+    .filter((name) => !present.has(name));
+  for (const name of later) {
+    await pool.query(
+      `alter table workspace_reservations add column "${name}" text`
+    );
+  }
+  try {
+    return await seed();
+  } finally {
+    for (const name of later) {
+      await pool.query(
+        `alter table workspace_reservations drop column "${name}"`
+      );
+    }
+  }
+};
+
+/**
  * Brings a scratch database to the state production is in before the
  * migration and hands it to `run`, which seeds it and applies the rest.
  */
@@ -63,6 +103,7 @@ const beforeMigration = async (
     "payment_order_mirror"
   );
   const pool = makeDatabasePool({ connectionString: scratch.url, max: 4 });
+  let databasePool: DatabasePool | undefined;
   try {
     await migrate(drizzle({ client: pool }), {
       migrationsFolder: earlierMigrations,
@@ -70,19 +111,27 @@ const beforeMigration = async (
     await pool.query("insert into customer_accounts (id) values ($1)", [
       fixtureReservationAuthorId,
     ]);
+    databasePool = await openDatabasePool({
+      connectionString: scratch.url,
+      maxConnections: 4,
+    });
     const fixtures = workspaceFixtures(
-      await Effect.runPromise(makeDatabaseClient(pool))
+      await Effect.runPromise(makeDatabaseClient(databasePool))
     );
     await run({
       pool,
-      reservation: async (input) =>
-        (await Effect.runPromise(fixtures.reservation(input))).id,
+      reservation: (input) =>
+        seedWithLaterReservationColumns(
+          pool,
+          async () => (await Effect.runPromise(fixtures.reservation(input))).id
+        ),
       migrateRemaining: () =>
         migrate(drizzle({ client: pool }), {
           migrationsFolder: workspaceMigrationsFolder,
         }),
     });
   } finally {
+    await databasePool?.close();
     await pool.end();
     await scratch.drop();
     await rm(earlierMigrations, { recursive: true, force: true });

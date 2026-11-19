@@ -6,7 +6,7 @@ import {
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
 import { Context, Effect, Layer } from "effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {
   fakeCustomerApiLayer,
@@ -20,9 +20,9 @@ import { fakeBooking, fakeBookingCodes } from "./fake-booking-api";
 import { sampleLegalDocuments } from "./sample-booking-catalog";
 import { samplePaymentBrowserLayer } from "./sample-booking-services-layer";
 
-const harness = () => {
+const harness = (now?: () => Date) => {
   const workspace = FakeWorkspace.forKind("linked");
-  const booking = fakeBooking(workspace);
+  const booking = fakeBooking(workspace, now);
   const run = <A, E>(
     use: (api: CustomerApi["Service"]) => Effect.Effect<A, E>
   ) =>
@@ -245,8 +245,7 @@ describe("sample booking", () => {
   });
 
   test("a whole-day meeting room runs the Prague calendar day, 23 hours when clocks go forward", async () => {
-    const { booking, run } = harness();
-    booking.now = () => new Date("2027-03-01T10:00:00Z");
+    const { run } = harness(() => new Date("2027-03-01T10:00:00Z"));
     const submission = await run((api) =>
       submitted(
         api,
@@ -313,7 +312,7 @@ describe("booking services in sample-data mode", () => {
   const flag = process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
 
   afterEach(() => {
-    delete globals.__DEV__;
+    globals.__DEV__ = false;
     if (flag === undefined) delete process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
     else process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA = flag;
   });

@@ -75,7 +75,7 @@ const validSelect: Order = {
 void validSelect;
 
 const invalidKind: NewOrder = {
-  // @ts-expect-error only the reservation kind is a valid order kind
+  // @ts-expect-error only the order kinds are valid order kinds
   kind: "goods",
   correlationId: "0198c1a2-3b4c-7d5e-8f90-1a2b3c4d5e6f" as NexiCorrelationId,
   dotyposCustomerId: "12345" as DotyposCustomerId,

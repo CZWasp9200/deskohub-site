@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { CurrentAdministrationCaller } from "@deskohub/workspace-admin-api";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import { administrationHref } from "@/features/administration/administration-href";
 import { m } from "@/features/administration/i18n";
@@ -291,6 +292,24 @@ describe("defineAdministrationAction", () => {
     });
     expect(revalidatedPaths).toEqual([]);
     expect(refreshedNotes).toEqual([]);
+  });
+
+  test("calls the handler through the Admin UI channel as the administrator", async () => {
+    const action = defineAdministrationAction(
+      {
+        operation: "test.read-caller",
+        schema,
+        failureCopy,
+        capabilities: Layer.empty,
+      },
+      () => Effect.map(CurrentAdministrationCaller, (caller) => caller)
+    );
+
+    const result = await action({ reservationId: "reservation-1" });
+
+    expect(result).toEqual({
+      data: { actor: access.administrator, channel: { _tag: "AdminUi" } },
+    });
   });
 
   test("passes a handler's public error through", async () => {

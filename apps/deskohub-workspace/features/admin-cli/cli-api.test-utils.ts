@@ -12,10 +12,11 @@ import {
   dhwVersionHeader,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Layer } from "effect";
-import { HttpClientRequest } from "effect/unstable/http";
-import { HttpApiMiddleware } from "effect/unstable/httpapi";
+import { HttpClientRequest } from "effect/http";
+import { HttpApiMiddleware } from "effect/http-api";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import { AdministrationActionLog } from "./administration-action-log.service";
 import { AdministrationRequestLedger } from "./administration-request-ledger.service";
 
@@ -139,3 +140,5 @@ export const DiscardedAdministrationActionLog = Layer.succeed(
     finish: () => Effect.void,
   }
 );
+
+export const UnusedWithdrawalService = Layer.mock(WithdrawalService, {});

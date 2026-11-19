@@ -12,8 +12,13 @@ import {
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
 import { PasskeyReleaseGateRequest } from "@/features/account/server/account-release-gates.server";
+import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
+import { ReservationOnSite } from "@/features/reservation/backend/reservation-on-site-details";
+import { ReservationWithdrawalAvailability } from "@/features/reservation/backend/reservation-withdrawals";
+import { WithdrawalReleaseGateRequest } from "@/features/withdrawal/backend/withdrawal-release-gate.server";
 
 /** Everything the account page reads while it loads. */
 export type AccountPageCapabilities =
@@ -34,7 +39,26 @@ export type AccountPageLayers = AccountStateLayers & {
  */
 export const liveAccountPageLayers: AccountPageLayers = {
   ...liveAccountServiceLayers,
-  history: CustomerReservationHistoryService.Live,
+  // The online withdrawal entry points show while their gate is open.
+  // Confirmed bookings show the table and Wi-Fi their email sent, with the
+  // tables read from the status page's shared snapshot.
+  history: CustomerReservationHistoryService.Live.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        ReservationWithdrawalAvailability.ForProvidedGate.pipe(
+          Layer.provide(WithdrawalReleaseGateRequest)
+        ),
+        ReservationOnSite.Live.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              SharedAvailabilityInventoryLive,
+              WorkspaceCheckoutNetworkDetailsService.Default
+            )
+          )
+        )
+      )
+    )
+  ),
   referralRelease: ReferralReleaseGateRequest,
   rememberedReferral: RememberedReferral.Cookies.pipe(
     Layer.provide(CurrentCustomerAccount.Live)

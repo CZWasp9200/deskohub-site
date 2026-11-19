@@ -223,12 +223,15 @@ const redeem = Effect.fn("PromotionClaims.redeem")(function* (input: {
 /**
  * Releases the payment attempt's reserved code or voucher claim, if it has
  * one, so its use or credit counts no more; a released claim stays as it is
- * and a redeemed claim fails.
+ * and a redeemed claim fails, unless `reversesRedemption` gives a redeemed
+ * claim back too, as a customer's full withdrawal from the paid contract
+ * does. A reversed claim keeps its redemption time.
  */
 const release = Effect.fn("PromotionClaims.release")(function* (input: {
   readonly paymentAttemptId: PaymentAttemptId;
   readonly releasedAt: Temporal.Instant;
   readonly releaseReason: string;
+  readonly reversesRedemption?: boolean;
 }) {
   const { db } = yield* WorkspaceTransaction;
   const [discountClaims, voucherClaims] = yield* Effect.all([
@@ -256,7 +259,7 @@ const release = Effect.fn("PromotionClaims.release")(function* (input: {
   const claim = selectStoredPromotionClaim(discountClaims[0], voucherClaims[0]);
 
   if (!claim) return;
-  if (claim.state === "redeemed") {
+  if (claim.state === "redeemed" && !input.reversesRedemption) {
     return yield* new DiscountClaimError({
       operation: "release",
       reason: "claim_conflict",
@@ -265,6 +268,7 @@ const release = Effect.fn("PromotionClaims.release")(function* (input: {
     });
   }
   if (claim.state === "released") return;
+  const releasable = claim.state;
 
   const values = {
     state: "released" as const,
@@ -284,7 +288,7 @@ const release = Effect.fn("PromotionClaims.release")(function* (input: {
                 discountCodeRedemptions.paymentAttemptId,
                 input.paymentAttemptId
               ),
-              eq(discountCodeRedemptions.state, "reserved")
+              eq(discountCodeRedemptions.state, releasable)
             )
           )
           .pipe(Effect.asVoid),
@@ -295,7 +299,7 @@ const release = Effect.fn("PromotionClaims.release")(function* (input: {
           .where(
             and(
               eq(voucherRedemptions.paymentAttemptId, input.paymentAttemptId),
-              eq(voucherRedemptions.state, "reserved")
+              eq(voucherRedemptions.state, releasable)
             )
           )
           .pipe(Effect.asVoid),

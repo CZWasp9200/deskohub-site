@@ -1,9 +1,14 @@
+import Bot from "lucide-react-native/icons/bot";
+import Check from "lucide-react-native/icons/check";
+import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
-import { theme } from "../../theme";
 import { Button } from "../../ui/controls";
+import { Icon } from "../../ui/icon";
+import { ListRow } from "../../ui/list";
 import { Text } from "../../ui/text";
+import { color, space } from "../../ui/tokens";
 import type { AssistantRow, AssistantScope } from "./connected-assistants";
 
 const scopeLabel = (scope: AssistantScope, locale: AppLocale) =>
@@ -29,91 +34,97 @@ const detailsText = (row: AssistantRow, locale: AppLocale) => {
   }
 };
 
-/** One connected assistant: who it is, what it may do, and Disconnect. */
+/**
+ * One connected assistant: who it is, where it comes from and since when,
+ * what it may do, and its own Disconnect. Administrator access is flagged in
+ * the warning colour, only when the server says the assistant has it.
+ */
 export function AssistantConnectionRow({
   row,
   locale,
+  inlineActions = false,
   onDisconnect,
 }: {
   readonly row: AssistantRow;
   readonly locale: AppLocale;
+  readonly inlineActions?: boolean;
   readonly onDisconnect: () => void;
 }) {
   const name = row.name ?? m.assistants_unnamed({}, { locale });
-  const details = detailsText(row, locale);
   return (
-    <View style={styles.row}>
-      <View style={styles.header}>
-        <View style={styles.identity}>
-          <Text role="heading" aria-level={3} style={styles.name}>
-            {name}
-          </Text>
-          {details !== undefined && (
-            <Text style={styles.details}>{details}</Text>
-          )}
-        </View>
-        <View style={styles.disconnect}>
-          <Button
-            variant="secondary"
-            label={m.assistants_disconnect({}, { locale })}
-            accessibilityLabel={m.assistants_disconnect_label(
-              { name },
-              { locale }
-            )}
-            onPress={onDisconnect}
-          />
-        </View>
-      </View>
-      {(row.scopes.length > 0 || row.administration) && (
-        <View
-          role="list"
-          aria-label={m.assistants_scopes_label({ name }, { locale })}
-          style={styles.scopes}
-        >
-          {row.scopes.map((scope) => (
-            <View key={scope} role="listitem" style={styles.scope}>
-              <Text aria-hidden style={styles.granted}>
-                ✓
-              </Text>
-              <Text style={styles.scopeLabel}>{scopeLabel(scope, locale)}</Text>
-            </View>
-          ))}
-          {row.administration && (
-            <View role="listitem" style={styles.scope}>
-              <Text aria-hidden style={styles.administration}>
-                !
-              </Text>
-              <Text style={[styles.scopeLabel, styles.administration]}>
-                {m.assistants_administration({}, { locale })}
-              </Text>
+    <ListRow
+      icon={Bot}
+      label={name}
+      description={detailsText(row, locale)}
+      below={
+        <View style={inlineActions && styles.inlineActions}>
+          {(row.scopes.length > 0 || row.administration) && (
+            <View
+              role="list"
+              aria-label={m.assistants_scopes_label({ name }, { locale })}
+              style={[styles.scopes, inlineActions && styles.inlineScopes]}
+            >
+              {row.scopes.map((scope) => (
+                <View key={scope} role="listitem" style={styles.scope}>
+                  <Icon icon={Check} size={16} color={color.positiveInk} />
+                  <Text variant="bodySmall" style={styles.scopeLabel}>
+                    {scopeLabel(scope, locale)}
+                  </Text>
+                </View>
+              ))}
+              {row.administration && (
+                <View role="listitem" style={styles.scope}>
+                  <Icon
+                    icon={TriangleAlert}
+                    size={16}
+                    color={color.warningInk}
+                  />
+                  <Text
+                    variant="bodySmall"
+                    style={[styles.scopeLabel, styles.administration]}
+                  >
+                    {m.assistants_administration({}, { locale })}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
+          <View
+            style={[
+              styles.disconnect,
+              inlineActions && styles.inlineDisconnect,
+            ]}
+          >
+            <Button
+              variant="secondary"
+              size="small"
+              width="content"
+              label={m.assistants_disconnect({}, { locale })}
+              accessibilityLabel={m.assistants_disconnect_label(
+                { name },
+                { locale }
+              )}
+              onPress={onDisconnect}
+            />
+          </View>
         </View>
-      )}
-    </View>
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    gap: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm + theme.spacing.xs,
-  },
-  // With large text the button wraps below the name instead of squeezing it.
-  header: {
-    alignItems: "flex-start",
+  inlineActions: {
+    alignItems: "flex-end",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.sm,
+    gap: space.md,
+    justifyContent: "flex-end",
   },
-  identity: { flexBasis: 180, flexGrow: 1, flexShrink: 1, gap: 2 },
-  name: { color: theme.colors.text, ...theme.type.body, fontWeight: "600" },
-  details: { color: theme.colors.textMuted, ...theme.type.caption },
-  disconnect: { flexGrow: 0, maxWidth: "100%" },
-  scopes: { gap: theme.spacing.xs },
-  scope: { flexDirection: "row", gap: theme.spacing.sm },
-  granted: { color: theme.colors.accent, ...theme.type.caption },
-  scopeLabel: { color: theme.colors.text, flex: 1, ...theme.type.caption },
-  administration: { color: theme.colors.warning, fontWeight: "600" },
+  scopes: { gap: space.xs, marginTop: space.sm + space.xxs },
+  inlineScopes: { flex: 1, minWidth: 0 },
+  scope: { flexDirection: "row", gap: space.sm, paddingTop: space.xxs },
+  scopeLabel: { color: color.navy, flex: 1, marginTop: -space.xxs },
+  administration: { color: color.warningInk, fontWeight: "600" },
+  disconnect: { alignItems: "flex-start", marginTop: space.md },
+  inlineDisconnect: { flexShrink: 1, maxWidth: "45%", marginTop: space.xs },
 });

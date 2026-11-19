@@ -7,7 +7,7 @@ import {
   type ReferralCode,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Match, Option, type Schema } from "effect";
-import type { HttpClientError } from "effect/unstable/http";
+import type { HttpClientError } from "effect/http";
 import { Platform, type PlatformOSType } from "react-native";
 import { trackBookingSubmitted } from "../../analytics/events";
 import { CustomerApi } from "../../customer-api/customer-api.service";
@@ -34,6 +34,7 @@ import {
   CheckoutCommand,
   CheckoutEvent,
   type CheckoutOperationId,
+  type ClearDiscountCodeCommand,
   type CreateCheckoutCommand,
   type OpenPaymentCommand,
   type SubmitCheckoutCommand,
@@ -69,6 +70,7 @@ export const runCheckoutCommand = (
         answerOf(operationId)
       ),
     ApplyDiscountCode: applyDiscountCode,
+    ClearDiscountCode: clearDiscountCode,
     AcceptPriceChange: acceptPriceChange,
     SubmitCheckout: submitCheckout,
     OpenPayment: openPayment,
@@ -141,6 +143,21 @@ const applyDiscountCode = ({
     ),
     customerWrite,
     Effect.map((result) => CheckoutEvent.CodeApplied({ operationId, result })),
+    answerOf(operationId)
+  );
+
+const clearDiscountCode = ({
+  operationId,
+  request,
+}: ClearDiscountCodeCommand) =>
+  bookingApi.pipe(
+    Effect.flatMap((booking) =>
+      booking.clearCheckoutDiscountCode({ payload: request })
+    ),
+    customerWrite,
+    Effect.map((checkout) =>
+      CheckoutEvent.CodeCleared({ operationId, checkout })
+    ),
     answerOf(operationId)
   );
 
@@ -221,7 +238,7 @@ const answerless =
  * The failures the customer API layer hands over besides the checkout's own:
  * sessions, budgets, transport, timeouts and lost answers.
  */
-type SharedRequestFailure =
+export type SharedRequestFailure =
   | CustomerSessionRequired
   | CustomerRateLimited
   | CustomerRequestRejected
@@ -269,7 +286,7 @@ const answerOf =
  * applied is unconfirmed (`customerWrite` already told sent from unsent);
  * every other request failure proves nothing changed.
  */
-const checkoutFailure = (
+export const checkoutFailure = (
   failure: CheckoutFailure | SharedRequestFailure
 ): CheckoutFailure =>
   Match.value(failure).pipe(

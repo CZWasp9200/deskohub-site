@@ -170,10 +170,6 @@ export const AutomationFlow = Schema.Struct({
   });
 export type AutomationFlow = typeof AutomationFlow.Type;
 
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
-
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const countField = fieldWithDefault(count, 0);
 
@@ -328,7 +324,7 @@ export type AutomationDetail = typeof AutomationDetail.Type;
 export const AutomationFlowUpdate = Schema.Struct({
   campaignId: AdministrationCampaignId,
   flow: AutomationFlow,
-}).annotate(strictParseOptions);
+});
 export type AutomationFlowUpdate = typeof AutomationFlowUpdate.Type;
 
 export const automationPreviewKinds = ["schedule", "replay"] as const;
@@ -382,7 +378,7 @@ export const AutomationPreviewRef = Schema.Struct({
   previewId: AutomationPreviewId,
   cursor: Schema.optionalKey(AutomationPageCursor),
   limit: Schema.optionalKey(pageLimit(200)),
-}).annotate(strictParseOptions);
+});
 export type AutomationPreviewRef = typeof AutomationPreviewRef.Type;
 
 /** What one trigger occurrence would do for one customer. */
@@ -469,13 +465,13 @@ export type AutomationDryRun = typeof AutomationDryRun.Type;
 export const AutomationActivateInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   previewId: AutomationPreviewId,
-}).annotate(strictParseOptions);
+});
 export type AutomationActivateInput = typeof AutomationActivateInput.Type;
 
 export const AutomationVersionRef = Schema.Struct({
   campaignId: AdministrationCampaignId,
   versionNumber: AutomationVersionNumber,
-}).annotate(strictParseOptions);
+});
 export type AutomationVersionRef = typeof AutomationVersionRef.Type;
 
 /**
@@ -511,7 +507,7 @@ export type AutomationRunFailureReason = typeof AutomationRunFailureReason.Type;
 export const AutomationRunStatsInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   versionNumber: Schema.optionalKey(AutomationVersionNumber),
-}).annotate(strictParseOptions);
+});
 export type AutomationRunStatsInput = typeof AutomationRunStatsInput.Type;
 
 const zeroRunStateCounts = { active: 0, sending: 0, ended: 0 };
@@ -578,7 +574,7 @@ export const AutomationRunListInput = Schema.Struct({
   customerId: Schema.optionalKey(AdministrationDotyposCustomerId),
   cursor: Schema.optionalKey(AutomationPageCursor),
   limit: Schema.optionalKey(pageLimit(100)),
-}).annotate(strictParseOptions);
+});
 export type AutomationRunListInput = typeof AutomationRunListInput.Type;
 
 /**
@@ -636,7 +632,7 @@ export type AutomationRunPage = typeof AutomationRunPage.Type;
 
 export const AutomationRunRef = Schema.Struct({
   runId: AutomationRunId,
-}).annotate(strictParseOptions);
+});
 export type AutomationRunRef = typeof AutomationRunRef.Type;
 
 export const automationRunEventKinds = [
@@ -740,7 +736,7 @@ export const CalendarPreviewInput = Schema.Struct({
   expression: CalendarExpression,
   usage: CalendarExpressionUsage,
   locale: AdministrationCampaignLocale,
-}).annotate(strictParseOptions);
+});
 export type CalendarPreviewInput = typeof CalendarPreviewInput.Type;
 
 export const CalendarPreview = Schema.Struct({

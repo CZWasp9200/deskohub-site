@@ -7,8 +7,8 @@ import {
   NexiService,
 } from "@deskohub/nexi";
 import { type Duration, Effect, Exit, Fiber, Schema } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import type { env } from "@/env";
 import { makeWorkspaceNexiLayer } from "./nexi.config";
 

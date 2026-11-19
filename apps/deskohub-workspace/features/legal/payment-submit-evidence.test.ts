@@ -11,7 +11,7 @@ import {
 } from "./payment-submit-evidence";
 
 const termsHash =
-  "d56d9e83196b802aee01393512cff46d0fef6e01449c72b229db535b0bf095c6";
+  "e5d0f197dd0541b20d5bbf041d1858e369b413b4b8bc58c615df522cdb961d29";
 const operatingRulesHash =
   "05cefdd98d32159cfce228b230931f9cc257643d90f83f327589732476c8ba56";
 const acceptedAt = "2026-10-29T10:00:00Z";

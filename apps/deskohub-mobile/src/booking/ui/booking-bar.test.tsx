@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import {
   act,
   Children,
@@ -6,6 +6,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import * as Native from "react-native";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 
 // The bar registers its height with the toasts while its screen has focus;
@@ -22,6 +23,7 @@ const { idleLiveRegionLayout } = await import("../../ui/notice-presentation");
 const { elementTree, find, findAll, flatStyle, hostTree, textOf } =
   await import("../../ui/testing/element-tree");
 const { ToastProvider } = await import("../../ui/toast");
+const { AvailableWidthContext } = await import("../../ui/viewport");
 const { color, touchTarget } = await import("../../ui/tokens");
 const { Icon } = await import("../../ui/icon");
 const { default: Info } = await import("lucide-react-native/icons/info");
@@ -31,14 +33,22 @@ const { default: CircleAlert } = await import(
 const { czk } = await import("../testing/sample-booking-catalog");
 const { BookingBar, claimsSwipe, swipeIntent } = await import("./booking-bar");
 const { priceBreakdown } = await import("./price-breakdown");
-const { describePriceLine } = await import("./price-line-description");
+const { describeOfficePriceLine, describePriceLine } = await import(
+  "./price-line-description"
+);
 const { PriceLines } = await import("./price-lines");
-const { openSpaceWithCoffee } = await import("./testing/price-fixtures");
+const { officeFromPrice } = await import("../family/office-booking-model");
+const { officeOnSale, openSpaceWithCoffee } = await import(
+  "./testing/price-fixtures"
+);
 
 type BarProps = ComponentProps<typeof BookingBar>;
 type Price = NonNullable<BarProps["summary"]>["price"];
 
 const locale = "en-US" as const;
+
+// The unit a screen passes for its from-price; the bar shows it as given.
+const unit = "unit";
 
 const quoted: Price = {
   kind: "quoted",
@@ -58,6 +68,26 @@ const withToasts = (node: ReactNode) => <ToastProvider>{node}</ToastProvider>;
 
 const bar = (overrides: Partial<BarProps> = {}) =>
   hostTree(elementTree(BookingBar, props(overrides), withToasts));
+
+const wideBar = (overrides: Partial<BarProps>, fontScale = 1) => {
+  const dimensions = spyOn(Native, "useWindowDimensions").mockReturnValue({
+    width: 840,
+    height: 900,
+    scale: 2,
+    fontScale,
+  });
+  try {
+    return hostTree(
+      elementTree(BookingBar, props(overrides), (node) => (
+        <AvailableWidthContext value={728}>
+          {withToasts(node)}
+        </AvailableWidthContext>
+      ))
+    );
+  } finally {
+    dimensions.mockRestore();
+  }
+};
 
 const chevronOf = (tree: ReactNode) =>
   findAll(tree, "Pressable").find(
@@ -86,6 +116,35 @@ describe("swipes", () => {
 });
 
 describe("BookingBar", () => {
+  test("discloses the price beside the action when the available width fits", () => {
+    const collapsed = wideBar({});
+    expect(flatStyle(find(collapsed, "View")?.props.style).width).toBe(680);
+    expect(
+      flatStyle(find(wideBar({ contentWidth: "form" }), "View")?.props.style)
+        .width
+    ).toBe(640);
+    const toggle = chevronOf(collapsed);
+    expect(toggle?.props["aria-expanded"]).toBe(false);
+    expect(flatStyle(toggle?.props.style).minHeight).toBe(touchTarget);
+    expect(findAll(toggle, "Text").map(textOf)).toContain(
+      m.booking_review_total({}, { locale })
+    );
+    expect(
+      chevronOf(wideBar({ initiallyOpen: true }))?.props["aria-expanded"]
+    ).toBe(true);
+    expect(flatStyle(chevronOf(wideBar({}, 2))?.props.style).height).toBe(
+      touchTarget
+    );
+  });
+
+  test("keeps the checkout reason at the start when the review has no summary", () => {
+    const reason = reasonOf(
+      wideBar({ summary: undefined, reason: "Agreement required" })
+    );
+    expect(flatStyle(reason?.props.style).justifyContent).toBe("flex-start");
+    expect(findAll(reason, "Text").map(textOf)).toContain("Agreement required");
+  });
+
   test("shows the quoted total with the earlier price struck above it", () => {
     const texts = findAll(bar(), "Text").map(textOf);
     const total = formatMoney(czk(282), locale);
@@ -96,6 +155,13 @@ describe("BookingBar", () => {
     expect(flatStyle(struck?.props.style).textDecorationLine).toBe(
       "line-through"
     );
+  });
+
+  test("the summary's lines wrap at large text sizes; none is cut", () => {
+    const texts = findAll(bar(), "Text").filter(
+      (text) => text.props.numberOfLines !== undefined
+    );
+    expect(texts).toEqual([]);
   });
 
   test("a quoted price has a collapsed toggle named for showing the details", () => {
@@ -176,16 +242,71 @@ describe("BookingBar", () => {
           kind: "from",
           amount: czk(232),
           was: czk(290),
-          unit: "per day",
+          unit,
         },
       },
       initiallyOpen: true,
     });
     expect(chevronOf(tree)).toBeUndefined();
-    expect(findAll(tree, "Text").map(textOf)).toContain("per day");
+    expect(findAll(tree, "Text").map(textOf)).toContain(unit);
     expect(
       findAll(tree, "Pressable").find((press) => press.props.disabled === true)
     ).toBeDefined();
+  });
+
+  test("a from-price given its lines opens to them under its own total", () => {
+    const fromPrice: Price = {
+      kind: "from",
+      amount: czk(282),
+      unit,
+      itemized: {
+        breakdown: priceBreakdown(openSpaceWithCoffee.summary),
+        describeLine: describePriceLine(openSpaceWithCoffee.selection, locale),
+      },
+    };
+    const tree = elementTree(
+      BookingBar,
+      props({
+        summary: { title: "Open Space desk", price: fromPrice },
+        initiallyOpen: true,
+      }),
+      withToasts
+    );
+    expect(find(tree, PriceLines)?.props.variant).toBe("bar");
+    const host = hostTree(tree);
+    expect(chevronOf(host)?.props["aria-expanded"]).toBe(true);
+    expect(findAll(host, "Text").map(textOf)).toContain(unit);
+  });
+
+  test("an office from-price during a sale opens to its base lines, then the sale's discount line", () => {
+    const breakdown = officeFromPrice(officeOnSale);
+    if (breakdown._tag === "None") throw new Error("Expected sale lines");
+    const fromPrice: Price = {
+      kind: "from",
+      amount: officeOnSale.advertisedPrice.price,
+      unit,
+      itemized: {
+        breakdown: breakdown.value,
+        describeLine: describeOfficePriceLine(locale, officeOnSale.name),
+      },
+    };
+    const tree = elementTree(
+      BookingBar,
+      props({
+        summary: { title: "Private office", price: fromPrice },
+        initiallyOpen: true,
+      }),
+      withToasts
+    );
+    const lines = find(tree, PriceLines)?.props.breakdown.lines ?? [];
+    expect(lines.map((line) => line._tag)).toEqual([
+      "Charge",
+      "Charge",
+      "Reduction",
+    ]);
+    expect(findAll(hostTree(tree), "Text").map(textOf)).toContain(
+      formatMoney(officeOnSale.advertisedPrice.price, locale)
+    );
   });
 
   test("updating shows the indicator in an announced status, and no total", () => {

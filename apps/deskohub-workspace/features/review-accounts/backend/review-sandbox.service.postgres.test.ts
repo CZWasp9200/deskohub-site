@@ -7,9 +7,12 @@ import { Effect, Layer, Option } from "effect";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
+import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { plainDateStringSchema } from "@/shared/utils/temporal";
+import { getReviewPaymentDisabledPath } from "../routes";
 import {
   ReviewSandbox,
   type ReviewSandboxHoldRequest,
@@ -23,11 +26,12 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
   const reviewer = customerAccountIdSchema.make(crypto.randomUUID());
   const otherReviewer = customerAccountIdSchema.make(crypto.randomUUID());
+  const malformedReviewer = customerAccountIdSchema.make(crypto.randomUUID());
 
   beforeAll(() => {
     const fixtures = workspaceFixtures(testDatabase.db);
     return Effect.runPromise(
-      Effect.forEach([reviewer, otherReviewer], (id) =>
+      Effect.forEach([reviewer, otherReviewer, malformedReviewer], (id) =>
         fixtures.customerAccount({ id, review: true })
       )
     );
@@ -80,6 +84,51 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
     expect(JSON.stringify(stored.rows[0])).not.toContain("App Review");
   });
+
+  test.each(["new", "reused"] as const)(
+    "returns payment-disabled checkout and the stored office price and interval for a %s hold",
+    async (mode) => {
+      // The inclusive dates cross the Prague daylight-saving transition.
+      const startsOn = plainDateStringSchema.make("2027-03-27");
+      const endsOn = plainDateStringSchema.make("2027-03-29");
+      const total = { value: 442500, exponent: 2, currency: "CZK" };
+      const request = hold(startsOn, {
+        total,
+        reservation: normalizedOfficeReservationOrderSchema.make({
+          kind: "office",
+          startsOn,
+          endsOn,
+          seats: 3,
+          name: "Synthetic Reviewer",
+          email: testEmailAddress("office-review"),
+          phone: "+420777123456",
+          billing: { purpose: "personal", invoice: "none" },
+        }),
+      });
+      const created = await run((sandbox) => sandbox.prepareHold(request));
+      const result =
+        mode === "new"
+          ? created
+          : await run((sandbox) =>
+              sandbox.prepareHold({
+                ...request,
+                total: { ...total, value: 460000 },
+              })
+            );
+
+      expect(result).toEqual({
+        status: "ready",
+        orderId: created.orderId,
+        expiresAt: created.expiresAt,
+        redirectUrl: getReviewPaymentDisabledPath(
+          request.locale,
+          created.orderId
+        ),
+        reviewSandbox: true,
+        preparedOffice: { startsOn, endsOn, seats: 3, total },
+      });
+    }
+  );
 
   test("lists the samples and holds with the order IDs their status pages use", async () => {
     const held = await run((sandbox) =>
@@ -183,5 +232,35 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
     expect(next.orderId).not.toBe(expired.orderId);
     expect(Option.getOrThrow(status).status).toBe("expired");
+  });
+
+  test("leaves a malformed hold out of the history and fails its status", async () => {
+    const held = await run((sandbox) =>
+      sandbox.prepareHold(hold("2099-06-01", { accountId: malformedReviewer }))
+    );
+    // Only a write outside the encoder can store a malformed document.
+    await testDatabase.pool.query(
+      `update review_account_holds set reservation_details = '{"kind":"boat"}'::jsonb where id = $1`,
+      [held.orderId]
+    );
+
+    const history = await run((sandbox) => sandbox.history(malformedReviewer));
+    if (history.kind !== "available") throw new Error("Expected a history");
+    const listed = [
+      ...history.groups.current,
+      ...history.groups.past,
+      ...history.groups.unavailable,
+    ].map(({ workspaceReservationId }) => workspaceReservationId);
+    const failure = await run((sandbox) =>
+      sandbox
+        .status({ orderId: held.orderId, returnOutcome: "unknown" })
+        .pipe(Effect.flip)
+    );
+
+    expect(listed).not.toContain(held.orderId);
+    expect(failure).toMatchObject({
+      _tag: "WorkspaceReservationDetailsMalformedError",
+      reservationId: held.orderId,
+    });
   });
 });

@@ -28,19 +28,18 @@ describe.each(locales)("meetingRoomPageMarkdown in %s", (locale) => {
         `${m.meetingRoomHeroTitle({}, { locale })} ${m.meetingRoomHeroTitleAccent({}, { locale })}`,
         m.meetingRoomHeroIntro({}, { locale }),
         m.meetingRoomFactCapacity({}, { locale }),
-        m.meetingRoomFactTv({}, { locale }),
         m.meetingRoomFactPrivacy({}, { locale }),
         m.meetingRoomReservationCta({}, { locale }),
         m.meetingRoomSpecificationsTitle({}, { locale }),
         m.meetingRoomSpecificationsIntro({}, { locale }),
         m.meetingRoomSpecCapacityTitle({}, { locale }),
         m.meetingRoomSpecCapacityText({}, { locale }),
-        m.meetingRoomSpecTvTitle({}, { locale }),
-        m.meetingRoomSpecTvText({}, { locale }),
-        m.meetingRoomSpecProjectorTitle({}, { locale }),
-        m.meetingRoomSpecProjectorText({}, { locale }),
-        m.meetingRoomSpecConferenceTitle({}, { locale }),
-        m.meetingRoomSpecConferenceText({}, { locale }),
+        m.meetingRoomSpecPrivacyTitle({}, { locale }),
+        m.meetingRoomSpecPrivacyText({}, { locale }),
+        m.meetingRoomSpecWifiTitle({}, { locale }),
+        m.meetingRoomSpecWifiText({}, { locale }),
+        m.meetingRoomSpecAccessTitle({}, { locale }),
+        m.meetingRoomSpecAccessText({}, { locale }),
         m.meetingRoomBookingTitle({}, { locale }),
         messagePlainText(m.meetingRoomBookingText({}, { locale })),
         messagePlainText(m.meetingRoomTtrpgNote({}, { locale })),
@@ -49,7 +48,7 @@ describe.each(locales)("meetingRoomPageMarkdown in %s", (locale) => {
     );
     expect(markdown).toStartWith("# ");
     expect(markdown).toContain(
-      `\n### ${m.meetingRoomSpecConferenceTitle({}, { locale })}\n`
+      `\n### ${m.meetingRoomSpecAccessTitle({}, { locale })}\n`
     );
   });
 

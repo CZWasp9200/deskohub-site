@@ -35,6 +35,12 @@ export const getOfficeDayCount = (
 export type PrefilledReservationOptions = {
   /** Whether the contact fields were carried in too; defaults to true. */
   readonly includeContact?: boolean;
+  /**
+   * The people an office page shows. A held reservation restores everyone
+   * (the default, the booked seats); a selection link or a reload carries no
+   * people, so the page starts with the contact alone.
+   */
+  readonly officePeople?: "restored" | "contact-only";
 };
 
 type PrefilledContact = {
@@ -73,7 +79,10 @@ export type PrefilledReservation = PrefilledContact &
 
 export const toPrefilledReservation = (
   data: CheckoutData,
-  { includeContact = true }: PrefilledReservationOptions = {}
+  {
+    includeContact = true,
+    officePeople = "restored",
+  }: PrefilledReservationOptions = {}
 ): PrefilledReservation => {
   const contact = {
     email: data.email,
@@ -107,7 +116,7 @@ export const toPrefilledReservation = (
       ...contact,
       dayCount: getOfficeDayCount(data.office),
       kind: "office",
-      seats: data.office.seats,
+      seats: officePeople === "restored" ? data.office.seats : 1,
       startsOn: data.office.startsOn,
     };
   }
@@ -189,16 +198,16 @@ export const isPrefilledReservation = (
           )
         )
           return false;
-        const monitorInputs = [
-          ...document.querySelectorAll('input[type="radio"]'),
-        ].filter(
-          (input): input is HTMLInputElement =>
-            input instanceof HTMLInputElement && input.name !== "entryTier"
+        // Only the monitor's own radio group, so another radio group on the
+        // form is never read as the monitor choice.
+        const monitorInputs = document.querySelectorAll(
+          'input[type="radio"][name="monitorOption"]'
         );
         return expected.monitorOption === null
           ? monitorInputs.length === 0
-          : monitorInputs.find((input) => input.checked)?.value ===
-              expected.monitorOption;
+          : checkedValue(
+              'input[type="radio"][name="monitorOption"]:checked'
+            ) === expected.monitorOption;
       }
       case "meeting-room": {
         // The field holds the whole local start. A whole day keeps whatever
@@ -229,7 +238,11 @@ export const isPrefilledReservation = (
         return (
           value('input[name="startsOn"]') === expected.startsOn &&
           value('input[name="dayCount"]') === String(expected.dayCount) &&
-          checkedValue('input[name="seats"]:checked') === String(expected.seats)
+          Number.parseInt(
+            document.querySelector("[data-office-people-count]")?.textContent ??
+              "",
+            10
+          ) === expected.seats
         );
     }
   };

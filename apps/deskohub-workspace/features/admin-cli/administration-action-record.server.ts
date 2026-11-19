@@ -5,6 +5,7 @@ import {
   administrationOperationDeclaration,
   administrationOperationVariantOf,
   CurrentAdministrationCaller,
+  WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import {
   Cause,
@@ -18,11 +19,12 @@ import {
   Ref,
   Schema,
 } from "effect";
+import { HttpServerRequest } from "effect/http";
 import {
-  HttpServerRequest,
-  type HttpServerResponse,
-} from "effect/unstable/http";
-import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+  HttpApi,
+  type HttpApiEndpoint,
+  type HttpApiGroup,
+} from "effect/http-api";
 import { CurrentAdministrationAction } from "./administration-action";
 import {
   type AdministrationActionEnd,
@@ -47,49 +49,52 @@ export const AdministrationActionRecordLive = Layer.effect(
   Effect.gen(function* () {
     const log = yield* AdministrationActionLog;
 
-    const recordAround = Effect.fn("AdministrationActionRecord.record")(
-      function* <E, R>(
-        httpEffect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-        operation: AdministrationOperationReference
-      ) {
-        const caller = yield* CurrentAdministrationCaller;
-        const id = yield* log
-          .start({ operation, caller })
-          .pipe(mapServiceFailure);
-        const replayed = yield* Ref.make(false);
-        return yield* httpEffect.pipe(
-          Effect.provideService(CurrentAdministrationAction, {
-            markReplayed: Ref.set(replayed, true),
-          }),
-          Effect.onExit((exit) =>
-            Ref.get(replayed).pipe(
-              Effect.flatMap((wasReplayed) =>
-                log.finish(id, endOf(exit, wasReplayed))
-              ),
-              Effect.timeout(finishTimeout),
-              Effect.catchCause(() =>
-                Effect.logWarning(
-                  "Administration action end was not recorded",
-                  { actionId: id, operation }
-                )
-              )
-            )
-          )
-        );
-      }
-    );
-
     return (httpEffect, { group, endpoint }) =>
       recordedOperation(group, endpoint).pipe(
         Effect.flatMap(
           Option.match({
             onNone: () => httpEffect,
-            onSome: (operation) => recordAround(httpEffect, operation),
+            onSome: (operation) =>
+              recordAdministrationAction(operation, httpEffect).pipe(
+                Effect.provideService(AdministrationActionLog, log)
+              ),
           })
         )
       );
   })
 );
+
+/** Records an operation before it runs and records how it ended. */
+export const recordAdministrationAction = Effect.fn(
+  "AdministrationActionRecord.record"
+)(function* <A, E, R>(
+  operation: AdministrationOperationReference,
+  effect: Effect.Effect<A, E, R>
+) {
+  const log = yield* AdministrationActionLog;
+  const caller = yield* CurrentAdministrationCaller;
+  const id = yield* log.start({ operation, caller }).pipe(mapServiceFailure);
+  const replayed = yield* Ref.make(false);
+  return yield* effect.pipe(
+    Effect.provideService(CurrentAdministrationAction, {
+      markReplayed: Ref.set(replayed, true),
+    }),
+    Effect.onExit((exit) =>
+      Ref.get(replayed).pipe(
+        Effect.flatMap((wasReplayed) =>
+          log.finish(id, endOf(exit, wasReplayed))
+        ),
+        Effect.timeout(finishTimeout),
+        Effect.catchCause(() =>
+          Effect.logWarning("Administration action end was not recorded", {
+            actionId: id,
+            operation,
+          })
+        )
+      )
+    )
+  );
+});
 
 /**
  * The operation a request records, or none for a read, a dry run or a
@@ -98,17 +103,20 @@ export const AdministrationActionRecordLive = Layer.effect(
  * the endpoint.
  */
 const recordedOperation = (
-  group: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps
+  group: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top
 ): Effect.Effect<
   Option.Option<AdministrationOperationReference>,
   never,
   HttpServerRequest.HttpServerRequest
 > => {
-  const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.name}`;
-  const declaration = administrationOperationDeclaration(
-    Context.merge(group.annotations, endpoint.annotations)
+  const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
+  // Merged as HttpApiBuilder merges them for the endpoint it serves.
+  const annotations = Context.merge(
+    Context.merge(WorkspaceAdminApi.annotations, group.annotations),
+    endpoint.annotations
   );
+  const declaration = administrationOperationDeclaration(annotations);
   if (Option.isNone(declaration)) {
     return Effect.succeed(Option.none());
   }
@@ -127,7 +135,7 @@ const recordedOperation = (
             () => Effect.succeed(Option.none())
           ),
           Match.when({ preview: { _tag: "DryRun" } }, () =>
-            requestsDryRun(endpoint).pipe(
+            requestsDryRun(endpoint, annotations).pipe(
               Effect.map((dryRun) =>
                 dryRun ? Option.none() : Option.some(reference)
               )
@@ -172,10 +180,14 @@ const requestBody = HttpServerRequest.HttpServerRequest.pipe(
 /**
  * Whether the request runs its operation as the dry run its contract
  * declares as the preview: the body decodes to `dryRun: true` with the
- * payload schema the endpoint picks for the request's JSON media type. A
- * body that doesn't decode is no dry run; the endpoint rejects it.
+ * payload schema the endpoint picks for the request's JSON media type and
+ * the payload parse options it declares. A body that doesn't decode is no
+ * dry run; the endpoint rejects it.
  */
-const requestsDryRun = (endpoint: HttpApiEndpoint.AnyWithProps) =>
+const requestsDryRun = (
+  endpoint: HttpApiEndpoint.Top,
+  annotations: Context.Context<never>
+) =>
   HttpServerRequest.HttpServerRequest.pipe(
     Effect.flatMap((request) =>
       Option.fromNullishOr(endpoint.payload.get(mediaTypeOf(request))).pipe(
@@ -189,7 +201,8 @@ const requestsDryRun = (endpoint: HttpApiEndpoint.AnyWithProps) =>
                 Option.firstSomeOf(
                   schemas.map((schema) =>
                     Schema.decodeUnknownOption(schema as Schema.Codec<unknown>)(
-                      body
+                      body,
+                      payloadParseOptionsOf(annotations)
                     )
                   )
                 ).pipe(
@@ -205,6 +218,11 @@ const requestsDryRun = (endpoint: HttpApiEndpoint.AnyWithProps) =>
       )
     )
   );
+
+/** The payload's parse options, as `HttpApiBuilder` reads them. */
+const payloadParseOptionsOf = (annotations: Context.Context<never>) =>
+  Context.getOrUndefined(annotations, HttpApi.PayloadParseOptions) ??
+  Context.getOrUndefined(annotations, HttpApi.ParseOptions);
 
 /** The request's media type, as `HttpApiBuilder` picks a payload by it. */
 const mediaTypeOf = (request: HttpServerRequest.HttpServerRequest) =>

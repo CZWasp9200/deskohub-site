@@ -55,3 +55,28 @@ export default {};
     await rm(probeDirectory, { force: true, recursive: true });
   }
 });
+
+test("reports what a server that never became ready wrote to standard error", {
+  timeout: 60_000,
+}, async () => {
+  const marker = `fixture-startup-failure-${crypto.randomUUID()}`;
+  const [outcome] = await Promise.allSettled([
+    withNextAppFixture(
+      {
+        files: {
+          // Next cannot load this config, so the server exits before serving.
+          "next.config.mjs": `throw new Error(${JSON.stringify(marker)});\n`,
+        },
+        name: "next-startup-failure",
+      },
+      async () => "served"
+    ),
+  ]);
+
+  expect(outcome).toMatchObject({
+    reason: expect.objectContaining({
+      message: expect.stringContaining(marker),
+    }),
+    status: "rejected",
+  });
+});

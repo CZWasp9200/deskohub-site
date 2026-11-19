@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import * as JsonSchemaGenerator from "@effect/openapi-generator/JsonSchemaGenerator";
 import * as OpenApiGenerator from "@effect/openapi-generator/OpenApiGenerator";
 import { Effect, Schema } from "effect";
-import type { OpenAPISpec } from "effect/unstable/httpapi/OpenApi";
+import type { OpenAPISpec } from "effect/http-api/OpenApi";
 
 const recursiveSpec = {
   openapi: "3.1.0",
@@ -308,6 +308,7 @@ const generateClient = (
       return yield* generator.generate(spec, {
         format,
         name,
+        closeObjects: true,
       });
     }).pipe(Effect.provide(OpenApiGenerator.layerTransformerSchema))
   );
@@ -643,4 +644,165 @@ test("typeOnly generation emits the same type aliases as runtime generation", ()
 
   expect(typeOnlyAliases.length).toBeGreaterThan(0);
   expect(typeOnlyAliases).toEqual(runtimeAliases);
+});
+
+const specWithRoot = (
+  title: string,
+  root: string,
+  schemas: Record<string, unknown>
+) =>
+  ({
+    openapi: "3.1.0",
+    info: { title, version: "1.0.0" },
+    security: [],
+    tags: [],
+    paths: {
+      "/root": {
+        get: {
+          operationId: "getRoot",
+          parameters: [],
+          security: [],
+          tags: ["root"],
+          responses: {
+            "200": {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: { $ref: `#/components/schemas/${root}` },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: { securitySchemes: {}, schemas },
+  }) as unknown as OpenAPISpec;
+
+// `A -> B -> A` plus `A -> C -> B`, rooted at `C` with `c` declared before `b`.
+// The generator's own cycle search then renders `C` as a non-recursive
+// definition even though `C` sits on the cycle `A -> C -> B -> A`, so `C`
+// would read the recursive `B` before initialization unless that reference is
+// deferred.
+const cycleMemberRenderedFirstSpec = specWithRoot("Cycle member", "C", {
+  A: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      name: { type: "string" },
+      c: { $ref: "#/components/schemas/C" },
+      b: { $ref: "#/components/schemas/B" },
+    },
+  },
+  B: {
+    type: "object",
+    required: ["id"],
+    properties: {
+      id: { type: "string" },
+      a: { $ref: "#/components/schemas/A" },
+    },
+  },
+  C: {
+    type: "object",
+    required: ["b"],
+    properties: { b: { $ref: "#/components/schemas/B" } },
+  },
+});
+
+test.each(["httpclient", "httpapi"] as const)(
+  "generated %s cycle member rendered before the recursive definitions initializes and round-trips",
+  async (format) => {
+    const source = await generateClient(
+      cycleMemberRenderedFirstSpec,
+      format,
+      `CycleMemberClient_${format}`
+    );
+    const nonRecursiveSection = source.slice(
+      source.indexOf("// non-recursive definitions"),
+      source.indexOf("// recursive definitions")
+    );
+    expect(nonRecursiveSection).toContain("export const C =");
+
+    const generated = await writeAndImport(`cycle-member-${format}.ts`, source);
+    expect(Object.keys(generated.A.fields)).toEqual(["name", "c", "b"]);
+    expect(Object.keys(generated.B.fields)).toEqual(["id", "a"]);
+    expect(Object.keys(generated.C.fields)).toEqual(["b"]);
+
+    const value = {
+      name: "outer",
+      c: { b: { id: "b1", a: { name: "inner", b: { id: "b2" } } } },
+      b: { id: "b3" },
+    };
+    expectDecodeEncodeRoundTrip(generated.A, value);
+    expectDecodeEncodeRoundTrip(generated.C, value.c);
+    expect(() =>
+      Schema.decodeUnknownSync(generated.C)({
+        b: { id: "b1", a: { name: 1 } },
+      })
+    ).toThrow();
+  }
+);
+
+const closedObjectsSpec = specWithRoot("Closed objects", "Holder", {
+  Closed: {
+    type: "object",
+    required: ["x"],
+    properties: { x: { type: "string" } },
+  },
+  OpenToAnything: {
+    type: "object",
+    required: ["x"],
+    properties: { x: { type: "string" } },
+    additionalProperties: true,
+  },
+  IntegerRecord: {
+    type: "object",
+    additionalProperties: { type: "integer" },
+  },
+  Extended: {
+    allOf: [
+      { $ref: "#/components/schemas/Closed" },
+      {
+        type: "object",
+        required: ["y"],
+        properties: { y: { type: "string" } },
+      },
+    ],
+  },
+  Holder: {
+    type: "object",
+    properties: {
+      closed: { $ref: "#/components/schemas/Closed" },
+      anything: { $ref: "#/components/schemas/OpenToAnything" },
+      integers: { $ref: "#/components/schemas/IntegerRecord" },
+      extended: { $ref: "#/components/schemas/Extended" },
+    },
+  },
+});
+
+test("closeObjects closes only objects that omit additionalProperties", async () => {
+  const source = await generateClient(
+    closedObjectsSpec,
+    "httpclient",
+    "ClosedObjectsClient"
+  );
+  const generated = await writeAndImport("closed-objects.ts", source);
+
+  expect(Object.keys(generated.Closed.fields)).toEqual(["x"]);
+  expect(
+    Schema.decodeUnknownSync(generated.Closed)({ x: "a", extra: 1 })
+  ).toEqual({ x: "a" });
+
+  expect(
+    Schema.decodeUnknownSync(generated.OpenToAnything)({ x: "a", extra: 1 })
+  ).toEqual({ x: "a", extra: 1 });
+
+  const decodeIntegers = Schema.decodeUnknownSync(generated.IntegerRecord);
+  expect(decodeIntegers({ a: 1, b: 2 })).toEqual({ a: 1, b: 2 });
+  expect(() => decodeIntegers({ a: "1" })).toThrow();
+
+  expect(Object.keys(generated.Extended.fields).sort()).toEqual(["x", "y"]);
+  expect(
+    Schema.decodeUnknownSync(generated.Extended)({ x: "a", y: "b", extra: 1 })
+  ).toEqual({ x: "a", y: "b" });
 });

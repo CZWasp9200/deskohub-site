@@ -19,6 +19,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import { ReviewSandboxMock } from "@/features/review-accounts/backend/review-sandbox.service.mock";
 import { inMemoryCustomerAgentCallServices } from "./agent-tools.test-utils";
 import { getReservationStatusTool } from "./get-reservation-status.tool";
@@ -62,6 +63,7 @@ const services = Layer.mergeAll(
     findById: () => Effect.succeed(stored as WorkspaceReservation | null),
   }),
   ReviewSandboxMock({ isOrderOf: () => Effect.succeed(false) }),
+  NoReservationInvitees,
   Layer.mock(CheckoutStatusService, { getStatus }),
   inMemoryCustomerAgentCallServices(({ accountId }) => ({
     ownership: {
@@ -107,6 +109,7 @@ describe("get_reservation_status", () => {
         fulfillment_status: "fulfilled",
         starts_at: "2099-07-01T06:00:00Z",
         ends_at: "2099-07-01T22:00:00Z",
+        stay: "day",
         total: { amount: 290, currency: "CZK" },
         // Locale-agnostic: the proxy opens it in the customer's language.
         status_url: expect.stringMatching(
@@ -123,6 +126,32 @@ describe("get_reservation_status", () => {
     expect(getStatus).toHaveBeenCalledWith(
       expect.objectContaining({ includeSupportContact: false })
     );
+  });
+
+  test("reports an overnight Reserved Desk stay by its booked time", async () => {
+    getStatus.mockImplementationOnce(({ orderId }) =>
+      Effect.succeed({
+        kind: "cowork",
+        orderId,
+        returnOutcome: "unknown",
+        status: "fulfilled",
+        paymentStatus: "paid",
+        fulfillmentStatus: "fulfilled",
+        summary: {
+          kind: "cowork",
+          entryTier: "reserved-desk",
+          coffee: false,
+          price: { value: 41_000, exponent: 2, currency: "CZK" },
+          reservedFrom: Temporal.Instant.from("2099-07-01T10:00:00Z"),
+          reservedUntil: Temporal.Instant.from("2099-07-02T10:00:00Z"),
+        },
+      })
+    );
+
+    expect(await status()).toMatchObject({
+      _tag: "Success",
+      success: { family: "cowork", stay: "overnight" },
+    });
   });
 
   test("reports the booked time and setup start of an early-setup meeting room", async () => {
@@ -145,7 +174,9 @@ describe("get_reservation_status", () => {
       })
     );
 
-    expect(await status()).toMatchObject({
+    const result = await status();
+
+    expect(result).toMatchObject({
       _tag: "Success",
       success: {
         family: "meeting-room",
@@ -154,6 +185,7 @@ describe("get_reservation_status", () => {
         setup_starts_at: "2099-07-01T07:45:00Z",
       },
     });
+    expect(JSON.stringify(result)).not.toContain('"stay"');
   });
 
   test("reports an order booked for the customer's linked profile", async () => {

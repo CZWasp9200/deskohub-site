@@ -3,6 +3,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Deferred, Effect, Schema } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
+import { makeOfficePayRouteFixture } from "@/features/checkout/backend/checkout/office-pay-route.test-utils";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import type { PublicPriceListOffering } from "@/features/checkout/public-offerings";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
@@ -32,6 +33,7 @@ import type {
 const testEmailAddressForAda = testEmailAddress("ada");
 
 const nextServer = await import("next/server");
+const nextNavigation = await import("next/navigation");
 
 mock.module("server-only", () => ({}));
 mock.module("next/root-params", () => ({
@@ -40,6 +42,20 @@ mock.module("next/root-params", () => ({
 mock.module("next/server", () => ({
   ...nextServer,
   connection: () => Promise.resolve(),
+}));
+mock.module("next/navigation", () => ({
+  ...nextNavigation,
+  redirect: (url: string) => {
+    throw new Error(`redirect to ${url}`);
+  },
+}));
+
+const draftCookies = new Map<string, string>();
+mock.module("@/shared/backend/utils/request-cookies", () => ({
+  getRequestCookies: Effect.succeed({
+    get: (name: string) =>
+      draftCookies.has(name) ? { value: draftCookies.get(name) } : undefined,
+  }),
 }));
 
 // Office reservations are released unless a test closes the gate.
@@ -57,6 +73,7 @@ mock.module("@/features/office/backend/office-release-gate.server", () => ({
 }));
 beforeEach(() => {
   officePageEnabled = true;
+  draftCookies.clear();
 });
 
 const loadReservationCheckoutAccount = mock(
@@ -69,10 +86,26 @@ mock.module(
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
+const officeCheckout = makeOfficePayRouteFixture();
+const checkoutView = await import(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view"
+);
+mock.module(
+  "@/features/checkout/backend/checkout/pay-state-checkout-view",
+  () => ({
+    ...checkoutView,
+    checkoutOfficeSelectionForVisitorServices: officeCheckout.services,
+  })
+);
+
 const { createReservationPage } = await import(
   "./create-reservation-page.server"
 );
-const { checkoutContactReturnState } = await import(
+const {
+  checkoutContactReturnState,
+  checkoutOfficeSelectionCookieName,
+  sealCheckoutOfficeSelection,
+} = await import(
   "@/features/reservation/backend/checkout-contact-return-state"
 );
 const { checkoutContactQueryParam } = await import(
@@ -251,6 +284,7 @@ const sealCoworkPayState = (requestedDiscountCode?: string) =>
         quote,
         orderId: "reservation-id",
         bookedAt: payStateBookedAt,
+        holdExpiresAt: instantStringSchema.make("2099-06-01T10:08:00.000Z"),
         checkoutSessionId: "session-id",
         ...(requestedDiscountCode && {
           requestedDiscountCode: Schema.decodeUnknownSync(
@@ -445,6 +479,181 @@ test("reopens the contact details sealed into a sign-in's return path", async ()
       initialValues: expected,
     });
   }
+});
+
+test("reopens attendee selection for a verified three-seat office return issued before attendee drafts", async () => {
+  const contact = {
+    name: "Ada Lovelace",
+    email: testEmailAddressForAda,
+    phone: "+420777777777",
+    billing: { purpose: "personal", invoice: "none" },
+    marketingConsent: false,
+  } as const;
+  const token = await Effect.runPromise(
+    checkoutContactReturnState
+      .seal(contact, "en-US")
+      .pipe(Effect.provide(TestSealedStateKeys))
+  );
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+  };
+  const pageDefinition = createReservationPage(family);
+  const verifiedAccount = {
+    status: "profile-missing",
+    email: contact.email,
+  } as const;
+  const query = {
+    [checkoutContactQueryParam]: token,
+    startsOn: "2026-11-19",
+    seats: "3",
+  };
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce(verifiedAccount);
+  const contactStep = await pageDefinition.Page({
+    searchParams: Promise.resolve({ ...query, step: "contact" }),
+  });
+  const redirectPath = await renderContent(contactStep).then(
+    () => undefined,
+    (error: Error) => error.message.replace(/^redirect to /, "")
+  );
+  if (!redirectPath) throw new Error("Expected to reopen attendee selection");
+  const returnLocation = new URL(redirectPath, "https://deskohub.test");
+  expect(returnLocation.pathname).toBe("/en-US/reservation/office");
+  expect(returnLocation.searchParams.has("step")).toBe(false);
+  expect(returnLocation.searchParams.get("seats")).toBe("3");
+  expect(
+    returnLocation.searchParams.get(checkoutContactQueryParam) === token
+  ).toBe(true);
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce(verifiedAccount);
+  await renderContent(
+    await pageDefinition.Page({ searchParams: Promise.resolve(query) })
+  );
+  expect(family.renderForm).toHaveBeenCalledTimes(1);
+  expect(family.renderForm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      initialValues: expect.objectContaining(contact),
+      checkoutCustomer: expect.objectContaining({
+        status: "profile-missing",
+        continuesCheckout: false,
+      }),
+      checkoutOfficeSelection: undefined,
+    })
+  );
+});
+
+test("restores office attendees only for the verified contact and its originating browser", async () => {
+  const contact = {
+    name: "Ada Lovelace",
+    email: testEmailAddressForAda,
+    phone: "+420777777777",
+    billing: { purpose: "personal", invoice: "none" },
+    marketingConsent: false,
+  } as const;
+  const officeSelection = {
+    kind: "people",
+    people: {
+      contactAttends: false,
+      invitees: [testEmailAddress("guest-one"), testEmailAddress("guest-two")],
+    },
+  } as const;
+  const id = crypto.randomUUID();
+  const token = await Effect.runPromise(
+    checkoutContactReturnState
+      .seal(contact, "en-US", id)
+      .pipe(Effect.provide(TestSealedStateKeys))
+  );
+  const cookie = await Effect.runPromise(
+    sealCheckoutOfficeSelection({ id, selection: officeSelection }).pipe(
+      Effect.provide(TestSealedStateKeys)
+    )
+  );
+  const cookieName = checkoutOfficeSelectionCookieName(id);
+  draftCookies.set(cookieName, cookie);
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+  };
+  const pageDefinition = createReservationPage(family);
+  const renderReturn = async () =>
+    renderContent(
+      await pageDefinition.Page({
+        searchParams: Promise.resolve({
+          [checkoutContactQueryParam]: token,
+          startsOn: "2026-11-19",
+          step: "contact",
+        }),
+      })
+    );
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: contact.email,
+  });
+  await renderReturn();
+  expect(family.renderForm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      checkoutCustomer: expect.objectContaining({ continuesCheckout: true }),
+      checkoutOfficeSelection: officeSelection,
+    })
+  );
+
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: testEmailAddress("someone-else"),
+  });
+  await expect(renderReturn()).rejects.toThrow(
+    "redirect to /en-US/reservation/office?startsOn=2026-11-19"
+  );
+  draftCookies.delete(cookieName);
+  loadReservationCheckoutAccount.mockResolvedValueOnce({
+    status: "profile-missing",
+    email: contact.email,
+  });
+  await expect(renderReturn()).rejects.toThrow(
+    "redirect to /en-US/reservation/office?startsOn=2026-11-19"
+  );
+  expect(family.renderForm).toHaveBeenCalledTimes(1);
+});
+
+test("restores the office people from Pay for its author only", async () => {
+  const family = {
+    ...createPreloadFreeFamily(),
+    kind: "office" as const,
+    pathname: "/reservation/office" as const,
+    restore: () => ({
+      kind: "restored" as const,
+      values: {
+        ...restoredValues,
+        name: officeCheckout.reservation.name,
+        email: officeCheckout.reservation.email,
+      },
+    }),
+  };
+  const page = createReservationPage(family);
+  const token = await officeCheckout.seal("en-US");
+  const renderEdit = async () =>
+    renderContent(
+      await page.Page({ searchParams: Promise.resolve({ payState: token }) })
+    );
+
+  await renderEdit();
+  expect(family.renderForm.mock.calls.at(-1)?.[0]).toMatchObject({
+    initialValues: { name: officeCheckout.reservation.name },
+    checkoutOfficeSelection: {
+      kind: "people",
+      people: { contactAttends: true, invitees: [officeCheckout.inviteeEmail] },
+    },
+  });
+
+  officeCheckout.signInAsAnotherAccount();
+  await renderEdit();
+  expect(
+    family.renderForm.mock.calls.at(-1)?.[0].checkoutOfficeSelection
+  ).toBeUndefined();
 });
 
 describe("the reservation page recipe", () => {

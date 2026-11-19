@@ -3,8 +3,8 @@ language js(typescript, jsx)
 
 // A Workspace transaction has one connection. Transactional code states no
 // concurrency at all: no `concurrency` or `concurrent` option, set or written,
-// whatever its value (1, `"inherit"` and `false` included), and no
-// `withConcurrency`, fork, race or stream merge. The check covers the whole
+// whatever its value (1, `"unbounded"` and `false` included), and no
+// fork, race or stream merge. The check covers the whole
 // file, because a scope check misses bodies in nested generators, options
 // objects built elsewhere in the file and renamed `transaction` bindings. A
 // file is transactional when it names `WorkspaceTransaction`, binds
@@ -44,7 +44,7 @@ file($name, $body) where {
     },
     `$owner.$method($...)` as $span where {
       or {
-        $method <: r"^(?:fork\w*|runFork|race\w*|withConcurrency)$",
+        $method <: r"^(?:fork\w*|runFork|race\w*)$",
         and {
           $owner <: r"^(?:Stream|Channel)$",
           $method <: r"^merge\w*$"
@@ -54,7 +54,7 @@ file($name, $body) where {
   } where {
     register_diagnostic(
       span = $span,
-      message = "Keep transactional work on one fiber: no concurrency option, `concurrent` option, `withConcurrency`, fork, race or merge in a file that runs Workspace transactions.",
+      message = "Keep transactional work on one fiber: no concurrency option, `concurrent` option, fork, race or merge in a file that runs Workspace transactions.",
       severity = "error"
     )
   }

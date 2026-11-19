@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Clock, Stream } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import Timer from "lucide-react-native/icons/timer";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import { StyleSheet, View } from "react-native";
@@ -16,7 +16,7 @@ import { color, radius, space } from "../../ui/tokens";
  * Where the checkout hold stands: `held` while time remains, `ending` in its
  * last minute, `ended` once the hold has expired.
  */
-export type HoldPhase = "held" | "ending" | "ended";
+type HoldPhase = "held" | "ending" | "ended";
 
 export interface HoldStatus {
   /** Whole seconds left, rounded up, so 0 only once the hold has expired. */

@@ -5,12 +5,12 @@ import {
   HttpClient,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   type HttpApi,
   HttpApiClient,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 
 /**
  * Serves one request with the administration API that administrators'
@@ -83,7 +83,7 @@ export class AdministrationApiClient extends Context.Service<
   IAdministrationApiClient
 >()("@deskohub-workspace/administration-agent-tools/AdministrationApiClient") {
   /** A client of `api`, served by the transport. */
-  static forApi = <Id extends string, Groups extends HttpApiGroup.Any>(
+  static forApi = <Id extends string, Groups extends HttpApiGroup.Constraint>(
     api: HttpApi.HttpApi<Id, Groups>
   ) =>
     Layer.effect(

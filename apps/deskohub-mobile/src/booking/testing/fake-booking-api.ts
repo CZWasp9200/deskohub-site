@@ -1,5 +1,6 @@
 import {
   type ApplyCustomerCheckoutDiscountCode,
+  type ClearCustomerCheckoutDiscountCode,
   type CreateCustomerCheckout,
   CustomerAccountLinkRequired,
   type CustomerAccountState,
@@ -26,6 +27,7 @@ import {
   type CustomerMeetingRoomUnavailableDates,
   type CustomerMonitorOption,
   CustomerOfferingUnavailable,
+  type CustomerOfficePeople,
   CustomerQuoteExpired,
   CustomerReservationOrderId,
   type CustomerReservationSummary,
@@ -41,7 +43,7 @@ import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   type FakeRequestOutcome,
   type FakeWorkspace,
@@ -64,8 +66,11 @@ import { issueFakePaymentPage } from "./fake-payment-gateway";
 import {
   inclusiveDays,
   pricedLines,
+  sampleDiscountId,
+  sampleEarlySetupStartsAt,
   sampleLegalDocuments,
   sampleOfferings,
+  sampleOvernightStay,
   sampleSummary,
 } from "./sample-booking-catalog";
 
@@ -77,8 +82,8 @@ import {
  */
 
 type BookingEndpoint = HttpApiGroup.Endpoints<typeof CustomerBookingApi>;
-export type BookingEndpointName = HttpApiEndpoint.Name<BookingEndpoint>;
-type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithName<
+export type BookingEndpointName = HttpApiEndpoint.Identifier<BookingEndpoint>;
+type Endpoint<N extends BookingEndpointName> = HttpApiEndpoint.WithIdentifier<
   BookingEndpoint,
   N
 >;
@@ -137,7 +142,8 @@ export interface FakeBookingCheckout {
   readonly orderId: string;
   readonly selection: CustomerBookingSelection;
   readonly locale: CustomerLocale;
-  readonly expiresAt: Date;
+  /** When the hold ends; no later step moves it. */
+  readonly holdExpiresAt: Date;
   readonly status: "ready" | "price_review" | "submitted";
   readonly changedKeys: ChangedKeys | undefined;
   /** Crowns added by the price changes so far. */
@@ -145,17 +151,21 @@ export interface FakeBookingCheckout {
   readonly code: string | undefined;
   readonly referralApplied: boolean;
   readonly earlyPerformanceRequired: boolean;
+  /** A meeting room's early setup, which its summary lists for free. */
+  readonly earlySetup?: boolean;
+  /** An office's people, as the checkout sent them. */
+  readonly people?: CustomerOfficePeople;
 }
 
 export const fakeHoldDuration = 10 * 60_000;
+/** How long each pay state token works, from when it is issued. */
+export const fakePayStateDuration = 10 * 60_000;
 const withdrawalPeriodDays = 14;
 
 /** The booking state and scripts of one fake Workspace. */
 export class FakeBookingApi {
   /** Requests in arrival order, with what they sent. */
   readonly calls: FakeBookingCall[] = [];
-  /** The clock checkouts expire by; tests may replace it. */
-  now: () => Date = () => new Date();
   /** Dates nothing can be booked on. */
   unavailableDates: string[];
   /** Dates a Reserved Desk needs a monitor workstation on. */
@@ -177,14 +187,21 @@ export class FakeBookingApi {
   >();
   /** Each order's latest state, for assertions. */
   private readonly checkouts = new Map<string, FakeBookingCheckout>();
-  /** Each pay state token's own snapshot, as a signed token carries it. */
-  private readonly tokens = new Map<string, FakeBookingCheckout>();
+  /** Each pay state token's own snapshot and expiry, as a signed token carries them. */
+  private readonly tokens = new Map<
+    string,
+    { readonly checkout: FakeBookingCheckout; readonly expiresAt: Date }
+  >();
   /** The order each checkout attempt created, so a retry gets it back. */
   private readonly attempts = new Map<string, string>();
   private readonly quotes = new Map<string, string>();
   private sequence = 0;
 
-  constructor(private readonly workspace: FakeWorkspace) {
+  constructor(
+    private readonly workspace: FakeWorkspace,
+    /** The clock for the booking calendar and checkout expiry. */
+    public now: () => Date = () => new Date()
+  ) {
     const today = this.today();
     this.unavailableDates = [addDays(today, 3), addDays(today, 10)];
     this.workstationRequiredDates = [addDays(today, 5)];
@@ -309,17 +326,20 @@ export class FakeBookingApi {
 
   /**
    * @internal Stores the order's new state and returns a pay state token
-   * for that snapshot. Earlier tokens keep their own snapshots until the
-   * hold ends, as signed tokens do.
+   * for that snapshot, working for `fakePayStateDuration` from now. Earlier
+   * tokens keep their own snapshots until they expire, as signed tokens do.
    */
   hold(checkout: FakeBookingCheckout) {
     this.checkouts.set(checkout.orderId, checkout);
     const token = `ps1.${fnv1a(checkout.orderId)}.${fnv1a(this.nextId("pay-state"))}`;
-    this.tokens.set(token, checkout);
+    this.tokens.set(token, {
+      checkout,
+      expiresAt: new Date(this.now().getTime() + fakePayStateDuration),
+    });
     return token;
   }
 
-  /** @internal The snapshot a pay state token carries. */
+  /** @internal The snapshot a pay state token carries, with its expiry. */
   held(token: string) {
     return this.tokens.get(token);
   }
@@ -414,10 +434,13 @@ const defaultChangedKeys: ChangedKeys = {
 const states = new WeakMap<FakeWorkspace, FakeBookingApi>();
 
 /** The booking state and scripts of `workspace`, created on first use. */
-export const fakeBooking = (workspace: FakeWorkspace): FakeBookingApi => {
+export const fakeBooking = (
+  workspace: FakeWorkspace,
+  now?: () => Date
+): FakeBookingApi => {
   const existing = states.get(workspace);
   if (existing !== undefined) return existing;
-  const created = new FakeBookingApi(workspace);
+  const created = new FakeBookingApi(workspace, now);
   states.set(workspace, created);
   return created;
 };
@@ -495,12 +518,16 @@ export const fakeBookingGroup = (workspace: FakeWorkspace) => {
         received("getQuote", query, request.headers).pipe(
           Effect.andThen(
             answer("getQuote", () => {
-              const { locale: _locale, ...fields } = query;
+              const { locale: _locale, earlySetup, ...fields } = query;
               const selection = selectionOfQuery(fields);
               return checkedSelection(booking, selection).pipe(
                 Effect.map(() => {
                   const summary = sampleSummary({
                     lines: pricedLines(selection),
+                    earlySetupStartsAt:
+                      earlySetup === "true"
+                        ? sampleEarlySetupStartsAt(selection)
+                        : undefined,
                   });
                   return {
                     family: selection.family,
@@ -555,6 +582,15 @@ export const fakeBookingGroup = (workspace: FakeWorkspace) => {
           )
         )
       )
+      .handle("clearCheckoutDiscountCode", ({ payload, request }) =>
+        received("clearCheckoutDiscountCode", payload, request.headers).pipe(
+          Effect.andThen(
+            answer("clearCheckoutDiscountCode", () =>
+              clearDiscountCode(booking, payload)
+            )
+          )
+        )
+      )
       .handle("acceptCheckoutPriceChange", ({ payload, request }) =>
         received("acceptCheckoutPriceChange", payload, request.headers).pipe(
           Effect.andThen(
@@ -597,12 +633,18 @@ const held = Effect.fn("FakeBooking.held")(function* (
   booking: FakeBookingApi,
   token: string
 ) {
-  const found = booking.held(token);
-  if (found === undefined) return yield* new CustomerCheckoutNotFound();
+  const issued = booking.held(token);
+  if (issued === undefined) return yield* new CustomerCheckoutNotFound();
+  const found = issued.checkout;
   if (booking.submitted(found.orderId)) {
     return yield* unavailable("payment_in_progress");
   }
-  if (booking.now().getTime() >= found.expiresAt.getTime()) {
+  const now = booking.now().getTime();
+  // The server answers an expired token as it does an ended hold.
+  if (
+    now >= found.holdExpiresAt.getTime() ||
+    now >= issued.expiresAt.getTime()
+  ) {
     return yield* unavailable("expired");
   }
   return found;
@@ -727,7 +769,7 @@ const startCheckout = ({
       orderId,
       selection: payload.selection,
       locale: payload.locale,
-      expiresAt: new Date(now.getTime() + fakeHoldDuration),
+      holdExpiresAt: new Date(now.getTime() + fakeHoldDuration),
       status: "ready",
       changedKeys: undefined,
       surcharge: 0,
@@ -737,6 +779,8 @@ const startCheckout = ({
       earlyPerformanceRequired:
         inclusiveDays(pragueToday(now), payload.selection.date) <=
         withdrawalPeriodDays,
+      earlySetup: payload.earlySetup === true,
+      ...(payload.people === undefined ? {} : { people: payload.people }),
     },
     scripted
   );
@@ -810,7 +854,7 @@ const rejectWithReplacement = (
         new CustomerDiscountCodeRejected({
           reason: "unavailable",
           payStateToken,
-          expiresAt: current.expiresAt.toISOString(),
+          expiresAt: tokenExpiresAt(booking, payStateToken),
         })
       )
     )
@@ -849,6 +893,47 @@ const codeAnswer = ({
         : { discountCode: "applied" as const }),
     }),
   });
+
+/**
+ * Removes the entered code, as the server does: with a code in the price,
+ * the repriced checkout comes back for review without it; with none, the
+ * checkout comes back as it is, with the same token. A referral benefit
+ * stays either way.
+ */
+const clearDiscountCode = (
+  booking: FakeBookingApi,
+  payload: typeof ClearCustomerCheckoutDiscountCode.Type
+) =>
+  held(booking, payload.payStateToken).pipe(
+    Effect.flatMap((current) =>
+      Option.match(enteredCode(current), {
+        onNone: () =>
+          Effect.succeed(checkoutOf(booking, current, payload.payStateToken)),
+        onSome: () =>
+          current.status === "price_review"
+            ? Effect.fail(unavailable("price_review_pending"))
+            : answerCheckout(booking, {
+                ...current,
+                code: undefined,
+                status: "price_review",
+                changedKeys: defaultChangedKeys,
+              }),
+      })
+    )
+  );
+
+/** The entered code the price includes; a referral code isn't one. */
+const enteredCode = ({ code }: FakeBookingCheckout) =>
+  Option.fromUndefinedOr(code).pipe(
+    Option.filter((entered) => entered !== fakeBookingCodes.referral)
+  );
+
+/** When a token the fake issued stops working. */
+const tokenExpiresAt = (booking: FakeBookingApi, payStateToken: string) => {
+  const issued = booking.held(payStateToken);
+  if (issued === undefined) throw new Error("The fake didn't issue this token");
+  return issued.expiresAt.toISOString();
+};
 
 interface SubmitCheckoutInput {
   readonly booking: FakeBookingApi;
@@ -1026,11 +1111,21 @@ const bookedReservation = (
 };
 
 /**
- * When a selection's reservation runs: a meeting room's hourly slot, else
- * whole Prague days (23 or 25 hours across a daylight-saving change) through
- * the last booked date.
+ * When a selection's reservation runs: a meeting room's hourly slot, an
+ * overnight stay from its start on the arrival date to its end the next
+ * day, else whole Prague days (23 or 25 hours across a daylight-saving
+ * change) through the last booked date.
  */
-const bookedTimes = (selection: CustomerBookingSelection) => {
+export const bookedTimes = (selection: CustomerBookingSelection) => {
+  if (selection.family === "cowork" && selection.stay === "overnight") {
+    return {
+      startsAt: pragueInstant(selection.date, sampleOvernightStay.startTime),
+      endsAt: pragueInstant(
+        addDays(selection.date, 1),
+        sampleOvernightStay.endTime
+      ),
+    };
+  }
   if (selection.family === "meeting-room" && selection.duration !== "day:1") {
     const { length } = meetingRoomSlots[selection.duration ?? "hour:1"];
     const startsAt = pragueInstant(
@@ -1084,14 +1179,23 @@ const summaryOf = (checkout: FakeBookingCheckout) =>
     discountShare: discountShare(checkout),
     discountLabel: checkout.code ?? fakeBookingCodes.referral,
     surcharge: checkout.surcharge,
+    earlySetupStartsAt: checkout.earlySetup
+      ? sampleEarlySetupStartsAt(checkout.selection)
+      : undefined,
   });
 
 /** Stores the checkout and answers it with a new pay state token. */
 const checkoutAnswer = (
   booking: FakeBookingApi,
   checkout: FakeBookingCheckout
+): CustomerCheckout => checkoutOf(booking, checkout, booking.hold(checkout));
+
+/** The checkout as `payStateToken` carries it. */
+const checkoutOf = (
+  booking: FakeBookingApi,
+  checkout: FakeBookingCheckout,
+  payStateToken: string
 ): CustomerCheckout => {
-  const payStateToken = booking.hold(checkout);
   const requiredFrom = new Date(
     Date.parse(`${checkout.selection.date}T00:00:00Z`) -
       withdrawalPeriodDays * 86_400_000
@@ -1100,8 +1204,15 @@ const checkoutAnswer = (
     status: checkout.status === "price_review" ? "price_review" : "ready",
     orderId: checkout.orderId,
     payStateToken,
-    expiresAt: checkout.expiresAt.toISOString(),
+    expiresAt: tokenExpiresAt(booking, payStateToken),
+    holdExpiresAt: checkout.holdExpiresAt.toISOString(),
     summary: summaryOf(checkout),
+    ...Option.match(enteredCode(checkout), {
+      onNone: () => ({}),
+      onSome: (code) => ({
+        appliedDiscountCode: { code, discountId: sampleDiscountId },
+      }),
+    }),
     ...(checkout.changedKeys === undefined
       ? {}
       : { priceReview: { changedKeys: checkout.changedKeys } }),
@@ -1110,6 +1221,7 @@ const checkoutAnswer = (
       requiredFrom: requiredFrom.toISOString(),
     },
     ...(checkout.referralApplied ? { referralApplied: true as const } : {}),
+    ...(checkout.people === undefined ? {} : { people: checkout.people }),
   };
 };
 

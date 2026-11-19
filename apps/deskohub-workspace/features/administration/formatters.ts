@@ -1,11 +1,15 @@
 import type { Locale } from "@/features/i18n";
+import { getBookedCoworkStay } from "@/features/reservation/cowork-stay";
 import { formatMoney, type Money } from "@/shared/money/money";
 import {
   temporalInstantToDate,
   temporalInstantToLocalDateTimeString,
   workspaceSiteConstants,
 } from "@/shared/utils";
-import { formatPlainDate } from "@/shared/utils/date-time-format";
+import {
+  formatInstantDateTimeRange,
+  formatPlainDate,
+} from "@/shared/utils/date-time-format";
 import type {
   AdministrationPaymentAttempt,
   AdministrationReservationSummary,
@@ -17,18 +21,20 @@ import { getAdministrationPaymentStateLabel } from "./payment-presentation";
 // day period could also differ between server and browser: depending on its
 // ICU version, Node separates "PM" with a narrow no-break space that Chromium
 // writes as a plain space, which fails hydration in the client tables.
+const administrationHourCycle = "h23";
+
 export const formatAdministrationDateTime = (value: string, locale: Locale) =>
   new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
-    hourCycle: "h23",
+    hourCycle: administrationHourCycle,
     timeZone: workspaceSiteConstants.location.timeZone,
   }).format(temporalInstantToDate(Temporal.Instant.from(value)));
 
 const formatAdministrationTime = (value: string, locale: Locale) =>
   new Intl.DateTimeFormat(locale, {
     timeStyle: "short",
-    hourCycle: "h23",
+    hourCycle: administrationHourCycle,
     timeZone: workspaceSiteConstants.location.timeZone,
   }).format(temporalInstantToDate(Temporal.Instant.from(value)));
 
@@ -50,13 +56,38 @@ export const formatAdministrationExportDateTime = (value: string) =>
 export const formatAdministrationPlainDate = (value: string, locale: Locale) =>
   formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
+/**
+ * When a reservation is booked for: a cowork day's date, an overnight stay's
+ * start and end, which fall on different dates, or another booking's start.
+ */
 export const formatAdministrationReservationDate = (
   reservation: Pick<
     AdministrationReservationSummary,
-    "date" | "startsAt" | "type"
+    "date" | "endsAt" | "product" | "startsAt" | "type"
   >,
   locale: Locale
 ) => {
+  const { endsAt, product, startsAt } = reservation;
+  if (
+    product.kind === "cowork" &&
+    startsAt &&
+    endsAt &&
+    getBookedCoworkStay({
+      tier: product.tier,
+      interval: {
+        startsAt: Temporal.Instant.from(startsAt),
+        endsAt: Temporal.Instant.from(endsAt),
+      },
+    }) === "overnight"
+  ) {
+    return formatInstantDateTimeRange({
+      start: Temporal.Instant.from(startsAt),
+      end: Temporal.Instant.from(endsAt),
+      locale,
+      hourCycle: administrationHourCycle,
+      timeZone: workspaceSiteConstants.location.timeZone,
+    });
+  }
   if (reservation.type === "cowork" && reservation.date) {
     return formatAdministrationPlainDate(reservation.date, locale);
   }

@@ -4,7 +4,7 @@ The [discount specification](../../../../apps/deskohub-workspace/docs/discount-c
 
 ## Mutation rules
 
-- Route discount mutations through `features/discounts/admin/execute-discount-admin-mutation.ts` so the UI and API share one dispatcher.
+- Route discount mutations through the `DiscountOperations` port (`features/discounts/admin/discount-operations.service.ts`), whose handler is the shared dispatcher `execute-discount-admin-mutation.ts`. `discount-operation-errors.ts` gives each failure its category and stable code; the Admin UI maps the code to copy in `mutation-error-message.ts`. The port declares the calendar discount-source refresh and the customer-page revalidation in `discountOperationSettlements`. See [the operation port](dhw-cli.md#operation-port).
 - A discount needs complete locale labels, one adjustment, and at least one product target: a reservation family or one saleable cowork tier (`{kind:"cowork",tier}`). See [Cowork tier targets](#cowork-tier-targets). Code creation can create its discount atomically or reference an existing one.
 - A voucher is a separate promotional-credit resource, never a product or a `discount_codes` variant. It has no discount definition and no use limit. Show issued and remaining credit rather than calling it unlimited.
 - `promotion_codes` owns the globally unique entered value, scheduling, enablement, and customer audience. Discount codes and vouchers use separate child tables and claim ledgers.

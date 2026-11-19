@@ -12,6 +12,10 @@ import {
   getAdministrationBookingGuestCount,
   getAdministrationBookingStatusLabel,
 } from "./booking-presentation";
+import {
+  AdministrationCustomerNameLabel,
+  AdministrationCustomerNameLink,
+} from "./customer-name-label";
 import { getAdministrationCustomerName } from "./customer-presentation";
 import {
   AdministrationDataTable,
@@ -74,14 +78,12 @@ const getColumns = (
         : "",
     cell: ({ row }) =>
       row.original.customer && row.original.customerId ? (
-        <Link
+        <AdministrationCustomerNameLink
           className="relative z-10 font-medium hover:underline"
-          href={administrationHref("/[locale]/admin/customers/[customerId]", {
-            customerId: row.original.customerId,
-          })}
-        >
-          {getAdministrationCustomerName(row.original.customer, locale)}
-        </Link>
+          customer={row.original.customer}
+          customerId={row.original.customerId}
+          locale={locale}
+        />
       ) : (
         <span className="text-sm text-navy-blue/65">
           {m.administrationBookingCustomerDetailsUnavailable({}, { locale })}
@@ -190,15 +192,17 @@ export function BookingTable({
                       {formatAdministrationDateTime(booking.startsAt, locale)}
                     </p>
                     <p className="mt-1 text-sm text-navy-blue/65">
-                      {booking.customer
-                        ? getAdministrationCustomerName(
-                            booking.customer,
-                            locale
-                          )
-                        : m.administrationBookingCustomerUnavailable(
-                            {},
-                            { locale }
-                          )}
+                      {booking.customer ? (
+                        <AdministrationCustomerNameLabel
+                          customer={booking.customer}
+                          locale={locale}
+                        />
+                      ) : (
+                        m.administrationBookingCustomerUnavailable(
+                          {},
+                          { locale }
+                        )
+                      )}
                     </p>
                   </div>
                   <BookingStatusBadge booking={booking} locale={locale} />

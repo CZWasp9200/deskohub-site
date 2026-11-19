@@ -43,6 +43,7 @@ import {
   checkoutDetailsLogFields,
 } from "@/features/checkout/schemas/checkout-details";
 import type { Locale } from "@/features/i18n";
+import type { ValidOfficePeople } from "@/features/office/office-people";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
@@ -68,6 +69,7 @@ import {
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
+import type { SealedOfficePeople } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { MissingDotyposId } from "@/shared/backend/missing-dotypos-id";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -93,6 +95,15 @@ type ReservationHoldRequest = {
   };
   /** What a new Dotypos hold carries, from the customer's quote. */
   readonly checkoutDetails: CheckoutDetails;
+  /**
+   * Who is coming to an office booked with a people list: the validated
+   * list, which the attempt key binds, and its sealed form, which the draft
+   * records.
+   */
+  readonly officePeople?: {
+    readonly valid: ValidOfficePeople;
+    readonly sealed: SealedOfficePeople;
+  };
 };
 
 /** Where the attempt's hold stands once the request returns. */
@@ -102,6 +113,8 @@ export type ReservationHold =
       readonly kind: "created";
       readonly reservationId: WorkspaceReservationId;
       readonly checkoutSessionId: CheckoutSessionId;
+      /** The hold deadline stored with the reservation. */
+      readonly reservationHoldExpiresAt: Temporal.Instant;
     }
   /**
    * The attempt's live hold, reused for an immediate retry. `pricedFor` is set
@@ -109,7 +122,7 @@ export type ReservationHold =
    */
   | {
       readonly kind: "reused";
-      readonly reservation: WorkspaceReservation;
+      readonly reservation: LiveHoldReservation;
       readonly checkoutSessionId: CheckoutSessionId;
       readonly pricedFor?: DotyposCustomerId;
     }
@@ -250,7 +263,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     checkoutSessionId: checkout.checkoutSessionId,
     checkoutAttemptId: checkout.checkoutAttemptId,
     reservation,
+    ...(request.officePeople && { people: request.officePeople.valid }),
     draft: {
+      ...(request.officePeople && {
+        officePeople: request.officePeople.sealed,
+      }),
       dotyposCustomerId: booking.customer,
       authorAccountId: booking.author,
       ...(booking.agent && {
@@ -502,13 +519,14 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
       kind: "created",
       reservationId: reservationDraft.id,
       checkoutSessionId,
+      reservationHoldExpiresAt: holdExpiresAt,
     } satisfies ReservationHold;
   });
 
   return yield* holdReservationDraft(preparedDraft);
 });
 
-const getReservationHoldExpiresAt = (now: Temporal.Instant) =>
+export const getReservationHoldExpiresAt = (now: Temporal.Instant) =>
   now.add({ milliseconds: payStateDefaultTtlMilliseconds });
 
 const decodeDotyposCustomerId = Schema.decodeUnknownEffect(
@@ -529,15 +547,26 @@ export const getDotyposCustomerId = Effect.fn(
   )
 );
 
-const isReusableSubmissionReservation = (reservation: WorkspaceReservation) =>
+/** A held reservation whose stored hold deadline is still ahead. */
+type LiveHoldReservation = WorkspaceReservation & {
+  readonly reservationHoldExpiresAt: Temporal.Instant;
+};
+
+/**
+ * Whether a retry may reuse the reservation's hold. A hold without a stored
+ * deadline can't be paid, so it is never reused.
+ */
+const isReusableSubmissionReservation = (
+  reservation: WorkspaceReservation
+): reservation is LiveHoldReservation =>
   reservation.reservationState === "held" &&
   reservation.paymentState === "not_started" &&
   Boolean(reservation.dotyposReservationId) &&
-  (!reservation.reservationHoldExpiresAt ||
-    Temporal.Instant.compare(
-      reservation.reservationHoldExpiresAt,
-      Temporal.Now.instant()
-    ) > 0);
+  reservation.reservationHoldExpiresAt !== null &&
+  Temporal.Instant.compare(
+    reservation.reservationHoldExpiresAt,
+    Temporal.Now.instant()
+  ) > 0;
 
 /**
  * A session's current reservation another account authored is never this
@@ -556,7 +585,7 @@ const mustRotateCheckoutSession = (reservation: WorkspaceReservation) =>
     (paymentState) => paymentState === reservation.paymentState
   );
 
-const enqueueReservationHoldCleanup = Effect.fn(
+export const enqueueReservationHoldCleanup = Effect.fn(
   "preparePayState.enqueueReservationHoldCleanup"
 )(function* (input: {
   readonly orderId: WorkspaceReservationId;
@@ -607,10 +636,10 @@ class PendingReservationTransition extends Data.TaggedError(
 }> {}
 
 const pendingHoldCreationRetryPolicy = Schedule.exponential("250 millis").pipe(
-  Schedule.modifyDelay((_, delay) =>
-    Effect.succeed(Duration.min(delay, Duration.seconds(5)))
+  Schedule.modifyDelay(({ duration }) =>
+    Effect.succeed(Duration.min(duration, Duration.seconds(5)))
   ),
-  Schedule.collectWhile(
+  Schedule.while(
     (metadata) =>
       metadata.elapsed < 40_000 &&
       Predicate.isTagged(metadata.input, "PendingReservationTransition")
@@ -668,6 +697,7 @@ class CheckoutAttemptUnavailableError extends Data.TaggedError(
 const cancelSupersededHold = Effect.fn("preparePayState.cancelSupersededHold")(
   function* (input: {
     readonly reservationId: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly dotyposReservationId: DotyposReservationId;
   }) {
     const holdRelease = yield* DotyposHoldRelease;
@@ -675,6 +705,7 @@ const cancelSupersededHold = Effect.fn("preparePayState.cancelSupersededHold")(
     return yield* holdRelease
       .release({
         reservationId,
+        claimedAt: input.claimedAt,
         dotyposReservationId,
         liveStatus: "require_new",
         failureCode: "checkout_supersession_cancel_failed",
@@ -722,6 +753,7 @@ type ReservationDraftRequest = {
   readonly checkoutSessionId: CheckoutSessionId;
   readonly checkoutAttemptId: CheckoutAttemptId;
   readonly reservation: PreparePayStateInput["reservation"];
+  readonly people?: ValidOfficePeople;
   readonly draft: Omit<
     CreateWorkspaceReservationInput,
     "checkoutSessionKey" | "checkoutAttemptKey"
@@ -880,6 +912,7 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
 
   const cancelled = yield* cancelSupersededHold({
     reservationId: claimed.id,
+    claimedAt: claimed.updatedAt,
     dotyposReservationId,
   });
   if (!cancelled) {
@@ -913,7 +946,11 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
     ),
     Effect.tapError(() =>
       reservations
-        .markCancelled({ id: claimed.id, cancelledAt })
+        .markCancelled({
+          id: claimed.id,
+          claimedAt: claimed.updatedAt,
+          cancelledAt,
+        })
         .pipe(Effect.ignore)
     )
   );
@@ -1017,6 +1054,7 @@ const prepareDraftInSession = Effect.fnUntraced(function* (
     checkoutSessionId,
     checkoutAttemptId: request.checkoutAttemptId,
     reservation: request.reservation,
+    people: request.people,
   });
 
   const existingAttempt = yield* findSettledAttemptReservation(

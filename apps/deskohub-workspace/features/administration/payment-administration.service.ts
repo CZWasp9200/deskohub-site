@@ -50,6 +50,8 @@ type AdministrationOrderLink = {
   readonly stateLabel: string;
   readonly failureCode: string | null;
   readonly amount: Money;
+  /** What the payment owes back once a refund is required; null without one. */
+  readonly refundTarget: Money | null;
   /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
   readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
@@ -104,6 +106,7 @@ type LocalOrderRow = {
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
   readonly refundState: PaymentRefundState;
+  readonly refundTargetValue: number | null;
   readonly refundedAmountValue: number | null;
   readonly refundedAt: Temporal.Instant | null;
   readonly failureCode: string | null;
@@ -145,6 +148,14 @@ const toOrderLink = (row: LocalOrderRow): AdministrationOrderLink => {
       exponent: row.amountExponent,
       currency: row.currency,
     },
+    refundTarget:
+      row.refundState === "not_required"
+        ? null
+        : {
+            value: row.refundTargetValue ?? row.amountValue,
+            exponent: row.amountExponent,
+            currency: row.currency,
+          },
     refundedAmount:
       row.refundedAmountValue === null
         ? null
@@ -168,6 +179,7 @@ const localOrderSelection = {
   reservationId: paymentAttempts.workspaceReservationId,
   state: paymentAttempts.state,
   refundState: paymentAttempts.refundState,
+  refundTargetValue: paymentAttempts.refundTargetValue,
   refundedAmountValue: paymentAttempts.refundedAmountValue,
   refundedAt: paymentAttempts.refundedAt,
   failureCode: paymentAttempts.failureCode,
@@ -184,13 +196,20 @@ const normalizeMaximumRecords = (value?: number) =>
   Math.min(maximumRecords, Math.max(1, value ?? defaultMaxRecords));
 
 const toLocalOrderRows = (
-  rows: readonly (Omit<LocalOrderRow, "providerOrderId"> & {
+  rows: readonly (Omit<LocalOrderRow, "providerOrderId" | "reservationId"> & {
     readonly providerOrderId: NexiOrderId | null;
+    readonly reservationId: WorkspaceReservationId | null;
   })[]
 ): readonly LocalOrderRow[] =>
   rows.flatMap((row) =>
-    row.providerOrderId
-      ? [{ ...row, providerOrderId: row.providerOrderId }]
+    row.providerOrderId && row.reservationId
+      ? [
+          {
+            ...row,
+            providerOrderId: row.providerOrderId,
+            reservationId: row.reservationId,
+          },
+        ]
       : []
   );
 
@@ -247,6 +266,7 @@ export class PaymentAdministrationService extends Context.Service<
         const conditions: SQL[] = [
           eq(paymentAttempts.provider, "nexi"),
           isNotNull(paymentAttempts.providerOrderId),
+          isNotNull(paymentAttempts.workspaceReservationId),
         ];
         if (input.fromTime) {
           conditions.push(

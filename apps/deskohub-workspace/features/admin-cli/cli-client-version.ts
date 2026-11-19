@@ -9,12 +9,12 @@ import {
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import {
   HttpApi,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { gte } from "semver";
 
 /**
@@ -47,14 +47,14 @@ export const cliClientIsAtLeast = (
 
 /** An endpoint's annotations over its group's. */
 const endpointAnnotations = (
-  group: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps
+  group: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top
 ) => Context.merge(group.annotations, endpoint.annotations);
 
 /** An endpoint's minimum, falling back to its group's. */
 const endpointMinimumDhwVersion = (
-  group: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps
+  group: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top
 ) => Context.get(endpointAnnotations(group, endpoint), MinimumDhwVersion);
 
 /** The error the endpoint refuses an outdated `dhw` with. */
@@ -100,7 +100,7 @@ const ensureDhwVersionSupported = (
 /** Each restricted operation's minimum, keyed by `<group>.<endpoint>`. */
 export const collectMinimumDhwVersions = <
   Id extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
 >(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
@@ -110,7 +110,7 @@ export const collectMinimumDhwVersions = <
     onEndpoint: ({ group, endpoint }) => {
       const minimum = endpointMinimumDhwVersion(group, endpoint);
       if (Option.isSome(minimum)) {
-        minimums[`${group.identifier}.${endpoint.name}`] = minimum.value;
+        minimums[`${group.identifier}.${endpoint.identifier}`] = minimum.value;
       }
     },
   });

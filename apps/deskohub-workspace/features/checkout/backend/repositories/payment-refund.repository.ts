@@ -3,6 +3,7 @@ import {
   and,
   asc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
@@ -14,9 +15,13 @@ import {
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { paymentAttempts, workspaceReservations } from "@/db/schema";
+import {
+  type PaymentAttemptRow,
+  paymentAttempts,
+  workspaceReservations,
+} from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
@@ -27,18 +32,33 @@ import {
 
 /**
  * `recorded` stores a new or larger refund, `unchanged` means the attempt
- * already holds this refund total, and `not_applicable` means the attempt is
- * not a paid Nexi attempt that can carry a refund.
+ * already holds this refund total, `below_target` means a partial refund is
+ * owed and Nexi's total, recorded as it grows, hasn't reached it yet, so it
+ * stays required, and
+ * `not_applicable` means the attempt is not a paid Nexi attempt that can carry
+ * a refund.
  */
 export type PaymentRefundRecordResult =
   | "recorded"
   | "unchanged"
+  | "below_target"
   | "not_applicable";
 
 export interface RefundablePaymentAttempt {
   readonly attempt: NexiPaymentAttempt;
   readonly correlationId: NexiCorrelationId;
 }
+
+/** A reservation's payment attempt as its refund facts stand. */
+export type ReservationRefundAttempt = Pick<
+  PaymentAttemptRow,
+  | "amountExponent"
+  | "amountValue"
+  | "currency"
+  | "refundState"
+  | "refundedAmountValue"
+  | "state"
+>;
 
 /** An attempt `claimRefundChecks` stamped, with the stamp it replaced. */
 export interface ClaimedRefundCheck extends RefundablePaymentAttempt {
@@ -48,9 +68,9 @@ export interface ClaimedRefundCheck extends RefundablePaymentAttempt {
 
 export interface IPaymentRefundRepository {
   /**
-   * Claims up to `limit` paid Nexi attempts to check for a refund and stamps
-   * them as checked at `checkedAt`. Eligible attempts are those whose refund
-   * is still outstanding, and paid attempts created since
+   * Claims up to `limit` paid Nexi attempts for reservations to check for a
+   * refund and stamps them as checked at `checkedAt`. Eligible attempts
+   * include outstanding refunds and paid attempts created since
    * `recentPaymentsSince` that Nexi has not fully refunded, because operators
    * can refund in the Nexi back office without cancelling in Workspace and can
    * refund the rest of a partial refund later. An attempt is due once its last
@@ -78,6 +98,23 @@ export interface IPaymentRefundRepository {
       readonly id: PaymentAttemptId;
     }
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
+  /**
+   * The reservation's Nexi attempts whose refund is still required, oldest
+   * first, each with the reservation's Nexi correlation id. Claims nothing.
+   */
+  readonly findRequiredRefunds: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly RefundablePaymentAttempt[],
+    EffectDrizzleQueryError
+  >;
+  /** Every payment attempt of the reservation, oldest first. */
+  readonly findReservationAttempts: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly ReservationRefundAttempt[],
+    EffectDrizzleQueryError
+  >;
   /**
    * Records Nexi's successful refund total for a paid Nexi attempt. The total
    * only grows, so a stale or replayed provider read never lowers it.
@@ -112,14 +149,22 @@ export class PaymentRefundRepository extends Context.Service<
         // skips the rows already updated, so the claim would exceed `limit`.
         // Every read happens before the commit, so a caller interrupted while
         // claiming either gets the claim back or leaves nothing stamped.
-        const { batch, claimed, correlationIds } = yield* transaction(
+        const { batch, claimed } = yield* transaction(
           Effect.gen(function* () {
             const batch = yield* db
               .select({
                 id: paymentAttempts.id,
                 previousCheckedAt: paymentAttempts.refundCheckedAt,
+                correlationId: workspaceReservations.correlationId,
               })
               .from(paymentAttempts)
+              .innerJoin(
+                workspaceReservations,
+                eq(
+                  workspaceReservations.id,
+                  paymentAttempts.workspaceReservationId
+                )
+              )
               .where(
                 and(
                   or(
@@ -155,16 +200,9 @@ export class PaymentRefundRepository extends Context.Service<
                 asc(paymentAttempts.id)
               )
               .limit(input.limit)
-              .for("update", { skipLocked: true });
+              .for("update", { of: paymentAttempts, skipLocked: true });
             if (batch.length === 0) {
-              return {
-                batch,
-                claimed: [],
-                correlationIds: new Map<
-                  WorkspaceReservationId,
-                  NexiCorrelationId
-                >(),
-              };
+              return { batch, claimed: [] };
             }
             const claimed = yield* db
               .update(paymentAttempts)
@@ -176,43 +214,21 @@ export class PaymentRefundRepository extends Context.Service<
                 )
               )
               .returning();
-            const reservations = yield* db
-              .select({
-                id: workspaceReservations.id,
-                correlationId: workspaceReservations.correlationId,
-              })
-              .from(workspaceReservations)
-              .where(
-                inArray(
-                  workspaceReservations.id,
-                  claimed.map(
-                    ({ workspaceReservationId }) => workspaceReservationId
-                  )
-                )
-              );
-            return {
-              batch,
-              claimed,
-              correlationIds: new Map(
-                reservations.map(({ id, correlationId }) => [id, correlationId])
-              ),
-            };
+            return { batch, claimed };
           })
         );
-        const previousCheckedAt = new Map(
-          batch.map(({ id, previousCheckedAt }) => [id, previousCheckedAt])
-        );
+        const checksById = new Map(batch.map((check) => [check.id, check]));
 
         return claimed.flatMap((row): ClaimedRefundCheck[] => {
           const attempt = toPaymentAttempt(row);
-          const correlationId = correlationIds.get(row.workspaceReservationId);
-          return correlationId && isNexiPaymentAttempt(attempt)
+          const check = checksById.get(row.id);
+          return check && isNexiPaymentAttempt(attempt)
             ? [
                 {
                   attempt,
-                  correlationId,
+                  correlationId: check.correlationId,
                   checkedAt: input.checkedAt,
-                  previousCheckedAt: previousCheckedAt.get(row.id) ?? null,
+                  previousCheckedAt: check.previousCheckedAt,
                 },
               ]
             : [];
@@ -263,25 +279,123 @@ export class PaymentRefundRepository extends Context.Service<
                     paymentAttempts.refundedAmountValue,
                     input.refundedAmountValue
                   )
+                ),
+                // A required partial refund settles only once Nexi has
+                // refunded at least the amount owed.
+                or(
+                  ne(paymentAttempts.refundState, "required"),
+                  isNull(paymentAttempts.refundTargetValue),
+                  lte(
+                    paymentAttempts.refundTargetValue,
+                    input.refundedAmountValue
+                  )
                 )
               )
             )
             .returning({ id: paymentAttempts.id });
           if (updated) return "recorded" as const;
 
+          // A partial refund owed that Nexi hasn't fully paid yet keeps its
+          // growing total while it stays required.
+          const [progressed] = yield* db
+            .update(paymentAttempts)
+            .set({
+              refundedAmountValue: input.refundedAmountValue,
+              refundedAt: input.refundedAt,
+              updatedAt: input.recordedAt,
+            })
+            .where(
+              and(
+                eq(paymentAttempts.id, input.id),
+                eq(paymentAttempts.provider, "nexi"),
+                eq(paymentAttempts.state, "paid"),
+                eq(paymentAttempts.refundState, "required"),
+                gt(
+                  paymentAttempts.refundTargetValue,
+                  input.refundedAmountValue
+                ),
+                or(
+                  isNull(paymentAttempts.refundedAmountValue),
+                  lt(
+                    paymentAttempts.refundedAmountValue,
+                    input.refundedAmountValue
+                  )
+                )
+              )
+            )
+            .returning({ id: paymentAttempts.id });
+          if (progressed) return "below_target" as const;
+
           const [existing] = yield* db
-            .select({ refundState: paymentAttempts.refundState })
+            .select({
+              refundState: paymentAttempts.refundState,
+              refundTargetValue: paymentAttempts.refundTargetValue,
+            })
             .from(paymentAttempts)
             .where(eq(paymentAttempts.id, input.id))
             .limit(1);
-          return existing?.refundState === "refunded"
-            ? ("unchanged" as const)
+          if (existing?.refundState === "refunded") return "unchanged" as const;
+          return existing?.refundState === "required" &&
+            existing.refundTargetValue !== null
+            ? ("below_target" as const)
             : ("not_applicable" as const);
         },
         (effect, input) => effect.pipe(Effect.annotateLogs({ ...input }))
       );
 
-      return { claimRefundChecks, recordRefund, releaseRefundCheck };
+      const findRequiredRefunds = Effect.fn(
+        "PaymentRefundRepository.findRequiredRefunds"
+      )(function* (reservationId: WorkspaceReservationId) {
+        const rows = yield* db
+          .select({
+            attempt: paymentAttempts,
+            correlationId: workspaceReservations.correlationId,
+          })
+          .from(paymentAttempts)
+          .innerJoin(
+            workspaceReservations,
+            eq(workspaceReservations.id, paymentAttempts.workspaceReservationId)
+          )
+          .where(
+            and(
+              eq(paymentAttempts.workspaceReservationId, reservationId),
+              eq(paymentAttempts.provider, "nexi"),
+              eq(paymentAttempts.refundState, "required")
+            )
+          )
+          .orderBy(asc(paymentAttempts.createdAt), asc(paymentAttempts.id));
+        return rows.flatMap(({ attempt: row, correlationId }) => {
+          const attempt = toPaymentAttempt(row);
+          return isNexiPaymentAttempt(attempt)
+            ? [{ attempt, correlationId }]
+            : [];
+        });
+      });
+
+      const findReservationAttempts = Effect.fn(
+        "PaymentRefundRepository.findReservationAttempts"
+      )(function* (reservationId: WorkspaceReservationId) {
+        return yield* db
+          .select({
+            amountExponent: paymentAttempts.amountExponent,
+            amountValue: paymentAttempts.amountValue,
+            currency: paymentAttempts.currency,
+            refundState: paymentAttempts.refundState,
+            refundedAmountValue: paymentAttempts.refundedAmountValue,
+            state: paymentAttempts.state,
+          })
+          .from(paymentAttempts)
+          .where(eq(paymentAttempts.workspaceReservationId, reservationId))
+          .orderBy(asc(paymentAttempts.createdAt), asc(paymentAttempts.id));
+      });
+
+      return {
+        claimRefundChecks,
+        findRequiredRefunds,
+        findReservationAttempts,
+        recordRefund,
+        releaseRefundCheck,
+      };
     })
   );
 }

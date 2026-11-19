@@ -64,6 +64,16 @@ describe("reservationListQuery", () => {
     ).not.toHaveProperty("from");
   });
 
+  test("keeps the attention queue unbounded and preserves it in links", () => {
+    const query = reservationListQuery.parse({ status: "needs_attention" });
+
+    expect(query.status).toBe("needs_attention");
+    expect(query).not.toHaveProperty("from");
+    expect(reservationListQuery.href(query, { page: 2 })).toContain(
+      "status=needs_attention&page=2"
+    );
+  });
+
   test("reads the legacy single date as a one-day range", () => {
     expect(reservationListQuery.parse({ date: "2026-03-04" })).toMatchObject({
       from: "2026-03-04",

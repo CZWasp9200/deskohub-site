@@ -6,13 +6,14 @@ import {
   CustomerServiceUnavailable,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   BookingCatalogViewError,
   type BookingQueryViewError,
 } from "../data/booking-query-error";
 import { toOfficeSelection } from "../selection/office-selection";
+import { officePeopleOf } from "../testing/office-people-fixtures";
 import {
   type BookingRead,
   bookingReadOf,
@@ -25,11 +26,13 @@ import {
   restartReasonOf,
 } from "./booking-family-view";
 
-const selection = toOfficeSelection({
-  date: "2026-11-20",
-  dayCount: 2,
-  seats: 2,
-});
+const selection = Option.getOrThrow(
+  toOfficeSelection({
+    date: Option.some("2026-11-20"),
+    dayCount: 2,
+    people: officePeopleOf(2),
+  })
+);
 const quote = {
   family: "office",
   advertisedPriceToken: "quote-token",
@@ -48,6 +51,7 @@ describe("checkoutRequestOf", () => {
   test("hands checkout the selection with its quote token", () => {
     expect(checkoutRequestOf(complete)).toEqual(
       Option.some({
+        _tag: "Booking",
         locale: "cs-CZ",
         selection,
         advertisedPriceToken: "quote-token",

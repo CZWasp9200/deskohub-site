@@ -7,6 +7,7 @@
 | Workspace customer | `apps/deskohub-workspace/project.inlang/settings.json` | `features/i18n/messages/<locale>.json` | `m` from `@/features/i18n` |
 | Workspace administration | `features/administration/i18n/project.inlang/settings.json` | `features/administration/i18n/messages/<area>/<locale>.json`, one `pathPattern` per area | `m` from `@/features/administration/i18n` |
 | Mobile | `apps/deskohub-mobile/project.inlang/settings.json` | `apps/deskohub-mobile/messages/<locale>.json` (every registry locale) | see `deskohub-mobile` |
+| Shared reservation messages | Workspace customer and mobile settings | `packages/i18n/messages/reservations/<locale>.json` | each app's existing `m` export |
 
 Workspace paths are relative to `apps/deskohub-workspace`. Both Workspace projects serve every registry locale. The generated Paraglide output (`paraglide/` beside each project's messages) is gitignored and compiled as locale modules.
 
@@ -43,7 +44,7 @@ Each locale's catalog carries its own CLDR cardinal plural categories, not the C
 | `hi-IN` | `one` (0 and 1), `other` |
 | `vi-VN` | `other` only |
 
-A catch-all `*` key (`countPlural=*`) appears where the source uses one; keep it. Group a count's digits with Inlang's `number` function (`local formattedCount = count: number`) rather than formatting in code. No test checks plural categories: the parity check in [translation-workflow.md](translation-workflow.md#parity-check) does.
+A catch-all `*` key (`countPlural=*`) appears where the source uses one; keep it. Group a count's digits with Inlang's `number` function (`local formattedCount = count: number`) rather than formatting in code. In the Workspace no test checks plural categories: the parity check in [translation-workflow.md](translation-workflow.md#parity-check) does. The mobile `src/i18n/message-catalogs.test.ts` checks that each plural message covers every category a whole count selects in its locale and no category the locale lacks.
 
 ### Selects
 

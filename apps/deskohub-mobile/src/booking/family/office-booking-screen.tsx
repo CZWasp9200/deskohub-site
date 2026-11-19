@@ -1,59 +1,97 @@
-import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import type { CustomerBookedSelection } from "@deskohub/workspace-customer-api";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
-import { StyleSheet } from "react-native";
+import { AsyncResult, Atom } from "effect/reactivity";
+import { Stack, useRouter } from "expo-router";
+import KeyRound from "lucide-react-native/icons/key-round";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import { StyleSheet, View } from "react-native";
+import { accountAtom } from "../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { formatMoney } from "../../i18n/money-format";
-import { theme } from "../../theme";
 import { LiveMessage } from "../../ui/controls";
-import { SectionHeader } from "../../ui/list";
+import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
-import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
+import { color, radius, shadow, space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
+import { bookingPreselectionKey } from "../booking-preselection";
+import { bookCheckoutHref } from "../booking-routes";
+import { checkoutRequestAtom } from "../checkout/checkout-flow";
 import {
   bookingAvailabilityAtom,
+  bookingOfferingsAtom,
   bookingQuoteAtom,
 } from "../data/booking-queries";
 import { BookingCatalogViewError } from "../data/booking-query-error";
 import {
-  defaultOfficeDraft,
   type OfficeBlocker,
   type OfficeDraft,
   type OfficeOffering,
   officeAvailabilityQuery,
+  selectOfficeDate,
 } from "../selection/office-selection";
-import { addDays, pragueToday } from "../selection/prague-date";
+import { pragueToday } from "../selection/prague-date";
+import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
+import { BookingSectionHeading } from "../ui/booking-section-heading";
+import { BookingStepLayout } from "../ui/booking-step-layout";
+import { ChooseHeaderFact, useChooseHeaderFact } from "../ui/choose-header";
 import { MonthCalendar } from "../ui/month-calendar";
-import { formatPragueDate } from "../ui/prague-date-format";
+import { formatShortPragueDate } from "../ui/prague-date-format";
+import { describeOfficePriceLine } from "../ui/price-line-description";
+import { SpaceIllustration } from "../ui/space-illustration";
 import { Stepper } from "../ui/stepper";
 import { bookingClockAtom } from "./booking-clock";
-import { BookingContinue } from "./booking-continue";
 import { unneededReadAtom } from "./booking-family-atoms";
 import {
   availabilityNoticeMessage,
   bookingQueryMessage,
 } from "./booking-family-copy";
-import { useBookingStarted, useRestartReason } from "./booking-family-hooks";
 import {
+  useBookingPreselection,
+  useBookingStarted,
+  useRestartReason,
+} from "./booking-family-hooks";
+import {
+  type BookingRead,
   bookingReadOf,
   checkoutRequestOf,
   freshValue,
   loadedValue,
   quoteFailureRepeats,
+  readValue,
 } from "./booking-family-view";
 import { BookingGate } from "./booking-gate";
-import { BookingOfferingsView } from "./booking-offerings-view";
-import { BookingReadFailure } from "./booking-read-view";
-import { officeBookingModel, officeOfferingOf } from "./office-booking-model";
+import { BookingReadFailure, BookingReadView } from "./booking-read-view";
+import { chooseStyles, useChooseTracks } from "./choose-layout";
+import {
+  type KeptOfficeDraft,
+  type OfficeSteppers,
+  officeBookingModel,
+  officeContactOf,
+  officeFromPrice,
+  officeOfferingOf,
+  openingOfficeDraft,
+} from "./office-booking-model";
+import { OfficePeopleList } from "./office-people-list";
 import { RestartNotice } from "./restart-notice";
+import { selectionBar } from "./selection-bar";
 
-/** The customer's office draft; none until they change the default. */
-const officeDraftAtom = Atom.make(Option.none<OfficeDraft>());
+/**
+ * The customer's office draft, with the preselection it grew from; none
+ * until they change what the screen opened with.
+ */
+const officeDraftAtom = Atom.make(Option.none<KeptOfficeDraft>());
 
 const blockerMessage = (blocker: OfficeBlocker, locale: AppLocale) =>
   ({
+    DateRequired: () => m.booking_office_reason_date({}, { locale }),
     AvailabilityPending: () => undefined,
     DateUnavailable: () => m.booking_office_date_unavailable({}, { locale }),
     DayCountUnavailable: () =>
@@ -61,53 +99,121 @@ const blockerMessage = (blocker: OfficeBlocker, locale: AppLocale) =>
     SeatsUnavailable: () => m.booking_office_seats_unavailable({}, { locale }),
   })[blocker._tag]();
 
-/** Office: a first day, a number of days, and seats. */
+/**
+ * Office: a first day, then days and seats; opened empty or on a booked
+ * selection ("Book again").
+ */
 export function OfficeBookingScreen() {
   useBookingStarted("office");
-  const locale = useAppLocale();
+  const preselection = useBookingPreselection("office");
   return (
-    <ScrollScreen>
+    <View style={styles.screen}>
       <BookingGate>
-        <BookingOfferingsView>
-          {(catalog) =>
-            Option.match(officeOfferingOf(catalog.offerings), {
-              onNone: () => (
-                <Notice
-                  tone="warning"
-                  message={bookingQueryMessage(
+        <OfficeCatalog preselection={preselection} />
+      </BookingGate>
+    </View>
+  );
+}
+
+function OfficeCatalog({
+  preselection,
+}: {
+  readonly preselection: Option.Option<CustomerBookedSelection>;
+}) {
+  const locale = useAppLocale();
+  const catalogAtom = bookingOfferingsAtom(locale);
+  const read = bookingReadOf(useAtomValue(catalogAtom));
+  const refresh = useAtomRefresh(catalogAtom);
+  const offering = Option.flatMap(readValue(read), (catalog) =>
+    officeOfferingOf(catalog.offerings)
+  );
+  if (Option.isSome(offering)) {
+    return (
+      <OfficeSelection
+        offering={offering.value}
+        catalog={read}
+        onRetryCatalog={refresh}
+        preselection={preselection}
+      />
+    );
+  }
+  // Loaded without an office: the office isn't offered now.
+  const unoffered = read.kind === "loaded";
+  return (
+    <BookingStepLayout
+      step="choose"
+      locale={locale}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: m.booking_family_office_title({}, { locale }),
+            price: { kind: "none" },
+          }}
+          action={{
+            label: m.booking_continue({}, { locale }),
+            onPress: () => undefined,
+            disabled: true,
+          }}
+        />
+      }
+    >
+      <BookingReadView read={read} onRetry={refresh}>
+        {() => (
+          <Notice
+            tone="warning"
+            message={
+              unoffered
+                ? bookingQueryMessage(
                     BookingCatalogViewError.OfferingUnavailable({
                       family: "office",
                     }),
                     locale
-                  )}
-                />
-              ),
-              onSome: (offering) => <OfficeSelection offering={offering} />,
-            })
-          }
-        </BookingOfferingsView>
-      </BookingGate>
-    </ScrollScreen>
+                  )
+                : undefined
+            }
+          />
+        )}
+      </BookingReadView>
+    </BookingStepLayout>
   );
 }
 
-function OfficeSelection({ offering }: { readonly offering: OfficeOffering }) {
+function OfficeSelection({
+  offering,
+  catalog,
+  onRetryCatalog,
+  preselection,
+}: {
+  readonly offering: OfficeOffering;
+  readonly catalog: BookingRead<unknown>;
+  readonly onRetryCatalog: () => void;
+  readonly preselection: Option.Option<CustomerBookedSelection>;
+}) {
   const locale = useAppLocale();
+  const router = useRouter();
+  const setCheckoutRequest = useAtomSet(checkoutRequestAtom);
   const now = useAtomValue(bookingClockAtom);
   const today = pragueToday(now);
-  const [stored, setStored] = useAtom(officeDraftAtom);
-  const draft = Option.getOrElse(stored, () => defaultOfficeDraft(today));
-  const setDraft = (next: OfficeDraft) => setStored(Option.some(next));
+
+  const seed = bookingPreselectionKey(preselection);
+  const [kept, setStored] = useAtom(officeDraftAtom);
+  const draft = openingOfficeDraft({
+    kept,
+    preselection,
+    bookableDates: offering.bookableDates,
+  });
+  const setDraft = (next: OfficeDraft) =>
+    setStored(Option.some({ seed, draft: next }));
 
   const availabilityAtom = bookingAvailabilityAtom({
-    query: officeAvailabilityQuery(today),
+    query: officeAvailabilityQuery(offering.bookableDates),
   });
   const availabilityRead = bookingReadOf(useAtomValue(availabilityAtom));
   const refreshAvailability = useAtomRefresh(availabilityAtom);
 
   const model = officeBookingModel({
     draft,
-    now,
     offering,
     availability: loadedValue(availabilityRead),
   });
@@ -121,10 +227,6 @@ function OfficeSelection({ offering }: { readonly offering: OfficeOffering }) {
   const refreshQuote = useAtomRefresh(quoteAtom);
   const quote = Option.map(model.quotable, () => bookingReadOf(quoteResult));
 
-  const restart = useRestartReason(() => {
-    refreshAvailability();
-    refreshQuote();
-  });
   const supportingReads = [availabilityRead];
   const quoteRepeats = quoteFailureRepeats(quote, supportingReads, (error) =>
     bookingQueryMessage(error, locale)
@@ -134,105 +236,290 @@ function OfficeSelection({ offering }: { readonly offering: OfficeOffering }) {
     if (quoteRepeats) refreshQuote();
   };
 
-  const blockers = enablement.blockers.flatMap((blocker) => {
+  const contact = Option.flatMap(
+    AsyncResult.value(useAtomValue(accountAtom)),
+    officeContactOf
+  );
+  const { name } = offering;
+  const tracks = useChooseTracks(2);
+  const access = m.booking_space_always_open({}, { locale });
+  useChooseHeaderFact(KeyRound, tracks ? access : undefined);
+  const { isWide } = useViewport();
+  const chosenDate = Option.getOrUndefined(model.draft.date);
+  const blocked = enablement.blockers.flatMap((blocker) => {
     const message = blockerMessage(blocker, locale);
     return message === undefined ? [] : [message];
   });
-  const pending = enablement.blockers.some(
-    ({ _tag }) => _tag === "AvailabilityPending"
-  );
-  const maximumSeats = Option.getOrElse(
-    enablement.maximumSeats,
-    () => model.draft.seats
-  );
-  const lastDate = addDays(model.draft.date, model.draft.dayCount - 1);
+  const checkout = checkoutRequestOf({
+    locale,
+    selection: model.selection,
+    blockers: enablement.blockers,
+    quote: Option.flatMap(quote, freshValue),
+    people: model.draft.people,
+  });
+  const failedQuote = Option.getOrUndefined(quote);
+  const quoteFailure =
+    failedQuote?.kind === "failed" && !quoteRepeats ? failedQuote : undefined;
+
+  const bar = selectionBar({
+    from: {
+      title: name,
+      amount: offering.advertisedPrice.price,
+      unit: m.booking_price_unit_per_day_one_seat({}, { locale }),
+    },
+    selection: model.selection,
+    quote,
+    blocked: Option.fromNullishOr(blocked[0]),
+    canContinue: Option.isSome(checkout),
+    locale,
+  });
+  // Before a first day the from-price opens to the lines it adds up from.
+  const summary: BookingBarSummary =
+    bar.summary.price.kind === "from"
+      ? {
+          ...bar.summary,
+          price: {
+            ...bar.summary.price,
+            ...Option.match(officeFromPrice(offering), {
+              onNone: () => ({}),
+              onSome: (breakdown) => ({
+                itemized: {
+                  breakdown,
+                  describeLine: describeOfficePriceLine(locale, name),
+                },
+              }),
+            }),
+          },
+        }
+      : bar.summary;
+  const steppers = Option.getOrUndefined(model.steppers);
+  const range =
+    steppers === undefined || chosenDate === undefined
+      ? undefined
+      : { start: chosenDate, end: steppers.days.lastDate };
 
   return (
-    <>
-      <RestartNotice reason={restart} />
-      <Text style={styles.caption}>
-        {m.booking_office_price(
-          {
-            price: formatMoney(offering.price, locale),
-            seatPrice: formatMoney(offering.seatPrice, locale),
-          },
-          { locale }
+    <BookingStepLayout
+      step="choose"
+      locale={locale}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={summary}
+          action={
+            bar.action === "retry"
+              ? {
+                  label: m.booking_checkout_retry({}, { locale }),
+                  icon: RotateCcw,
+                  onPress: refreshQuote,
+                  disabled: bar.disabled,
+                }
+              : {
+                  label: m.booking_continue({}, { locale }),
+                  disabled: bar.disabled,
+                  onPress: () =>
+                    Option.map(checkout, (request) => {
+                      setCheckoutRequest(Option.some(request));
+                      router.push(bookCheckoutHref);
+                    }),
+                }
+          }
+          reason={bar.reason}
+        />
+      }
+    >
+      <Stack.Screen options={{ title: name }} />
+      <BookingReadView read={catalog} onRetry={onRetryCatalog}>
+        {() => (
+          <>
+            <OfficeRestartNotice
+              onReread={() => {
+                refreshAvailability();
+                refreshQuote();
+              }}
+            />
+            <Notice
+              tone="error"
+              title={
+                quoteFailure === undefined
+                  ? undefined
+                  : m.booking_quote_failed_title({}, { locale })
+              }
+              message={
+                quoteFailure === undefined
+                  ? undefined
+                  : bookingQueryMessage(quoteFailure.error, locale)
+              }
+            />
+            <BookingReadFailure
+              reads={supportingReads}
+              onRetry={retrySupportingReads}
+            />
+
+            {isWide && !tracks && (
+              <OfficeBookingHero
+                access={access}
+                description={offering.description}
+              />
+            )}
+            <View style={tracks && chooseStyles.row}>
+              <View style={tracks && chooseStyles.officeCalendar}>
+                <BookingSectionHeading
+                  title={m.booking_office_first_day_heading({}, { locale })}
+                  first={!isWide || tracks}
+                />
+                <MonthCalendar
+                  stretch={tracks}
+                  label={m.booking_office_first_day_heading({}, { locale })}
+                  locale={locale}
+                  dates={enablement.dates}
+                  selected={chosenDate}
+                  onSelect={(date) =>
+                    setDraft(selectOfficeDate(model.draft, date))
+                  }
+                  today={today}
+                  range={range}
+                  legend={chosenDate === undefined}
+                  previousMonthLabel={m.booking_calendar_previous_month(
+                    {},
+                    { locale }
+                  )}
+                  nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
+                  unavailableLabel={m.booking_calendar_unavailable_day(
+                    {},
+                    { locale }
+                  )}
+                />
+                <View style={styles.after}>
+                  <Notice
+                    tone="info"
+                    message={
+                      enablement.notices
+                        .map((notice) =>
+                          availabilityNoticeMessage(notice, locale)
+                        )
+                        .join(" ") || undefined
+                    }
+                  />
+                </View>
+              </View>
+              {steppers !== undefined && (
+                <View style={tracks && chooseStyles.track}>
+                  <BookingSectionHeading
+                    first={tracks}
+                    title={m.booking_office_days_label({}, { locale })}
+                  />
+                  <OfficeDaysControl
+                    days={steppers.days}
+                    draft={model.draft}
+                    onChange={setDraft}
+                    locale={locale}
+                  />
+                  <BookingSectionHeading
+                    title={m.booking_office_people_heading({}, { locale })}
+                    aside={Option.getOrUndefined(
+                      Option.map(steppers.people.maximum, (maximum) =>
+                        m.booking_office_people_of(
+                          { count: steppers.people.count, maximum },
+                          { locale }
+                        )
+                      )
+                    )}
+                  />
+                  <OfficePeopleList
+                    people={model.draft.people}
+                    contact={contact}
+                    maximumSeats={steppers.people.maximum}
+                    onChange={(people) => setDraft({ ...model.draft, people })}
+                    locale={locale}
+                  />
+                </View>
+              )}
+            </View>
+
+            <LiveMessage
+              role="status"
+              message={
+                enablement.blockers.some(
+                  ({ _tag }) => _tag === "AvailabilityPending"
+                )
+                  ? m.booking_availability_loading({}, { locale })
+                  : undefined
+              }
+            />
+          </>
         )}
-      </Text>
-      <SectionHeader title={m.booking_office_start_heading({}, { locale })} />
-      <MonthCalendar
-        label={m.booking_office_start_heading({}, { locale })}
-        locale={locale}
-        dates={enablement.dates}
-        selected={model.draft.date}
-        onSelect={(date) => setDraft({ ...model.draft, date })}
-        previousMonthLabel={m.booking_calendar_previous_month({}, { locale })}
-        nextMonthLabel={m.booking_calendar_next_month({}, { locale })}
-        unavailableLabel={m.booking_calendar_unavailable_day({}, { locale })}
-      />
-
-      <SectionHeader title={m.booking_office_days_heading({}, { locale })} />
-      <Stepper
-        label={m.booking_office_days_heading({}, { locale })}
-        value={model.draft.dayCount}
-        min={1}
-        max={enablement.maximumDayCount}
-        onChange={(dayCount) => setDraft({ ...model.draft, dayCount })}
-        decrementLabel={m.booking_office_days_decrease({}, { locale })}
-        incrementLabel={m.booking_office_days_increase({}, { locale })}
-      />
-      {enablement.maximumDayCount > 0 && (
-        <Text style={styles.caption}>
-          {m.booking_office_last_day(
-            { date: formatPragueDate(lastDate, locale) },
-            { locale }
-          )}
-        </Text>
-      )}
-
-      <SectionHeader title={m.booking_office_seats_heading({}, { locale })} />
-      <Stepper
-        label={m.booking_office_seats_heading({}, { locale })}
-        value={model.draft.seats}
-        min={1}
-        max={maximumSeats}
-        onChange={(seats) => setDraft({ ...model.draft, seats })}
-        decrementLabel={m.booking_office_seats_decrease({}, { locale })}
-        incrementLabel={m.booking_office_seats_increase({}, { locale })}
-      />
-
-      <Notice
-        tone="info"
-        message={enablement.notices
-          .map((notice) => availabilityNoticeMessage(notice, locale))
-          .join(" ")}
-      />
-      <Notice tone="warning" message={blockers[0]} />
-      <BookingReadFailure
-        reads={supportingReads}
-        onRetry={retrySupportingReads}
-      />
-      <LiveMessage
-        role="status"
-        message={
-          pending ? m.booking_availability_loading({}, { locale }) : undefined
-        }
-      />
-      <BookingContinue
-        quote={quote}
-        checkout={checkoutRequestOf({
-          locale,
-          selection: Option.some(model.selection),
-          blockers: enablement.blockers,
-          quote: Option.flatMap(quote, freshValue),
-        })}
-        onRetryQuote={refreshQuote}
-        quoteFailureShown={!quoteRepeats}
-      />
-    </>
+      </BookingReadView>
+    </BookingStepLayout>
   );
 }
 
+/** The days stepper on its card, named by the stay's last day. */
+export function OfficeDaysControl({
+  days,
+  draft,
+  onChange,
+  locale,
+}: {
+  readonly days: OfficeSteppers["days"];
+  readonly draft: OfficeDraft;
+  readonly onChange: (draft: OfficeDraft) => void;
+  readonly locale: AppLocale;
+}) {
+  return (
+    <ListGroup>
+      <Stepper
+        label={m.booking_office_until(
+          { date: formatShortPragueDate(days.lastDate, locale) },
+          { locale }
+        )}
+        value={draft.dayCount}
+        min={1}
+        max={days.maximum}
+        onChange={(dayCount) => onChange({ ...draft, dayCount })}
+        decrementLabel={m.booking_office_days_decrease({}, { locale })}
+        incrementLabel={m.booking_office_days_increase({}, { locale })}
+      />
+    </ListGroup>
+  );
+}
+
+function OfficeBookingHero({
+  access,
+  description,
+}: {
+  readonly access: string;
+  readonly description: string;
+}) {
+  return (
+    <View style={styles.hero}>
+      <SpaceIllustration family="office" height={132} span="full" />
+      <View style={styles.heroText}>
+        <Text variant="bodySmall">{description}</Text>
+        <ChooseHeaderFact icon={KeyRound} text={access} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Why checkout sent the customer back, read inside the step's scroll view,
+ * so a restart scrolls it back to the top where this notice says why.
+ */
+function OfficeRestartNotice({ onReread }: { readonly onReread: () => void }) {
+  return <RestartNotice reason={useRestartReason(onReread)} />;
+}
+
 const styles = StyleSheet.create({
-  caption: { ...theme.type.caption, color: theme.colors.textMuted },
+  screen: { backgroundColor: color.paper, flex: 1 },
+  after: { marginTop: space.md },
+  hero: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    overflow: "hidden",
+    ...shadow.group,
+  },
+  heroText: { gap: space.sm, padding: space.lg },
 });

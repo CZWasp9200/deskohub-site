@@ -5,7 +5,10 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import {
   type BookedReservation,
   decodeBookedReservation,
@@ -125,15 +128,19 @@ export class WorkspaceReservationService extends Context.Service<
         const dotyposReservationId =
           yield* getDotyposReservationId(reservation);
 
-        return yield* Effect.all(
-          [
-            // A reservation Dotypos no longer has fails the same load error.
-            dotypos
-              .getReservation(dotyposReservationId)
-              .pipe(Effect.flatMap(Effect.fromOption)),
-            dotypos.getTables(),
-          ],
-          { concurrency: "inherit" }
+        return yield* Effect.flatMap(
+          workspaceStatementConcurrency,
+          (concurrency) =>
+            Effect.all(
+              [
+                // A reservation Dotypos no longer has fails the same load error.
+                dotypos
+                  .getReservation(dotyposReservationId)
+                  .pipe(Effect.flatMap(Effect.fromOption)),
+                dotypos.getTables(),
+              ],
+              { concurrency }
+            )
         ).pipe(
           Effect.map(([dotyposReservationDetails, tables]) => ({
             dotyposReservationId,

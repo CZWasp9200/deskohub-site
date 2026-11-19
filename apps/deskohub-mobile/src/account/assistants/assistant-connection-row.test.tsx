@@ -5,12 +5,15 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { StyleSheet } from "react-native";
 import { Button } from "../../ui/controls";
 import { AssistantConnectionRow } from "./assistant-connection-row";
 import type { AssistantRow } from "./connected-assistants";
 
 type Props = {
   readonly children?: ReactNode;
+  readonly below?: ReactNode;
+  readonly description?: string;
   readonly role?: string;
   readonly "aria-label"?: string;
   readonly accessibilityLabel?: string;
@@ -25,9 +28,9 @@ const findAll = (
   if (!isValidElement<Props>(node)) return [];
   return [
     ...(matches(node) ? [node] : []),
-    ...Children.toArray(node.props.children).flatMap((child) =>
-      findAll(child, matches)
-    ),
+    ...[node.props.children, node.props.below]
+      .flatMap((slot) => Children.toArray(slot))
+      .flatMap((child) => findAll(child, matches)),
   ];
 };
 
@@ -40,10 +43,11 @@ const row = (overrides: Partial<AssistantRow> = {}): AssistantRow => ({
   ...overrides,
 });
 
-const render = (shown: AssistantRow) =>
+const render = (shown: AssistantRow, inlineActions = false) =>
   AssistantConnectionRow({
     row: shown,
     locale: "en-US",
+    inlineActions,
     onDisconnect: () => undefined,
   });
 
@@ -85,5 +89,25 @@ describe("AssistantConnectionRow", () => {
         (element) => element.props.role === "list"
       )
     ).toEqual([]);
+  });
+
+  test("only the permissions and the disconnect action share a row", () => {
+    const compact = render(row());
+    const wide = render(row(), true);
+    expect(wide.props.description).toBe(compact.props.description);
+    expect(
+      StyleSheet.flatten(wide.props.below.props.style)?.flexDirection
+    ).toBe("row");
+    expect(
+      StyleSheet.flatten(compact.props.below.props.style)?.flexDirection
+    ).toBeUndefined();
+    for (const layout of [compact, wide]) {
+      expect(
+        findAll(layout.props.below, (item) => item.type === Button)
+      ).toHaveLength(1);
+      expect(
+        findAll(layout.props.below, (item) => item.props.role === "list")
+      ).toHaveLength(1);
+    }
   });
 });

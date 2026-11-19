@@ -4,13 +4,22 @@ import {
   CustomerAccountId,
   type CustomerAccountState,
   type CustomerAgentConnection,
+  type CustomerCompanyDetails,
   type CustomerEstablishment,
+  type CustomerInvitedReservations,
+  type CustomerInvoice,
+  CustomerInvoiceId,
   type CustomerMarketingPreferences,
+  type CustomerOrderFulfillmentStatus,
+  type CustomerOrderPaymentStatus,
   type CustomerOrderState,
+  type CustomerOrderStatus,
   type CustomerProfile,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
+  CustomerReservationInviteeId,
   CustomerReservationOrderId,
+  type CustomerReservationSummary,
   type ReferralAccountOverview,
   ReferralCode,
 } from "@deskohub/workspace-customer-api";
@@ -33,15 +42,29 @@ export interface SampleOrder {
   readonly invoice?: Uint8Array;
 }
 
+/**
+ * An issued invoice, its PDF and a cancelled one's credit note PDF; a PDF
+ * the Workspace can't find is absent.
+ */
+export interface SampleInvoice {
+  readonly invoice: CustomerInvoice;
+  readonly pdf?: Uint8Array;
+  readonly creditNotePdf?: Uint8Array;
+}
+
 export interface FakeWorkspaceData {
   readonly accountId: CustomerAccountId;
   readonly account: CustomerAccountState;
   readonly history: CustomerReservationHistory;
   readonly orders: ReadonlyMap<string, SampleOrder>;
+  /** The account's issued invoices, newest issue first. */
+  readonly invoices: ReadonlyArray<SampleInvoice>;
   readonly passkeys: ReadonlyArray<AccountPasskey>;
   readonly assistants: ReadonlyArray<CustomerAgentConnection>;
   readonly marketing: CustomerMarketingPreferences;
   readonly referrals: ReferralAccountOverview;
+  /** Orders someone else booked that invite the account; none when absent. */
+  readonly invited?: CustomerInvitedReservations;
 }
 
 export const sampleAccountId = CustomerAccountId.make("sample-account-1");
@@ -66,6 +89,44 @@ export const sampleProfile: CustomerProfile = {
 
 /** The code a completion-required sample customer was invited with. */
 export const sampleInvitationCode = ReferralCode.make("SAMPLE-FRIEND");
+
+/**
+ * Made-up companies the company lookup finds, by company ID: one with a VAT
+ * ID and one without. Any other ID is not found, except
+ * `sampleUnreachableCompanyId`.
+ */
+export const sampleCompanies: ReadonlyMap<string, CustomerCompanyDetails> =
+  new Map([
+    [
+      "12345679",
+      {
+        companyName: "Ukázková firma s.r.o.",
+        companyId: "12345679",
+        vatId: "CZ12345679",
+        addressLine1: "Ukázková 1",
+        city: "Praha",
+        zip: "10000",
+        country: "CZ",
+      },
+    ],
+    [
+      "00000019",
+      {
+        companyName: "Vzorový spolek",
+        companyId: "00000019",
+        addressLine1: "Vzorová 2",
+        city: "Brno",
+        zip: "60200",
+        country: "CZ",
+      },
+    ],
+  ]);
+
+/**
+ * A made-up company ID the business registry never answers for, so the
+ * lookup shows the registry unavailable.
+ */
+export const sampleUnreachableCompanyId = "00000027";
 
 /** A made-up space the reservation screens can place and link to a map. */
 export const sampleEstablishment: CustomerEstablishment = {
@@ -93,6 +154,7 @@ export const sampleOrderIds = {
   // Status and access screen states; reachable by deep link
   // (deskohub://reservations/<id>), not listed in the history.
   upcoming: CustomerReservationOrderId.make("sample-order-upcoming"),
+  workstation: CustomerReservationOrderId.make("sample-order-workstation"),
   accessUnavailable: CustomerReservationOrderId.make(
     "sample-order-access-unavailable"
   ),
@@ -107,6 +169,10 @@ export const sampleOrderIds = {
   latePaymentReview: CustomerReservationOrderId.make(
     "sample-order-late-payment-review"
   ),
+  // A booked private office with its people, and one the account is
+  // invited to: reachable by deep link, not listed in the history.
+  officePeople: CustomerReservationOrderId.make("sample-order-office-people"),
+  officeInvited: CustomerReservationOrderId.make("sample-order-office-invited"),
 } as const;
 
 const hour = 60 * 60 * 1000;
@@ -131,6 +197,231 @@ export const sampleInvoicePdf = (): Uint8Array =>
       "",
     ].join("\n")
   );
+
+/** The Prague midnight `days` days from `now`, as the booking boards show. */
+const pragueDayStart = (now: Date, days: number): Date => {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Europe/Prague",
+  }).format(new Date(now.getTime() + days * day));
+  const utcMidnight = Date.parse(`${date}T00:00:00Z`);
+  // Prague is one or two hours ahead of UTC.
+  const pragueHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Europe/Prague",
+    }).format(utcMidnight)
+  );
+  return new Date(utcMidnight - pragueHour * hour);
+};
+
+/**
+ * The statuses of the sample Open Space desk booked 16 days ahead, one order
+ * each, so every state of the booking ticket opens by deep link
+ * (deskohub://reservations/sample-desk-<status>).
+ */
+export const sampleDeskStatuses = [
+  "created",
+  "pending",
+  "payment_pending_delayed",
+  "paid_waiting_fulfillment",
+  "paid_delivery_delayed",
+  "fulfilled",
+  "payment_failed",
+  "expired",
+  "cancelled",
+  "late_payment_review",
+  "late_payment_refund",
+] as const satisfies ReadonlyArray<CustomerOrderStatus>;
+
+export const sampleDeskOrderId = (
+  status: (typeof sampleDeskStatuses)[number]
+) => CustomerReservationOrderId.make(`sample-desk-${status}`);
+
+const deskPayment = {
+  created: ["not_started", "not_started"],
+  pending: ["pending", "not_started"],
+  payment_pending_delayed: ["pending", "not_started"],
+  paid_waiting_fulfillment: ["paid", "processing"],
+  paid_delivery_delayed: ["paid", "awaiting_delivery"],
+  fulfilled: ["paid", "fulfilled"],
+  payment_failed: ["failed", "not_started"],
+  expired: ["expired", "not_started"],
+  cancelled: ["cancelled", "not_started"],
+  late_payment_review: ["paid", "not_started"],
+  late_payment_refund: ["paid", "not_started"],
+} as const satisfies Record<
+  (typeof sampleDeskStatuses)[number],
+  readonly [CustomerOrderPaymentStatus, CustomerOrderFulfillmentStatus]
+>;
+
+/** The desk's day: 00:00 to 17:00 in Prague, 16 days ahead. */
+const deskDay = (now: Date) => {
+  const start = pragueDayStart(now, 16);
+  return {
+    startsAt: start.toISOString(),
+    endsAt: new Date(start.getTime() + 17 * hour).toISOString(),
+  };
+};
+
+const sampleDeskOrders = (now: Date): ReadonlyArray<[string, SampleOrder]> => {
+  const { startsAt, endsAt } = deskDay(now);
+  return sampleDeskStatuses.map((status) => {
+    const [paymentStatus, fulfillmentStatus] = deskPayment[status];
+    const orderId = sampleDeskOrderId(status);
+    const confirmed =
+      status === "fulfilled" || status === "paid_delivery_delayed";
+    return [
+      orderId,
+      {
+        state: {
+          orderId,
+          kind: "cowork",
+          status,
+          paymentStatus,
+          fulfillmentStatus,
+          startsAt,
+          endsAt,
+          total: { value: 25880, exponent: 2, currency: "CZK" },
+          bookedSelection: {
+            selection: {
+              family: "cowork",
+              date: startsAt.slice(0, 10),
+              tier: "open-space",
+            },
+          },
+        },
+        ...(confirmed
+          ? {
+              access: {
+                code: "3804276",
+                accessStartsAt: startsAt,
+                accessEndsAt: endsAt,
+              },
+              invoice: sampleInvoicePdf(),
+            }
+          : {}),
+      },
+    ];
+  });
+};
+
+/**
+ * The failed meeting-room order as the history lists it: not booked, at its
+ * booked time six days ahead.
+ */
+export const samplePaymentFailedReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-payment-failed",
+  orderId: sampleOrderIds.paymentFailed,
+  product: { kind: "meeting-room" },
+  startsAt: at(now, 6 * day),
+  endsAt: at(now, 6 * day + 2 * hour),
+  seats: 6,
+  status: "cancelled",
+});
+
+/** The sample desk in the history, with the lock's window. */
+export const sampleDeskReservation = (
+  now: Date,
+  status: CustomerReservationSummary["status"] = "confirmed"
+): CustomerReservationSummary => {
+  const { startsAt, endsAt } = deskDay(now);
+  return {
+    id: "sample-reservation-desk",
+    orderId: sampleDeskOrderId(
+      status === "confirmed" ? "fulfilled" : "pending"
+    ),
+    product: { kind: "cowork", tier: "open-space" },
+    startsAt,
+    endsAt,
+    seats: 1,
+    status,
+    accessStartsAt: startsAt,
+    accessEndsAt: endsAt,
+    ...(status === "confirmed" && {
+      withdrawal: {
+        eligible: true,
+        periodEndsAt: new Date(
+          now.getTime() + 14 * 24 * 3600 * 1000
+        ).toISOString(),
+      },
+    }),
+  };
+};
+
+/** A paid meeting room two days after the desk, still withdrawable. */
+export const sampleLaterMeetingRoom = (
+  now: Date
+): CustomerReservationSummary => {
+  const { startsAt } = deskDay(now);
+  const start = new Date(new Date(startsAt).getTime() + 2 * 24 * 3600 * 1000);
+  start.setUTCHours(8, 0, 0, 0);
+  const end = new Date(start.getTime() + 3 * 3600 * 1000);
+  return {
+    id: "sample-reservation-room-later",
+    orderId: sampleOrderIds.upcoming,
+    product: { kind: "meeting-room" },
+    startsAt: start.toISOString(),
+    endsAt: end.toISOString(),
+    seats: 6,
+    status: "confirmed",
+    withdrawal: {
+      eligible: true,
+      periodEndsAt: new Date(
+        now.getTime() + 14 * 24 * 3600 * 1000
+      ).toISOString(),
+    },
+  };
+};
+
+/**
+ * A reserved desk for the whole of today with a nine-digit PIN, the longest
+ * the lock issues: the access screen's full-day window and longest PIN.
+ */
+export const sampleWholeDayDesk = (
+  now: Date
+): {
+  readonly reservation: CustomerReservationSummary;
+  readonly order: SampleOrder;
+} => {
+  const startsAt = pragueDayStart(now, 0).toISOString();
+  const endsAt = pragueDayStart(now, 1).toISOString();
+  const orderId = CustomerReservationOrderId.make("sample-order-whole-day");
+  return {
+    reservation: {
+      id: "sample-reservation-whole-day",
+      orderId,
+      product: { kind: "cowork", tier: "reserved-desk" },
+      startsAt,
+      endsAt,
+      seats: 1,
+      status: "confirmed",
+      accessStartsAt: startsAt,
+      accessEndsAt: endsAt,
+    },
+    order: {
+      state: {
+        orderId,
+        kind: "cowork",
+        status: "fulfilled",
+        paymentStatus: "paid",
+        fulfillmentStatus: "fulfilled",
+        startsAt,
+        endsAt,
+      },
+      access: {
+        code: "380427615",
+        accessStartsAt: startsAt,
+        accessEndsAt: endsAt,
+      },
+    },
+  };
+};
 
 const sampleHistory = (now: Date): CustomerReservationHistory => ({
   current: [
@@ -209,6 +500,7 @@ const sampleHistory = (now: Date): CustomerReservationHistory => ({
 
 const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
   new Map<string, SampleOrder>([
+    ...sampleDeskOrders(now),
     [
       sampleOrderIds.fulfilled,
       {
@@ -318,6 +610,86 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
       },
     ],
     [
+      sampleOrderIds.officePeople,
+      {
+        state: {
+          orderId: sampleOrderIds.officePeople,
+          kind: "office",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: pragueDayStart(now, 1).toISOString(),
+          endsAt: pragueDayStart(now, 2).toISOString(),
+          total: { value: 116000, exponent: 2, currency: "CZK" },
+          people: {
+            contactAttends: true,
+            resendable: true,
+            invitees: [
+              {
+                id: CustomerReservationInviteeId.make("sample-invitee-1"),
+                email: testEmailAddress("jana.novak"),
+                invitationSentAt: at(now, -1 * day),
+              },
+            ],
+          },
+        },
+        access: {
+          code: "4826913",
+          accessStartsAt: pragueDayStart(now, 1).toISOString(),
+          accessEndsAt: pragueDayStart(now, 2).toISOString(),
+        },
+        invoice: sampleInvoicePdf(),
+      },
+    ],
+    [
+      sampleOrderIds.officeInvited,
+      {
+        state: {
+          orderId: sampleOrderIds.officeInvited,
+          kind: "office",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: pragueDayStart(now, 1).toISOString(),
+          endsAt: pragueDayStart(now, 4).toISOString(),
+        },
+        access: {
+          code: "4826913",
+          accessStartsAt: pragueDayStart(now, 1).toISOString(),
+          accessEndsAt: pragueDayStart(now, 4).toISOString(),
+        },
+      },
+    ],
+    [
+      sampleOrderIds.workstation,
+      {
+        state: {
+          orderId: sampleOrderIds.workstation,
+          kind: "cowork",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: at(now, 2 * day),
+          endsAt: at(now, 3 * day),
+          total: { value: 53000, exponent: 2, currency: "CZK" },
+          bookedSelection: {
+            selection: {
+              family: "cowork",
+              date: at(now, 2 * day).slice(0, 10),
+              tier: "reserved-desk",
+              monitorOption: "2x27-qhd",
+            },
+          },
+        },
+        access: {
+          code: "333333",
+          accessStartsAt: at(now, 2 * day),
+          accessEndsAt: at(now, 3 * day),
+        },
+        invoice: sampleInvoicePdf(),
+      },
+    ],
+    [
       sampleOrderIds.accessUnavailable,
       {
         state: {
@@ -363,6 +735,8 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
         },
       },
     ],
+    // As the server answers a failed payment: no times or total, which only
+    // a usable payment attempt gives; its list entry keeps the booked time.
     [
       sampleOrderIds.paymentFailed,
       {
@@ -372,9 +746,6 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
           status: "payment_failed",
           paymentStatus: "failed",
           fulfillmentStatus: "not_started",
-          startsAt: at(now, 6 * day),
-          endsAt: at(now, 6 * day + 2 * hour),
-          total: { value: 120000, exponent: 2, currency: "CZK" },
         },
       },
     ],
@@ -442,10 +813,13 @@ const sampleReferrals: ReferralAccountOverview = {
     code: ReferralCode.make("SAMPLE-ALEX"),
     inviteeCount: 3,
     eligibleInviteeCount: 2,
-    discount: "10",
+    discount: "9.75",
     savings: [{ value: 15000, exponent: 2, currency: "CZK" }],
   },
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
+  discountPerInvitee: "5",
+  invitationDiscount: "15",
+  savingsCurrency: "CZK",
 };
 
 const sampleAccount = (
@@ -518,6 +892,108 @@ const asReviewSandbox = (
   ),
 });
 
+export const sampleInvoiceIds = {
+  desk: CustomerInvoiceId.make("sample-invoice-desk"),
+  meetingRoom: CustomerInvoiceId.make("sample-invoice-meeting-room"),
+  /** Cancelled by a credit note; both PDFs download. */
+  cancelled: CustomerInvoiceId.make("sample-invoice-cancelled"),
+  /** Listed, but its PDF can't be found: the download fails. */
+  office: CustomerInvoiceId.make("sample-invoice-office"),
+} as const;
+
+/** The issued invoices of the linked sample account, newest first. */
+export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
+  {
+    invoice: {
+      id: sampleInvoiceIds.desk,
+      invoiceNumber: "2026-0412",
+      issuedOn: "2026-11-26",
+      total: { amount: "258.80", currency: "CZK" },
+      orderId: sampleOrderIds.fulfilled,
+      // One whole Prague day.
+      reservation: {
+        productName: "Open Space desk",
+        startsAt: "2026-11-25T23:00:00.000Z",
+        endsAt: "2026-11-26T23:00:00.000Z",
+      },
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.meetingRoom,
+      invoiceNumber: "2026-0377",
+      issuedOn: "2026-11-02",
+      total: { amount: "280", currency: "CZK" },
+      orderId: sampleOrderIds.past,
+      reservation: {
+        productName: "Meeting room",
+        startsAt: "2026-11-02T09:00:00.000Z",
+        endsAt: "2026-11-02T11:00:00.000Z",
+      },
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.cancelled,
+      invoiceNumber: "2026-0359",
+      issuedOn: "2026-10-27",
+      total: { amount: "258.80", currency: "CZK" },
+      cancellation: {
+        correctiveDocumentNumber: "WS-OD-2026-000004",
+        correctiveDocumentDownloadable: true,
+      },
+      // One whole Prague day.
+      reservation: {
+        productName: "Open Space desk",
+        startsAt: "2026-10-26T23:00:00.000Z",
+        endsAt: "2026-10-27T23:00:00.000Z",
+      },
+    },
+    pdf: sampleInvoicePdf(),
+    creditNotePdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.office,
+      invoiceNumber: "2026-0341",
+      issuedOn: "2026-10-15",
+      total: { amount: "7260", currency: "CZK" },
+    },
+  },
+];
+
+/** The sample order with an attending contact and one invitee. */
+export const sampleOfficePeopleReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-office-people",
+  orderId: sampleOrderIds.officePeople,
+  product: { kind: "office" },
+  startsAt: pragueDayStart(now, 1).toISOString(),
+  endsAt: pragueDayStart(now, 2).toISOString(),
+  seats: 2,
+  status: "confirmed",
+});
+
+/** The office the sample account is invited to, from tomorrow for three days. */
+export const sampleInvitedReservations = (
+  now: Date
+): CustomerInvitedReservations => ({
+  current: [
+    {
+      orderId: sampleOrderIds.officeInvited,
+      product: { kind: "office" },
+      status: "confirmed",
+      accessStartsAt: pragueDayStart(now, 1).toISOString(),
+      accessEndsAt: pragueDayStart(now, 4).toISOString(),
+      bookedBy: { name: "Sam Example" },
+    },
+  ],
+  past: [],
+});
+
 /** A complete synthetic Workspace for one account in the given state. */
 export const sampleWorkspaceData = (
   kind: SampleAccountKind,
@@ -528,8 +1004,10 @@ export const sampleWorkspaceData = (
   ...(kind === "review-account"
     ? asReviewSandbox(sampleHistory(now), sampleOrders(now))
     : { history: sampleHistory(now), orders: sampleOrders(now) }),
+  invoices: kind === "linked" ? sampleInvoices() : [],
   passkeys: samplePasskeys(now),
   assistants: sampleAssistants(now),
   marketing: { status: "active", context: "sample-marketing-context-1" },
   referrals: sampleReferrals,
+  invited: sampleInvitedReservations(now),
 });

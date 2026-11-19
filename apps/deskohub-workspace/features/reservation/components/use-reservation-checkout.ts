@@ -8,9 +8,12 @@ import {
   createCheckoutAttemptId,
   createCheckoutSessionId,
 } from "@/features/checkout/checkout-identifiers";
+import type { CheckoutSummary } from "@/features/checkout/checkout-summary";
+import type { PreparedOfficeCheckout } from "@/features/checkout/prepared-office-checkout";
 import { visitorConsent } from "@/features/cookie-consent";
 import { captureAnalyticsEvent } from "@/features/cookie-consent/analytics-events";
 import { type Locale, m } from "@/features/i18n";
+import type { OfficePeople } from "@/features/office/office-people";
 import { preparePayState } from "@/features/reservation/actions/prepare-pay-state";
 import {
   getReservationAnalyticsProperties,
@@ -21,21 +24,26 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 type ReservationCheckoutDetails = {
   readonly advertisedPriceToken: string;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly customer?: "account";
   readonly marketingConsent?: boolean;
   /** Labels a `marketingConsent: true` given through a site tool. */
   readonly marketingConsentSource?: "site_tool";
+  readonly people?: OfficePeople;
   readonly reservation: ReservationOrderIssuanceData;
+};
+
+type PreparedCheckout = {
+  readonly status: "ready" | "pricing_changed";
+  readonly redirectUrl: string;
+  /** When the Pay page stops accepting the prepared state. */
+  readonly expiresAt: string;
+  readonly preparedOffice?: PreparedOfficeCheckout;
 };
 
 /** Where a checkout submission led: the prepared Pay page or an error message. */
 export type CheckoutSubmission =
-  | {
-      readonly status: "ready" | "pricing_changed";
-      readonly redirectUrl: string;
-      /** When the Pay page stops accepting the prepared state. */
-      readonly expiresAt: string;
-    }
+  | PreparedCheckout
   | { readonly status: "error"; readonly message: string };
 
 type UseReservationCheckoutOptions = {
@@ -71,17 +79,19 @@ export function useReservationCheckout({
   );
   const {
     executeAsync: prepareCheckout,
+    hasSucceeded,
+    input,
     isExecuting,
     result,
   } = useWorkspaceAction(preparePayState, {
-    onSuccess: ({ data }) => {
+    onSuccess: ({ data, input }) => {
       if (data?.status === "error") {
         setSubmissionError(data.message);
         return;
       }
 
-      const redirectUrl = data?.redirectUrl;
-      if (!redirectUrl) {
+      const prepared = getPreparedCheckout(data, input.reservation);
+      if (!prepared) {
         setSubmissionError(m.reservationErrorMessage({}, { locale }));
         return;
       }
@@ -94,7 +104,7 @@ export function useReservationCheckout({
         track("workspace_checkout_started", analyticsProperties);
       }
 
-      router.push(redirectUrl);
+      router.push(prepared.redirectUrl);
     },
     onError: ({ error }) => {
       setSubmissionError(
@@ -106,7 +116,10 @@ export function useReservationCheckout({
       setSubmissionError(m.reservationErrorMessage({}, { locale }));
     },
   });
-  const preparedCheckout = getPreparedCheckout(result.data);
+  // During a retry, the action can expose its new input with the previous result.
+  const preparedCheckout = hasSucceeded
+    ? getPreparedCheckout(result.data, input.reservation)
+    : undefined;
   const hasPreparedPayRedirect = preparedCheckout !== undefined;
   const failedCheckout = (message?: string): CheckoutSubmission => ({
     status: "error",
@@ -122,7 +135,10 @@ export function useReservationCheckout({
     hasTrackedSuccessfulSubmission.current = false;
     window.scrollTo({ top: 0, behavior: "instant" });
 
-    const reservationFingerprint = JSON.stringify(details.reservation);
+    const reservationFingerprint = JSON.stringify([
+      details.reservation,
+      details.people,
+    ]);
     const effectiveCheckoutAttemptId =
       lastSubmittedReservationRef.current &&
       lastSubmittedReservationRef.current !== reservationFingerprint
@@ -144,7 +160,8 @@ export function useReservationCheckout({
       ({ data, serverError }) =>
         data?.status === "error"
           ? failedCheckout(data.message)
-          : (getPreparedCheckout(data) ?? failedCheckout(serverError)),
+          : (getPreparedCheckout(data, details.reservation) ??
+            failedCheckout(serverError)),
       () => failedCheckout()
     );
   };
@@ -168,15 +185,33 @@ const getPreparedCheckout = (
         readonly status: string;
         readonly redirectUrl?: string;
         readonly expiresAt?: string;
+        readonly preparedOffice?: PreparedOfficeCheckout;
       }
-    | undefined
-): CheckoutSubmission | undefined =>
-  (data?.status === "ready" || data?.status === "pricing_changed") &&
-  data.redirectUrl &&
-  data.expiresAt
-    ? {
-        status: data.status,
-        redirectUrl: data.redirectUrl,
-        expiresAt: data.expiresAt,
-      }
-    : undefined;
+    | undefined,
+  reservation: Parameters<typeof preparePayState>[0]["reservation"] | undefined
+): PreparedCheckout | undefined => {
+  if (
+    !reservation ||
+    (data?.status !== "ready" && data?.status !== "pricing_changed") ||
+    !data.redirectUrl ||
+    !data.expiresAt
+  ) {
+    return undefined;
+  }
+  const { preparedOffice } = data;
+  if (
+    reservation.kind === "office" &&
+    (!preparedOffice ||
+      preparedOffice.startsOn !== reservation.startsOn ||
+      preparedOffice.endsOn !== reservation.endsOn ||
+      preparedOffice.seats !== reservation.seats)
+  ) {
+    return undefined;
+  }
+  return {
+    status: data.status,
+    redirectUrl: data.redirectUrl,
+    expiresAt: data.expiresAt,
+    ...(preparedOffice && { preparedOffice }),
+  };
+};

@@ -1,4 +1,5 @@
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -15,8 +16,10 @@ import {
   NexiOrderIdSchema,
   NexiWebhookEventIdSchema,
 } from "@deskohub/nexi";
+import { eq } from "drizzle-orm";
 import { Effect, Layer, Option } from "effect";
 import {
+  contractWithdrawals,
   customerMarketingConsents,
   discountApplications,
   type FulfillmentState,
@@ -25,11 +28,16 @@ import {
   type ReservationState,
   reservationAccessGrants,
   webhookEvents,
+  workspaceReservations,
 } from "@/db/schema";
 import { ReservationAuthorDirectory } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
+import {
+  checkoutSessionKeySchema,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type StoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
@@ -132,6 +140,9 @@ describe.skipIf(!testDatabase)(
         }).pipe(
           Effect.provide(
             AdministrationService.Default.pipe(
+              // Reached only when a restore would reissue an invoice.
+              Layer.provide(Layer.mock(ReservationInvoiceService, {})),
+              Layer.provide(WorkspaceReservationRepository.Default),
               Layer.provide(
                 Layer.mergeAll(
                   testDatabase.layer,
@@ -1121,6 +1132,213 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    describe("customer withdrawals", () => {
+      const customerId = makeCustomerId("withdrawal");
+      const paidAt = Temporal.Instant.from("2026-11-18T12:01:00Z");
+
+      /** A confirmed, fulfilled reservation the customer withdrew from. */
+      const insertWithdrawn = async (
+        label: string,
+        withdrawal: Partial<typeof contractWithdrawals.$inferInsert> & {
+          readonly paidAmountValue: number;
+          readonly refundAmountValue: number;
+        }
+      ) => {
+        const reservationId = await insertReservation({
+          customerId,
+          label: `withdrawal-${label}`,
+          reservationState: "confirmed",
+          fulfillmentState: "fulfilled",
+        });
+        const accountId = await Effect.runPromise(
+          workspaceFixtures(testDatabase.db).customerAccount()
+        );
+        accountIds.push(accountId);
+        await Effect.runPromise(
+          testDatabase.db.insert(contractWithdrawals).values({
+            contractKind: "reservation",
+            contractId: reservationId,
+            customerAccountId: accountId,
+            locale: "cs-CZ",
+            contractLabel: `Office ${label}`,
+            submittedAt: paidAt,
+            periodEndsAt: paidAt.add({ hours: 24 * 14 }),
+            amountExponent: 2,
+            currency: "CZK",
+            ...(withdrawal.refundAmountValue !== withdrawal.paidAmountValue && {
+              refundUnit: "day" as const,
+              refundUnstartedUnits: 1,
+              refundTotalUnits: 4,
+            }),
+            ...withdrawal,
+          })
+        );
+        return reservationId;
+      };
+
+      const listIds = async (
+        status: "needs_attention" | "needs_refund" | undefined
+      ) => {
+        const listed = await run((administration) =>
+          administration.listReservations({
+            customerId,
+            ...(status && { status }),
+          })
+        );
+        return listed.items.map(({ id }) => id).sort();
+      };
+
+      test("lists refunds owed and failing settlements as needing attention, and shows each withdrawal", async () => {
+        const owesRefund = await insertWithdrawn("owes", {
+          paidAmountValue: 480_000,
+          refundAmountValue: 120_000,
+          receiptSentAt: paidAt,
+          operatorNotifiedAt: paidAt,
+        });
+        const activePaymentAttemptId = paymentAttemptIdSchema.make(
+          `attempt-partial-withdrawal-${runId}`
+        );
+        await Effect.runPromise(
+          testDatabase.db.insert(paymentAttempts).values({
+            id: activePaymentAttemptId,
+            workspaceReservationId: owesRefund,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(`withdrawal-${runId}`),
+            state: "paid",
+            amountValue: 480_000,
+            amountExponent: 2,
+            currency: "CZK",
+            refundState: "refunded",
+            refundedAmountValue: 60_000,
+            refundedAt: paidAt,
+          })
+        );
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({ activePaymentAttemptId })
+            .where(eq(workspaceReservations.id, owesRefund))
+        );
+        const failingReceipt = await insertWithdrawn("failing", {
+          paidAmountValue: 0,
+          refundAmountValue: 0,
+          receiptAttempts: 6,
+          receiptFailureCode: "receipt_send_failed",
+          receiptRetryAt: paidAt.add({ hours: 6 }),
+          operatorNotifiedAt: paidAt,
+          contractCancelledAt: paidAt,
+        });
+        const failingNotice = await insertWithdrawn("notice", {
+          paidAmountValue: 0,
+          refundAmountValue: 0,
+          receiptSentAt: paidAt,
+          operatorNoticeFailureCode: "operator_notice_failed",
+          operatorNoticeAttempts: 1,
+          operatorNoticeRetryAt: paidAt.add({ hours: 1 }),
+          contractCancelledAt: paidAt,
+        });
+        const failingCancellation = await insertWithdrawn("cancellation", {
+          paidAmountValue: 0,
+          refundAmountValue: 0,
+          receiptSentAt: paidAt,
+          operatorNotifiedAt: paidAt,
+          cancellationFailureCode: "reservation_dotypos_unavailable",
+          cancellationAttempts: 1,
+          cancellationRetryAt: paidAt.add({ hours: 1 }),
+        });
+        const settled = await insertWithdrawn("settled", {
+          paidAmountValue: 480_000,
+          refundAmountValue: 120_000,
+          receiptSentAt: paidAt,
+          operatorNotifiedAt: paidAt,
+          contractCancelledAt: paidAt,
+          settledAt: paidAt,
+          // A failure the step later recovered from no longer counts.
+          cancellationAttempts: 2,
+        });
+        const notWithdrawn = await insertReservation({
+          customerId,
+          label: "withdrawal-none",
+          reservationState: "confirmed",
+          fulfillmentState: "fulfilled",
+        });
+        const refundRequired = await insertReservation({
+          customerId,
+          label: "withdrawal-payment-refund",
+          reservationState: "cancelled",
+          fulfillmentState: "not_started",
+        });
+        await Effect.runPromise(
+          testDatabase.db.insert(paymentAttempts).values({
+            id: paymentAttemptIdSchema.make(`attempt-withdrawal-${runId}`),
+            workspaceReservationId: refundRequired,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(
+              `order-withdrawal-${runId}`
+            ),
+            state: "paid",
+            refundState: "required",
+            amountValue: 29_000,
+            amountExponent: 2,
+            currency: "CZK",
+          })
+        );
+
+        expect(await listIds("needs_attention")).toEqual(
+          [
+            owesRefund,
+            failingReceipt,
+            failingNotice,
+            failingCancellation,
+            refundRequired,
+          ].sort()
+        );
+        expect(await listIds("needs_refund")).toEqual(
+          [owesRefund, refundRequired].sort()
+        );
+
+        const listed = await run((administration) =>
+          administration.listReservations({ customerId })
+        );
+        const item = (id: WorkspaceReservationId) =>
+          listed.items.find((candidate) => candidate.id === id);
+        expect(item(owesRefund)).toMatchObject({
+          withdrawal: {
+            refundAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+            refundAmountDue: { value: 60_000, exponent: 2, currency: "CZK" },
+            settlement: "in_progress",
+          },
+          status: { code: "withdrawn" },
+          statusNoteCode: "needs_refund",
+        });
+        expect(item(failingReceipt)).toMatchObject({
+          withdrawal: {
+            refundAmount: { value: 0 },
+            settlement: "needs_attention",
+          },
+          status: { code: "withdrawn" },
+          statusNoteCode: null,
+        });
+        expect(item(settled)).toMatchObject({
+          withdrawal: { settlement: "settled" },
+          status: { code: "withdrawn" },
+          statusNoteCode: null,
+        });
+        expect(item(notWithdrawn)?.withdrawal).toBeUndefined();
+        expect(item(notWithdrawn)?.status.code).toBe("complete");
+
+        const [withdrawnDetail, activeDetail] = await Promise.all(
+          [owesRefund, notWithdrawn].map((id) =>
+            run((administration) => administration.loadReservation(id), {
+              getReservation: () => Effect.succeed(Option.none()),
+            })
+          )
+        );
+        expect(withdrawnDetail?.canCancel).toBe(false);
+        expect(activeDetail?.canCancel).toBe(true);
+      });
+    });
+
     describe("reservation author", () => {
       const insertAccount = async (linkedCustomer: DotyposCustomerId) => {
         const account = await Effect.runPromise(
@@ -1171,10 +1389,105 @@ describe.skipIf(!testDatabase)(
           customerId: authorCustomerId,
           displayName: "Ada Author",
           hasName: true,
+          lifecycle: "active",
           email: author.email,
         });
         expect(self?.author).toBeNull();
       });
+    });
+
+    test("offers to restore a cancelled paid reservation unless its checkout session has an active reservation", async () => {
+      const insertReservation = async (
+        label: string,
+        stage: Parameters<
+          ReturnType<typeof workspaceFixtures>["reservation"]
+        >[0]["stage"],
+        overrides: Parameters<
+          ReturnType<typeof workspaceFixtures>["reservation"]
+        >[0]["overrides"]
+      ) => {
+        const { id } = await Effect.runPromise(
+          workspaceFixtures(testDatabase.db).reservation({
+            stage,
+            customer: makeCustomerId(label),
+            overrides,
+          })
+        );
+        reservationIds.push(id);
+        return id;
+      };
+      const cancelledAt = Temporal.Now.instant();
+      const insertCancelled = (label: string, checkoutSessionKey: string) =>
+        insertReservation(
+          label,
+          {
+            reservation: "cancelled",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          {
+            checkoutSessionKey:
+              checkoutSessionKeySchema.make(checkoutSessionKey),
+            dotyposReservationId: bookingId(label),
+            reservationConfirmedAt: cancelledAt.subtract({ hours: 1 }),
+            cancellationEmailSentAt: cancelledAt,
+          }
+        );
+      const restorable = await insertCancelled(
+        "restorable",
+        `restorable-session-${runId}`
+      );
+      const replacedSession = `replaced-session-${runId}`;
+      const replaced = await insertCancelled("replaced", replacedSession);
+      await insertReservation(
+        "replaced-successor",
+        { reservation: "held" },
+        { checkoutSessionKey: checkoutSessionKeySchema.make(replacedSession) }
+      );
+
+      const [restorableDetail, replacedDetail] = await Promise.all(
+        [
+          [restorable, "restorable"],
+          [replaced, "replaced"],
+        ].map(([reservationId, label]) =>
+          run(
+            (administration) =>
+              administration.loadReservation(
+                workspaceReservationIdSchema.make(reservationId)
+              ),
+            {
+              getReservation: () =>
+                Effect.succeed(
+                  Option.some({
+                    customer: null,
+                    reservation: {
+                      _branchId: "branch",
+                      _cloudId: "cloud",
+                      _customerId: makeCustomerId(label),
+                      id: bookingId(label),
+                      startDate: "2099-08-10T08:00:00Z",
+                      endDate: "2099-08-10T16:00:00Z",
+                      seats: "1",
+                      status: "CANCELLED",
+                    },
+                  } as never)
+                ),
+            }
+          )
+        )
+      );
+
+      expect(restorableDetail?.canRestore).toBe(true);
+      expect(restorableDetail?.restoration).toEqual({
+        cancellationEmailRecorded: true,
+        issuesNewAccess: true,
+        // It had no invoice, so restoring issues none.
+        issuesNewInvoice: false,
+        clearsRefundRequirement: false,
+        refundedPayment: null,
+      });
+      expect(replacedDetail?.canRestore).toBe(false);
+      expect(replacedDetail?.restoration).toBeNull();
     });
 
     test("shows the access name stored on the grant, or the reservation-built name of a grant created before names were stored", async () => {

@@ -8,7 +8,7 @@ for the app). What the archive promises customers lives in
 ## Modules
 
 - `features/account/account-data-export-sections.ts`: the client-safe catalog
-  (schema version, manifest path, the nine section paths and their manifest
+  (schema version, manifest path, the ten section paths and their manifest
   descriptions, the non-atomicity and completeness notes). The UI disclosure
   and the account E2E import it, and the UI keys its labels by path
   exhaustively. Bump `accountDataExportSchemaVersion` when a section's
@@ -82,6 +82,7 @@ is customer-or-author.
 | `invoices.json` | `InvoiceRepository.listMetadataForCustomer` (never decrypts), `InvoiceEmailDeliveryRepository.listForCustomer` (customer audience only) |
 | `consents.json` | `MarketingConsentLedger.find`, `LegalEvidenceEventRepository.listForReservations` (stored document hash per event; null-reservation events excluded) |
 | `access-grants.json` | `ReservationAccessRepository.listForReservations` |
+| `withdrawals.json` | `WithdrawalRepository.listRecordsForAccount` (by customer account, not Dotypos customer; no receipt email stored) |
 
 Owner readers select an explicit column allowlist, order deterministically,
 fetch `limit + 1` rows (`readLimitSentinel`), and fail with

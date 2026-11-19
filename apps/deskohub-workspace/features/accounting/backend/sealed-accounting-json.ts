@@ -1,21 +1,30 @@
 import type { NexiOrderId } from "@deskohub/nexi";
-import { type SQL, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { SelectResultFields } from "drizzle-orm/query-builders/select.types";
 import { Data, Effect, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { AccountingSnapshotKeyId } from "@/features/accounting/accounting-document-snapshot";
+import type { InvoicePreviewId } from "@/features/accounting/admin/invoice-preview-id";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
+import {
+  censorDatabaseQueryError,
+  censorLogValue,
+} from "@/shared/backend/logging/censorship";
+import {
+  isUndecryptableSealedColumn,
+  openSealedColumnText,
+  sealColumnText,
+} from "@/shared/backend/sealed-column";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 
 /** The id an accounting record was sealed or looked up by, and what it is. */
 export type AccountingRecordReference =
   | { readonly type: "invoiceId"; readonly id: InvoiceId }
+  | { readonly type: "invoicePreviewId"; readonly id: InvoicePreviewId }
   | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
   | { readonly type: "providerOrderId"; readonly id: NexiOrderId }
   | {
@@ -82,14 +91,6 @@ interface SealedAccountingJson<A, Plaintext> {
     AccountingRecordUnavailable | EffectDrizzleQueryError
   >;
 }
-
-const pgcryptoOptions = "cipher-algo=aes256,compress-algo=1,unicode-mode=1";
-
-const encryptJson = (json: string, secret: string): SQL<Buffer> =>
-  sql<Buffer>`pgp_sym_encrypt(${sensitiveDatabaseParameter(json)}, ${sensitiveDatabaseParameter(secret)}, ${pgcryptoOptions})`;
-
-const decryptJson = (ciphertext: PgColumn, secret: string): SQL<string> =>
-  sql<string>`pgp_sym_decrypt(${ciphertext}, ${sensitiveDatabaseParameter(secret)})`;
 
 /**
  * Stores values of one kind as versionless JSON that PostgreSQL `pgcrypto`
@@ -166,7 +167,7 @@ export const sealedAccountingJson = <
               Effect.suspend(() =>
                 input.insert({
                   keyId: key.id,
-                  ciphertext: encryptJson(
+                  ciphertext: sealColumnText(
                     JSON.stringify(record.encode(input.value)),
                     key.secret
                   ),
@@ -214,19 +215,23 @@ export const sealedAccountingJson = <
       const [row] = yield* db
         .select({
           plaintext: record.plaintext,
-          sealedJson: decryptJson(record.ciphertext, key.secret),
+          sealedJson: openSealedColumnText(record.ciphertext, key.secret),
         })
         .from(record.table)
         .where(input.where)
         .limit(1)
         .pipe(
           Effect.withTracerEnabled(false),
-          Effect.mapError(
-            unavailableBecause(
-              input.reference,
-              "decrypt",
-              "could not be decrypted."
-            )
+          // The statement binds the key, so a database failure leaves with
+          // its parameters censored.
+          Effect.mapError((error) =>
+            isUndecryptableSealedColumn(error)
+              ? unavailableBecause(
+                  input.reference,
+                  "decrypt",
+                  "could not be decrypted."
+                )(error)
+              : censorDatabaseQueryError(error)
           )
         );
 

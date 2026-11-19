@@ -10,6 +10,7 @@ import { Button } from "@/shared/components/ui/button";
 import { textLink } from "@/shared/components/ui/text-link";
 import {
   type AndroidDownload,
+  androidApkPath,
   androidReleasesListUrl,
   getAndroidReleaseFacts,
 } from "../android-download";
@@ -131,7 +132,7 @@ function AndroidReleaseDownload({
           </dd>
         </dl>
         <Button asChild className="mt-6" size="lg">
-          <a href={release.apkUrl}>
+          <a href={androidApkPath(release.versionName)}>
             <Download aria-hidden="true" />
             {m.androidPageDownloadLink({}, { locale })}
           </a>

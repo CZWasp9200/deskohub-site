@@ -3,7 +3,6 @@ import type {
   CheckoutSummaryChangedKeys,
   CheckoutSummary as CheckoutSummaryData,
 } from "@/features/checkout/checkout-summary";
-import { isWorkspaceProductMonitorOption } from "@/features/checkout/product-catalog";
 import { getWorkspaceProductMonitorTitle } from "@/features/checkout/product-catalog.i18n";
 import { CoworkCheckoutSummaryItem } from "@/features/cowork/components/cowork-checkout-summary-item";
 import { type Locale, m } from "@/features/i18n";
@@ -17,6 +16,8 @@ import {
 
 type CheckoutSummaryProps = {
   readonly locale: Locale;
+  /** An office order's first day, which its order line names. */
+  readonly officeStartDateLabel?: string;
   readonly summary: CheckoutSummaryData;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
 };
@@ -32,13 +33,6 @@ const getSummaryItemLabel = (
   if (key === "addon:workstation")
     return m.checkoutSummaryItemWorkstation({}, { locale });
 
-  if (key.startsWith("monitor:")) {
-    const monitorOption = key.slice("monitor:".length);
-    if (isWorkspaceProductMonitorOption(monitorOption)) {
-      return getWorkspaceProductMonitorTitle(monitorOption, locale);
-    }
-  }
-
   if (key === "total:final") return m.checkoutSummaryItemTotal({}, { locale });
 
   return key;
@@ -47,6 +41,7 @@ const getSummaryItemLabel = (
 export function CheckoutSummary({
   changedKeys,
   locale,
+  officeStartDateLabel,
   summary,
 }: CheckoutSummaryProps) {
   return (
@@ -90,6 +85,7 @@ export function CheckoutSummary({
                       changed={itemChanged}
                       item={productItem}
                       locale={locale}
+                      startDateLabel={officeStartDateLabel}
                     />
                   )),
                   Match.exhaustive
@@ -103,6 +99,14 @@ export function CheckoutSummary({
                   key={item.key}
                   amount={item.amount}
                   changed={itemChanged}
+                  detail={
+                    "monitorOption" in item && item.monitorOption
+                      ? getWorkspaceProductMonitorTitle(
+                          item.monitorOption,
+                          locale
+                        )
+                      : undefined
+                  }
                   label={itemLabel}
                   locale={locale}
                 />

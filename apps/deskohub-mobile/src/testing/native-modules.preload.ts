@@ -2,6 +2,12 @@ import { mock } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
 import { postHogStandIn } from "./posthog-stand-in";
+import { TestWindowDimensions } from "./window-dimensions";
+
+// React Native defines `__DEV__` before any module runs, and Expo's modules
+// read it on import. Tests run as a release build; one that switches it on
+// puts `false` back when it ends, so no file depends on the order it runs in.
+(globalThis as { __DEV__?: boolean }).__DEV__ = false;
 
 /**
  * Bun can't load React Native or Expo's native modules, so tests get small
@@ -47,6 +53,7 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  Image: "Image",
   KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   Pressable: "Pressable",
@@ -77,6 +84,9 @@ mock.module("react-native", () => ({
     addEventListener: () => ({ remove: () => undefined }),
   },
   Linking: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  BackHandler: {
     addEventListener: () => ({ remove: () => undefined }),
   },
   // Animations stand still: values keep what they were set to and every
@@ -110,14 +120,9 @@ mock.module("react-native", () => ({
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
     isVisible: () => false,
+    metrics: () => undefined,
   },
-  // The design's narrowest phone at the default font size.
-  useWindowDimensions: () => ({
-    width: 360,
-    height: 780,
-    scale: 3,
-    fontScale: 1,
-  }),
+  useWindowDimensions: () => useContext(TestWindowDimensions),
 }));
 
 // Insets come from the context, as in the library, so a test can provide some.
@@ -141,13 +146,16 @@ mock.module("react-native-svg", () => ({
   default: svgElement("Svg"),
   Svg: svgElement("Svg"),
   Circle: svgElement("Circle"),
+  Defs: svgElement("Defs"),
   Ellipse: svgElement("Ellipse"),
   G: svgElement("G"),
   Line: svgElement("Line"),
+  LinearGradient: svgElement("LinearGradient"),
   Path: svgElement("Path"),
   Polygon: svgElement("Polygon"),
   Polyline: svgElement("Polyline"),
   Rect: svgElement("Rect"),
+  Stop: svgElement("Stop"),
 }));
 
 // Lottie's player is a class with commands a component calls through a ref;
@@ -164,8 +172,19 @@ class LottieView extends Component<Readonly<Record<string, unknown>>> {
 
 mock.module("lottie-react-native", () => ({ default: LottieView }));
 
+mock.module("expo-router/react-navigation", () => ({
+  getHeaderTitle: (
+    options: { readonly title?: string; readonly headerTitle?: unknown },
+    fallback: string
+  ) =>
+    typeof options.headerTitle === "string"
+      ? options.headerTitle
+      : (options.title ?? fallback),
+  useHeaderHeight: () => 0,
+}));
+
 mock.module("expo-status-bar", () => ({
-  StatusBar: "StatusBar",
+  StatusBar: () => null,
   setStatusBarStyle: () => undefined,
 }));
 
@@ -187,6 +206,24 @@ mock.module("expo-crypto", () => ({
       digest.byteOffset,
       digest.byteOffset + digest.byteLength
     );
+  },
+}));
+
+// The native auth client keeps its session here; a screen that links the
+// auth client must load in a test file of its own, not only after another
+// file mocked the client.
+const secureItems = new Map<string, string>();
+mock.module("expo-secure-store", () => ({
+  getItem: (key: string) => secureItems.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    secureItems.set(key, value);
+  },
+  getItemAsync: async (key: string) => secureItems.get(key) ?? null,
+  setItemAsync: async (key: string, value: string) => {
+    secureItems.set(key, value);
+  },
+  deleteItemAsync: async (key: string) => {
+    secureItems.delete(key);
   },
 }));
 
@@ -212,6 +249,8 @@ mock.module("expo-web-browser", () => ({
 // Tests provide their own consent; these keep its module graph loadable.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-US" }],
+  // The device doesn't say its clock: times follow the locale.
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const asyncStorageItems = new Map<string, string>();

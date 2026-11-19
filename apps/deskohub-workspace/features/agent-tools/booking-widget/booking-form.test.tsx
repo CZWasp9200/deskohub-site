@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { formatCurrencyAmount } from "@deskohub/i18n/currency";
 import { Cause, Exit } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { ComponentProps } from "react";
 import { type Locale, m } from "@/features/i18n";
 import { withMeetingRoomEarlySetup } from "@/features/reservation/meeting-room-early-setup-link";
@@ -14,6 +14,7 @@ import { BookingRequestFailed, BookingToolFailed } from "./booking-host";
 import {
   availabilityResult,
   bookingOfferings,
+  bookingOfficeSeats,
   bookingStart,
   bookingToday,
   meetingRoomAvailabilityResult,
@@ -636,7 +637,7 @@ describe("BookingForm", () => {
       screen.queries.getByLabelText(
         m.reservationOfficeSeatCountLabel({}, { locale: "cs-CZ" })
       ),
-      { target: { value: "7" } }
+      { target: { value: String(bookingOfficeSeats + 1) } }
     );
     fireEvent.click(checkButton("cs-CZ"));
 
@@ -649,7 +650,10 @@ describe("BookingForm", () => {
     );
     expect(
       screen.queries.getByText(
-        m.bookingWidgetSeatCountRange({ max: 6 }, { locale: "cs-CZ" })
+        m.bookingWidgetSeatCountRange(
+          { max: bookingOfficeSeats },
+          { locale: "cs-CZ" }
+        )
       )
     ).toBeDefined();
   });

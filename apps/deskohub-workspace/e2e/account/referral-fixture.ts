@@ -19,7 +19,10 @@ import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
 import { parseReferralCode } from "@/features/referrals/client";
 import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  reservationOrderId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import type {
   DatabaseClient,
@@ -248,6 +251,7 @@ export const seedWorkspaceE2EReferrerSavings = (input: {
               ),
               state: "paid",
               workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
             })
             .returning({ id: paymentAttempts.id });
           if (!attempt) {

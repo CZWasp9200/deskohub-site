@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -64,7 +65,7 @@ const runGetPdf = async (options: {
         ? signedInAccountId
         : customerAccountIdSchema.make("booking-author"),
   } as WorkspaceReservation;
-  const findByReservationId = mock(() =>
+  const findLiveByReservationId = mock(() =>
     options.invoice === "unreadable"
       ? Effect.fail(
           new AccountingRecordUnavailable({
@@ -109,6 +110,7 @@ const runGetPdf = async (options: {
   }).pipe(
     Effect.provide(ReservationInvoicePdfService.Default),
     Effect.provide(ReservationAuthorizationService.Default),
+    Effect.provide(NoReservationInvitees),
     Effect.provide(
       Layer.mergeAll(
         ownership,
@@ -119,14 +121,14 @@ const runGetPdf = async (options: {
             ),
         }),
         Layer.mock(ReviewSandbox, { isOrderOf: () => Effect.succeed(false) }),
-        Layer.mock(InvoiceRepository, { findByReservationId })
+        Layer.mock(InvoiceRepository, { findLiveByReservationId })
       )
     ),
     Effect.result,
     Effect.runPromise
   );
 
-  return { result, findByReservationId };
+  return { result, findLiveByReservationId };
 };
 
 const expectPdfFile = (
@@ -142,12 +144,12 @@ const expectPdfFile = (
 
 describe("ReservationInvoicePdfService", () => {
   test("gives the reservation's customer its issued invoice as a PDF named by the invoice number", async () => {
-    const { result, findByReservationId } = await runGetPdf({
+    const { result, findLiveByReservationId } = await runGetPdf({
       visitor: "customer",
     });
 
     expectPdfFile(result);
-    expect(findByReservationId).toHaveBeenCalledWith(orderId);
+    expect(findLiveByReservationId).toHaveBeenCalledWith(orderId);
   });
 
   test("gives the invoice to a valid emailed link without an account", async () => {
@@ -168,13 +170,13 @@ describe("ReservationInvoicePdfService", () => {
   ] as const)(
     "reports not found to %s without reading the invoice",
     async (_label, options) => {
-      const { result, findByReservationId } = await runGetPdf(options);
+      const { result, findLiveByReservationId } = await runGetPdf(options);
 
       expect(result).toMatchObject({
         _tag: "Failure",
         failure: { _tag: "ReservationInvoiceNotFoundError", orderId },
       });
-      expect(findByReservationId).not.toHaveBeenCalled();
+      expect(findLiveByReservationId).not.toHaveBeenCalled();
     }
   );
 
@@ -208,7 +210,7 @@ describe("ReservationInvoicePdfService", () => {
   });
 
   test("keeps an unreadable account in the error channel instead of reporting not found", async () => {
-    const { result, findByReservationId } = await runGetPdf({
+    const { result, findLiveByReservationId } = await runGetPdf({
       visitor: "unreadable-account",
     });
 
@@ -216,7 +218,7 @@ describe("ReservationInvoicePdfService", () => {
       _tag: "Failure",
       failure: { _tag: "ReservationAuthorizationUnavailableError", orderId },
     });
-    expect(findByReservationId).not.toHaveBeenCalled();
+    expect(findLiveByReservationId).not.toHaveBeenCalled();
   });
 
   test("keeps an invoice storage failure in the error channel", async () => {

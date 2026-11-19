@@ -9,7 +9,7 @@ import {
   type AdministrationHref,
   administrationHref,
 } from "./administration-href";
-import { getAdministrationCustomerName } from "./customer-presentation";
+import { AdministrationCustomerNameLink } from "./customer-name-label";
 import { m } from "./i18n";
 import type {
   loadAdministrationOverview,
@@ -29,6 +29,9 @@ type ReservationOverviewData = Awaited<
 
 /** Sample counts for the legend, from an empty day to a busy one. */
 const reservationActivityLegendCounts = [0, 2, 6, 12, 24];
+
+const overviewCustomerLinkClassName =
+  "block break-words font-semibold transition-colors hover:text-aquamarine-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40";
 
 export async function OverviewReservationActivityTotal({
   activity,
@@ -198,20 +201,27 @@ function CustomerActivityMetric({
             <ul>
               {displayedCustomers.map(({ customer, customerId }) => (
                 <li key={customerId}>
-                  <Link
-                    className="block break-words font-semibold transition-colors hover:text-aquamarine-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40"
-                    href={administrationHref(
-                      "/[locale]/admin/customers/[customerId]",
-                      { customerId }
-                    )}
-                  >
-                    {customer
-                      ? getAdministrationCustomerName(customer, locale)
-                      : m.administrationCustomerDetailsUnavailable(
-                          {},
-                          { locale }
-                        )}
-                  </Link>
+                  {customer ? (
+                    <AdministrationCustomerNameLink
+                      className={overviewCustomerLinkClassName}
+                      customer={customer}
+                      customerId={customerId}
+                      locale={locale}
+                    />
+                  ) : (
+                    <Link
+                      className={overviewCustomerLinkClassName}
+                      href={administrationHref(
+                        "/[locale]/admin/customers/[customerId]",
+                        { customerId }
+                      )}
+                    >
+                      {m.administrationCustomerDetailsUnavailable(
+                        {},
+                        { locale }
+                      )}
+                    </Link>
+                  )}
                 </li>
               ))}
               {metric.value > 3 && (

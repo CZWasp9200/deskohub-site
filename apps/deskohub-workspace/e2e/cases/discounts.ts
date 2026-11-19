@@ -1,6 +1,6 @@
 import type { DotyposDiscountGroupId } from "@deskohub/dotypos";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountCodeId } from "@/features/discounts/persistence-contracts";
 import { discountCodeQueryParam } from "@/features/discounts/promotion-code";
@@ -31,6 +31,10 @@ import {
   applyDiscountCode,
   applyUnavailableDiscountCode,
 } from "../checkout/discount-code";
+import {
+  discountCodeRemovalReviewEnabled,
+  reviewDiscountCodeRemoval,
+} from "../checkout/discount-code-removal-review";
 import {
   submitCheckoutPayment,
   submitReservationForPayPage,
@@ -223,6 +227,7 @@ export const makeDiscountE2ECases = ({
             codeDiscountExpectation,
           ],
           flowId: "cowork-discount-code",
+          removalReviewCode: code,
           reservationPageDiscounts: [
             ...coworkAutomaticDiscounts,
             codeDiscountExpectation,
@@ -1150,6 +1155,7 @@ const executeDiscountCheckout = ({
   discountCode,
   expectedDiscounts,
   flowId,
+  removalReviewCode,
   reservationPageDiscounts,
   runStep,
   openSeparateSession,
@@ -1164,6 +1170,11 @@ const executeDiscountCheckout = ({
   readonly discountCode?: string;
   readonly expectedDiscounts: readonly ExpectedDiscountApplication[];
   readonly flowId: string;
+  /**
+   * The code the reservation URL applied: with review screenshots on, the
+   * Pay page's Remove control is captured and the code applied again.
+   */
+  readonly removalReviewCode?: string;
   readonly reservationPageDiscounts?: readonly ExpectedDiscountApplication[];
   readonly runStep: WorkspaceE2EStepRunner;
   readonly openSeparateSession: WorkspaceE2ECaseContext["openSeparateSession"];
@@ -1194,11 +1205,11 @@ const executeDiscountCheckout = ({
     datasourceConfig,
     expectedDiscounts,
     flow: discountCheckoutFlow(flowId),
-    payPageSteps: () => {
+    payPageSteps: (orderId) => {
       const automaticDiscounts = discountCode
         ? expectedDiscounts.slice(0, -1)
         : expectedDiscounts;
-      const steps: WorkspaceE2EStep<void>[] = [];
+      const steps: WorkspaceE2EStep<void, E2EDatabase>[] = [];
       if (automaticDiscounts.length > 0) {
         steps.push({
           execute: Effect.gen(function* () {
@@ -1226,6 +1237,22 @@ const executeDiscountCheckout = ({
           }),
           id: "apply-checkout-discount-code",
           timeoutMs: config.timeouts.uiTransition,
+        });
+      }
+      if (removalReviewCode && discountCodeRemovalReviewEnabled) {
+        steps.push({
+          execute: Effect.gen(function* () {
+            const browser = yield* openSession;
+            yield* reviewDiscountCodeRemoval({
+              appliedMessage,
+              code: removalReviewCode,
+              config,
+              orderId,
+              session: browser,
+            });
+          }),
+          id: "review-discount-code-removal",
+          timeoutMs: config.timeouts.uiTransition * 2,
         });
       }
       steps.push({

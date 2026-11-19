@@ -2,15 +2,18 @@ import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { Cause, Duration, Effect, Exit, Predicate } from "effect";
+import { Cause, Duration, Effect, Exit } from "effect";
+import { Statement } from "effect/sql";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   WorkspaceDatabase,
   type WorkspaceTransaction,
 } from "./database.service";
-import { makeDatabaseClient, makeDatabasePool } from "./database-client";
+import { makeDatabaseClient } from "./database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "./postgres-advisory-lock";
 import { isLockWaitTimeout } from "./sql-constraint";
 import { WorkspaceLockSections, WorkspaceLocks } from "./workspace-locks";
@@ -18,34 +21,26 @@ import { WorkspaceLockSections, WorkspaceLocks } from "./workspace-locks";
 const suiteDatabase =
   await createWorkspacePostgresSuiteDatabase("workspace_locks");
 
-// Records the lock and lock_timeout statements the registry sends.
+// Records the lock and lock_timeout statements the registry sends, as Effect
+// SQL compiles them for the driver.
 const recorded: Array<{
   readonly text: string;
   readonly values: ReadonlyArray<unknown>;
 }> = [];
+const recordLockStatements: Statement.Transformer = (statement) =>
+  Effect.sync(() => {
+    const [text, values] = statement.compile();
+    if (/pg_advisory_xact_lock|lock_timeout/.test(text)) {
+      recorded.push({ text, values });
+    }
+    return statement;
+  });
 const recordingPool =
   suiteDatabase &&
-  makeDatabasePool({
+  (await openDatabasePool({
     connectionString: suiteDatabase.pool.options.connectionString!,
-    max: 6,
-  });
-recordingPool?.on("connect", (client) => {
-  const query = client.query.bind(client) as (
-    ...args: Array<unknown>
-  ) => unknown;
-  Object.assign(client, {
-    query: (...args: Array<unknown>) => {
-      const [text, values] = args;
-      if (
-        Predicate.isString(text) &&
-        /pg_advisory_xact_lock|lock_timeout/.test(text)
-      ) {
-        recorded.push({ text, values: Array.isArray(values) ? values : [] });
-      }
-      return query(...args);
-    },
-  });
-});
+    maxConnections: 6,
+  }));
 const db =
   recordingPool && (await Effect.runPromise(makeDatabaseClient(recordingPool)));
 describe.skipIf(!suiteDatabase)(
@@ -58,13 +53,22 @@ describe.skipIf(!suiteDatabase)(
     const advisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(recordingPool);
 
     afterAll(async () => {
-      await recordingPool.end();
+      await recordingPool.close();
       await suiteDatabase.close();
     });
 
     const run = <A, E>(
       effect: Effect.Effect<A, E, WorkspaceDatabaseAdvisoryLock>
-    ) => Effect.runPromiseExit(effect.pipe(Effect.provide(advisoryLock)));
+    ) =>
+      Effect.runPromiseExit(
+        effect.pipe(
+          Effect.provide(advisoryLock),
+          Effect.provideService(
+            Statement.CurrentTransformer,
+            recordLockStatements
+          )
+        )
+      );
 
     /** A defect from the guard whose message contains `fragment`. */
     const dies = (exit: Exit.Exit<unknown, unknown>, fragment: string) =>
@@ -215,6 +219,16 @@ describe.skipIf(!suiteDatabase)(
         const probe = pairProbe("sign-in-email", digest);
         const exit = await run(
           WorkspaceLockSections.signInEmail(digest)(freeElsewhere(probe))
+        );
+        expect(exit).toStrictEqual(Exit.succeed(false));
+        expect(await freeElsewhereNow(probe)).toBe(true);
+      });
+
+      test("reservationOrder section", async () => {
+        const orderId = `order-${id}` as WorkspaceReservationId;
+        const probe = pairProbe("reservation-order", orderId);
+        const exit = await run(
+          WorkspaceLockSections.reservationOrder(orderId)(freeElsewhere(probe))
         );
         expect(exit).toStrictEqual(Exit.succeed(false));
         expect(await freeElsewhereNow(probe)).toBe(true);
@@ -422,6 +436,23 @@ describe.skipIf(!suiteDatabase)(
       );
       expect(exit).toStrictEqual(Exit.succeed(["7s", false]));
       expect(recorded.flatMap(({ values }) => values)).toContain("5000ms");
+    });
+
+    test("the reservationOrder section admits a payment settlement's referral locks without a bounded wait", async () => {
+      const orderId = `order-${crypto.randomUUID()}` as WorkspaceReservationId;
+      const customer = `customer-${crypto.randomUUID()}` as DotyposCustomerId;
+      const exit = await run(
+        WorkspaceLockSections.reservationOrder(orderId)(
+          transaction(
+            Effect.gen(function* () {
+              yield* WorkspaceLocks.referralGraph();
+              yield* WorkspaceLocks.referralFirstBooking(customer);
+              return yield* freeElsewhere(graphProbe);
+            })
+          )
+        )
+      );
+      expect(exit).toStrictEqual(Exit.succeed(false));
     });
 
     test("an out-of-order bounded wait under a transaction-held higher rank dies", async () => {

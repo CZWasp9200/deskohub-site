@@ -990,9 +990,9 @@ export const makeWorkspaceE2EAccountCases = ({
                 yield* waitCoworkSelection(
                   "cowork selection kept after the link"
                 );
-                assert(
-                  yield* laneBrowser.readSessionMatches(recipient),
-                  "the selection is not signed in as the main recipient"
+                yield* laneBrowser.waitForSessionOf(
+                  "the selection's session of the main recipient",
+                  recipient
                 );
                 // The completion state and every later case continue on the
                 // account page.
@@ -1691,9 +1691,9 @@ export const makeWorkspaceE2EAccountCases = ({
                   yield* waitCoworkSelection(
                     "cowork selection kept after the sign-in"
                   );
-                  assert(
-                    yield* laneBrowser.readSessionMatches(recipient),
-                    "the selection is not signed in as the reactivated recipient"
+                  yield* laneBrowser.waitForSessionOf(
+                    "the selection's session of the reactivated recipient",
+                    recipient
                   );
                   const newUserId = yield* requireAuthUserId(recipient);
                   assert(

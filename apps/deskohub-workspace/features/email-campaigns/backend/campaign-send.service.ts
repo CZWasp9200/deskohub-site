@@ -14,7 +14,7 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { CampaignAudienceRow, CampaignRow } from "@/db/schema";
 import type { Locale } from "@/features/i18n";

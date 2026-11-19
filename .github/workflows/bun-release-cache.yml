@@ -45,8 +45,8 @@ jobs:
         id: bun
         uses: ./.github/actions/setup-bun
         with:
-          bun-version: 1.4.2
-          bun-sha256: 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
+          bun-version: 1.4.4
+          bun-sha256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
 
       - name: Save Bun release
         if: steps.bun.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'

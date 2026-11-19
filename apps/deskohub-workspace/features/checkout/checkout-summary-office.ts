@@ -9,9 +9,25 @@ import {
   officeCheckoutSummaryDiscountedProductItemSchema,
   officeCheckoutSummaryProductItemSchema,
 } from "@/features/checkout/checkout-summary-office-item";
+import {
+  getWorkspaceOfficeAccessPrice,
+  getWorkspaceOfficeSeatPrice,
+} from "@/features/checkout/product-catalog";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
-import type { OfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
-import { getWorkspaceOfficeProductIdentity } from "@/features/reservation/office-reservation";
+import {
+  getOfficeSeatsAmount,
+  type OfficeReservationQuote,
+} from "@/features/checkout/reservation-quote-office";
+import {
+  getWorkspaceOfficeProductIdentity,
+  type OfficeReservationDetails,
+} from "@/features/reservation/office-reservation";
+
+/** The dates, seats and public price of the office hold reopened from Pay. */
+export type HeldOfficePrice = Pick<
+  OfficeReservationDetails,
+  "startsOn" | "endsOn" | "seats"
+> & { readonly summary: CheckoutSummary };
 
 export const getOfficeCheckoutSummary = (
   quote: OfficeReservationQuote
@@ -32,6 +48,9 @@ export const getOfficeCheckoutSummary = (
     seats: item.seats,
     accessAmount: item.accessAmount,
     seatAmount: item.seatAmount,
+    seatsAmount: getOfficeSeatsAmount(item),
+    dailyAccessRate: getWorkspaceOfficeAccessPrice(1),
+    dailySeatRate: getWorkspaceOfficeSeatPrice(1),
   };
   const productItem =
     summaryDiscounts.length > 0
@@ -61,3 +80,21 @@ export const getOfficeCheckoutSummary = (
     total: quote.payment.expectedPrice,
   });
 };
+
+/** Office edit shows public price details and sends them back for comparison. */
+export const getOfficeEditPriceSummary = (quote: OfficeReservationQuote) =>
+  getOfficeCheckoutSummary({
+    ...quote,
+    payment: {
+      ...quote.payment,
+      discounts: quote.payment.discounts.map(
+        ({
+          discount: { staffLabel: _staffLabel, ...discount },
+          ...applied
+        }) => ({
+          ...applied,
+          discount,
+        })
+      ),
+    },
+  });

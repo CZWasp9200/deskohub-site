@@ -20,7 +20,7 @@ retention) sees it; the page never offers a download it would refuse.
 
 ## Scope
 
-Every archive contains a manifest and exactly the nine data sections below.
+Every archive contains a manifest and exactly the ten data sections below.
 Nothing else is included.
 
 1. **Identity**: the account identifier, the verified login email, the stored
@@ -38,14 +38,20 @@ Nothing else is included.
    late-payment recovery outcome.
 6. **Discount applications**: discounts applied to the customer's payments:
    label, the amounts before and after, and when each was applied.
-7. **Invoices**: metadata of invoices issued to the customer and the delivery
-   status of each customer invoice email. The invoice documents themselves are
-   **not** included.
+7. **Invoices**: metadata of invoices issued to the customer, whether and when
+   each was cancelled with the number of the credit note that cancelled it,
+   whether the administration hid it from its own invoice list, and the
+   delivery status of each customer invoice email. The invoice and credit note
+   documents themselves are **not** included.
 8. **Consents**: the customer's marketing communication consent record and the
    legal-acceptance evidence recorded for the customer's own reservations,
    with the document version each acceptance was given under.
 9. **Access grants**: door-access grants for the customer's own reservations:
    grant state and the access interval. No access codes, PINs, or credentials.
+10. **Withdrawals**: the customer's online withdrawals from contracts: which
+    contract, when the withdrawal was submitted, the amount paid and the
+    amount owed back, and whether processing is complete. The withdrawal
+    confirmation email itself is not stored, so it is not included.
 
 The manifest describes every section and carries the archive's schema version
 and the notes described under "Honesty rules".
@@ -58,8 +64,8 @@ through the full data-protection request described below.
 - **Credentials and secrets**: session and sign-in tokens, payment security
   tokens and payment-page links, access codes and PINs, and provider
   credentials. Session records are not exported at all.
-- **Invoice documents**: the invoice PDFs are not included; only their
-  metadata is.
+- **Invoice documents**: the invoice and credit note PDFs are not included;
+  only their metadata is.
 - **Other customers' and third-party records**: every section covers only
   records attributed to the customer through the verified account link. A
   record that cannot be attributed that way is never exported.

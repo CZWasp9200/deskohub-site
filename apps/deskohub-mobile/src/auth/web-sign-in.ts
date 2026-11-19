@@ -9,7 +9,8 @@ import { withSessionWriteLock } from "./session-write-lock";
 import { signInLocaleHeaders } from "./sign-in-locale";
 import { signOutOf } from "./sign-out-request";
 import {
-  clearReauthenticatingUser,
+  completeReauthentication,
+  loadReauthentication,
   saveReauthenticatingUser,
 } from "./web-reauthentication-store";
 import {
@@ -54,7 +55,14 @@ export interface SentSignInEmail {
   readonly sentAt: number;
   /** When the server next accepts a sign-in email for this address; none when the server sent none or an invalid one (older server, codes off). */
   readonly nextSignInEmailAt: Option.Option<DateTime.Utc>;
+  /** The secret the page asks the sign-in status with; none from an older server. */
+  readonly signInAttempt: Option.Option<string>;
 }
+
+const decodeSignInAttempt = (value: unknown): Option.Option<string> =>
+  typeof value === "string" && value !== ""
+    ? Option.some(value)
+    : Option.none();
 
 /**
  * Sends the sign-in email. The relative `/app/auth/callback` (and no other
@@ -62,7 +70,8 @@ export interface SentSignInEmail {
  * server answers whether the email also carries a sign-in code; anything but
  * a clear yes means the link alone. It also names when it next accepts an
  * email for the address; an answer without a valid instant leaves only the
- * page's own cooldown.
+ * page's own cooldown. An email for the app callback comes with its sign-in
+ * attempt.
  */
 export const sendSignInEmail = (email: string, locale: AppLocale) =>
   Effect.zipWith(
@@ -70,6 +79,7 @@ export const sendSignInEmail = (email: string, locale: AppLocale) =>
       readonly status: boolean;
       readonly signInCode?: unknown;
       readonly nextSignInEmailAt?: unknown;
+      readonly signInAttempt?: unknown;
     }>("send-email", (signal) =>
       authClient.signIn.magicLink({
         email,
@@ -84,8 +94,25 @@ export const sendSignInEmail = (email: string, locale: AppLocale) =>
       signInCode: data?.signInCode === true,
       sentAt,
       nextSignInEmailAt: decodeNextSignInEmailAt(data?.nextSignInEmailAt),
+      signInAttempt: decodeSignInAttempt(data?.signInAttempt),
     })
   ).pipe(Effect.withSpan("WebSignIn.sendSignInEmail"));
+
+/**
+ * Whether any of these sign-in attempts signed in elsewhere, such as in the
+ * app through the email's link. Anything but a clear yes means not yet.
+ */
+export const isSignInAttemptCompleted = (attempts: readonly string[]) =>
+  call<{ readonly completed?: unknown }>("sign-in-status", (signal) =>
+    authClient.$fetch("/sign-in-attempt/status", {
+      method: "POST",
+      body: { attempts },
+      signal,
+    })
+  ).pipe(
+    Effect.map((data) => data?.completed === true),
+    Effect.withSpan("WebSignIn.isSignInAttemptCompleted")
+  );
 
 /**
  * Signs in with the email's code. The request names the app's locale, which
@@ -220,7 +247,8 @@ export const reauthenticationExpectation = ({
  * replace the browser's session cookie, which the page can't restore. Until
  * that first read nothing is sent, so an address entered early can't slip
  * past the lock. Without a session there is nothing to keep, and the account
- * check still refuses a switch.
+ * check still refuses a switch. An app's reauthentication goes only to the
+ * account the app named, whatever the browser's session.
  */
 export type SignInEmailField =
   | { readonly kind: "waiting" }
@@ -230,15 +258,36 @@ export type SignInEmailField =
 export const signInEmailField = ({
   reauthenticating,
   pageSession,
+  appAccountEmail,
 }: {
   readonly reauthenticating: boolean;
   readonly pageSession: { readonly user: AuthUser | undefined } | undefined;
+  /** The account an app's reauthentication named (see {@link appAccountEmail}). */
+  readonly appAccountEmail?: string | undefined;
 }): SignInEmailField => {
+  if (appAccountEmail !== undefined) {
+    return { kind: "locked", email: appAccountEmail };
+  }
   if (pageSession === undefined) return { kind: "waiting" };
   return reauthenticating && pageSession.user !== undefined
     ? { kind: "locked", email: pageSession.user.email }
     : { kind: "free" };
 };
+
+/**
+ * The account the app asked to sign in again as. The app refuses any other
+ * account's session when it comes back, so the page sends the code only to
+ * this one; an older app that names none leaves the address free.
+ */
+export const appAccountEmail = (
+  nativeRequest: Option.Option<NativeHandoffRequest>
+): string | undefined =>
+  Option.getOrUndefined(
+    Option.flatMapNullishOr(
+      Option.filter(nativeRequest, (request) => request.reauthenticate),
+      (request) => request.loginHint
+    )
+  );
 
 const refuseAccount = (
   reason: "account-switch" | "reauthentication-unconfirmed"
@@ -298,9 +347,16 @@ export const prepareReauthenticationEmail = (
       none: () => Effect.void,
       unrecoverable: () => Effect.fail(reauthenticationUnavailable()),
       account: ({ userId }) =>
-        Effect.sync(() =>
-          saveReauthenticatingUser({ userId, returnPath }, Date.now())
-        ).pipe(
+        Effect.sync(() => {
+          const now = Date.now();
+          // The screen that asked keeps its purpose through the email.
+          const purpose = loadReauthentication(now).pipe(
+            Option.filter((stored) => stored.userId === userId),
+            Option.flatMap((stored) => Option.fromNullishOr(stored.purpose)),
+            Option.getOrUndefined
+          );
+          return saveReauthenticatingUser({ userId, returnPath, purpose }, now);
+        }).pipe(
           Effect.filterOrFail(
             (saved) => saved,
             () => reauthenticationUnavailable()
@@ -381,7 +437,9 @@ export const magicLinkExpectation = ({
  * its account. A refused or failed attempt keeps it, so the email's other
  * still-valid links are checked against it too.
  */
-const clearOnceConfirmed = Effect.sync(clearReauthenticatingUser);
+const clearOnceConfirmed = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+  Effect.sync(() => completeReauthentication(now))
+);
 
 /**
  * Signs the browser in with a magic link, refusing an account switch. The

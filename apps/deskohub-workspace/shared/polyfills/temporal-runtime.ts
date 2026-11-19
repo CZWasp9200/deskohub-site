@@ -22,7 +22,7 @@ export type TemporalApis = Readonly<
 export const requiredTemporalApis = {
   Duration: {
     static: ["from"],
-    methods: ["toJSON", "toLocaleString", "toString"],
+    methods: ["toJSON", "toLocaleString", "toString", "total"],
     getters: ["days"],
   },
   Instant: {
@@ -41,6 +41,7 @@ export const requiredTemporalApis = {
       "toLocaleString",
       "toString",
       "toZonedDateTimeISO",
+      "until",
     ],
     getters: ["epochMilliseconds", "epochNanoseconds"],
   },
@@ -52,6 +53,7 @@ export const requiredTemporalApis = {
     methods: [
       "add",
       "equals",
+      "since",
       "subtract",
       "toJSON",
       "toLocaleString",
@@ -98,7 +100,7 @@ export const requiredTemporalApis = {
   },
   PlainTime: {
     static: ["compare", "from"],
-    methods: ["toJSON", "toLocaleString", "toString"],
+    methods: ["equals", "toJSON", "toLocaleString", "toString"],
     getters: [
       "hour",
       "microsecond",

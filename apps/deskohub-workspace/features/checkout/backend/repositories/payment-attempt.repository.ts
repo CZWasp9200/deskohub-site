@@ -5,13 +5,16 @@ import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import {
+  orders,
   type PaymentAttemptRow,
   type PaymentAttemptState,
   type PaymentRefundState,
   type PaymentState,
   paymentAttempts,
+  workspaceReservations,
 } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import type { OrderKind } from "@/features/order";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   type ReadLimitExceededError,
@@ -19,6 +22,7 @@ import {
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
 import { type Money, moneyWithValue } from "@/shared/money/money";
+import { newestPaymentAttemptsFirst } from "./newest-payment-attempt";
 
 export const toPaymentAttempt = (attempt: PaymentAttemptRow) => {
   const { amountExponent, amountValue, currency, ...paymentAttempt } = attempt;
@@ -34,6 +38,10 @@ export const toPaymentAttempt = (attempt: PaymentAttemptRow) => {
 };
 
 export type PaymentAttempt = ReturnType<typeof toPaymentAttempt>;
+
+export type PaymentAttemptWithOrderKind = PaymentAttempt & {
+  readonly orderKind: OrderKind;
+};
 
 /**
  * The attempt's identifiers and state for log annotations. Scoped annotations
@@ -81,6 +89,16 @@ export interface IPaymentAttemptRepository {
   ) => Effect.Effect<PaymentAttempt | null, EffectDrizzleQueryError>;
   readonly findByProviderOrderId: (
     providerOrderId: NexiOrderId
+  ) => Effect.Effect<
+    PaymentAttemptWithOrderKind | null,
+    EffectDrizzleQueryError
+  >;
+  /**
+   * The reservation's newest payment attempt, whatever its state: the one
+   * a payment retry pays the order again after.
+   */
+  readonly findNewestForReservation: (
+    workspaceReservationId: WorkspaceReservationId
   ) => Effect.Effect<PaymentAttempt | null, EffectDrizzleQueryError>;
   readonly findDisplayableForReservation: (input: {
     readonly workspaceReservationId: WorkspaceReservationId;
@@ -125,15 +143,32 @@ export class PaymentAttemptRepository extends Context.Service<
       const findByProviderOrderId = Effect.fn(
         "PaymentAttemptRepository.findByProviderOrderId"
       )(function* (providerOrderId: NexiOrderId) {
-        const [attempt] = yield* db
-          .select()
+        const [row] = yield* db
+          .select({ attempt: paymentAttempts, orderKind: orders.kind })
           .from(paymentAttempts)
+          .innerJoin(orders, eq(orders.id, paymentAttempts.orderId))
           .where(
             and(
               eq(paymentAttempts.provider, "nexi"),
               eq(paymentAttempts.providerOrderId, providerOrderId)
             )
           )
+          .limit(1);
+        return row
+          ? { ...toPaymentAttempt(row.attempt), orderKind: row.orderKind }
+          : null;
+      });
+
+      const findNewestForReservation = Effect.fn(
+        "PaymentAttemptRepository.findNewestForReservation"
+      )(function* (workspaceReservationId: WorkspaceReservationId) {
+        const [attempt] = yield* db
+          .select()
+          .from(paymentAttempts)
+          .where(
+            eq(paymentAttempts.workspaceReservationId, workspaceReservationId)
+          )
+          .orderBy(...newestPaymentAttemptsFirst)
           .limit(1);
         return attempt ? toPaymentAttempt(attempt) : null;
       });
@@ -193,7 +228,7 @@ export class PaymentAttemptRepository extends Context.Service<
 
         const rows = yield* db
           .select({
-            workspaceReservationId: paymentAttempts.workspaceReservationId,
+            workspaceReservationId: workspaceReservations.id,
             provider: paymentAttempts.provider,
             state: paymentAttempts.state,
             refundState: paymentAttempts.refundState,
@@ -206,6 +241,10 @@ export class PaymentAttemptRepository extends Context.Service<
             updatedAt: paymentAttempts.updatedAt,
           })
           .from(paymentAttempts)
+          .innerJoin(
+            workspaceReservations,
+            eq(workspaceReservations.id, paymentAttempts.workspaceReservationId)
+          )
           .where(
             equalsAny(
               paymentAttempts.workspaceReservationId,
@@ -240,6 +279,7 @@ export class PaymentAttemptRepository extends Context.Service<
       return {
         findById,
         findByProviderOrderId,
+        findNewestForReservation,
         findDisplayableForReservation,
         listForReservations,
       } satisfies IPaymentAttemptRepository;

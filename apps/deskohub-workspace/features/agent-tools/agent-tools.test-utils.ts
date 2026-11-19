@@ -25,6 +25,7 @@ import { DiscountServiceMock } from "@/features/discounts/discount.service.mock"
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { GoogleCalendarWorkspaceLimitationsService } from "@/features/reservation/backend/google-calendar-workspace-limitations.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -54,7 +55,14 @@ const makeTestTable = (input: {
     tags: [...input.tags],
   });
 
-/** One Open Space desk, one Reserved Desk, the meeting room, and a 6-seat office. */
+/**
+ * The office table's seat capacity. The tools read the office maximum only
+ * from this Dotypos table, so a capacity other than the live office's makes a
+ * hard-coded maximum fail.
+ */
+export const agentToolTestOfficeSeats = 4;
+
+/** One Open Space desk, one Reserved Desk, the meeting room, and the office. */
 const agentToolTestTables: readonly DotyposTable[] = [
   makeTestTable({ id: "open-1", tags: ["tier:basic", "cowork:open-space"] }),
   makeTestTable({
@@ -68,7 +76,11 @@ const agentToolTestTables: readonly DotyposTable[] = [
     ],
   }),
   makeTestTable({ id: "room-1", tags: ["reservation:meeting-room"] }),
-  makeTestTable({ id: "office-1", tags: ["reservation:office"], seats: "6" }),
+  makeTestTable({
+    id: "office-1",
+    tags: ["reservation:office"],
+    seats: String(agentToolTestOfficeSeats),
+  }),
 ];
 
 /** A Prague date `days` after today, as YYYY-MM-DD. */
@@ -225,6 +237,7 @@ export const makeAgentToolTestServices = ({
       )
     ),
     officeFlag,
+    OvernightStayReleaseGate.fromDecision(false),
     TestSealedStateKeys
   );
 

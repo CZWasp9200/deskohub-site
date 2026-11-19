@@ -1,20 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "react-email";
-import type { Locale } from "@/features/i18n";
+import { type Locale, locales } from "@/features/i18n";
+import { formatReservationDisplayDateTimeRange } from "@/features/reservation/reservation-date";
 import { staffLocale } from "@/shared/backend/staff-locale";
+import { reservationEmailDetails } from "./_components/reservation-email-details";
 import {
   contactBusinessPreviewProps,
   contactConfirmationPreviewProps,
   customerReservationPreviewProps,
+  invoiceCancellationNoticePreviewProps,
   invoiceDeliveryPreviewProps,
   reservationAuthorPreviewProps,
   reservationCancellationPreviewProps,
   reservationNotificationPreviewProps,
+  reservationRestorationPreviewProps,
   workspaceCampaignPreviewProps,
 } from "./_fixtures/preview-props";
 import { ContactBusinessEmail } from "./contact-business";
 import { ContactConfirmationEmail } from "./contact-confirmation";
 import { CustomerReservationEmail } from "./customer-reservation";
+import {
+  InvoiceCancellationNoticeEmail,
+  type InvoiceCancellationNoticeEmailProps,
+} from "./invoice-cancellation-notice";
 import {
   InvoiceDeliveryEmail,
   type InvoiceDeliveryEmailProps,
@@ -22,6 +30,10 @@ import {
 import { ReservationAuthorEmail } from "./reservation-author";
 import { ReservationCancellationEmail } from "./reservation-cancellation";
 import { ReservationNotificationEmail } from "./reservation-notification";
+import {
+  ReservationRestorationEmail,
+  reservationRestorationEmailSubject,
+} from "./reservation-restoration";
 import { WorkspaceCampaignEmail } from "./workspace-campaign";
 
 describe("Workspace React Email templates", () => {
@@ -33,6 +45,7 @@ describe("Workspace React Email templates", () => {
       staffNotification,
       cancellation,
       invoiceDelivery,
+      invoiceCancellationNotice,
       campaign,
     ] = await Promise.all([
       render(<ContactBusinessEmail {...contactBusinessPreviewProps} />),
@@ -49,6 +62,11 @@ describe("Workspace React Email templates", () => {
         />
       ),
       render(<InvoiceDeliveryEmail {...invoiceDeliveryPreviewProps} />),
+      render(
+        <InvoiceCancellationNoticeEmail
+          {...invoiceCancellationNoticePreviewProps}
+        />
+      ),
       render(<WorkspaceCampaignEmail {...workspaceCampaignPreviewProps} />),
     ]);
 
@@ -65,6 +83,9 @@ describe("Workspace React Email templates", () => {
     );
     expect(invoiceDelivery).toContain(
       invoiceDeliveryPreviewProps.invoiceNumber
+    );
+    expect(invoiceCancellationNotice).toContain(
+      invoiceCancellationNoticePreviewProps.documentNumber
     );
     expect(campaign).toContain("Podzim ve Workspace");
     expect(campaign).toContain(
@@ -186,6 +207,101 @@ describe("invoice delivery email", () => {
   });
 });
 
+describe("invoice cancellation notice email", () => {
+  const notice = (
+    overrides: Partial<InvoiceCancellationNoticeEmailProps> = {}
+  ): InvoiceCancellationNoticeEmailProps => ({
+    ...invoiceCancellationNoticePreviewProps,
+    ...overrides,
+  });
+  const nothingDue = {
+    settlement: "nothing_due",
+    total: "-450.00",
+    currency: "CZK",
+  } as const;
+
+  test("writes the customer copy in the document's locale", async () => {
+    const [czech, english] = await Promise.all(
+      czechThenEnglish.map((locale) =>
+        render(
+          <InvoiceCancellationNoticeEmail
+            {...notice({ recipient: { audience: "customer", locale } })}
+          />
+        )
+      )
+    );
+
+    expect(czech).toContain('lang="cs-CZ"');
+    expect(english).toContain('lang="en-US"');
+    expect(czech).not.toBe(english);
+  });
+
+  test("writes the staff copy in the staff locale", async () => {
+    const html = await render(
+      <InvoiceCancellationNoticeEmail
+        {...notice({ recipient: { audience: "internal" } })}
+      />
+    );
+
+    expect(html).toContain(`lang="${staffLocale}"`);
+  });
+
+  test("names the cancelled invoice and its corrective document for every audience and source", async () => {
+    const variants = [
+      notice(),
+      notice({ invoice: { source: "manual" } }),
+      notice({ recipient: { audience: "internal" } }),
+      notice({
+        invoice: { source: "manual" },
+        recipient: { audience: "internal" },
+      }),
+    ];
+    const rendered = await Promise.all(
+      variants.map((props) =>
+        render(<InvoiceCancellationNoticeEmail {...props} />, {
+          plainText: true,
+        })
+      )
+    );
+
+    for (const text of rendered) {
+      expect(text).toContain(
+        invoiceCancellationNoticePreviewProps.invoiceNumber
+      );
+      expect(text).toContain(
+        invoiceCancellationNoticePreviewProps.documentNumber
+      );
+    }
+    expect(new Set(rendered).size).toBe(variants.length);
+  });
+
+  test("names the order of a reservation invoice", async () => {
+    const html = await render(<InvoiceCancellationNoticeEmail {...notice()} />);
+
+    expect(html).toContain(
+      invoiceCancellationNoticePreviewProps.invoice.orderId
+    );
+  });
+
+  test("tells the customer whether money comes back, and never staff", async () => {
+    const [refund, settled, staffRefund, staffSettled] = await Promise.all(
+      [
+        notice(),
+        notice({ settlement: nothingDue }),
+        notice({ recipient: { audience: "internal" } }),
+        notice({ settlement: nothingDue, recipient: { audience: "internal" } }),
+      ].map((props) =>
+        render(<InvoiceCancellationNoticeEmail {...props} />, {
+          plainText: true,
+        })
+      )
+    );
+
+    expect(refund).not.toBe(settled);
+    expect(staffRefund).toBe(staffSettled);
+  });
+});
+
 describe("reservation emails", () => {
   test("write the customer confirmation in the customer's locale", async () => {
     const [czech, english] = await Promise.all(
@@ -202,6 +318,36 @@ describe("reservation emails", () => {
     expect(czech).toContain('lang="cs-CZ"');
     expect(english).toContain('lang="en-US"');
     expect(czech).not.toBe(english);
+  });
+
+  test("head an overnight stay's confirmation with its start and end", async () => {
+    const overnight = {
+      ...customerReservationPreviewProps.reservation,
+      reservationDetails: {
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: false,
+      },
+      reservedFrom: Temporal.Instant.from("2026-06-12T10:00:00Z"),
+      reservedUntil: Temporal.Instant.from("2026-06-13T10:00:00Z"),
+    } as const;
+    const stay = formatReservationDisplayDateTimeRange(
+      overnight.reservedFrom,
+      overnight.reservedUntil,
+      "en-US"
+    );
+    const [overnightEmail, dayEmail] = await Promise.all([
+      render(
+        <CustomerReservationEmail
+          {...customerReservationPreviewProps}
+          reservation={overnight}
+        />
+      ),
+      render(<CustomerReservationEmail {...customerReservationPreviewProps} />),
+    ]);
+
+    expect(overnightEmail).toContain(stay);
+    expect(dayEmail).not.toContain(stay);
   });
 
   test("link the customer confirmation to its access page and invoice", async () => {
@@ -317,5 +463,48 @@ describe("reservation emails", () => {
     expect(czech).toContain('lang="cs-CZ"');
     expect(english).toContain('lang="en-US"');
     expect(czech).not.toBe(english);
+  });
+});
+
+describe("reservation restoration email", () => {
+  const englishSubject = reservationRestorationEmailSubject({
+    locale: "en-US",
+  });
+
+  test.each(locales)(
+    "renders in %s with the booking details and the access link",
+    async (locale) => {
+      const props = { ...reservationRestorationPreviewProps, locale };
+      const [html, text] = await Promise.all([
+        render(<ReservationRestorationEmail {...props} />),
+        render(<ReservationRestorationEmail {...props} />, { plainText: true }),
+      ]);
+
+      expect(html).toContain(`lang="${locale}"`);
+      const subject = reservationRestorationEmailSubject(props);
+      expect(subject).not.toBe("");
+      // Every catalog carries its own subject instead of the base fallback.
+      if (locale !== "en-US") expect(subject).not.toBe(englishSubject);
+      for (const { value } of reservationEmailDetails(
+        props.reservation,
+        locale
+      )) {
+        expect(text).toContain(value);
+      }
+      expect(html).toContain(`href="${props.accessUrl}"`);
+    }
+  );
+
+  test("links no access page when the restoration issued no new access code", async () => {
+    const { accessUrl, ...props } = reservationRestorationPreviewProps;
+    const [withAccess, withoutAccess] = await Promise.all([
+      render(<ReservationRestorationEmail {...props} accessUrl={accessUrl} />),
+      render(<ReservationRestorationEmail {...props} />),
+    ]);
+
+    expect(withAccess).toContain("/reservation/access/");
+    expect(withoutAccess).not.toContain("/reservation/access/");
+    expect(withoutAccess).not.toContain("accessToken=");
+    expect(withoutAccess).toContain(props.reservation.id);
   });
 });

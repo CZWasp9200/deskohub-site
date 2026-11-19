@@ -1,6 +1,7 @@
 import type {
   AcceptCustomerCheckoutPriceChange,
   ApplyCustomerCheckoutDiscountCode,
+  ClearCustomerCheckoutDiscountCode,
   CreateCustomerCheckout,
   CustomerBookingSelection,
   CustomerCheckout,
@@ -10,6 +11,8 @@ import type {
   CustomerDiscountCodeRejected,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerOfficePeople,
+  CustomerPaymentRetryDetails,
   ReferralCode,
   SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
@@ -35,9 +38,12 @@ export interface CheckoutStartInput {
   readonly checkoutSessionId: string;
   readonly locale: CustomerLocale;
   readonly selection: CustomerBookingSelection;
+  /** Empty for a payment retry, which reviews an existing order and never creates one. */
   readonly advertisedPriceToken: string;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /** Office only: who is coming, sent with the order. */
+  readonly people?: CustomerOfficePeople;
   /** The referral code the app remembers for the signed-in account. */
   readonly rememberedReferralCode: Option.Option<ReferralCode>;
 }
@@ -60,14 +66,24 @@ export type AcceptedLegalDocument = Pick<CustomerLegalDocument, "key" | "hash">;
 export interface HeldCheckout {
   readonly orderId: string;
   readonly payStateToken: string;
-  readonly expiresAt: string;
+  /**
+   * When the hold ends, which the countdown shows. Codes and price
+   * acceptance renew the token, never the hold.
+   */
+  readonly holdExpiresAt: string;
   readonly summary: CustomerCheckout["summary"];
+  /** The entered code the price includes; its line can remove it. */
+  readonly appliedDiscountCode: Option.Option<
+    NonNullable<CustomerCheckout["appliedDiscountCode"]>
+  >;
   /** The changed lines while the customer must accept a new price. */
   readonly priceReview: Option.Option<
     NonNullable<CustomerCheckout["priceReview"]>["changedKeys"]
   >;
   readonly earlyPerformanceConsent: CustomerCheckout["earlyPerformanceConsent"];
   readonly referralApplied: boolean;
+  /** An office order's people as the server holds them. */
+  readonly people: Option.Option<CustomerOfficePeople>;
 }
 
 /** The discount or referral code field. */
@@ -116,6 +132,10 @@ export type CheckoutCommand = Data.TaggedEnum<{
     readonly request: typeof ApplyCustomerCheckoutDiscountCode.Type;
     readonly referralCode: Option.Option<ReferralCode>;
   };
+  ClearDiscountCode: {
+    readonly operationId: CheckoutOperationId;
+    readonly request: typeof ClearCustomerCheckoutDiscountCode.Type;
+  };
   AcceptPriceChange: {
     readonly operationId: CheckoutOperationId;
     readonly request: typeof AcceptCustomerCheckoutPriceChange.Type;
@@ -144,6 +164,7 @@ type Command<Tag extends CheckoutCommand["_tag"]> = Data.TaggedEnum.Value<
 >;
 export type CreateCheckoutCommand = Command<"CreateCheckout">;
 export type ApplyDiscountCodeCommand = Command<"ApplyDiscountCode">;
+export type ClearDiscountCodeCommand = Command<"ClearDiscountCode">;
 export type AcceptPriceChangeCommand = Command<"AcceptPriceChange">;
 export type SubmitCheckoutCommand = Command<"SubmitCheckout">;
 export type OpenPaymentCommand = Command<"OpenPayment">;
@@ -151,6 +172,7 @@ export type OpenPaymentCommand = Command<"OpenPayment">;
 /** The one write a held checkout runs at a time. */
 export type ReviewMutation =
   | ApplyDiscountCodeCommand
+  | ClearDiscountCodeCommand
   | AcceptPriceChangeCommand
   | SubmitCheckoutCommand;
 
@@ -178,9 +200,28 @@ export type ReviewNotice = Data.TaggedEnum<{
 }>;
 export const ReviewNotice = Data.taggedEnum<ReviewNotice>();
 
+/**
+ * What the review pays for: a new booking, with who books and who is
+ * invoiced as the details step submitted them, or an order whose payment
+ * failed, was cancelled or expired, paid again with the details the server
+ * kept for it.
+ */
+export type ReviewKind = Data.TaggedEnum<{
+  NewBooking: { readonly details: CheckoutDetails };
+  PaymentRetry: { readonly details: CustomerPaymentRetryDetails };
+}>;
+export const ReviewKind = Data.taggedEnum<ReviewKind>();
+
 interface ReviewFields {
   readonly flow: CheckoutFlow;
+  readonly kind: ReviewKind;
   readonly checkout: HeldCheckout;
+  /**
+   * The total shown before the price changed, while a price review waits;
+   * none when the review opened on a changed price (the quote's total was
+   * the last one shown).
+   */
+  readonly priceBefore: Option.Option<CustomerCheckout["summary"]["total"]>;
   readonly code: CodeEntry;
   readonly legal: LegalDocuments;
   /** The documents the ticked checkbox accepted; none while unticked. */
@@ -226,6 +267,12 @@ export type CheckoutState = Data.TaggedEnum<{
     readonly notice: Option.Option<CheckoutRetryKind>;
   };
   Paying: {
+    /**
+     * The review Pay was pressed on, its submit still pending: the screen
+     * keeps showing it, Pay saying the page is opening, until the payment
+     * page is up and the customer comes back.
+     */
+    readonly review: ReviewState;
     readonly flow: CheckoutFlow;
     readonly orderId: string;
     readonly paymentUrl: string;
@@ -260,6 +307,8 @@ export type CheckoutEvent = Data.TaggedEnum<{
   };
   CodeChanged: { readonly input: string };
   ApplyCode: Record<never, never>;
+  /** Removes the applied entered code (`HeldCheckout.appliedDiscountCode`). */
+  ClearCode: Record<never, never>;
   AcceptPrice: Record<never, never>;
   ToggleConsent: { readonly accepted: boolean };
   Pay: Record<never, never>;
@@ -281,6 +330,10 @@ export type CheckoutEvent = Data.TaggedEnum<{
   CodeApplied: {
     readonly operationId: CheckoutOperationId;
     readonly result: CustomerCheckoutDiscountCodeResult;
+  };
+  CodeCleared: {
+    readonly operationId: CheckoutOperationId;
+    readonly checkout: CustomerCheckout;
   };
   PriceAccepted: {
     readonly operationId: CheckoutOperationId;

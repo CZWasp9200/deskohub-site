@@ -10,13 +10,24 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  type CustomerCompaniesApi,
+  type CustomerCompanyDetails,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
+  CustomerInvitationResendRefused,
   CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
   type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
+  type CustomerPaymentPage,
+  CustomerPaymentPageClosed,
+  type CustomerPaymentPageClosedReason,
+  type CustomerPaymentRetry,
+  CustomerPaymentRetryRefused,
+  type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
   type CustomerProfileSave,
   CustomerRateLimited,
@@ -28,6 +39,12 @@ import {
   CustomerServiceUnavailable,
   CustomerSessionAuthentication,
   CustomerSessionRequired,
+  CustomerWithdrawalNameRequired,
+  type CustomerWithdrawalQuote,
+  type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundChanged,
+  CustomerWithdrawalRefused,
+  type CustomerWithdrawalRefusedReason,
   customerApiClientHeader,
   type ProfileCompletionReferralOutcome,
   profileCompletionSaveOf,
@@ -47,17 +64,19 @@ import {
   HttpServerRequest,
   HttpServerResponse,
   Multipart,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleCompanies,
   sampleEstablishment,
+  sampleUnreachableCompanyId,
   sampleWorkspaceData,
 } from "./sample-fixtures";
 
@@ -84,12 +103,41 @@ export type FakeRequestOutcome =
    */
   | "session-not-fresh";
 
-type EndpointName = HttpApiEndpoint.Name<
+type EndpointName = HttpApiEndpoint.Identifier<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
+  | HttpApiGroup.Endpoints<typeof CustomerCompaniesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
+
+const requestOutcomes: ReadonlyArray<FakeRequestOutcome> = [
+  "session-required",
+  "rate-limited",
+  "service-unavailable",
+  "transport-failure",
+  "hang",
+  "unreadable-answer",
+  "session-not-fresh",
+];
+
+/**
+ * The failures sample data answers every request of an endpoint with, so a
+ * capture can show a loading or failed state: `endpoint=outcome` pairs,
+ * comma separated, such as `listInvoices=hang`. Unknown outcomes are left
+ * out.
+ */
+export const sampleRequestOutcomes = (
+  text: string | undefined
+): ReadonlyArray<readonly [EndpointName, FakeRequestOutcome]> =>
+  (text ?? "").split(",").flatMap((pair) => {
+    const [endpoint, outcome] = pair.split("=").map((part) => part.trim());
+    return endpoint !== undefined &&
+      endpoint !== "" &&
+      requestOutcomes.includes(outcome as FakeRequestOutcome)
+      ? [[endpoint as EndpointName, outcome as FakeRequestOutcome] as const]
+      : [];
+  });
 
 /**
  * An in-memory Workspace serving the real customer API and Better Auth
@@ -134,6 +182,36 @@ export class FakeWorkspace {
    * the answer is the account's decision once it settles.
    */
   analyticsSyncDelay: Promise<void> | undefined;
+  /** The companies the company lookup finds, by company ID. */
+  companies: ReadonlyMap<string, CustomerCompanyDetails> = sampleCompanies;
+  /**
+   * What reopening an order's payment page answers: the page, or why it is
+   * closed. No sample order has a payment still open on the provider's page.
+   */
+  paymentPage: CustomerPaymentPage | CustomerPaymentPageClosedReason =
+    "no_active_attempt";
+  /**
+   * What paying an order again answers: its checkout, or why it is refused.
+   * Unset, no sample payment ended unpaid: a paid order answers as paid, any
+   * other as one whose reservation has ended.
+   */
+  paymentRetry:
+    | CustomerPaymentRetry
+    | CustomerPaymentRetryRefusedReason
+    | undefined;
+  /**
+   * What the withdrawal quote answers for every order: the quote, or why the
+   * customer can't withdraw. Unset, each order answers for itself
+   * (`withdrawalFor`).
+   */
+  withdrawal:
+    | CustomerWithdrawalQuote
+    | CustomerWithdrawalRefusedReason
+    | undefined;
+  /** Awaited before the quote answers, as a slow response. */
+  withdrawalQuoteDelay: Promise<void> | undefined;
+  /** Awaited before a withdrawal is recorded, as a slow response. */
+  withdrawalDelay: Promise<void> | undefined;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -166,6 +244,83 @@ export class FakeWorkspace {
         ...order,
         state: { ...order.state, status },
       }),
+    };
+  }
+
+  /**
+   * What the withdrawal quote answers for the order: already withdrawn once
+   * recorded, else the set answer, else a full refund of its total while its
+   * list entry is withdrawable, and not withdrawable otherwise.
+   */
+  withdrawalFor(
+    orderId: CustomerReservationOrderId
+  ): CustomerWithdrawalQuote | CustomerWithdrawalRefusedReason {
+    const order = this.data.orders.get(orderId);
+    if (order?.state.withdrawal !== undefined) return "already_withdrawn";
+    if (this.withdrawal !== undefined) return this.withdrawal;
+    const { history } = this.data;
+    const entry = [...history.current, ...history.past].find(
+      (row) => row.orderId === orderId
+    );
+    const total = order?.state.total;
+    if (entry?.withdrawal?.eligible !== true || total === undefined)
+      return "not_withdrawable";
+    return {
+      contractId: orderId,
+      contractLabel: "Sample booking",
+      customerName: "Jana Nováková",
+      receiptEmail: this.data.account.email,
+      paidAmount: total,
+      refundAmount: total,
+      refundBasis: { kind: "full" },
+      refundTermsKey: "sample-refund-terms",
+      periodEndsAt: entry.withdrawal.periodEndsAt,
+    };
+  }
+
+  /**
+   * Records a withdrawal from the order as the Workspace does: its status
+   * carries the withdrawal, its PIN is gone, and the list shows it cancelled
+   * under past, no longer withdrawable.
+   */
+  recordWithdrawal(
+    orderId: CustomerReservationOrderId,
+    receipt: CustomerWithdrawalReceipt
+  ) {
+    const order = this.data.orders.get(orderId);
+    const { history } = this.data;
+    const entry = [...history.current, ...history.past].find(
+      (row) => row.orderId === orderId
+    );
+    const others = (rows: typeof history.current) =>
+      rows.filter((row) => row.orderId !== orderId);
+    this.data = {
+      ...this.data,
+      orders:
+        order === undefined
+          ? this.data.orders
+          : new Map(this.data.orders).set(orderId, {
+              ...order,
+              access: undefined,
+              state: {
+                ...order.state,
+                withdrawal: {
+                  submittedAt: receipt.submittedAt,
+                  refundAmount: receipt.refundAmount,
+                },
+              },
+            }),
+      history:
+        entry === undefined
+          ? history
+          : {
+              ...history,
+              current: others(history.current),
+              past: [
+                { ...entry, status: "cancelled", withdrawal: undefined },
+                ...others(history.past),
+              ],
+            },
     };
   }
 
@@ -622,6 +777,32 @@ const serverLayer = (workspace: FakeWorkspace) => {
           })
         )
         .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
+        .handle("listInvitedReservations", () =>
+          Effect.sync(() => workspace.data.invited ?? { current: [], past: [] })
+        )
+        // Sends again to a listed invitee, then accepts no other resend for
+        // five minutes, as the Workspace's cooldown does.
+        .handle("resendInvitation", ({ params }) =>
+          Effect.gen(function* () {
+            const found = yield* order(params.orderId);
+            const listed = found.state.people?.invitees.some(
+              ({ id }) => id === params.inviteeId
+            );
+            if (listed !== true) {
+              return yield* new CustomerReservationNotFound();
+            }
+            if (found.state.people?.resendable !== true) {
+              return yield* new CustomerInvitationResendRefused({
+                reason: "not-confirmed",
+              });
+            }
+            const now = Date.now();
+            return {
+              invitationSentAt: new Date(now).toISOString(),
+              resendAvailableAt: new Date(now + 5 * 60_000).toISOString(),
+            };
+          })
+        )
         .handle("getReservationStatus", ({ params }) =>
           Effect.map(order(params.orderId), (found) => found.state)
         )
@@ -639,24 +820,177 @@ const serverLayer = (workspace: FakeWorkspace) => {
               : Effect.succeed(found.invoice)
           )
         )
+        .handle("reopenPaymentPage", ({ params }) =>
+          Effect.andThen(
+            order(params.orderId),
+            Effect.suspend(() => {
+              const answer = workspace.paymentPage;
+              return typeof answer === "string"
+                ? Effect.fail(new CustomerPaymentPageClosed({ reason: answer }))
+                : Effect.succeed(answer);
+            })
+          )
+        )
+        .handle("getWithdrawalQuote", ({ params }) =>
+          Effect.andThen(
+            Effect.promise(
+              () => workspace.withdrawalQuoteDelay ?? Promise.resolve()
+            ),
+            Effect.suspend(() => {
+              const answer = workspace.withdrawalFor(params.orderId);
+              return typeof answer === "string"
+                ? Effect.fail(new CustomerWithdrawalRefused({ reason: answer }))
+                : Effect.succeed(answer);
+            })
+          )
+        )
+        .handle("withdrawFromReservation", ({ params, payload }) =>
+          Effect.andThen(
+            Effect.promise(
+              () => workspace.withdrawalDelay ?? Promise.resolve()
+            ),
+            Effect.suspend(
+              (): Effect.Effect<
+                CustomerWithdrawalReceipt,
+                | CustomerWithdrawalRefused
+                | CustomerWithdrawalRefundChanged
+                | CustomerWithdrawalNameRequired
+              > => {
+                const answer = workspace.withdrawalFor(params.orderId);
+                if (typeof answer === "string")
+                  return Effect.fail(
+                    new CustomerWithdrawalRefused({ reason: answer })
+                  );
+                const {
+                  paidAmount,
+                  refundAmount,
+                  refundBasis,
+                  refundTermsKey,
+                  periodEndsAt,
+                } = answer;
+                if (payload.refundTermsKey !== refundTermsKey)
+                  return Effect.fail(
+                    payload.refundTermsKey === undefined
+                      ? new CustomerWithdrawalRefused({
+                          reason: "not_withdrawable",
+                        })
+                      : new CustomerWithdrawalRefundChanged({
+                          quote: {
+                            paidAmount,
+                            refundAmount,
+                            refundBasis,
+                            refundTermsKey,
+                            periodEndsAt,
+                          },
+                        })
+                  );
+                // The statement needs a name: the profile's, else the typed one.
+                if (
+                  answer.customerName === null &&
+                  (payload.customerName ?? "").trim() === ""
+                )
+                  return Effect.fail(new CustomerWithdrawalNameRequired());
+                const receipt: CustomerWithdrawalReceipt = {
+                  withdrawalId: "sample-withdrawal-1",
+                  submittedAt: new Date().toISOString(),
+                  refundAmount: answer.refundAmount,
+                  receiptEmail: answer.receiptEmail,
+                };
+                workspace.recordWithdrawal(params.orderId, receipt);
+                return Effect.succeed(receipt);
+              }
+            )
+          )
+        )
+        .handle("retryPayment", ({ params }) =>
+          Effect.flatMap(order(params.orderId), (found) => {
+            const answer =
+              workspace.paymentRetry ??
+              (found.state.paymentStatus === "paid"
+                ? "paid"
+                : "reservation_ended");
+            return typeof answer === "string"
+              ? Effect.fail(new CustomerPaymentRetryRefused({ reason: answer }))
+              : Effect.succeed(answer);
+          })
+        )
   );
 
-  // The sample data issues no invoices yet: the list is empty and every
-  // invoice is not found, as the Workspace answers an account without any.
+  // The account's invoices; one without a stored PDF or credit note, or any
+  // other ID, is not found, as the Workspace answers another customer's
+  // invoice and an invoice that isn't cancelled.
   const invoices = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "invoices",
     (handlers) =>
       handlers
         .handle("listInvoices", () =>
-          Effect.as(linkedAccount, { invoices: [] })
-        )
-        .handle("getInvoicePdf", () =>
           Effect.andThen(
             linkedAccount,
-            Effect.fail(new CustomerInvoiceNotFound())
+            Effect.sync(() => ({
+              invoices: workspace.data.invoices.map(({ invoice }) => invoice),
+            }))
           )
         )
+        .handle("getInvoicePdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.pdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
+          )
+        )
+        .handle("getCorrectiveDocumentPdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.creditNotePdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
+          )
+        )
+  );
+
+  // Any ID the sample companies lack is not found, but for the one the
+  // registry never answers for; an account awaiting deletion is refused, as
+  // the Workspace refuses it.
+  const companies = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "companies",
+    (handlers) =>
+      handlers.handle("lookupCompany", ({ params }) =>
+        Effect.suspend(
+          (): Effect.Effect<
+            CustomerCompanyDetails,
+            | CustomerAccountLinkRequired
+            | CustomerCompanyNotFound
+            | CustomerCompanyRegistryUnavailable
+          > => {
+            if (workspace.data.account.kind === "deletion-pending") {
+              return Effect.fail(
+                new CustomerAccountLinkRequired({ reason: "deletion-pending" })
+              );
+            }
+            const companyId = params.companyId.trim();
+            if (companyId === sampleUnreachableCompanyId) {
+              return Effect.fail(new CustomerCompanyRegistryUnavailable());
+            }
+            const company = workspace.companies.get(companyId);
+            return company === undefined
+              ? Effect.fail(new CustomerCompanyNotFound())
+              : Effect.succeed(company);
+          }
+        )
+      )
   );
 
   const booking = fakeBookingGroup(workspace);
@@ -777,7 +1111,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
     // Injected outcomes are answered as the Workspace's own middleware would.
     Layer.succeed(CustomerSessionAuthentication, (httpEffect, { endpoint }) =>
       Effect.gen(function* () {
-        const name = endpoint.name as EndpointName;
+        const name = endpoint.identifier as EndpointName;
         workspace.calls.push(name);
         const outcome = workspace.nextOutcome(name);
         if (outcome === "session-required" || !workspace.signedIn) {
@@ -811,7 +1145,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
+      Layer.provide(
+        Layer.mergeAll(account, reservations, invoices, companies, booking)
+      ),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

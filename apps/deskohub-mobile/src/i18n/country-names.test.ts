@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { appLocales } from "./app-locale";
 import {
+  bundledCountryName,
   countryName,
+  detectedCountry,
+  homeCountry,
   invoiceCountries,
   invoiceCountryCodes,
 } from "./country-names";
@@ -31,5 +34,26 @@ describe("invoice countries", () => {
     expect(names).toEqual(
       [...names].sort((left, right) => left.localeCompare(right, "cs-CZ"))
     );
+  });
+
+  test("without Intl.DisplayNames, the home country keeps the website's short name", () => {
+    for (const locale of appLocales) {
+      expect(bundledCountryName("CZ", locale)).toBe(
+        new Intl.DisplayNames([locale], { type: "region" }).of("CZ") ?? ""
+      );
+    }
+  });
+});
+
+describe("detectedCountry", () => {
+  test("is the first device region that is an invoice country", () => {
+    expect(detectedCountry(["US", "DE"])).toBe("US");
+    expect(detectedCountry([null, "XK", "at"])).toBe("AT");
+  });
+
+  test("falls back to the home country when no region is one", () => {
+    expect(detectedCountry([])).toBe(homeCountry);
+    expect(detectedCountry([null, undefined, "XK", "419"])).toBe(homeCountry);
+    expect(homeCountry).toBe("CZ");
   });
 });

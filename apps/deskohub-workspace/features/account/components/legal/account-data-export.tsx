@@ -192,6 +192,7 @@ export function AccountDataExport({
               "invoices.json": m.legalScreenExportSectionInvoices,
               "consents.json": m.legalScreenExportSectionConsents,
               "access-grants.json": m.legalScreenExportSectionAccessGrants,
+              "withdrawals.json": m.legalScreenExportSectionWithdrawals,
             }[path]({}, { locale })}
           </li>
         ))}

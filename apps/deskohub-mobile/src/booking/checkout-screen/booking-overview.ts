@@ -1,6 +1,8 @@
 import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
 import { Data, Option } from "effect";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import {
+  addDays,
   type PragueDate,
   pragueDateTimeAt,
   pragueInstant,
@@ -24,7 +26,18 @@ export const MeetingRoomTime = Data.taggedEnum<MeetingRoomTime>();
  * inclusive dates and seats.
  */
 export type BookingOverview = Data.TaggedEnum<{
-  Cowork: { readonly date: PragueDate };
+  Cowork: {
+    readonly date: PragueDate;
+    /**
+     * An overnight stay's times: from `start` on `date` to `end` on
+     * `endDate`, the next day. None for a day.
+     */
+    readonly overnight: Option.Option<{
+      readonly start: string;
+      readonly end: string;
+      readonly endDate: PragueDate;
+    }>;
+  };
   MeetingRoom: {
     readonly date: PragueDate;
     /** None for an hourly booking without a start, which checkout refuses. */
@@ -74,14 +87,29 @@ const meetingRoomTime = (
   return Option.some(hoursOf(date, startTime, duration === "hour:4" ? 4 : 1));
 };
 
-/** The booked selection's dates, times and seats; early setup is checkout's. */
+/**
+ * The booked selection's dates, times and seats; early setup is checkout's,
+ * and an overnight stay's times are the catalog's.
+ */
 export const bookingOverviewOf = (
   selection: CustomerBookingSelection,
-  earlySetup: boolean
+  earlySetup: boolean,
+  overnightStay?: CoworkOvernightStay
 ): BookingOverview => {
   switch (selection.family) {
     case "cowork":
-      return BookingOverview.Cowork({ date: selection.date });
+      return BookingOverview.Cowork({
+        date: selection.date,
+        overnight: Option.fromNullishOr(
+          selection.stay === "overnight" ? overnightStay : undefined
+        ).pipe(
+          Option.map(({ startTime, endTime }) => ({
+            start: startTime,
+            end: endTime,
+            endDate: addDays(selection.date, 1),
+          }))
+        ),
+      });
     case "meeting-room":
       return BookingOverview.MeetingRoom({
         date: selection.date,

@@ -1,6 +1,6 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import {
   type CanonicalPromotionCode,
@@ -643,7 +643,8 @@ const openLinkAndHoldReservation = ({
         browser,
         "reservation-link prefilled form values",
         isPrefilledReservation,
-        toPrefilledReservation(data),
+        // A link carries no people: an office starts with the contact alone.
+        toPrefilledReservation(data, { officePeople: "contact-only" }),
         { timeoutMs: config.timeouts.uiTransition }
       );
       if (assertSelectedDurationZeroPrice) {
@@ -1049,7 +1050,9 @@ const returnToReservationWithConflictingQuery = ({
       browser,
       "edited public selection with the signed contact details",
       isPrefilledReservation,
-      toPrefilledReservation(replacementData),
+      toPrefilledReservation(replacementData, {
+        officePeople: "contact-only",
+      }),
       { timeoutMs: config.timeouts.uiTransition }
     );
     yield* waitForPageCondition(

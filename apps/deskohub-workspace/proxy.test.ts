@@ -11,6 +11,12 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
 import { runCommand } from "@/scripts/shared/command";
 import type { AgentPageRequest } from "@/shared/backend/agent-traffic/agent-page-request";
+import {
+  createReservationInvitationToken,
+  getReservationInvitationCookieName,
+} from "./features/reservation/backend/reservation-invitation-capability";
+import { reservationInvitationTokenQueryParam } from "./features/reservation/reservation-access-token";
+import { reservationInviteeIdSchema } from "./features/reservation-invitees/reservation-invitee";
 
 const localizedSignInPathname = new RegExp(
   `^/(?:${locales.join("|")})/auth/sign-in$`
@@ -436,6 +442,24 @@ describe("administration route boundary", () => {
     expect(administrationRequestHeaders[0]?.get("cookie")).toBe(sessionCookie);
   });
 
+  test("keeps an invoice's administration page and credit note private whatever they answer", async () => {
+    // A hidden invoice's pages answer the admin 404 from the app; the private
+    // headers come from here.
+    for (const pathname of [
+      "/en-US/admin/invoices/invoice-id",
+      "/en-US/admin/invoices/invoice-id/corrective-document",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${pathname}`, {
+          headers: { cookie: sessionCookie },
+        })
+      );
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expectPrivateAdministrationResponse(response);
+    }
+  });
+
   test("rewrites non-administrators for GET, HEAD, RSC, and unprefixed page requests", async () => {
     administrationAccessResult = "not-administrator";
     const responses: Response[] = [];
@@ -701,6 +725,20 @@ describe("mobile web app under /app/", () => {
   });
 });
 
+describe("APK downloads", () => {
+  const matchesProxy = (pathname: string) =>
+    unstable_doesMiddlewareMatch({
+      config,
+      url: `https://workspace.example${pathname}`,
+    });
+
+  test("skip the locale redirect, unlike the /android page", () => {
+    expect(matchesProxy("/android/download")).toBe(false);
+    expect(matchesProxy("/android")).toBe(true);
+    expect(matchesProxy("/android/downloads")).toBe(true);
+  });
+});
+
 describe("dotted paths under a locale prefix", () => {
   const matchesProxy = (pathname: string) =>
     unstable_doesMiddlewareMatch({
@@ -912,6 +950,57 @@ test("exchanges a valid reservation capability for a private cookie", async () =
   expect(
     response.cookies.get(getReservationAccessCookieName(orderId))?.value
   ).toEqual(expect.any(String));
+});
+
+test("exchanges an invitation on the access page for its own cookie", async () => {
+  const orderId = workspaceReservationIdSchema.make("reservation-id");
+  const invitationToken = Effect.runSync(
+    createReservationInvitationToken({
+      orderId,
+      inviteeId: reservationInviteeIdSchema.make("invitee-id"),
+      locale: "en-US",
+    })
+  );
+  const response = await proxy(
+    new NextRequest(
+      `https://workspace.example/en-US/reservation/access/${orderId}?${reservationInvitationTokenQueryParam}=${encodeURIComponent(invitationToken)}`
+    )
+  );
+
+  expect(response.status).toBe(307);
+  expect(response.headers.get("location")).toBe(
+    `https://workspace.example/en-US/reservation/access/${orderId}`
+  );
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(
+    response.cookies.get(getReservationInvitationCookieName(orderId))?.value
+  ).toEqual(expect.any(String));
+  expect(
+    response.cookies.get(getReservationAccessCookieName(orderId))
+  ).toBeUndefined();
+});
+
+test("rejects an invitation outside the access page or posing as an access token", async () => {
+  const orderId = workspaceReservationIdSchema.make("reservation-id");
+  const invitationToken = Effect.runSync(
+    createReservationInvitationToken({
+      orderId,
+      inviteeId: reservationInviteeIdSchema.make("invitee-id"),
+      locale: "en-US",
+    })
+  );
+  const token = encodeURIComponent(invitationToken);
+
+  for (const url of [
+    `https://workspace.example/en-US/reservation/status/${orderId}?${reservationInvitationTokenQueryParam}=${token}`,
+    `https://workspace.example/en-US/reservation/access/${orderId}?${reservationAccessTokenQueryParam}=${token}`,
+    `https://workspace.example/en-US/reservation/access/other-order?${reservationInvitationTokenQueryParam}=${token}`,
+    `https://workspace.example/cs-CZ/reservation/access/${orderId}?${reservationInvitationTokenQueryParam}=${token}`,
+  ]) {
+    const response = await proxy(new NextRequest(url));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  }
 });
 
 test("exchanges an access capability with preview bypass params and strips credentials", async () => {
@@ -1583,5 +1672,85 @@ describe("page Markdown negotiation", () => {
         pathname: "/en-US/faq",
       },
     ]);
+  });
+});
+
+describe("legal documents opened from the app", () => {
+  const legalPathnames = [
+    "/en-US/privacy-policy",
+    "/cs-CZ/marketing-communications",
+    "/de-DE/terms-and-conditions",
+    "/sk-SK/cookie-policy",
+    "/en-US/operating-rules",
+  ];
+  const varyOf = (response: Response) =>
+    (response.headers.get("vary") ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase());
+
+  test.each(legalPathnames)(
+    "renders %s?native=1 as the app's variant for page loads and router requests",
+    async (pathname) => {
+      const [, locale, documentKey] = pathname.split("/");
+      for (const init of [
+        {},
+        { method: "HEAD" },
+        { headers: { rsc: "1" } },
+        { headers: { rsc: "1", "next-router-prefetch": "1" } },
+      ]) {
+        const response = await proxy(
+          new NextRequest(`https://workspace.example${pathname}?native=1`, init)
+        );
+
+        expect(response.headers.get("x-middleware-rewrite")).toBe(
+          `https://workspace.example/${locale}/in-app/${documentKey}?native=1`
+        );
+        expect(response.headers.get("location")).toBeNull();
+        expect(varyOf(response)).toContain("accept");
+        expect(response.cookies.get(localeCookieName)?.value).toBe(locale);
+      }
+    }
+  );
+
+  test.each([
+    ["the site's page", "/en-US/privacy-policy"],
+    ["another signal value", "/en-US/privacy-policy?native=0"],
+    ["a repeated signal", "/en-US/privacy-policy?native=1&native=1"],
+    ["a page other than a legal document", "/en-US/faq?native=1"],
+    ["a path below a legal document", "/en-US/privacy-policy/x?native=1"],
+  ])("serves %s as usual", async (_, path) => {
+    for (const headers of [{}, { rsc: "1" }]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`, { headers })
+      );
+
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    }
+  });
+
+  test("keeps the signal through the locale redirect", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/privacy-policy?native=1", {
+        headers: { "accept-language": "cs" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/privacy-policy?native=1"
+    );
+  });
+
+  test("still serves Markdown to a request that prefers it", async () => {
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/en-US/privacy-policy?native=1",
+        { headers: { accept: "text/markdown" } }
+      )
+    );
+
+    expect(response.headers.get("x-middleware-rewrite")).toBe(
+      "https://workspace.example/page-markdown/en-US/privacy-policy"
+    );
   });
 });

@@ -167,13 +167,15 @@ export class CheckoutAnalytics extends Context.Service<
           { attempt, timestamp }: PaymentEventInput,
           properties: ServerEventProperties = {}
         ) =>
-          captureLifecycleEvent({
-            event,
-            reservationId: attempt.workspaceReservationId,
-            occurrenceId: attempt.id,
-            properties: { ...paymentProperties(attempt), ...properties },
-            timestamp,
-          });
+          attempt.workspaceReservationId === null
+            ? Effect.void
+            : captureLifecycleEvent({
+                event,
+                reservationId: attempt.workspaceReservationId,
+                occurrenceId: attempt.id,
+                properties: { ...paymentProperties(attempt), ...properties },
+                timestamp,
+              });
 
       const captureRequestEvent = (input: {
         readonly event: string;

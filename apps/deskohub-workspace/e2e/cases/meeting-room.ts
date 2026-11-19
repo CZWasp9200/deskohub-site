@@ -5,7 +5,7 @@ import type {
   DotyposTable,
 } from "@deskohub/dotypos";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import {
   getWorkspaceTableOccupancyById,
   workspaceBookingSeatCount,
@@ -295,7 +295,6 @@ export const makeMeetingRoomE2ECases = ({
           assertPaymentTerminalPath({
             config,
             data: cancelledData,
-            reservationPath: "/en-US/reservation/meeting-room",
             runStep,
             scenario: cancelledScenario,
             openSession,

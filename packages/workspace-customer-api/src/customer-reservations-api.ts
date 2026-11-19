@@ -1,12 +1,25 @@
 import { Schema } from "effect";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
-import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
-import { CustomerBookingSelection } from "./customer-booking-selection";
+} from "effect/http-api";
+import {
+  CustomerAccountLinkRequired,
+  CustomerFeatureUnavailable,
+  Money,
+} from "./customer-account-api";
+import {
+  CustomerCheckout,
+  CustomerCheckoutReturnTarget,
+} from "./customer-booking-checkout-api";
+import {
+  CustomerBookingSelection,
+  CustomerCoworkStay,
+} from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
+import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
 
@@ -16,7 +29,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No order with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerReservationNotFound extends Schema.TaggedErrorClass<CustomerReservationNotFound>()(
+export class CustomerReservationNotFound extends Schema.TaggedError<CustomerReservationNotFound>()(
   "CustomerReservationNotFound",
   {}
 ) {
@@ -27,7 +40,7 @@ export class CustomerReservationNotFound extends Schema.TaggedErrorClass<Custome
  * The order has no door code to show: it isn't paid and confirmed yet, or
  * it has ended. Asking again later can succeed only once its status changes.
  */
-export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<CustomerAccessCodeUnavailable>()(
+export class CustomerAccessCodeUnavailable extends Schema.TaggedError<CustomerAccessCodeUnavailable>()(
   "CustomerAccessCodeUnavailable",
   {}
 ) {
@@ -38,9 +51,96 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
  * The order has no issued invoice: it isn't paid and confirmed yet, or it
  * needs none. Asking again can succeed only once its status changes.
  */
-export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
+export class CustomerInvoiceNotIssued extends Schema.TaggedError<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * Why the order has no payment page to open again: it is `paid`, a
+ * `late_payment` of it is being checked, its hold was `released`, it has
+ * `no_active_attempt` whose page is still open (it ended or never opened
+ * one), or the page's `window_elapsed`. The order's status shows what to do
+ * next.
+ */
+export const CustomerPaymentPageClosedReason = Schema.Literals([
+  "paid",
+  "late_payment",
+  "released",
+  "no_active_attempt",
+  "window_elapsed",
+]).annotate({ identifier: "CustomerPaymentPageClosedReason" });
+export type CustomerPaymentPageClosedReason =
+  typeof CustomerPaymentPageClosedReason.Type;
+
+/**
+ * The order's payment page can't be opened again, for `reason`. Asking again
+ * can succeed only once a new payment opens a page.
+ */
+export class CustomerPaymentPageClosed extends Schema.TaggedError<CustomerPaymentPageClosed>()(
+  "CustomerPaymentPageClosed",
+  { reason: CustomerPaymentPageClosedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * Why the order's payment can't be tried again in place. The order is
+ * `paid`; its `payment_in_progress` may still complete; a `late_payment` of
+ * it is being checked; a newer booking `superseded` it; its reservation was
+ * cancelled (`reservation_cancelled`) or has ended (`reservation_ended`);
+ * its details can't be rebuilt (`details_unavailable`) or need a person to
+ * look at them (`needs_review`); the reserved spot was taken meanwhile
+ * (`spot_unavailable`); or the provider shows the earlier payment may still
+ * settle (`payment_settling`: check the order's status again later, don't
+ * book again). For every reason but `payment_settling`, booking the same
+ * selection again is the way on.
+ */
+export const CustomerPaymentRetryRefusedReason = Schema.Literals([
+  "paid",
+  "payment_in_progress",
+  "late_payment",
+  "superseded",
+  "reservation_cancelled",
+  "reservation_ended",
+  "details_unavailable",
+  "needs_review",
+  "spot_unavailable",
+  "payment_settling",
+]).annotate({ identifier: "CustomerPaymentRetryRefusedReason" });
+export type CustomerPaymentRetryRefusedReason =
+  typeof CustomerPaymentRetryRefusedReason.Type;
+
+/** The order's payment can't be tried again in place, for `reason`. */
+export class CustomerPaymentRetryRefused extends Schema.TaggedError<CustomerPaymentRetryRefused>()(
+  "CustomerPaymentRetryRefused",
+  { reason: CustomerPaymentRetryRefusedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * The invitation can't be sent again now: `cooldown` while the last one is
+ * recent (try again at `retryAt`), `not-confirmed` while the order isn't
+ * paid and confirmed, or after it was cancelled.
+ */
+export const CustomerInvitationResendRefusedReason = Schema.Literals([
+  "cooldown",
+  "not-confirmed",
+]).annotate({ identifier: "CustomerInvitationResendRefusedReason" });
+export type CustomerInvitationResendRefusedReason =
+  typeof CustomerInvitationResendRefusedReason.Type;
+
+export class CustomerInvitationResendRefused extends Schema.TaggedError<CustomerInvitationResendRefused>()(
+  "CustomerInvitationResendRefused",
+  {
+    reason: CustomerInvitationResendRefusedReason,
+    retryAt: Schema.optional(
+      Schema.String.annotate({ description: "ISO 8601 instant." })
+    ),
+  }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
@@ -80,7 +180,16 @@ export type CustomerCoworkTier = typeof CustomerCoworkTier.Type;
 
 /** What a reservation in the history books; `other` for any other product. */
 export const CustomerReservationProduct = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("cowork"), tier: CustomerCoworkTier }),
+  Schema.Struct({
+    kind: Schema.Literal("cowork"),
+    tier: CustomerCoworkTier,
+    /**
+     * The stay its booked time shows: overnight for a Reserved Desk held from
+     * noon to noon the next date. Absent when its time can't be read; read an
+     * absent stay as a day.
+     */
+    stay: Schema.optionalKey(CustomerCoworkStay),
+  }),
   Schema.Struct({ kind: Schema.Literal("meeting-room") }),
   Schema.Struct({ kind: Schema.Literal("office") }),
   Schema.Struct({ kind: Schema.Literal("other") }),
@@ -135,6 +244,12 @@ export const CustomerBookedSelection = Schema.Struct({
 export type CustomerBookedSelection = typeof CustomerBookedSelection.Type;
 
 /** A reservation as the account page's history lists it. */
+/** Whether the customer can withdraw from an order now, and until when. */
+export const CustomerReservationWithdrawalAvailability = Schema.Struct({
+  eligible: Schema.Boolean,
+  periodEndsAt: isoInstant,
+}).annotate({ identifier: "CustomerReservationWithdrawalAvailability" });
+
 export const CustomerReservationSummary = Schema.Struct({
   /** Unique within the history; only for telling entries apart. */
   id: Schema.String,
@@ -183,6 +298,12 @@ export const CustomerReservationSummary = Schema.Struct({
    * answers why.
    */
   todayAccess: Schema.optional(CustomerReservationAccess),
+  /**
+   * The online withdrawal entry point of a paid, confirmed order the account
+   * booked, while the withdrawal function is released: whether the customer
+   * can withdraw now, and when the withdrawal period ends (exclusive).
+   */
+  withdrawal: Schema.optional(CustomerReservationWithdrawalAvailability),
 }).annotate({ identifier: "CustomerReservationSummary" });
 export type CustomerReservationSummary = typeof CustomerReservationSummary.Type;
 
@@ -250,14 +371,60 @@ export type CustomerOrderFulfillmentStatus =
  * with the payment provider. The time and total are absent while the order
  * doesn't have them.
  */
+/** A person the booker invited to an order by email address. */
+export const CustomerReservationInviteeId = Schema.NonEmptyString.pipe(
+  Schema.brand("ReservationInviteeId")
+).annotate({
+  identifier: "CustomerReservationInviteeId",
+  description: "Opaque identifier of a person invited to an order.",
+});
+export type CustomerReservationInviteeId =
+  typeof CustomerReservationInviteeId.Type;
+
+/** An invited person as the order's booker sees them. */
+export const CustomerReservationInvitee = Schema.Struct({
+  id: CustomerReservationInviteeId,
+  email: Schema.String,
+  /** When their latest invitation was sent; null before it was sent. */
+  invitationSentAt: Schema.NullOr(isoInstant),
+  /**
+   * When `resendInvitation` accepts this person again. Absent while it
+   * accepts them now, or never will, such as for a cancelled order.
+   */
+  resendAvailableAt: Schema.optional(isoInstant),
+}).annotate({ identifier: "CustomerReservationInvitee" });
+export type CustomerReservationInvitee = typeof CustomerReservationInvitee.Type;
+
+/**
+ * Who is coming to a private office order: its customer (the contact) while
+ * `contactAttends`, and the invited people in the order they were added.
+ */
+export const CustomerReservationPeople = Schema.Struct({
+  contactAttends: Schema.Boolean,
+  /** The paid, confirmed order currently accepts explicit invitation resends. */
+  resendable: Schema.optionalKey(Schema.Boolean),
+  invitees: Schema.Array(CustomerReservationInvitee),
+}).annotate({ identifier: "CustomerReservationPeople" });
+export type CustomerReservationPeople = typeof CustomerReservationPeople.Type;
+
 export const CustomerOrderState = Schema.Struct({
   orderId: CustomerReservationOrderId,
   kind: CustomerReservationKind,
   status: CustomerOrderStatus,
   paymentStatus: CustomerOrderPaymentStatus,
   fulfillmentStatus: CustomerOrderFulfillmentStatus,
+  /** With status `cancelled`, marks a cancelled reservation irrespective of the payment outcome. */
+  reservationCancelled: Schema.optional(Schema.Literal(true)),
   /** Marks a review account's sample or simulated hold. */
   reviewSandbox: Schema.optional(Schema.Literal(true)),
+  /**
+   * Marks a pending order whose payment page can be opened again
+   * (`reopenPaymentPage`): the payment provider's order still shows no
+   * activity, or, when it can't be asked, the page is inside its provisional
+   * reopening window. The answer can change at any moment; reopening checks
+   * again.
+   */
+  paymentPageReopenable: Schema.optional(Schema.Literal(true)),
   startsAt: Schema.optional(isoInstant),
   endsAt: Schema.optional(isoInstant),
   /**
@@ -271,6 +438,19 @@ export const CustomerOrderState = Schema.Struct({
    * and its product can still be booked.
    */
   bookedSelection: Schema.optional(CustomerBookedSelection),
+  /**
+   * The customer withdrew from the order (§1830a): when, and what it owes
+   * back. The reservation is cancelled; the refund follows within 14 days.
+   */
+  withdrawal: Schema.optional(
+    Schema.Struct({ submittedAt: isoInstant, refundAmount: Money })
+  ),
+  /**
+   * Who is coming, for an office order whose people were listed when it was
+   * booked. Only the order's booker and customer see it; it is absent for
+   * other orders.
+   */
+  people: Schema.optional(CustomerReservationPeople),
 }).annotate({ identifier: "CustomerOrderState" });
 export type CustomerOrderState = typeof CustomerOrderState.Type;
 
@@ -311,11 +491,256 @@ export type CustomerEstablishment = typeof CustomerEstablishment.Type;
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
+ * Why the customer can't withdraw from the order now: it isn't paid and
+ * confirmed (`not_withdrawable`), it was booked for a business
+ * (`business_purpose`), the withdrawal period ended (`period_ended`), all of
+ * its service has started (`performance_started`), or the customer already
+ * withdrew (`already_withdrawn`). The customer may still contact the business.
+ */
+export const CustomerWithdrawalRefusedReason = Schema.Literals([
+  "not_withdrawable",
+  "business_purpose",
+  "period_ended",
+  "performance_started",
+  "already_withdrawn",
+]).annotate({ identifier: "CustomerWithdrawalRefusedReason" });
+export type CustomerWithdrawalRefusedReason =
+  typeof CustomerWithdrawalRefusedReason.Type;
+
+/** The customer can't withdraw from the order, for `reason`. */
+export class CustomerWithdrawalRefused extends Schema.TaggedError<CustomerWithdrawalRefused>()(
+  "CustomerWithdrawalRefused",
+  { reason: CustomerWithdrawalRefusedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * The statement needs the customer's name: the profile has none and the
+ * request didn't carry one.
+ */
+export class CustomerWithdrawalNameRequired extends Schema.TaggedError<CustomerWithdrawalNameRequired>()(
+  "CustomerWithdrawalNameRequired",
+  {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("UnprocessableEntity"));
+}
+
+const withdrawalUnitCount = Schema.Int.check(Schema.isGreaterThan(0));
+
+/**
+ * How the refund relates to the amount paid: all of it before the service
+ * starts, otherwise the share of `total` days or hours not yet started.
+ */
+export const CustomerWithdrawalRefundBasis = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("full") }),
+  Schema.Struct({
+    kind: Schema.Literal("partial"),
+    unit: Schema.Literals(["day", "hour"]),
+    unstarted: withdrawalUnitCount,
+    total: withdrawalUnitCount,
+  }),
+]).annotate({ identifier: "CustomerWithdrawalRefundBasis" });
+export type CustomerWithdrawalRefundBasis =
+  typeof CustomerWithdrawalRefundBasis.Type;
+
+const withdrawalRefundTermsFields = {
+  paidAmount: Money,
+  refundAmount: Money,
+  refundBasis: CustomerWithdrawalRefundBasis,
+  /** Echo this key on confirmation to accept the displayed refund terms. */
+  refundTermsKey: Schema.String,
+  /** The end of the withdrawal period, exclusive. */
+  periodEndsAt: isoInstant,
+};
+
+/** What the customer confirms before withdrawing from an order. */
+export const CustomerWithdrawalQuote = Schema.Struct({
+  contractId: CustomerReservationOrderId,
+  /** Names the order in the statement, in the requested language. */
+  contractLabel: Schema.String,
+  /** The customer's profile name, absent from a profile without one. */
+  customerName: Schema.NullOr(Schema.String),
+  /** Where the receipt of the withdrawal is sent: the login email. */
+  receiptEmail: Schema.String,
+  ...withdrawalRefundTermsFields,
+}).annotate({ identifier: "CustomerWithdrawalQuote" });
+export type CustomerWithdrawalQuote = typeof CustomerWithdrawalQuote.Type;
+
+/** The displayed refund terms no longer match the live quote. */
+export class CustomerWithdrawalRefundChanged extends Schema.TaggedError<CustomerWithdrawalRefundChanged>()(
+  "CustomerWithdrawalRefundChanged",
+  { quote: Schema.Struct(withdrawalRefundTermsFields) }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/** The confirmation of a submitted withdrawal; the receipt email follows. */
+export const CustomerWithdrawalReceipt = Schema.Struct({
+  withdrawalId: Schema.String,
+  submittedAt: isoInstant,
+  refundAmount: Money,
+  receiptEmail: Schema.String,
+}).annotate({ identifier: "CustomerWithdrawalReceipt" });
+export type CustomerWithdrawalReceipt = typeof CustomerWithdrawalReceipt.Type;
+
+/**
+ * Withdraws from the order: `locale` is the language of the statement and
+ * its receipt. Submitting again answers the recorded withdrawal's receipt.
+ */
+export const WithdrawFromCustomerReservation = Schema.Struct({
+  locale: CustomerLocale,
+  /** Required to record a new withdrawal. A recorded withdrawal can be retried without it. */
+  refundTermsKey: Schema.optionalKey(Schema.String),
+  /**
+   * The name the customer typed for the statement when the profile has
+   * none. The server trims it, treats a blank one as absent, and ignores it
+   * when the profile name is known.
+   */
+  customerName: Schema.optionalKey(Schema.String),
+}).annotate({
+  identifier: "WithdrawFromCustomerReservation",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
+ * Where the reopened page's payment returns the customer. Like a checkout
+ * submission, the last request that hands out the order's payment page
+ * decides.
+ */
+export const ReopenCustomerPaymentPage = Schema.Struct({
+  /** Absent: the payment returns to the Workspace site's status page. */
+  returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
+}).annotate({
+  identifier: "ReopenCustomerPaymentPage",
+});
+
+/**
+ * Pays an order again after its payment failed, was cancelled or expired:
+ * the checkout continues in `locale`, the language the app shows it in.
+ */
+export const RetryCustomerPayment = Schema.Struct({
+  locale: CustomerLocale,
+}).annotate({
+  identifier: "RetryCustomerPayment",
+});
+
+/**
+ * What the order is for and the invoice it needs, as the review shows it:
+ * the city of a personal invoice, or the name of the company a business
+ * invoice is for.
+ */
+export const CustomerPaymentRetryBilling = Schema.Union([
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("none"),
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("requested"),
+    city: Schema.String,
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("business"),
+    invoice: Schema.Literal("required"),
+    legalName: Schema.String,
+  }),
+]).annotate({ identifier: "CustomerPaymentRetryBilling" });
+export type CustomerPaymentRetryBilling =
+  typeof CustomerPaymentRetryBilling.Type;
+
+/**
+ * Who the order is for and the invoice it needs, kept as it was booked, for
+ * the review to show. `self`: the account's own profile is the contact;
+ * `someone-else`: `contact` is the customer the account booked for.
+ */
+export const CustomerPaymentRetryDetails = Schema.Struct({
+  bookingFor: Schema.Literals(["self", "someone-else"]),
+  contact: Schema.Struct({ name: Schema.String, email: Schema.String }),
+  billing: CustomerPaymentRetryBilling,
+}).annotate({ identifier: "CustomerPaymentRetryDetails" });
+export type CustomerPaymentRetryDetails =
+  typeof CustomerPaymentRetryDetails.Type;
+
+/**
+ * The order's checkout to pay again, with the details it keeps. They can't
+ * be changed here: booking again is the way to change them.
+ */
+export const CustomerPaymentRetry = Schema.Struct({
+  ...CustomerCheckout.fields,
+  details: CustomerPaymentRetryDetails,
+}).annotate({ identifier: "CustomerPaymentRetry" });
+export type CustomerPaymentRetry = typeof CustomerPaymentRetry.Type;
+
+/**
+ * The payment provider's page of the order's unpaid payment, opened again
+ * for a customer who left it. It is the page the payment already opened:
+ * opening it starts no new payment.
+ */
+export const CustomerPaymentPage = Schema.Struct({
+  url: Schema.NonEmptyString.annotate({
+    description: "The payment provider's page to open in a browser.",
+  }),
+}).annotate({ identifier: "CustomerPaymentPage" });
+export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
+
+/** An invitation sent again, and when the next resend is accepted. */
+export const CustomerInvitationResent = Schema.Struct({
+  invitationSentAt: isoInstant,
+  resendAvailableAt: isoInstant,
+}).annotate({ identifier: "CustomerInvitationResent" });
+export type CustomerInvitationResent = typeof CustomerInvitationResent.Type;
+
+/**
+ * An order someone else booked that invited the signed-in account's
+ * verified email address. It carries what the invited person may see: the
+ * space, when the door code works, and who booked it; never the price, the
+ * invoice, or the other people.
+ */
+export const CustomerInvitedReservation = Schema.Struct({
+  orderId: CustomerReservationOrderId,
+  product: CustomerReservationProduct,
+  /** The catalog name of `product` in the request's locale. */
+  productName: Schema.optional(Schema.String),
+  status: CustomerReservationStatus,
+  /** Null when the provider's time can't be read. */
+  accessStartsAt: Schema.NullOr(isoInstant),
+  accessEndsAt: Schema.NullOr(isoInstant),
+  /** The booker's name; null when it couldn't be read. */
+  bookedBy: Schema.Struct({ name: Schema.NullOr(Schema.String) }),
+  /**
+   * The door code of a confirmed order whose access starts by today in
+   * Prague and hasn't ended, as in the account's own history.
+   */
+  todayAccess: Schema.optional(CustomerReservationAccess),
+}).annotate({ identifier: "CustomerInvitedReservation" });
+export type CustomerInvitedReservation = typeof CustomerInvitedReservation.Type;
+
+/**
+ * The orders the signed-in account is invited to: current until their
+ * access ends, past once ended or cancelled.
+ */
+export const CustomerInvitedReservations = Schema.Struct({
+  current: Schema.Array(CustomerInvitedReservation),
+  past: Schema.Array(CustomerInvitedReservation),
+}).annotate({ identifier: "CustomerInvitedReservations" });
+export type CustomerInvitedReservations =
+  typeof CustomerInvitedReservations.Type;
+
+const InviteeParams = {
+  ...OrderParams,
+  inviteeId: CustomerReservationInviteeId,
+} as const;
+
+/**
  * The signed-in customer's reservations: the history, where the space is,
- * and the status, door code and invoice of an order the account booked or
- * whose customer it is.
+ * the status, door code and invoice of an order the account booked or whose
+ * customer it is, and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
- * do, and the door code and invoice only the order's customer sees.
+ * do, and the door code and invoice only the order's customer sees. People
+ * an office order invited by email see that order's door code too, and list
+ * such orders with `listInvitedReservations`; its booker resends their
+ * invitations.
  */
 export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   .add(
@@ -327,6 +752,14 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.get("listInvitedReservations", "/invitations", {
+      /** The language of `productName`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
+      success: CustomerInvitedReservations,
+      error: [CustomerServiceUnavailable.schema],
     })
   )
   .add(
@@ -345,6 +778,77 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
     })
   )
   .add(
+    HttpApiEndpoint.post("reopenPaymentPage", "/:orderId/payment-page", {
+      params: OrderParams,
+      payload: ReopenCustomerPaymentPage,
+      success: CustomerPaymentPage,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentPageClosed.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
+  )
+  .add(
+    /**
+     * The same order's checkout again, with its details kept and returned
+     * in `details`: the terms are confirmed again and `submitCheckout`
+     * starts the new payment. A changed price comes back as `price_review`
+     * to accept first. It never starts a payment and never books a second
+     * spot.
+     */
+    HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
+      params: OrderParams,
+      payload: RetryCustomerPayment,
+      success: CustomerPaymentRetry,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentRetryRefused.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
+  )
+  .add(
+    /**
+     * The order's withdrawal quote: the statement's details and the refund,
+     * while the customer can withdraw from it now.
+     */
+    HttpApiEndpoint.get("getWithdrawalQuote", "/:orderId/withdrawal", {
+      params: OrderParams,
+      /** The language of `contractLabel`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
+      success: CustomerWithdrawalQuote,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerWithdrawalRefused.schema,
+        CustomerFeatureUnavailable.schema,
+        CustomerAccountLinkRequired.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    /**
+     * Withdraws from the order: the online withdrawal function's "Confirm
+     * withdrawal". The receipt email follows; ending the booking and marking
+     * the refund happen after it and never fail the request.
+     */
+    HttpApiEndpoint.post("withdrawFromReservation", "/:orderId/withdrawal", {
+      params: OrderParams,
+      payload: WithdrawFromCustomerReservation,
+      success: CustomerWithdrawalReceipt,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerWithdrawalRefused.schema,
+        CustomerWithdrawalNameRequired.schema,
+        CustomerWithdrawalRefundChanged.schema,
+        CustomerFeatureUnavailable.schema,
+        CustomerAccountLinkRequired.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
+  )
+  .add(
     HttpApiEndpoint.get("getReservationAccess", "/:orderId/access", {
       params: OrderParams,
       success: CustomerReservationAccess,
@@ -354,6 +858,25 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
         CustomerServiceUnavailable.schema,
       ],
     })
+  )
+  .add(
+    /**
+     * Sends an invited person's access email again, unchanged: the people
+     * of a paid order are fixed. Only the order's booker and customer may.
+     */
+    HttpApiEndpoint.post(
+      "resendInvitation",
+      "/:orderId/invitees/:inviteeId/invitation",
+      {
+        params: InviteeParams,
+        success: CustomerInvitationResent,
+        error: [
+          CustomerReservationNotFound.schema,
+          CustomerInvitationResendRefused.schema,
+          CustomerServiceUnavailable.schema,
+        ],
+      }
+    )
   )
   .add(
     HttpApiEndpoint.get("getReservationInvoice", "/:orderId/invoice", {

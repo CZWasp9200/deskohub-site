@@ -14,7 +14,7 @@ import {
   DotyposReservationSchema,
   DotyposService,
 } from "@deskohub/dotypos";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type { CustomerReservationSummary } from "@/features/account/contracts";
@@ -158,6 +158,8 @@ const makeHistory = (input: {
         ),
         Layer.succeed(ReservationAuthorizationService, {
           isAuthorized: () => Effect.succeed(true),
+          authorizeViewer: () =>
+            Effect.succeed(Option.some("customer" as const)),
           authorize: () => Effect.succeed(true),
         }),
         Layer.succeed(WorkspaceCheckoutAccessCodeService, {
@@ -187,7 +189,9 @@ const makeHistory = (input: {
           Layer.provide(
             Layer.mergeAll(
               testDatabaseLayer(),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                testDatabase!.databasePool
+              )
             )
           )
         )

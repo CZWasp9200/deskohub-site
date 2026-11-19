@@ -6,6 +6,7 @@ import type { EmailDeliveryId } from "@deskohub/email";
 import type { NexiCorrelationId } from "@deskohub/nexi";
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   jsonb,
@@ -26,10 +27,7 @@ import {
 import type { Locale } from "@/features/i18n";
 import { orderFulfillmentStates, orderPaymentStates } from "@/features/order";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
-import type {
-  StoredWorkspaceReservationDetails,
-  WorkspaceReservationId,
-} from "@/features/reservation/persistence-contracts";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   type ReservationPurpose,
   reservationPurposeSchema,
@@ -53,6 +51,29 @@ export const reservationStates = [
   "cancelled",
   "cancellation_failed",
 ] as const;
+
+/**
+ * Why a reservation's cancellation was claimed, recorded when it is first
+ * claimed and kept by every later claim of the same cancellation:
+ * - `hold_expired`, `late_payment`, `payment_retry`: the unpaid-hold release
+ *   reasons that claim it;
+ * - `operator`: an administrator cancelled it;
+ * - `customer_withdrawal`: the customer withdrew from the contract;
+ * - `checkout_superseded`: a newer submission of its checkout session (the
+ *   customer's edit, or an agent's rotated session) replaced it.
+ * Null for cancellations recorded before causes were (their origin is unknown).
+ */
+const reservationCancellationCauses = [
+  "hold_expired",
+  "late_payment",
+  "payment_retry",
+  "operator",
+  "checkout_superseded",
+  "customer_withdrawal",
+] as const;
+
+export type ReservationCancellationCause =
+  (typeof reservationCancellationCauses)[number];
 
 export const paymentStates = orderPaymentStates;
 
@@ -134,9 +155,13 @@ export const workspaceReservations = pgTable(
     activeCustomerEmailDeliveryLocale: text(
       "active_customer_email_delivery_locale"
     ).$type<Locale>(),
-    reservationDetails: jsonb("reservation_details")
-      .$type<StoredWorkspaceReservationDetails>()
-      .notNull(),
+    reservationDetails: jsonb("reservation_details").notNull(),
+    /**
+     * For an office booked with a people list, whether its contact takes a
+     * seat; null for every other reservation. Kept apart from the invitee
+     * rows, which the retention purge deletes or reduces.
+     */
+    officeContactAttends: boolean("office_contact_attends"),
     locale: text("locale").notNull(),
     /**
      * The app the last submission that returned a payment page asked the
@@ -150,6 +175,13 @@ export const workspaceReservations = pgTable(
     reservationCreatedAt: instant("reservation_created_at"),
     reservationConfirmedAt: instant("reservation_confirmed_at"),
     reservationCancelledAt: instant("reservation_cancelled_at"),
+    cancellationCause:
+      text("cancellation_cause").$type<ReservationCancellationCause>(),
+    /**
+     * When the customer's cancellation email went out for the current
+     * cancellation; null when none was sent or recorded. A restore clears it.
+     */
+    cancellationEmailSentAt: instant("cancellation_email_sent_at"),
     paidAt: instant("paid_at"),
     fulfilledAt: instant("fulfilled_at"),
     fulfillmentFailedAt: instant("fulfillment_failed_at"),

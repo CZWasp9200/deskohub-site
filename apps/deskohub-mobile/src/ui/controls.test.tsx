@@ -1,8 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import Mail from "lucide-react-native/icons/mail";
-import { type ComponentProps, createRef, type ReactElement } from "react";
+import {
+  type ComponentProps,
+  createRef,
+  type ReactElement,
+  type RefObject,
+} from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
 import { Button, ButtonRow, TextField } from "./controls";
+import { type FieldView, FocusedFieldContext } from "./focused-field-scroll";
 import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
 import {
@@ -53,6 +60,7 @@ describe("Button", () => {
         "primary",
         "secondary",
         "danger",
+        "positive",
         "text",
         "quiet",
         "dangerText",
@@ -63,6 +71,7 @@ describe("Button", () => {
       color.action,
       color.surface,
       color.danger,
+      color.positiveInk,
       "transparent",
       "transparent",
       "transparent",
@@ -126,6 +135,17 @@ describe("Button", () => {
 
   test("an icon is drawn before the label", () => {
     expect(find(button({ icon: Mail }), "Svg")).toBeDefined();
+  });
+
+  test("iconPlacement end draws the icon after the label", () => {
+    const iconFirst = (placement: "start" | "end") => {
+      const json = JSON.stringify(
+        button({ icon: Mail, iconPlacement: placement })
+      );
+      return json.indexOf('"Svg"') < json.indexOf('"label"');
+    };
+    expect(iconFirst("start")).toBe(true);
+    expect(iconFirst("end")).toBe(false);
   });
 
   test("disabled is neutral grey and says why, above the button and as its hint", () => {
@@ -207,7 +227,7 @@ const flat = (style: unknown) =>
 const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
   const tree = hostTree(elementTree(TextField, { label: "label", ...props }));
   const frame = findAll(tree, "View").find(
-    (view) => find(view, "TextInput") && flat(view.props.style).minHeight
+    (view) => flat(view.props.style).minHeight !== undefined
   );
   const errorRegion = findAll(tree, "Text").find(
     (text) => text.props.role !== undefined
@@ -224,6 +244,37 @@ const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
 };
 
 describe("TextField", () => {
+  test("focus and blur report the whole field, label to messages, to its scroll view", () => {
+    const reports: Array<[string, FieldView]> = [];
+    const tracker = {
+      focused: (view: FieldView) => reports.push(["focused", view]),
+      blurred: (view: FieldView) => reports.push(["blurred", view]),
+    };
+    const column = elementTree(
+      TextField,
+      { label: "Phone", hint: "Include the country code." },
+      (node) => (
+        <FocusedFieldContext value={tracker}>{node}</FocusedFieldContext>
+      )
+    ) as ReactElement<{ ref: RefObject<FieldView | null> }>;
+    const mounted: FieldView = {
+      measureInWindow: () => undefined,
+      measureLayout: () => undefined,
+    };
+    column.props.ref.current = mounted;
+    const input = find(hostTree(column), "TextInput")?.props as {
+      onFocus: () => void;
+      onBlur: (event: unknown) => void;
+    };
+
+    input.onFocus();
+    input.onBlur({});
+    expect(reports).toEqual([
+      ["focused", mounted],
+      ["blurred", mounted],
+    ]);
+  });
+
   test("the web input draws no outline of its own, so only the frame rings on focus", () => {
     // Chromium draws an `auto` outline whatever its width.
     expect(flat(field().input?.style)).toMatchObject({
@@ -277,11 +328,20 @@ describe("TextField", () => {
     expect(field().input?.placeholderTextColor).toBe(color.ink3);
   });
 
-  test("read-only is sunken with a lock and not editable", () => {
-    const { input, frame, icons } = field({ readOnly: true });
+  test("read-only is sunken with a lock and shows its whole value, wrapping", () => {
+    const value = testEmailAddress("a-very-long-address-that-must-wrap");
+    const tree = hostTree(
+      elementTree(TextField, { label: "label", value, readOnly: true })
+    );
+    const { input, frame, icons } = field({ value, readOnly: true });
     expect(frame.backgroundColor).toBe(color.sunken);
     expect(icons).toBe(1);
-    expect(input?.editable).toBe(false);
+    expect(input).toBeUndefined();
+    const shown = findAll(tree, "Text").find(
+      (text) => text.props.children === value
+    );
+    expect(shown?.props.numberOfLines).toBeUndefined();
+    expect(shown?.props.selectable).toBe(true);
   });
 
   test("disabled is greyed, not editable and marked disabled", () => {

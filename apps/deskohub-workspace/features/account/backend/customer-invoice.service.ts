@@ -1,6 +1,11 @@
 import { Context, Data, Effect, Layer } from "effect";
 import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
+import {
+  type CorrectiveDocumentPdfFile,
+  renderCorrectiveDocumentPdfFile,
+} from "@/features/accounting/backend/corrective-document-pdf";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import {
   type InvoicePdfFile,
   renderInvoicePdfFile,
@@ -9,6 +14,7 @@ import {
   type CustomerInvoiceSummary,
   getCustomerInvoiceCsvColumns,
   getCustomerInvoiceSummary,
+  type InvoicedReservation,
 } from "@/features/accounting/customer-invoice";
 import type { Locale } from "@/features/i18n";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -19,6 +25,7 @@ import {
   isCustomerAccountAccessDenial,
   type LinkedCustomerAccount,
 } from "../customer-account";
+import { getReservationProductName } from "../reservation-product-name";
 import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
@@ -35,7 +42,10 @@ export class CustomerInvoicesUnavailableError extends Data.TaggedError(
   readonly account: CustomerAccountAccessError;
 }> {}
 
-/** No invoice of the account's customer has this id. */
+/**
+ * No invoice of the account's customer has this id, or, for its corrective
+ * document, the invoice isn't cancelled.
+ */
 export class CustomerInvoiceNotFoundError extends Data.TaggedError(
   "CustomerInvoiceNotFoundError"
 ) {}
@@ -44,7 +54,9 @@ export class CustomerInvoiceNotFoundError extends Data.TaggedError(
 export type CustomerInvoiceLoadFailureCode =
   | "account.authority"
   | "invoice.read"
-  | "invoice.pdf";
+  | "invoice.pdf"
+  | "corrective-document.read"
+  | "corrective-document.pdf";
 
 /**
  * The account or its invoices couldn't be read. It keeps a fixed code, never
@@ -56,6 +68,18 @@ export class CustomerInvoicesLoadError extends Data.TaggedError(
   readonly code: CustomerInvoiceLoadFailureCode;
 }> {}
 
+/**
+ * An invoice in the account's list: its summary, with the product an order's
+ * invoice booked named from the catalog in the list's locale, as the
+ * reservation history names it.
+ */
+export interface CustomerInvoiceListing
+  extends Omit<CustomerInvoiceSummary, "reservation"> {
+  readonly reservation:
+    | (InvoicedReservation & { readonly productName: string })
+    | null;
+}
+
 /** The account's invoice export, ready for `createCsvDownloadResponse`. */
 interface CustomerInvoiceExport {
   readonly filename: string;
@@ -64,9 +88,14 @@ interface CustomerInvoiceExport {
 }
 
 interface ICustomerInvoiceService {
-  /** The account's issued invoices, newest issue first. */
-  readonly list: Effect.Effect<
-    readonly CustomerInvoiceSummary[],
+  /**
+   * The account's issued invoices, newest issue first, each invoiced
+   * product named in `locale`.
+   */
+  readonly list: (options: {
+    readonly locale: Locale;
+  }) => Effect.Effect<
+    readonly CustomerInvoiceListing[],
     CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
   >;
   /**
@@ -77,6 +106,19 @@ interface ICustomerInvoiceService {
     invoiceId: string
   ) => Effect.Effect<
     InvoicePdfFile,
+    | CustomerInvoiceNotFoundError
+    | CustomerInvoicesUnavailableError
+    | CustomerInvoicesLoadError
+  >;
+  /**
+   * The corrective document that cancelled one of the account's invoices, as
+   * a PDF file. It answers like `pdf`, and an invoice that isn't cancelled is
+   * not found too.
+   */
+  readonly correctiveDocumentPdf: (
+    invoiceId: string
+  ) => Effect.Effect<
+    CorrectiveDocumentPdfFile,
     | CustomerInvoiceNotFoundError
     | CustomerInvoicesUnavailableError
     | CustomerInvoicesLoadError
@@ -106,6 +148,7 @@ export class CustomerInvoiceService extends Context.Service<
       const currentAccount = yield* CurrentCustomerAccount;
       const links = yield* CustomerAccountLinkRepository;
       const invoices = yield* InvoiceRepository;
+      const cancellations = yield* InvoiceCancellationRepository;
 
       const authorize: Effect.Effect<
         LinkedCustomerAccount,
@@ -155,22 +198,60 @@ export class CustomerInvoiceService extends Context.Service<
           }))
         );
 
-      const list = authorize.pipe(
-        Effect.flatMap(listWithToday),
-        Effect.map(({ summaries }) => summaries),
-        Effect.withSpan("CustomerInvoiceService.list")
-      );
+      const list = ({ locale }: { readonly locale: Locale }) =>
+        authorize.pipe(
+          Effect.flatMap(listWithToday),
+          Effect.map(({ summaries }) =>
+            summaries.map(
+              ({ reservation, ...summary }): CustomerInvoiceListing => ({
+                ...summary,
+                reservation: reservation && {
+                  ...reservation,
+                  productName: getReservationProductName(
+                    reservation.product,
+                    locale
+                  ),
+                },
+              })
+            )
+          ),
+          Effect.withSpan("CustomerInvoiceService.list")
+        );
 
-      const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
-        invoiceId: string
-      ) {
+      /** One of the account's invoices, after re-authorizing the session. */
+      const findOwnInvoice = Effect.fnUntraced(function* (invoiceId: string) {
         const account = yield* authorize;
         const invoice = yield* invoices
           .findForCustomer(account.dotyposCustomerId, invoiceId)
           .pipe(Effect.catch(() => failLoad("invoice.read")));
         if (!invoice) return yield* new CustomerInvoiceNotFoundError();
+        return invoice;
+      });
+
+      const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
+        invoiceId: string
+      ) {
+        const invoice = yield* findOwnInvoice(invoiceId);
         return yield* renderInvoicePdfFile(invoice.document).pipe(
           Effect.catch(() => failLoad("invoice.pdf"))
+        );
+      });
+
+      const correctiveDocumentPdf = Effect.fn(
+        "CustomerInvoiceService.correctiveDocumentPdf"
+      )(function* (invoiceId: string) {
+        const invoice = yield* findOwnInvoice(invoiceId);
+        if (!invoice.cancellation) {
+          return yield* new CustomerInvoiceNotFoundError();
+        }
+        const document = yield* cancellations
+          .loadCorrectiveDocument(invoice.id)
+          .pipe(Effect.catch(() => failLoad("corrective-document.read")));
+        // A cancellation always has its corrective document; a missing one
+        // can't be served, so it fails like an unreadable one.
+        if (!document) return yield* failLoad("corrective-document.read");
+        return yield* renderCorrectiveDocumentPdfFile(document).pipe(
+          Effect.catch(() => failLoad("corrective-document.pdf"))
         );
       });
 
@@ -187,7 +268,12 @@ export class CustomerInvoiceService extends Context.Service<
         } satisfies CustomerInvoiceExport;
       });
 
-      return { list, pdf, csv } satisfies ICustomerInvoiceService;
+      return {
+        list,
+        pdf,
+        correctiveDocumentPdf,
+        csv,
+      } satisfies ICustomerInvoiceService;
     })
   );
 

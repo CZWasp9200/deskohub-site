@@ -1,18 +1,21 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type {
   CheckoutSummaryChangedKeys,
   CheckoutSummary as CheckoutSummaryData,
 } from "@/features/checkout/checkout-summary";
+import { CheckoutBanner } from "@/features/checkout/components/checkout-banner";
 import { CheckoutDiscountCountdownBanner } from "@/features/checkout/components/checkout-discount-countdown-banner";
 import { CheckoutSummary } from "@/features/checkout/components/checkout-summary";
 import { type Locale, m } from "@/features/i18n";
+import {
+  type OfficeCheckoutPeople,
+  OfficeCheckoutPeopleReview,
+} from "@/features/office/components/office-checkout-people";
 import { getCoworkReservationPath } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
-import { cn } from "@/shared/utils";
 import {
   CheckoutPayCard,
   CheckoutPayConsent,
@@ -27,7 +30,11 @@ type CheckoutPayPageProps = {
   readonly earlyPerformanceRequestRequired?: boolean;
   readonly freshPayUrl?: string;
   readonly locale: Locale;
+  /** An office order's first day, which its order line names. */
+  readonly officeStartDateLabel?: string;
   readonly payStateToken?: string;
+  /** Who is coming to an office order with a people list. */
+  readonly people?: OfficeCheckoutPeople;
   readonly summary: CheckoutSummaryData;
   readonly variant: "pay" | "retry" | "pricingChanged";
   readonly retryOutcome?: "cancelled" | "failed";
@@ -39,7 +46,9 @@ export function CheckoutPayPage({
   earlyPerformanceRequestRequired = true,
   freshPayUrl,
   locale,
+  officeStartDateLabel,
   payStateToken,
+  people,
   retryOutcome,
   summary,
   variant,
@@ -86,11 +95,26 @@ export function CheckoutPayPage({
 
       <CheckoutDiscountCountdownBanner locale={locale} summary={summary} />
 
-      <CheckoutSummary
-        changedKeys={changedKeys}
-        locale={locale}
-        summary={summary}
-      />
+      {people ? (
+        <div className="@container">
+          <div className="grid items-start gap-3 @3xl:grid-cols-2">
+            <CheckoutSummary
+              changedKeys={changedKeys}
+              locale={locale}
+              officeStartDateLabel={officeStartDateLabel}
+              summary={summary}
+            />
+            <OfficeCheckoutPeopleReview locale={locale} people={people} />
+          </div>
+        </div>
+      ) : (
+        <CheckoutSummary
+          changedKeys={changedKeys}
+          locale={locale}
+          officeStartDateLabel={officeStartDateLabel}
+          summary={summary}
+        />
+      )}
 
       {variant === "pay" && discountCodeForm}
 
@@ -101,8 +125,6 @@ export function CheckoutPayPage({
         />
       ) : (
         <>
-          {!!providerTotal && <CheckoutPayProviderHandoff locale={locale} />}
-
           <CheckoutPayConsent
             checked={legalConsent}
             id="checkout-pay-legal-consent"
@@ -120,10 +142,14 @@ export function CheckoutPayPage({
             total={providerTotal}
             variant={actionVariant}
           />
+
+          {!!providerTotal && <CheckoutPayProviderHandoff locale={locale} />}
         </>
       )}
 
-      {!!errorMessage && <Banner role="alert">{errorMessage}</Banner>}
+      {!!errorMessage && (
+        <CheckoutBanner role="alert">{errorMessage}</CheckoutBanner>
+      )}
     </CheckoutPayCard>
   );
 }
@@ -141,18 +167,20 @@ function CheckoutPayNotices({
   return (
     <>
       {!!retryOutcome && (
-        <Banner>
+        <CheckoutBanner>
           {
             {
               cancelled: m.checkoutPaymentRetryCancelledBanner({}, { locale }),
               failed: m.checkoutPaymentRetryFailedBanner({}, { locale }),
             }[retryOutcome]
           }
-        </Banner>
+        </CheckoutBanner>
       )}
 
       {isPricingChanged && (
-        <Banner>{m.checkoutPayPricingChangedBanner({}, { locale })}</Banner>
+        <CheckoutBanner>
+          {m.checkoutPayPricingChangedBanner({}, { locale })}
+        </CheckoutBanner>
       )}
     </>
   );
@@ -174,31 +202,5 @@ function CheckoutPayUpdatedPriceLink({
         {m.checkoutPayReviewUpdatedPriceButton({}, { locale })}
       </Link>
     </Button>
-  );
-}
-
-function Banner({
-  children,
-  role,
-}: {
-  readonly children: string;
-  readonly role?: "alert";
-}) {
-  return (
-    <p
-      // A banner inserted after a failed action must use an alert role:
-      // assistive technology may ignore a live region mounted with content.
-      {...(role ? { role } : { "aria-live": "polite" as const })}
-      className={cn(
-        "flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm leading-6",
-        "border-burned-orange/20 bg-burned-orange/8 text-burned-orange-ink"
-      )}
-    >
-      <AlertTriangle
-        aria-hidden="true"
-        className="mt-0.5 h-4 w-4 shrink-0 text-burned-orange"
-      />
-      <span>{children}</span>
-    </p>
   );
 }

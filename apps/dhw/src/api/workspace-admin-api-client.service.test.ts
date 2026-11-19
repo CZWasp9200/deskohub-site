@@ -48,7 +48,7 @@ import {
   dhwVersionHeader,
 } from "@deskohub/workspace-admin-api";
 import { Clock, Duration, Effect, Layer, Redacted, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { DHW_VERSION } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
 import {
@@ -257,6 +257,11 @@ describe("WorkspaceAdminApiClient", () => {
           currentTimeNanosUnsafe: () =>
             BigInt(elapsedRetryMilliseconds) * 1_000_000n,
           currentTimeNanos: Effect.sync(
+            () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
+          ),
+          monotonicTimeNanosUnsafe: () =>
+            BigInt(elapsedRetryMilliseconds) * 1_000_000n,
+          monotonicTimeNanos: Effect.sync(
             () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
           ),
           sleep: (duration) =>
@@ -480,6 +485,20 @@ describe("WorkspaceAdminApiClient", () => {
             sendCancellationEmail: true,
           });
           return Response.json({ outcome: "cancelled", email: "sent" });
+        }
+        if (url.pathname.endsWith("/reservations/reservation-1/restoration")) {
+          expect(request.headers.get("authorization")).toBe(
+            `Bearer ${accessToken}`
+          );
+          expect(await request.json()).toEqual({
+            acknowledgeRefundedPayment: true,
+            sendRestorationEmail: false,
+          });
+          return Response.json({
+            outcome: "restored",
+            email: "not_requested",
+            access: "failed",
+          });
         }
         if (url.pathname.endsWith("/reservations/reservation-1/access")) {
           accessMutationAttempts += 1;
@@ -810,7 +829,19 @@ describe("WorkspaceAdminApiClient", () => {
               sendCancellationEmail: true,
             }
           )
-        ).toEqual({ outcome: "cancelled", email: "sent" });
+        ).toEqual({ outcome: "cancelled", email: "sent", invoice: null });
+        expect(
+          yield* client.restoreReservation(
+            Redacted.make(accessToken),
+            reservation.id,
+            { acknowledgeRefundedPayment: true, sendRestorationEmail: false }
+          )
+        ).toEqual({
+          outcome: "restored",
+          email: "not_requested",
+          access: "failed",
+          invoice: null,
+        });
         yield* client.findReservation(Redacted.make(accessToken), "payment-1");
         yield* client.listBookings(Redacted.make(accessToken), {
           date: "2026-08-10",
@@ -891,6 +922,10 @@ describe("WorkspaceAdminApiClient", () => {
         {
           method: "POST",
           path: "/api/v1/cli/reservations/reservation-1/cancellation",
+        },
+        {
+          method: "POST",
+          path: "/api/v1/cli/reservations/reservation-1/restoration",
         },
         { method: "GET", path: "/api/v1/cli/reservations/find" },
         { method: "GET", path: "/api/v1/cli/bookings" },
@@ -1267,6 +1302,11 @@ describe("WorkspaceAdminApiClient", () => {
           currentTimeNanosUnsafe: () =>
             BigInt(elapsedRetryMilliseconds) * 1_000_000n,
           currentTimeNanos: Effect.sync(
+            () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
+          ),
+          monotonicTimeNanosUnsafe: () =>
+            BigInt(elapsedRetryMilliseconds) * 1_000_000n,
+          monotonicTimeNanos: Effect.sync(
             () => BigInt(elapsedRetryMilliseconds) * 1_000_000n
           ),
           sleep: (duration) =>
@@ -2062,6 +2102,8 @@ describe("WorkspaceAdminApiClient error sanitizing", () => {
     currentTimeMillis: Effect.succeed(0),
     currentTimeNanosUnsafe: () => 0n,
     currentTimeNanos: Effect.succeed(0n),
+    monotonicTimeNanosUnsafe: () => 0n,
+    monotonicTimeNanos: Effect.succeed(0n),
     sleep: () => Effect.void,
   };
 

@@ -119,10 +119,21 @@ export const orderStatusTraits = {
 } as const satisfies Record<CustomerOrderStatus, OrderStatusTraits>;
 
 /** A paid order offers its invoice; one not issued yet answers 409. */
-export const offersInvoice = (order: Pick<CustomerOrderState, "status">) =>
-  orderStatusTraits[order.status].paid;
+export const offersInvoice = (
+  order: Pick<CustomerOrderState, "status" | "reservationCancelled"> &
+    Partial<Pick<CustomerOrderState, "paymentStatus">>
+) =>
+  order.reservationCancelled === true
+    ? order.paymentStatus === "paid"
+    : orderStatusTraits[order.status].paid;
 
-/** A confirmed order links to its door code, except in the review sandbox. */
+/**
+ * A confirmed order links to its door code, except in the review sandbox:
+ * also while its confirmation email is late, since the server issues the
+ * code for any paid, confirmed booking.
+ */
 export const offersAccessLink = (
   order: Pick<CustomerOrderState, "status" | "reviewSandbox">
-) => order.status === "fulfilled" && offersAccessCode(order);
+) =>
+  (order.status === "fulfilled" || order.status === "paid_delivery_delayed") &&
+  offersAccessCode(order);

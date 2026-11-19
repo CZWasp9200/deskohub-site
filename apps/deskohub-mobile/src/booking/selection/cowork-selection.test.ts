@@ -4,20 +4,31 @@ import type {
   CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import { sampleBookableDates } from "../testing/sample-booking-catalog";
 import {
   type CoworkAvailability,
   type CoworkDraft,
   coworkAvailabilityQueries,
+  coworkDraftFromSelection,
   coworkEnablement,
+  coworkOvernightStay,
   defaultCoworkDraft,
+  fitCoworkStay,
+  freeCoworkTierOn,
   normalizeCoworkWorkstation,
+  selectCoworkDate,
+  selectCoworkStay,
   selectCoworkTier,
   selectCoworkWorkstation,
   toCoworkSelection,
 } from "./cowork-selection";
+import { pragueToday } from "./prague-date";
 
 const money = { value: 0, exponent: 2, currency: "CZK" };
 const advertisedPrice = { price: money, discount: money };
+const today = "2026-11-07";
+/** The server's cowork window for `today`: six months. */
+const bookableDates = { earliest: today, latest: "2027-05-07" };
 
 const coworkOffering = (
   tier: "open-space" | "reserved-desk"
@@ -29,6 +40,7 @@ const coworkOffering = (
   usage: "",
   price: money,
   advertisedPrice,
+  bookableDates,
   addOns:
     tier === "reserved-desk"
       ? [
@@ -79,10 +91,13 @@ const settled = (
 
 // Saturday 7 November 2026, 10:00 in Prague (CET).
 const morning = new Date("2026-11-07T09:00:00Z");
-const today = "2026-11-07";
+
+/** The default draft on a picked day. */
+const draftOn = (date: string) =>
+  selectCoworkDate(defaultCoworkDraft(offerings), date);
 
 const reservedDesk: CoworkDraft = selectCoworkTier(
-  defaultCoworkDraft(today, offerings),
+  draftOn(today),
   "reserved-desk"
 );
 
@@ -94,52 +109,105 @@ const blockerTags = (
   coworkEnablement(draft, {
     now,
     offerings,
+    // The window the server advertises on `now`'s Prague date.
+    bookableDates: sampleBookableDates(pragueToday(now), "cowork"),
     availability: coworkAvailability,
   }).blockers.map((blocker) => blocker._tag);
 
 describe("defaultCoworkDraft", () => {
-  test("opens on Open Space today without coffee or a workstation", () => {
-    expect(defaultCoworkDraft(today, offerings)).toEqual({
+  test("opens on Open Space without a date, coffee or a workstation", () => {
+    expect(defaultCoworkDraft(offerings)).toEqual({
       tier: "open-space",
-      date: today,
+      stay: "day",
+      date: Option.none(),
       coffee: false,
       workstation: Option.none(),
     });
   });
 
   test("falls back to the first tier offered without Open Space", () => {
+    expect(defaultCoworkDraft([coworkOffering("reserved-desk")]).tier).toBe(
+      "reserved-desk"
+    );
+  });
+});
+
+describe("coworkDraftFromSelection", () => {
+  test("opens on a booked selection's tier, day and extras", () => {
+    const booked = {
+      family: "cowork",
+      date: "2026-11-20",
+      tier: "reserved-desk",
+      monitorOption: "2x32-4k",
+    } as const;
+
+    const draft = Option.getOrThrow(
+      coworkDraftFromSelection(booked, offerings)
+    );
+
+    expect(toCoworkSelection(draft)).toEqual(Option.some(booked));
+  });
+
+  test("drops a day that can no longer be booked", () => {
+    const draft = coworkDraftFromSelection(
+      {
+        family: "cowork",
+        date: "2026-10-01",
+        tier: "open-space",
+        coffee: true,
+      },
+      offerings
+    );
+
+    expect(Option.map(draft, ({ date, coffee }) => ({ date, coffee }))).toEqual(
+      Option.some({ date: Option.none(), coffee: true })
+    );
+  });
+
+  test("ignores another family and a tier no longer offered", () => {
     expect(
-      defaultCoworkDraft(today, [coworkOffering("reserved-desk")]).tier
-    ).toBe("reserved-desk");
+      coworkDraftFromSelection(
+        { family: "meeting-room", date: today, duration: "hour:1" },
+        offerings
+      )
+    ).toEqual(Option.none());
+    expect(
+      coworkDraftFromSelection(
+        { family: "cowork", date: today, tier: "reserved-desk" },
+        [coworkOffering("open-space")]
+      )
+    ).toEqual(Option.none());
   });
 });
 
 describe("toCoworkSelection", () => {
   test("sends coffee for Open Space", () => {
-    const draft = { ...defaultCoworkDraft(today, offerings), coffee: true };
+    const draft = { ...draftOn(today), coffee: true };
 
-    expect(toCoworkSelection(draft)).toEqual({
-      family: "cowork",
-      date: today,
-      tier: "open-space",
-      coffee: true,
-    });
+    expect(toCoworkSelection(draft)).toEqual(
+      Option.some({
+        family: "cowork",
+        date: today,
+        tier: "open-space",
+        coffee: true,
+      })
+    );
   });
 
   test("leaves coffee out for a Reserved Desk, which includes it", () => {
     const draft = { ...reservedDesk, coffee: true };
 
-    expect(toCoworkSelection(draft)).toEqual({
-      family: "cowork",
-      date: today,
-      tier: "reserved-desk",
-    });
+    expect(toCoworkSelection(draft)).toEqual(
+      Option.some({ family: "cowork", date: today, tier: "reserved-desk" })
+    );
   });
 
   test("sends a Reserved Desk's workstation", () => {
     const draft = selectCoworkWorkstation(reservedDesk, Option.some("2x27-4k"));
 
-    expect(toCoworkSelection(draft).monitorOption).toBe("2x27-4k");
+    expect(Option.getOrThrow(toCoworkSelection(draft)).monitorOption).toBe(
+      "2x27-4k"
+    );
   });
 
   test("drops the workstation when switching to Open Space", () => {
@@ -149,16 +217,21 @@ describe("toCoworkSelection", () => {
     );
 
     expect(draft.workstation).toEqual(Option.none());
-    expect(toCoworkSelection(draft).monitorOption).toBeUndefined();
+    expect(
+      Option.getOrThrow(toCoworkSelection(draft)).monitorOption
+    ).toBeUndefined();
+  });
+
+  test("names no booking until a day is picked", () => {
+    expect(toCoworkSelection(defaultCoworkDraft(offerings))).toEqual(
+      Option.none()
+    );
   });
 });
 
 describe("coworkAvailabilityQueries", () => {
   test("asks for the tier's six-month calendar and the selected date", () => {
-    const queries = coworkAvailabilityQueries(
-      defaultCoworkDraft(today, offerings),
-      today
-    );
+    const queries = coworkAvailabilityQueries(draftOn(today), bookableDates);
 
     expect(queries).toEqual({
       range: {
@@ -167,30 +240,42 @@ describe("coworkAvailabilityQueries", () => {
         to: "2027-05-07",
         entryTier: "open-space",
       },
-      selection: {
+      selection: Option.some({
         kind: "cowork",
         from: today,
         to: today,
         entryTier: "open-space",
         date: today,
-      },
+      }),
       workstationRequirement: Option.none(),
     });
   });
 
-  test("ends the calendar on the last day of a shorter month", () => {
-    const draft = { ...defaultCoworkDraft("2026-08-31", offerings) };
-
-    expect(coworkAvailabilityQueries(draft, "2026-08-31").range.to).toBe(
-      "2027-02-28"
+  test("reads only the tier's calendar before a day is picked", () => {
+    const queries = coworkAvailabilityQueries(
+      selectCoworkTier(defaultCoworkDraft(offerings), "reserved-desk"),
+      bookableDates
     );
+
+    expect(queries.range.entryTier).toBe("reserved-desk");
+    expect(queries.selection).toEqual(Option.none());
+    expect(queries.workstationRequirement).toEqual(Option.none());
+  });
+
+  test("asks for the calendar over the window the offering gives", () => {
+    const { range } = coworkAvailabilityQueries(draftOn(today), {
+      earliest: today,
+      latest: "2026-11-20",
+    });
+
+    expect(range).toMatchObject({ from: today, to: "2026-11-20" });
   });
 
   test("checks a Reserved Desk's workstation and its requirement apart", () => {
     const draft = selectCoworkWorkstation(reservedDesk, Option.some("2x32-4k"));
-    const queries = coworkAvailabilityQueries(draft, today);
+    const queries = coworkAvailabilityQueries(draft, bookableDates);
 
-    expect(queries.selection.monitorOption).toBe("2x32-4k");
+    expect(Option.getOrThrow(queries.selection).monitorOption).toBe("2x32-4k");
     expect(queries.workstationRequirement).toEqual(
       Option.some({
         kind: "cowork",
@@ -205,9 +290,10 @@ describe("coworkAvailabilityQueries", () => {
 
 describe("coworkEnablement", () => {
   test("offers today through six months and disables taken dates", () => {
-    const enablement = coworkEnablement(defaultCoworkDraft(today, offerings), {
+    const enablement = coworkEnablement(draftOn(today), {
       now: morning,
       offerings,
+      bookableDates,
       availability: settled({ unavailableDates: ["2026-11-10"] }),
     });
 
@@ -217,10 +303,27 @@ describe("coworkEnablement", () => {
     expect(enablement.blockers).toEqual([]);
   });
 
+  test("follows a shorter window the offering gives", () => {
+    const shortWindow = { earliest: today, latest: "2026-11-20" };
+    const enablementOn = (date: string) =>
+      coworkEnablement(draftOn(date), {
+        now: morning,
+        offerings,
+        bookableDates: shortWindow,
+        availability: settled(),
+      });
+
+    expect(enablementOn(today).dates).toMatchObject(shortWindow);
+    expect(enablementOn("2026-11-21").blockers.map(({ _tag }) => _tag)).toEqual(
+      expect.arrayContaining(["DateOutOfRange"])
+    );
+  });
+
   test("keeps a date selectable for a Reserved Desk that only needs a workstation", () => {
     const enablement = coworkEnablement(reservedDesk, {
       now: morning,
       offerings,
+      bookableDates,
       availability: settled({
         unavailableDates: ["2026-11-10", "2026-11-11"],
         reservedDeskWorkstationRequiredDates: ["2026-11-10"],
@@ -233,7 +336,7 @@ describe("coworkEnablement", () => {
   test("blocks an offer taken on its date", () => {
     expect(
       blockerTags(
-        defaultCoworkDraft(today, offerings),
+        draftOn(today),
         morning,
         settled({ unavailableCoworkTiers: ["open-space"] })
       )
@@ -248,24 +351,31 @@ describe("coworkEnablement", () => {
       })
     ).toEqual(["AvailabilityPending"]);
     expect(
-      blockerTags(defaultCoworkDraft(today, offerings), morning, {
+      blockerTags(draftOn(today), morning, {
         ...settled(),
         workstationRequirement: Option.none(),
       })
     ).toEqual([]);
   });
 
+  test("asks for a day before anything else, without the day's reads", () => {
+    expect(
+      blockerTags(defaultCoworkDraft(offerings), morning, {
+        range: Option.some(availability()),
+        selection: Option.none(),
+        workstationRequirement: Option.none(),
+      })
+    ).toEqual(["DateRequired"]);
+  });
+
   test("blocks a date outside today through six months", () => {
-    const draft = {
-      ...defaultCoworkDraft(today, offerings),
-      date: "2027-05-08",
-    };
+    const draft = draftOn("2027-05-08");
 
     expect(blockerTags(draft, morning, settled())).toEqual(["DateOutOfRange"]);
   });
 
   describe("same-day Open Space", () => {
-    const openSpace = defaultCoworkDraft(today, offerings);
+    const openSpace = draftOn(today);
 
     test("closes at 17:00 Prague time", () => {
       expect(
@@ -277,7 +387,7 @@ describe("coworkEnablement", () => {
     });
 
     test("closes at 17:00 Prague summer time", () => {
-      const summer = { ...openSpace, date: "2026-07-01" };
+      const summer = selectCoworkDate(openSpace, "2026-07-01");
 
       expect(
         blockerTags(summer, new Date("2026-07-01T14:59:00Z"), settled())
@@ -291,7 +401,11 @@ describe("coworkEnablement", () => {
       const evening = new Date("2026-11-07T18:00:00Z");
 
       expect(
-        blockerTags({ ...openSpace, date: "2026-11-08" }, evening, settled())
+        blockerTags(
+          selectCoworkDate(openSpace, "2026-11-08"),
+          evening,
+          settled()
+        )
       ).toEqual([]);
       expect(blockerTags(reservedDesk, evening, settled())).toEqual([]);
     });
@@ -308,6 +422,7 @@ describe("coworkEnablement", () => {
       const enablement = coworkEnablement(reservedDesk, {
         now: morning,
         offerings,
+        bookableDates,
         availability: requiresWorkstation,
       });
 
@@ -328,6 +443,7 @@ describe("coworkEnablement", () => {
       const enablement = coworkEnablement(reservedDesk, {
         now: morning,
         offerings,
+        bookableDates,
         availability: requiresWorkstation,
       });
       const added = normalizeCoworkWorkstation(
@@ -348,6 +464,7 @@ describe("coworkEnablement", () => {
         coworkEnablement(added, {
           now: morning,
           offerings,
+          bookableDates,
           availability: bareDesk,
         })
       );
@@ -365,6 +482,7 @@ describe("coworkEnablement", () => {
         coworkEnablement(taken, {
           now: morning,
           offerings,
+          bookableDates,
           availability: requiresWorkstation,
         })
       );
@@ -380,6 +498,7 @@ describe("coworkEnablement", () => {
           coworkEnablement(replaced, {
             now: morning,
             offerings,
+            bookableDates,
             availability: bareDesk,
           })
         )
@@ -395,6 +514,7 @@ describe("coworkEnablement", () => {
       const enablement = coworkEnablement(draft, {
         now: morning,
         offerings,
+        bookableDates,
         availability: takenOnly,
       });
 
@@ -419,6 +539,7 @@ describe("coworkEnablement", () => {
       const enablement = coworkEnablement(reservedDesk, {
         now: morning,
         offerings,
+        bookableDates,
         availability: noneFree,
       });
 
@@ -441,6 +562,7 @@ describe("coworkEnablement", () => {
           coworkEnablement(reservedDesk, {
             now: morning,
             offerings,
+            bookableDates,
             availability: pending,
           })
         )
@@ -450,14 +572,132 @@ describe("coworkEnablement", () => {
 
   test("shows only the selected date's notices", () => {
     const notice = { date: today, startsAt: "10:00", endsAt: "12:00" };
-    const enablement = coworkEnablement(defaultCoworkDraft(today, offerings), {
+    const enablement = coworkEnablement(draftOn(today), {
       now: morning,
       offerings,
+      bookableDates,
       availability: settled({
         notices: [notice, { ...notice, date: "2026-11-08" }],
       }),
     });
 
     expect(enablement.notices).toEqual([notice]);
+  });
+});
+
+describe("freeCoworkTierOn", () => {
+  test("names the other tier while it is free that day", () => {
+    expect(
+      Option.map(
+        freeCoworkTierOn(
+          availability({ unavailableCoworkTiers: ["open-space"] }),
+          offerings,
+          "open-space"
+        ),
+        (offering) => offering.family === "cowork" && offering.tier
+      )
+    ).toEqual(Option.some("reserved-desk"));
+  });
+
+  test("names none when every tier is taken or none other is offered", () => {
+    expect(
+      freeCoworkTierOn(
+        availability({
+          unavailableCoworkTiers: ["open-space", "reserved-desk"],
+        }),
+        offerings,
+        "open-space"
+      )
+    ).toEqual(Option.none());
+    expect(
+      freeCoworkTierOn(
+        availability(),
+        [coworkOffering("open-space")],
+        "open-space"
+      )
+    ).toEqual(Option.none());
+  });
+});
+
+describe("overnight stay", () => {
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+  const overnightOfferings = [
+    coworkOffering("open-space"),
+    { ...coworkOffering("reserved-desk"), overnightStay },
+  ];
+  const overnight = selectCoworkStay(reservedDesk, "overnight");
+  const stays = (queries: ReturnType<typeof coworkAvailabilityQueries>) => [
+    queries.range.stay,
+    Option.getOrThrow(queries.selection).stay,
+    Option.getOrThrow(queries.workstationRequirement).stay,
+  ];
+
+  test("is offered only while the catalog's Reserved Desk advertises it", () => {
+    expect(coworkOvernightStay(overnightOfferings)).toEqual(
+      Option.some(overnightStay)
+    );
+    expect(coworkOvernightStay(offerings)).toEqual(Option.none());
+  });
+
+  test("books an overnight Reserved Desk as a stay; a day names none", () => {
+    expect(Option.getOrThrow(toCoworkSelection(overnight)).stay).toBe(
+      "overnight"
+    );
+    expect(
+      Option.getOrThrow(toCoworkSelection(reservedDesk))
+    ).not.toHaveProperty("stay");
+  });
+
+  test("reads the overnight calendar and day; a day reads as before", () => {
+    expect(stays(coworkAvailabilityQueries(overnight, bookableDates))).toEqual([
+      "overnight",
+      "overnight",
+      "overnight",
+    ]);
+    expect(
+      stays(coworkAvailabilityQueries(reservedDesk, bookableDates))
+    ).toEqual([undefined, undefined, undefined]);
+  });
+
+  test("goes back to a day when switching to Open Space", () => {
+    const openSpace = selectCoworkTier(overnight, "open-space");
+
+    expect(openSpace.stay).toBe("day");
+    expect(Option.getOrThrow(toCoworkSelection(openSpace))).not.toHaveProperty(
+      "stay"
+    );
+    expect(
+      coworkAvailabilityQueries(openSpace, bookableDates).range
+    ).not.toHaveProperty("stay");
+  });
+
+  test("falls back to a day once the catalog stops advertising it", () => {
+    expect(fitCoworkStay(overnight, overnightOfferings)).toBe(overnight);
+    expect(fitCoworkStay(overnight, offerings).stay).toBe("day");
+    expect(fitCoworkStay(reservedDesk, offerings)).toBe(reservedDesk);
+  });
+
+  test("reopens a booked overnight stay while it is still offered", () => {
+    const booked = {
+      family: "cowork",
+      date: "2026-11-20",
+      tier: "reserved-desk",
+      stay: "overnight",
+    } as const;
+    const reopened = (catalog: ReadonlyArray<CustomerOffering>) =>
+      Option.map(coworkDraftFromSelection(booked, catalog), toCoworkSelection);
+
+    expect(reopened(overnightOfferings)).toEqual(
+      Option.some(Option.some(booked))
+    );
+    expect(reopened(offerings)).toEqual(
+      Option.some(
+        Option.some({
+          family: "cowork",
+          date: "2026-11-20",
+          tier: "reserved-desk",
+        })
+      )
+    );
   });
 });

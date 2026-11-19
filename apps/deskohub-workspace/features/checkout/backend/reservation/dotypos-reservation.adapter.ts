@@ -26,12 +26,12 @@ import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
 import {
   getWorkspaceReservationInterval,
+  getWorkspaceReservationSeats,
   type TableAssignmentUnavailableError,
   type TableAssignmentUnconfigured,
   type WorkspaceTableAssignmentReservation,
   WorkspaceTableAssignmentService,
 } from "./workspace-table-assignment.service";
-import { workspaceBookingSeatCount } from "./workspace-table-occupancy";
 import type { InvalidDotyposTableSeats } from "./workspace-table-selection";
 
 /**
@@ -76,13 +76,7 @@ export const createWorkspaceDotyposReservation: (
     const tableId: DotyposTableId = yield* tableAssignments.assignTableId(
       input.reservation
     );
-    const seats = Match.value(input.reservation).pipe(
-      Match.discriminatorsExhaustive("kind")({
-        cowork: () => workspaceBookingSeatCount,
-        "meeting-room": () => workspaceBookingSeatCount,
-        office: ({ seats }) => seats,
-      })
-    );
+    const seats = getWorkspaceReservationSeats(input.reservation);
 
     const reservationInput: CreateDotyposReservationInput = {
       customerId: input.dotyposCustomerId,
@@ -236,7 +230,11 @@ const getReservationLogAnnotations = (
 ) =>
   Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ date, entryTier }) => ({ entryTier, date }),
+      cowork: ({ date, entryTier, stay }) => ({
+        entryTier,
+        date,
+        ...(stay && { stay }),
+      }),
       "meeting-room": (meetingRoomReservation) => ({
         date: getReservationDate({
           interval: meetingRoomReservation,

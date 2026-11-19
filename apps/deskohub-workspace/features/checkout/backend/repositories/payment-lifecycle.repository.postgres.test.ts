@@ -1,3 +1,4 @@
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -10,11 +11,11 @@ import {
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
+import * as PgClient from "@effect/sql-pg/PgClient";
 import { eq, sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import { type DatabasePool, makeDatabaseClient } from "@/db/database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import {
   accountingDocumentSnapshots,
@@ -22,6 +23,7 @@ import {
   discountCodes,
   discountProductTargets,
   discounts,
+  latePaymentRecoveries,
   paymentAttempts,
   promotionCodes,
   referralAttributions,
@@ -81,6 +83,7 @@ import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { Money } from "@/shared/money/money";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   holdPostgresTransaction,
@@ -161,12 +164,14 @@ const inAccountGuard = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   WorkspaceLockSections.customerAccount(
     customerAccountIdSchema.make(`account-${uniqueId()}`)
   )(effect).pipe(
-    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
+    Effect.provide(
+      WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
+    )
   );
 
 const makeReferralService = async (input?: {
   readonly databaseLayer?: Layer.Layer<WorkspaceDatabase>;
-  readonly pool?: ReturnType<typeof makeDatabasePool>;
+  readonly pool?: DatabasePool;
   readonly identity?: {
     readonly accountId: ReturnType<typeof customerAccountIdSchema.make>;
     readonly dotyposCustomerId: DotyposCustomerId;
@@ -175,7 +180,7 @@ const makeReferralService = async (input?: {
 }) => {
   const databaseLayer = input?.databaseLayer ?? testDatabase!.layer;
   const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
-    input?.pool ?? testDatabase!.pool
+    input?.pool ?? testDatabase!.databasePool
   );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
@@ -629,13 +634,84 @@ const admit = (
   input: ReturnType<typeof makeOrdinaryAdmission>
 ) =>
   repository.createPendingNexiAttempt({
-    workspaceReservationId: reservation.id,
+    orderId: reservationOrderId(reservation.id),
     providerOrderId: `order-${uniqueId()}` as never,
     amount: input.admission.amount,
     commitment: input.admission.commitment,
     locale: input.locale,
     accountingSnapshot: input.snapshot,
   });
+
+describe.skipIf(!testDatabase)(
+  "PaymentLifecycleRepository admission after a late payment on disposable Postgres",
+  () => {
+    test("admits no new payment for an order whose earlier attempt settled late, and still admits one without", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const recovering = await createHeldReservation(dotyposCustomerId);
+      const ordinary = await createHeldReservation(dotyposCustomerId);
+      const earlierAttemptId = `attempt-${uniqueId()}` as never;
+      await Effect.runPromise(
+        testDatabase!.db.insert(paymentAttempts).values({
+          id: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          provider: "nexi",
+          providerOrderId: NexiOrderIdSchema.make(`order-${uniqueId()}`),
+          state: "expired",
+          failureCode: "provider_order_abandoned",
+          amountValue: 29_000,
+          amountExponent: 2,
+          currency: "CZK",
+        })
+      );
+      await Effect.runPromise(
+        testDatabase!.db.insert(latePaymentRecoveries).values({
+          paymentAttemptId: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          state: "pending",
+          originalDotyposReservationId: DotyposReservationIdSchema.make(
+            `dotypos-original-${uniqueId()}`
+          ),
+          verifiedPaidAt: Temporal.Now.instant(),
+        })
+      );
+
+      const refused = await Effect.runPromise(
+        Effect.result(
+          admit(
+            repository,
+            recovering,
+            makeOrdinaryAdmission(recovering, dotyposCustomerId)
+          )
+        )
+      );
+      const admitted = await Effect.runPromise(
+        admit(
+          repository,
+          ordinary,
+          makeOrdinaryAdmission(ordinary, dotyposCustomerId)
+        )
+      );
+
+      expect(refused._tag).toBe("Failure");
+      expect(admitted.state).toBe("created");
+      const [unchanged] = await Effect.runPromise(
+        testDatabase!.db
+          .select({
+            activePaymentAttemptId:
+              workspaceReservations.activePaymentAttemptId,
+            paymentState: workspaceReservations.paymentState,
+          })
+          .from(workspaceReservations)
+          .where(eq(workspaceReservations.id, recovering.id))
+      );
+      expect(unchanged).toEqual({
+        activePaymentAttemptId: null,
+        paymentState: recovering.paymentState,
+      });
+    });
+  }
+);
 
 describe.skipIf(!testDatabase)(
   "PaymentLifecycleRepository first-use admission on disposable Postgres",
@@ -779,7 +855,7 @@ describe.skipIf(!testDatabase)(
         const paid = await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -915,7 +991,7 @@ describe.skipIf(!testDatabase)(
 
         const internal = await Effect.runPromise(
           repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             amount: fullyCovered.admission.amount,
             commitment: fullyCovered.admission.commitment,
             locale: fullyCovered.locale,
@@ -965,7 +1041,7 @@ describe.skipIf(!testDatabase)(
         const paidRepeat = await Effect.runPromise(
           repository.markPaid({
             id: ordinaryRepeat.id,
-            workspaceReservationId: laterReservation.id,
+            orderId: reservationOrderId(laterReservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -996,7 +1072,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: oldAttempt.id,
-              workspaceReservationId: oldReservation.id,
+              orderId: reservationOrderId(oldReservation.id),
               state,
               failureCode: "synthetic_terminal",
             })
@@ -1027,7 +1103,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: retryAttempt.id,
-              workspaceReservationId: retryReservation.id,
+              orderId: reservationOrderId(retryReservation.id),
               state: "failed",
               failureCode: "synthetic_retry_cleanup",
             })
@@ -1058,7 +1134,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: oldAttempt.id,
-            workspaceReservationId: oldReservation.id,
+            orderId: reservationOrderId(oldReservation.id),
             state: "failed",
             failureCode: "synthetic_first_failure",
           })
@@ -1123,7 +1199,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: retryAttempt.id,
-            workspaceReservationId: retryReservation.id,
+            orderId: reservationOrderId(retryReservation.id),
             state: "failed",
             failureCode: "synthetic_retry_cleanup",
           })
@@ -1151,7 +1227,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: oldAttempt.id,
-            workspaceReservationId: oldReservation.id,
+            orderId: reservationOrderId(oldReservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -1213,7 +1289,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: referralAttempt.id,
-            workspaceReservationId: referralReservation.id,
+            orderId: reservationOrderId(referralReservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1347,7 +1423,7 @@ describe.skipIf(!testDatabase)(
         const paid = await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1421,7 +1497,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1549,7 +1625,7 @@ describe.skipIf(!testDatabase)(
           await Effect.runPromise(
             repository.markTerminal({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               state,
               failureCode: "synthetic_terminal",
             })
@@ -1647,7 +1723,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markPaid({
             id: admitted.success.id,
-            workspaceReservationId: reservations[winner]!.id,
+            orderId: reservationOrderId(reservations[winner]!.id),
             paidAt: Temporal.Now.instant(),
           })
         );
@@ -1708,7 +1784,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -1773,7 +1849,7 @@ describe.skipIf(!testDatabase)(
           const paid = await Effect.runPromise(
             repository.markPaid({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               paidAt: Temporal.Now.instant(),
             })
           );
@@ -1820,7 +1896,7 @@ describe.skipIf(!testDatabase)(
 
         const internal = await Effect.runPromise(
           repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             amount: fullyCovered.admission.amount,
             commitment: fullyCovered.admission.commitment,
             locale: fullyCovered.locale,
@@ -1871,7 +1947,7 @@ describe.skipIf(!testDatabase)(
         const payment = Effect.runPromise(
           repository.markPaid({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             paidAt: Temporal.Now.instant(),
           })
         ).finally(() => {
@@ -1931,7 +2007,7 @@ describe.skipIf(!testDatabase)(
           });
           const completeInternalPayment = () => {
             const payment = repository.completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: fullyCovered.admission.amount,
               commitment: fullyCovered.admission.commitment,
               locale: fullyCovered.locale,
@@ -2080,7 +2156,7 @@ describe.skipIf(!testDatabase)(
                 Effect.gen(function* () {
                   yield* db.execute(sql`set local lock_timeout = '7s'`);
                   const transition = yield* repository.completeInternalPayment({
-                    workspaceReservationId: reservation.id,
+                    orderId: reservationOrderId(reservation.id),
                     amount: fullyCovered.admission.amount,
                     commitment: fullyCovered.admission.commitment,
                     locale: fullyCovered.locale,
@@ -2152,7 +2228,7 @@ describe.skipIf(!testDatabase)(
             repository
               .markPaid({
                 id: attempt.id,
-                workspaceReservationId: reservation.id,
+                orderId: reservationOrderId(reservation.id),
                 paidAt: Temporal.Now.instant(),
               })
               .pipe(Effect.provide(flagLayer))
@@ -2204,7 +2280,7 @@ describe.skipIf(!testDatabase)(
         const internal = await Effect.runPromise(
           repository
             .completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: fullyCovered.admission.amount,
               commitment: fullyCovered.admission.commitment,
               locale: fullyCovered.locale,
@@ -2243,7 +2319,7 @@ describe.skipIf(!testDatabase)(
         await Effect.runPromise(
           repository.markTerminal({
             id: attempt.id,
-            workspaceReservationId: reservation.id,
+            orderId: reservationOrderId(reservation.id),
             state: "failed",
             failureCode: "synthetic_provider_failure",
           })
@@ -2307,7 +2383,7 @@ describe.skipIf(!testDatabase)(
           repository
             .markPaid({
               id: attempt.id,
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               paidAt: Temporal.Now.instant(),
             })
             .pipe(Effect.provide(referralFeatureFlag(false)))
@@ -2340,12 +2416,11 @@ describe.skipIf(!testDatabase)(
           `referral-pool-referrer-${uniqueId()}`
         );
         const applicationName = `referral-pool-${max}-${uniqueId().slice(0, 8)}`;
-        const pool = makeDatabasePool({
+        const pool = await openDatabasePool({
           connectionString: process.env.WORKSPACE_TEST_DATABASE_URL!,
-          ...databasePoolTimeouts,
-          connectionTimeoutMillis: 1_500,
-          application_name: applicationName,
-          max,
+          connectTimeout: "1500 millis",
+          applicationName,
+          maxConnections: max,
         });
         let releaseHistory!: () => void;
         let notifyHistoryStarted!: () => void;
@@ -2468,8 +2543,11 @@ describe.skipIf(!testDatabase)(
           expect(
             admissionOutcomes.filter(({ _tag }) => _tag === "Success")
           ).toHaveLength(1);
-          expect(pool.waitingCount).toBe(0);
-          expect(pool.idleCount).toBe(pool.totalCount);
+          const stats = await Effect.runPromise(
+            Context.get(pool.postgres, PgClient.PgClient).poolStats
+          );
+          expect(stats.pending).toBe(0);
+          expect(stats.used).toBe(0);
         } finally {
           releaseHistory();
           if (acceptancePromise) {
@@ -2485,7 +2563,7 @@ describe.skipIf(!testDatabase)(
             "delete from customer_accounts where id = any($1)",
             [[inviteeAccountId, referrerAccountId]]
           );
-          await pool.end();
+          await pool.close();
         }
       });
     }
@@ -2625,7 +2703,7 @@ describe.skipIf(!testDatabase)(
     }) =>
       runResult((repository) =>
         repository.createPendingNexiAttempt({
-          workspaceReservationId: input.reservationId,
+          orderId: reservationOrderId(input.reservationId),
           providerOrderId: NexiOrderIdSchema.make(`order-${input.id}`),
           amount: input.snapshot.quote.payment.expectedPrice,
           commitment: input.commitment,
@@ -3291,7 +3369,7 @@ describe.skipIf(!testDatabase)(
         const result = await Effect.runPromise(
           Effect.result(
             repository.completeInternalPayment({
-              workspaceReservationId: reservation.id,
+              orderId: reservationOrderId(reservation.id),
               amount: admission.admission.amount,
               commitment: admission.admission.commitment,
               locale: admission.locale,

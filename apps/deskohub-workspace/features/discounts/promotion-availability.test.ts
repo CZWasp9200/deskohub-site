@@ -8,7 +8,8 @@ import {
   type PromotionAvailabilityFacts,
   type PromotionAvailabilityRule,
   type PromotionAvailabilityStage,
-  promotionAvailabilityPrecedence,
+  promotionAvailabilityOrder,
+  promotionAvailabilityStages,
 } from "./promotion-availability";
 
 type Facts = PromotionAvailabilityFacts<PromotionAvailabilityStage>;
@@ -88,13 +89,11 @@ const reasons = {
 } satisfies Record<PromotionAvailabilityRule, string>;
 
 const stages = Object.keys(
-  promotionAvailabilityPrecedence
+  promotionAvailabilityStages
 ) as PromotionAvailabilityStage[];
 const allRules = Object.keys(failing) as PromotionAvailabilityRule[];
 const stageRules = (stage: PromotionAvailabilityStage) =>
-  promotionAvailabilityPrecedence[
-    stage
-  ] as readonly PromotionAvailabilityRule[];
+  promotionAvailabilityStages[stage] as readonly PromotionAvailabilityRule[];
 
 /** Evaluates any stage, comparing its outcome with any rule's. */
 const evaluate = (
@@ -114,18 +113,80 @@ const stageChecking = (rule: PromotionAvailabilityRule) => {
   return stage;
 };
 
-describe("promotionAvailabilityPrecedence", () => {
-  test("pins each caller's rule order", () => {
-    expect(promotionAvailabilityPrecedence).toEqual({
+/** The stages each caller runs, in the order it runs them. */
+const callers = {
+  pricingDiscountCode: ["pricingSchedule", "pricingDiscountCode"],
+  previewDiscountCode: ["pricingSchedule", "pricingDiscountCodePreview"],
+  pricingVoucher: ["pricingSchedule", "pricingVoucher"],
+  admissionDiscountCode: [
+    "admissionEnabled",
+    "admissionDiscountCodeSchedule",
+    "admissionAudience",
+    "admissionDiscountCodeUses",
+  ],
+  admissionVoucher: [
+    "admissionEnabled",
+    "admissionVoucherSchedule",
+    "admissionAudience",
+    "admissionVoucherUses",
+  ],
+  readmissionDiscountCode: ["readmissionDiscountCodeUses"],
+} satisfies Record<string, readonly PromotionAvailabilityStage[]>;
+
+type Caller = keyof typeof callers;
+
+const callerRules = (caller: Caller) =>
+  callers[caller].flatMap((stage) => stageRules(stage));
+
+/** The first stage of `caller` that fails, as the caller reports it. */
+const evaluateCaller = (caller: Caller, facts: Facts) =>
+  callers[caller]
+    .map((stage) => evaluate(stage, facts))
+    .find(Result.isFailure) ?? Result.void;
+
+/** Callers of one promotion kind, which must agree on every reason. */
+const kinds = {
+  "discount code": [
+    "pricingDiscountCode",
+    "previewDiscountCode",
+    "admissionDiscountCode",
+    "readmissionDiscountCode",
+  ],
+  voucher: ["pricingVoucher", "admissionVoucher"],
+} satisfies Record<string, readonly Caller[]>;
+
+describe("promotionAvailabilityStages", () => {
+  test("pins the shared rule order", () => {
+    expect(promotionAvailabilityOrder).toEqual([
+      "enabled",
+      "started",
+      "unexpired",
+      "serviceDates",
+      "audience",
+      "customerUses",
+      "totalUses",
+      "voucherUnclaimed",
+      "voucherCredit",
+    ]);
+  });
+
+  test("orders every rule exactly once", () => {
+    expect([...promotionAvailabilityOrder].sort()).toEqual(
+      [...allRules].sort()
+    );
+  });
+
+  test("pins each stage's rules", () => {
+    expect(promotionAvailabilityStages).toEqual({
       pricingSchedule: ["enabled", "started", "unexpired"],
       pricingDiscountCode: [
-        "audience",
-        "totalUses",
-        "customerUses",
         "serviceDates",
+        "audience",
+        "customerUses",
+        "totalUses",
       ],
-      pricingDiscountCodePreview: ["totalUses", "serviceDates"],
-      pricingVoucher: ["voucherUnclaimed", "audience", "voucherCredit"],
+      pricingDiscountCodePreview: ["serviceDates", "totalUses"],
+      pricingVoucher: ["audience", "voucherUnclaimed", "voucherCredit"],
       admissionEnabled: ["enabled"],
       admissionDiscountCodeSchedule: ["started", "unexpired", "serviceDates"],
       admissionVoucherSchedule: ["started", "unexpired"],
@@ -143,6 +204,74 @@ describe("promotionAvailabilityPrecedence", () => {
       )
     ).toEqual([]);
   });
+
+  test.each(Object.keys(callers) as Caller[])(
+    "%s runs its stages in the shared order",
+    (caller) => {
+      expect(callerRules(caller)).toEqual(
+        promotionAvailabilityOrder.filter((rule) =>
+          callerRules(caller).includes(rule)
+        )
+      );
+    }
+  );
+});
+
+describe("one reason at every caller", () => {
+  test.each(
+    (Object.keys(callers) as Caller[]).flatMap((caller) =>
+      allRules.map((rule) => [caller, rule] as const)
+    )
+  )(
+    "%s rejects a promotion failing only %s exactly when it checks that rule",
+    (caller, rule) => {
+      expect(evaluateCaller(caller, failing[rule](available))).toEqual(
+        callerRules(caller).includes(rule) ? unavailable(rule) : Result.void
+      );
+    }
+  );
+
+  test.each(
+    Object.entries(kinds).flatMap(([kind, kindCallers]) =>
+      promotionAvailabilityOrder.flatMap((first, index) =>
+        promotionAvailabilityOrder
+          .slice(index + 1)
+          .map((second) => [kind, first, second, kindCallers] as const)
+      )
+    )
+  )(
+    "%s callers checking %s and %s all report the first",
+    (_kind, first, second, kindCallers) => {
+      const facts = failing[second](failing[first](available));
+      for (const caller of kindCallers) {
+        const rules = callerRules(caller);
+        if (rules.includes(first)) {
+          expect(evaluateCaller(caller, facts)).toEqual(unavailable(first));
+        } else if (rules.includes(second)) {
+          expect(evaluateCaller(caller, facts)).toEqual(unavailable(second));
+        }
+      }
+    }
+  );
+
+  test.each([
+    ["serviceDates", "audience", "pricingDiscountCode"],
+    ["serviceDates", "totalUses", "pricingDiscountCode"],
+    ["serviceDates", "totalUses", "previewDiscountCode"],
+    ["customerUses", "totalUses", "pricingDiscountCode"],
+    ["audience", "voucherUnclaimed", "pricingVoucher"],
+  ] as const)(
+    "a promotion failing %s and %s reports %s's reason at %s as at admission",
+    (first, second, caller) => {
+      const facts = failing[second](failing[first](available));
+      const admission =
+        caller === "pricingVoucher"
+          ? "admissionVoucher"
+          : "admissionDiscountCode";
+      expect(evaluateCaller(caller, facts)).toEqual(unavailable(first));
+      expect(evaluateCaller(admission, facts)).toEqual(unavailable(first));
+    }
+  );
 });
 
 describe("evaluatePromotionAvailability", () => {

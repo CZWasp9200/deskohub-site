@@ -1,6 +1,6 @@
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Effect, Predicate, Schedule } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 
 const isRetryableDatabaseReadError = <E>(error: E) =>
   error instanceof EffectDrizzleQueryError &&

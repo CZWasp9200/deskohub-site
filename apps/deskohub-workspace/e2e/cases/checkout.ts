@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { meetingRoomEmailDetails } from "@/emails/_components/reservation-email-details";
 import { renderWorkspaceEmailDetailsText } from "@/emails/workspace-email-detail";
 import { isMeetingRoomWholeDayReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
@@ -27,6 +27,7 @@ import type {
   OpenE2EBrowserSession,
 } from "../browser-session";
 import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../case-runner";
+import { retireRejectedAttempt } from "../checkout/lifecycle-fixtures";
 import {
   formatNexiBuildFailureCodes,
   parseNexiBuildFailures,
@@ -46,6 +47,7 @@ import {
   submitPaymentAndWaitForHostedPage,
   submitReservationForPayPage,
 } from "../checkout/payment";
+import { retryPaymentInPlace } from "../checkout/payment-retry";
 import {
   findRepeatReservationProblem,
   toRepeatReservation,
@@ -62,7 +64,6 @@ import {
   markPreviewFulfillmentDeliveredForE2E,
   replayNexiWebhook,
   requireProviderSessionRowAfterRedirect,
-  retireRejectedPaymentAttemptForE2E,
   validateDiscountApplications,
   validatePostgres,
 } from "../integrations/database";
@@ -97,6 +98,7 @@ export const executeCheckoutFlow = ({
   payPageSteps,
   beforeReservationSubmit,
   expectedDiscounts,
+  expectedOfficeInvitees,
   afterFulfillment,
   verifyPostFulfillmentPaths = false,
 }: {
@@ -110,9 +112,11 @@ export const executeCheckoutFlow = ({
   state: CheckoutFlowState;
   payPageSteps?: (
     orderId: CheckoutRow["reservation_id"]
-  ) => readonly WorkspaceE2EStep<void>[];
+  ) => readonly WorkspaceE2EStep<void, E2EDatabase>[];
   beforeReservationSubmit?: Effect.Effect<void, WorkspaceE2EError>;
   expectedDiscounts?: readonly ExpectedDiscountApplication[];
+  /** Present for an office booked with an attendee list, even with no invitees. */
+  expectedOfficeInvitees?: readonly string[];
   // Checks on the fulfilled reservation beyond the status page, before any
   // post-fulfillment path changes it.
   afterFulfillment?: (
@@ -221,6 +225,7 @@ export const executeCheckoutFlow = ({
         config,
         data,
         dotyposReservation,
+        expectedOfficeInvitees,
         orderId,
         openSession,
       }),
@@ -463,7 +468,7 @@ export const assertFreshPaymentAttempt = (
 };
 
 // Decides whether the rejected payment may restart. If so, retires the rejected attempt, leaves the hosted page, and
-// reopens the checkout pay page, which starts a fresh attempt and Nexi order.
+// retries the payment from the order's status page, whose Pay page starts a fresh attempt and Nexi order.
 const restartSandboxRejectedPayment = (
   { config, orderId, openSession, state }: HostedCheckoutPaymentOptions,
   rejected: Extract<HostedPaymentAttempt, { kind: "sandbox-rejected" }>
@@ -490,17 +495,44 @@ const restartSandboxRejectedPayment = (
     log(
       `Nexi sandbox rejected the hosted payment (${rejected.rejection.diagnosticCode}; Nexi codes: ${nexiCodes}); restarting once with a fresh payment attempt`
     );
-    state.checkoutRow = yield* retireRejectedPaymentAttemptForE2E(
-      orderId,
-      paymentAttemptId
-    );
+    state.checkoutRow = yield* retireRejectedAttempt(orderId, paymentAttemptId);
 
+    // Paying an ended payment again is a payment retry: its status page's
+    // "Try payment again" opens the same order's Pay page.
+    const statusPageUrl = yield* getOrderStatusPageUrl(
+      rejected.hostedPaymentPage.checkoutPageUrl,
+      orderId
+    );
     yield* leaveRejectedHostedPayment({
       config,
-      hostedPaymentPage: rejected.hostedPaymentPage,
+      hostedPaymentPage: {
+        ...rejected.hostedPaymentPage,
+        checkoutPageUrl: statusPageUrl,
+      },
       session: browser,
     });
+    yield* retryPaymentInPlace({
+      label: "sandbox-rejected payment",
+      orderId,
+      session: browser,
+      timeouts: config.timeouts,
+    });
     return true;
+  });
+
+/** The order's status page, in the locale and origin of its Pay page. */
+const getOrderStatusPageUrl = (
+  checkoutPageUrl: string,
+  orderId: CheckoutRow["reservation_id"]
+) =>
+  tryWorkspaceE2ESync("build the order's status page URL", () => {
+    const payUrl = parseUrl(checkoutPageUrl);
+    const locale = payUrl?.pathname.split("/")[1];
+    assert(payUrl && locale, "the checkout pay page URL has no locale");
+    return new URL(
+      `/${locale}/reservation/status/${orderId}`,
+      payUrl.origin
+    ).toString();
   });
 
 /**
@@ -618,6 +650,7 @@ export const assertFulfilledStatusPage = ({
   config,
   data,
   dotyposReservation,
+  expectedOfficeInvitees,
   orderId,
   openSession,
 }: {
@@ -625,6 +658,7 @@ export const assertFulfilledStatusPage = ({
   config: WorkspaceE2EConfig;
   data: CheckoutData;
   dotyposReservation: ValidatedDotyposReservation;
+  expectedOfficeInvitees?: readonly string[];
   orderId: CheckoutRow["reservation_id"];
   openSession: OpenE2EBrowserSession;
 }): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
@@ -679,8 +713,9 @@ export const assertFulfilledStatusPage = ({
               dotyposReservation.reservedUntil,
               data.locale
             ),
-            "Seats",
-            String(data.office.seats),
+            ...(expectedOfficeInvitees === undefined
+              ? ["Seats", String(data.office.seats)]
+              : ["Who is coming"]),
             expectedPaymentPrice,
           ];
         }
@@ -728,7 +763,9 @@ export const assertFulfilledStatusPage = ({
       browser,
       "assert fulfilled checkout status page",
       findFulfilledStatusPageProblem,
-      undefined,
+      data.office && expectedOfficeInvitees !== undefined
+        ? { count: data.office.seats, invitees: expectedOfficeInvitees }
+        : undefined,
       { timeoutMs: config.timeouts.browserAction }
     );
     log("Checkout status page validated");
@@ -738,7 +775,10 @@ export const assertFulfilledStatusPage = ({
  * Runs in the browser: why the page is not the canonical fulfilled checkout
  * status page, or `null` when it is. It must not close over anything.
  */
-export const findFulfilledStatusPageProblem = (): string | null => {
+export const findFulfilledStatusPageProblem = (officePeople?: {
+  readonly count: number;
+  readonly invitees: readonly string[];
+}): string | null => {
   if (document.querySelector("[data-reservation-access]")) {
     return "reservation access rendered on checkout status page";
   }
@@ -747,6 +787,20 @@ export const findFulfilledStatusPageProblem = (): string | null => {
   for (const dialog of document.querySelectorAll('[role="dialog"]')) {
     if (/Your reservation is confirmed\./i.test(dialog.textContent ?? "")) {
       return "checkout status rendered in a reservation dialog";
+    }
+  }
+  if (officePeople) {
+    const rows = Array.from(
+      document.querySelectorAll("[data-office-status-people] > ul > li")
+    );
+    if (rows.length !== officePeople.count) {
+      return "office attendee count does not match the booking";
+    }
+    const labels = rows.map((row) =>
+      row.firstElementChild?.textContent?.trim()
+    );
+    if (!officePeople.invitees.every((email) => labels.includes(email))) {
+      return "office status is missing an expected invitee";
     }
   }
   const text = document.body?.textContent ?? "";

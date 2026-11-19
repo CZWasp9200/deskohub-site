@@ -4,6 +4,7 @@ import { Effect, type Layer } from "effect";
 import { cache } from "react";
 import {
   type CustomerInvoiceSummary,
+  getCustomerInvoiceStatus,
   getCustomerInvoiceStatusLabel,
 } from "@/features/accounting/customer-invoice";
 import { formatInvoiceTotal } from "@/features/accounting/invoice-settlement";
@@ -19,6 +20,7 @@ import type {
   CustomerInvoiceHistoryItem,
 } from "./contracts";
 import {
+  getAccountCorrectiveDocumentPdfPath,
   getAccountInvoiceExportPath,
   getAccountInvoicePdfPath,
 } from "./routes";
@@ -31,7 +33,9 @@ import {
 export const loadInvoiceHistory = (
   locale: Locale
 ): Effect.Effect<CustomerInvoiceHistory, never, CustomerInvoiceService> =>
-  Effect.flatMap(CustomerInvoiceService, (invoices) => invoices.list).pipe(
+  Effect.flatMap(CustomerInvoiceService, (invoices) =>
+    invoices.list({ locale })
+  ).pipe(
     Effect.map(
       (summaries): CustomerInvoiceHistory =>
         summaries.length === 0
@@ -88,7 +92,10 @@ const toHistoryItem = (
       locale,
     }),
     total: formatInvoiceTotal(invoice.total, locale),
-    status: getCustomerInvoiceStatusLabel(invoice.paymentStatus, locale),
+    status: getCustomerInvoiceStatusLabel(
+      getCustomerInvoiceStatus(invoice),
+      locale
+    ),
     dueDate:
       invoice.dueDate === null
         ? null
@@ -98,6 +105,10 @@ const toHistoryItem = (
           }),
   },
   pdfPath: getAccountInvoicePdfPath(locale, invoice.id),
+  correctiveDocument: invoice.cancellation && {
+    documentNumber: invoice.cancellation.correctiveDocumentNumber,
+    pdfPath: getAccountCorrectiveDocumentPdfPath(locale, invoice.id),
+  },
 });
 
 /** Degrades a defect or a failed build to `failed`, logging a fixed code. */

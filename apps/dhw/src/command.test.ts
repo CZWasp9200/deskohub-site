@@ -11,10 +11,12 @@ import {
   AdministrationDotyposCustomerId,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceCreationDefaults,
+  AdministrationInvoiceId,
   AdministrationLegacyUsername,
   AdministrationOverview,
   AdministrationReservationActivity,
   type AdministrationReservationDetailType,
+  type AdministrationReservationRestorationResultType,
   AdministrationStandaloneAccessCodeAttemptId,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
@@ -35,14 +37,18 @@ import {
   CliStandaloneAccessCodeReconciled,
   toAdministrationActorName,
 } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Exit, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+import { PlatformLive } from "./platform";
+import {
+  UnreachedClientIdentity,
+  UnreachedUpdateService,
+} from "./testing/unreached-command-services";
 
 const syntheticEmail = testEmailAddress("synthetic");
 
@@ -427,13 +433,47 @@ describe("dhw mutation commands", () => {
     expect(revocations).toBe(0);
   });
 
+  test("retries only the confirmed reservation withdrawal and prints its result", async () => {
+    const retries: string[] = [];
+    const result = {
+      outcome: "already_settled",
+      withdrawal: {
+        settlement: "settled",
+        submittedAt: "2026-11-18T12:01:00Z",
+        paidAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+        refundAmount: { value: 120_000, exponent: 2, currency: "CZK" },
+        refundBasis: { kind: "full" },
+        steps: [],
+      },
+    } as const;
+    const { layer, output } = makeCommandLayer({
+      retryReservationWithdrawal: (_accessToken, id) =>
+        Effect.sync(() => {
+          retries.push(id);
+          return result;
+        }),
+    });
+
+    await runCommand(
+      ["--json", "reservations", "retry-withdrawal", "reservation-1", "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(retries).toEqual(["reservation-1"]);
+    expect(output).toEqual([JSON.stringify(result)]);
+  });
+
   test("confirms reservation cancellation and forwards the email choice", async () => {
     const cancellations: unknown[] = [];
     const { layer } = makeCommandLayer({
       cancelReservation: (_accessToken, id, input) =>
         Effect.sync(() => {
           cancellations.push({ id, input });
-          return { outcome: "cancelled", email: "sent" } as const;
+          return {
+            outcome: "cancelled",
+            email: "sent",
+            invoice: null,
+          } as const;
         }),
     });
 
@@ -454,11 +494,251 @@ describe("dhw mutation commands", () => {
       {
         id: reservationId,
         input: {
+          confirmedConsequences: { invoice: false, customerNotice: false },
           force: true,
           sendCancellationEmail: true,
         },
       },
     ]);
+  });
+
+  test("confirms a reservation cancellation's invoice consequence as it read it", async () => {
+    const cancellations: unknown[] = [];
+    const invoices = [
+      { state: "live", customerNotice: "owed" },
+      { state: "live", customerNotice: "not_owed" },
+      { state: "cancelled", customerNotice: "owed" },
+    ] as const;
+    let read = 0;
+    const { layer } = makeCommandLayer({
+      getReservation: () =>
+        Effect.succeed({
+          accessGrant: null,
+          invoice: {
+            id: "01980000-0000-7000-8000-0000000000b1",
+            invoiceNumber: "WS-FV-2026-000001",
+            archived: false,
+            ...invoices[read++],
+          },
+        } as never),
+      cancelReservation: (_accessToken, _id, input) =>
+        Effect.sync(() => {
+          cancellations.push(input.confirmedConsequences);
+          return {
+            outcome: "cancelled",
+            email: "not_requested",
+            invoice: null,
+          } as const;
+        }),
+    });
+
+    for (const _ of invoices) {
+      await runCommand(
+        ["--json", "reservations", "cancel", reservationId, "--yes"],
+        layer
+      ).pipe(Effect.runPromise);
+    }
+
+    expect(cancellations).toEqual([
+      { invoice: true, customerNotice: true },
+      { invoice: true, customerNotice: false },
+      { invoice: false, customerNotice: false },
+    ]);
+  });
+
+  test("restores a reservation with the refund acknowledgement and email choice", async () => {
+    const restorations: unknown[] = [];
+    const result = {
+      outcome: "restored",
+      email: "sent",
+      access: "issued",
+      invoice: null,
+    } as const;
+    const { layer, output } = makeCommandLayer({
+      restoreReservation: (_accessToken, id, input) =>
+        Effect.sync(() => {
+          restorations.push({ id, input });
+          return result;
+        }),
+    });
+
+    await runCommand(
+      [
+        "--json",
+        "reservations",
+        "restore",
+        reservationId,
+        "--acknowledge-refunded-payment",
+        "--send-restoration-email",
+        "--yes",
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(restorations).toEqual([
+      {
+        id: reservationId,
+        input: { acknowledgeRefundedPayment: true, sendRestorationEmail: true },
+      },
+    ]);
+    expect(JSON.parse(output.join(""))).toEqual(result);
+  });
+
+  test("restores without acknowledging a refund or emailing unless asked", async () => {
+    const restorations: unknown[] = [];
+    const { layer } = makeCommandLayer({
+      restoreReservation: (_accessToken, _id, input) =>
+        Effect.sync(() => {
+          restorations.push(input);
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+            invoice: null,
+          } as const;
+        }),
+    });
+
+    await runCommand(
+      ["--json", "reservations", "restore", reservationId, "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(restorations).toEqual([
+      { acknowledgeRefundedPayment: false, sendRestorationEmail: false },
+    ]);
+  });
+
+  test("requires explicit confirmation for non-interactive restoration", async () => {
+    let restorations = 0;
+    const { layer } = makeCommandLayer({
+      restoreReservation: () =>
+        Effect.sync(() => {
+          restorations += 1;
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+            invoice: null,
+          } as const;
+        }),
+    });
+
+    const error = await runCommand(
+      ["--json", "reservations", "restore", reservationId],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toMatchObject({ _tag: "ConfirmationRequiredError" });
+    expect(restorations).toBe(0);
+  });
+
+  test("fails a refund refusal with the server's message, which names the refunded amount", async () => {
+    const refusal = new CliMutationRejected({
+      message: "Synthetic refund refusal naming 250.00 CZK",
+    });
+    const { layer, output } = makeCommandLayer({
+      restoreReservation: () => Effect.fail(refusal),
+    });
+
+    const error = await runCommand(
+      ["reservations", "restore", reservationId, "--yes"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toBeInstanceOf(CliMutationRejected);
+    expect(error).toMatchObject({ message: refusal.message });
+    expect(output).toEqual([]);
+  });
+
+  test("reports each restore result field on one line and names the reservation when access failed", async () => {
+    const reportLine = async (
+      result: AdministrationReservationRestorationResultType
+    ) => {
+      const { layer, output } = makeCommandLayer({
+        restoreReservation: () => Effect.succeed(result),
+      });
+      await runCommand(
+        ["reservations", "restore", reservationId, "--yes"],
+        layer
+      ).pipe(Effect.runPromise);
+      expect(output).toHaveLength(1);
+      return output[0] ?? "";
+    };
+    const base = {
+      outcome: "restored",
+      email: "not_requested",
+      access: "not_needed",
+      invoice: null,
+    } as const;
+    const variations = {
+      outcome: ["restored", "already_confirmed"],
+      email: ["not_requested", "sent", "failed", "not_available"],
+      access: ["issued", "failed", "not_needed"],
+      invoice: [
+        null,
+        { outcome: "issued", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "retrying", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "retrying", invoiceId: null, invoiceNumber: null },
+        { outcome: "failed", invoiceId: null, invoiceNumber: "WS-2" },
+        { outcome: "failed", invoiceId: null, invoiceNumber: null },
+        { outcome: "not_issued", invoiceId: null, invoiceNumber: null },
+      ],
+    } as const;
+
+    for (const [field, values] of Object.entries(variations)) {
+      const lines = [];
+      for (const value of values) {
+        lines.push(await reportLine({ ...base, [field]: value }));
+      }
+      // Each value of one field reads differently with the others fixed.
+      expect(new Set(lines).size).toBe(values.length);
+    }
+    expect(await reportLine({ ...base, access: "failed" })).toContain(
+      reservationId
+    );
+    expect(
+      await reportLine({
+        ...base,
+        invoice: { outcome: "issued", invoiceId: null, invoiceNumber: "WS-2" },
+      })
+    ).toContain("WS-2");
+  });
+
+  test("states the new invoice before restoring only when the reservation's invoice was cancelled with it", async () => {
+    const confirmation = async (issuesNewInvoice: boolean) => {
+      const { errors, layer } = makeCommandLayer({
+        getReservation: () =>
+          Effect.succeed({
+            restoration: {
+              cancellationEmailRecorded: false,
+              issuesNewAccess: false,
+              issuesNewInvoice,
+              clearsRefundRequirement: false,
+              refundedPayment: null,
+            },
+          } as never),
+        restoreReservation: () =>
+          Effect.succeed({
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+            invoice: null,
+          }),
+      });
+      await runCommand(
+        ["reservations", "restore", reservationId, "--yes"],
+        layer
+      ).pipe(Effect.runPromise);
+      return errors.join("\n").split("\n");
+    };
+
+    const plain = await confirmation(false);
+    const reissuing = await confirmation(true);
+
+    // The consequence is one more line of the confirmation.
+    expect(reissuing).toHaveLength(plain.length + 1);
+    expect(reissuing.slice(0, plain.length)).toEqual(plain);
   });
 
   test("shows who booked a reservation for someone else", async () => {
@@ -494,6 +774,12 @@ describe("dhw mutation commands", () => {
         displayName: "Ada Author",
         email: testEmailAddress("ada-author"),
       },
+      {
+        kind: "account" as const,
+        customerId: null,
+        displayName: "Inactive Author",
+        email: "",
+      },
       { kind: "deleted" as const },
       { kind: "unavailable" as const },
       null,
@@ -507,8 +793,13 @@ describe("dhw mutation commands", () => {
       ).pipe(Effect.runPromise);
     }
 
-    expect(output.filter((line) => line.startsWith("Booked by"))).toEqual([
-      `Booked by: Ada Author <${testEmailAddress("ada-author")}>`,
+    const authorLines = output.filter((line) => line.startsWith("Booked by"));
+    expect(authorLines).toHaveLength(4);
+    const [withEmail, withoutEmail, ...others] = authorLines;
+    expect(withEmail).toContain(`<${testEmailAddress("ada-author")}>`);
+    expect(withoutEmail).toEndWith("Inactive Author");
+    expect(withoutEmail).not.toContain("<");
+    expect(others).toEqual([
       "Booked by: deleted account",
       "Booked by: unavailable",
     ]);
@@ -1680,6 +1971,260 @@ describe("dhw mutation commands", () => {
   });
 });
 
+describe("dhw invoices cancellation and archive", () => {
+  const invoiceId = "01980000-0000-7000-8000-0000000000c1";
+  const billedReservationId = "01980000-0000-7000-8000-0000000000c2";
+  const cancellation = {
+    cancelledAt: "2026-11-15T10:00:00Z",
+    cause: "invoice_cancellation",
+    source: "dhw-cli",
+    actor: "administrator",
+    correctiveDocumentNumber: "WS-OD-2026-000001",
+    correctiveDocumentIssuedAt: "2026-11-15T10:00:00Z",
+    correctiveDocumentPdfUrl: `/admin/invoices/${invoiceId}/corrective-document`,
+    notices: {
+      customer: "accepted",
+      internal: "accepted",
+      needsAttention: false,
+    },
+  } as const;
+  const liveInvoice = (plan: {
+    readonly customerNotice: "owed" | "not_owed";
+    readonly reservation:
+      | "none"
+      | "cancels_reservation"
+      | "already_cancelled"
+      | "cancellation_in_progress";
+  }) =>
+    ({
+      id: invoiceId,
+      invoiceNumber: "WS-FV-2026-000009",
+      reservationId: plan.reservation === "none" ? null : billedReservationId,
+      cancellation: null,
+      archivedAt: null,
+      cancellationPlan: plan,
+    }) as never;
+  const reservationDetail = {
+    reservation: {
+      id: billedReservationId,
+      date: "2026-11-20",
+      startsAt: null,
+      typeLabel: "Meeting room",
+      customer: null,
+      customerId: "customer-c1",
+      status: { label: "Confirmed" },
+    },
+    invoice: null,
+  } as never;
+  const cancelled = {
+    invoiceId: AdministrationInvoiceId.make(invoiceId),
+    outcome: "cancelled",
+    cancellation,
+    reservation: null,
+  } as const;
+
+  test("sends exactly the confirmations of the plan it read", async () => {
+    const plans = [
+      { customerNotice: "owed", reservation: "none" },
+      { customerNotice: "not_owed", reservation: "already_cancelled" },
+      { customerNotice: "owed", reservation: "cancels_reservation" },
+    ] as const;
+    const sent: unknown[] = [];
+    const reservationReads: string[] = [];
+    let read = 0;
+    const { layer } = makeCommandLayer({
+      getInvoice: () => Effect.succeed(liveInvoice(plans[read++]!)),
+      getReservation: (_accessToken, id) =>
+        Effect.sync(() => {
+          reservationReads.push(id);
+          return reservationDetail;
+        }),
+      cancelInvoice: (_accessToken, id, input) =>
+        Effect.sync(() => {
+          sent.push({ id, input });
+          return cancelled;
+        }),
+    });
+
+    for (const _ of plans) {
+      await runCommand(
+        [
+          "--json",
+          "invoices",
+          "cancel",
+          invoiceId,
+          "--send-cancellation-email",
+          "--yes",
+        ],
+        layer
+      ).pipe(Effect.runPromise);
+    }
+
+    expect(reservationReads).toEqual([billedReservationId]);
+    expect(sent).toEqual([
+      { id: invoiceId, input: { confirmedCustomerNotice: true } },
+      { id: invoiceId, input: { confirmedCustomerNotice: false } },
+      {
+        id: invoiceId,
+        input: {
+          confirmedCustomerNotice: true,
+          reservation: {
+            sendCancellationEmail: true,
+          },
+        },
+      },
+    ]);
+  });
+
+  test("refuses without confirmation, while the reservation is cancelling, and replays a cancelled invoice", async () => {
+    const invoices = [
+      liveInvoice({ customerNotice: "owed", reservation: "none" }),
+      liveInvoice({
+        customerNotice: "owed",
+        reservation: "cancellation_in_progress",
+      }),
+      {
+        ...(liveInvoice({
+          customerNotice: "owed",
+          reservation: "cancels_reservation",
+        }) as object),
+        reservationId: null,
+      } as never,
+      {
+        id: invoiceId,
+        invoiceNumber: "WS-FV-2026-000009",
+        reservationId: null,
+        cancellation,
+        archivedAt: null,
+        cancellationPlan: null,
+      } as never,
+    ];
+    let read = 0;
+    let cancellations = 0;
+    const { layer } = makeCommandLayer({
+      getInvoice: () => Effect.succeed(invoices[read++]!),
+      cancelInvoice: () =>
+        Effect.sync(() => {
+          cancellations += 1;
+          return cancelled;
+        }),
+    });
+
+    const unconfirmed = await runCommand(
+      ["--json", "invoices", "cancel", invoiceId],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+    const inProgress = await runCommand(
+      ["--json", "invoices", "cancel", invoiceId, "--yes"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+    const unnamedReservation = await runCommand(
+      ["--json", "invoices", "cancel", invoiceId, "--yes"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+    await runCommand(
+      ["--json", "invoices", "cancel", invoiceId, "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(unconfirmed).toMatchObject({
+      _tag: "ConfirmationRequiredError",
+      operation: "administration.cancelInvoice",
+    });
+    expect(inProgress).toMatchObject({ _tag: "InvalidMutationInputError" });
+    expect(unnamedReservation).toMatchObject({
+      _tag: "InvalidMutationInputError",
+    });
+    expect(cancellations).toBe(0);
+  });
+
+  test("archives only with confirmation", async () => {
+    const archives: string[] = [];
+    const { layer } = makeCommandLayer({
+      getInvoice: () =>
+        Effect.succeed({ invoiceNumber: "WS-FV-2026-000009" } as never),
+      archiveInvoice: (_accessToken, id) =>
+        Effect.sync(() => {
+          archives.push(id);
+          return {
+            invoiceId: id,
+            archivedAt: "2026-11-15T11:00:00Z",
+            changed: true,
+          };
+        }),
+    });
+
+    const unconfirmed = await runCommand(
+      ["--json", "invoices", "archive", invoiceId],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+    await runCommand(
+      ["--json", "invoices", "archive", invoiceId, "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(unconfirmed).toMatchObject({
+      _tag: "ConfirmationRequiredError",
+      operation: "administration.archiveInvoice",
+    });
+    expect(archives).toEqual([invoiceId]);
+  });
+
+  test("lists archived invoices only with the flag", async () => {
+    const queries: unknown[] = [];
+    const { layer } = makeCommandLayer({
+      listInvoices: (_accessToken, query) =>
+        Effect.sync(() => {
+          queries.push(query);
+          return { items: [], total: 0, page: 1, pageSize: 50, pageCount: 1 };
+        }),
+    });
+
+    await runCommand(["--json", "invoices", "list"], layer).pipe(
+      Effect.runPromise
+    );
+    await runCommand(
+      ["--json", "invoices", "list", "--include-archived"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(queries).toEqual([{}, { includeArchived: true }]);
+  });
+
+  test("downloads the credit note with --corrective", async () => {
+    const downloads: string[] = [];
+    const pdf = (kind: string) => (_accessToken: unknown, id: string) =>
+      Effect.sync(() => {
+        downloads.push(`${kind}:${id}`);
+        return new Uint8Array([37, 80, 68, 70]);
+      });
+    const directory = await mkdtemp(join(tmpdir(), "dhw-command-invoice-"));
+    const { layer } = makeCommandLayer({
+      getInvoicePdf: pdf("invoice"),
+      getInvoiceCorrectiveDocumentPdf: pdf("corrective"),
+    });
+
+    try {
+      await runCommand(
+        [
+          "--json",
+          "invoices",
+          "download",
+          invoiceId,
+          "--corrective",
+          "--output",
+          join(directory, "credit-note.pdf"),
+        ],
+        layer
+      ).pipe(Effect.runPromise);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+
+    expect(downloads).toEqual([`corrective:${invoiceId}`]);
+  });
+});
+
 const runCommand = <R>(
   args: ReadonlyArray<string>,
   layer: Layer.Layer<R, never, never>
@@ -1692,13 +2237,24 @@ const makeCommandLayer = ({
   backfillLegacyAdministrator = () => Effect.die("not used"),
   backfillReservationProductDetails = () => Effect.die("not used"),
   cancelReservation = () =>
-    Effect.succeed({ outcome: "already_cancelled", email: "not_requested" }),
+    Effect.succeed({
+      outcome: "already_cancelled",
+      email: "not_requested",
+      invoice: null,
+    }),
+  restoreReservation = () => Effect.die("not used"),
   clear = Effect.succeed(true),
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
   getCustomerReservationActivity = () => Effect.die("not used"),
   getReservationActivity = () => Effect.die("not used"),
   getInvoiceCreationDefaults = () => Effect.die("not used"),
+  getInvoice = () => Effect.die("not used"),
+  cancelInvoice = () => Effect.die("not used"),
+  archiveInvoice = () => Effect.die("not used"),
+  listInvoices = () => Effect.die("not used"),
+  getInvoicePdf = () => Effect.die("not used"),
+  getInvoiceCorrectiveDocumentPdf = () => Effect.die("not used"),
   getOverview = () => Effect.die("not used"),
   listDiscountGroups = () => Effect.die("not used"),
   previewInvoice = () => Effect.die("not used"),
@@ -1708,23 +2264,32 @@ const makeCommandLayer = ({
     } as never),
   authenticatedSession = session,
   revokeSession = () => Effect.succeed({ changed: false }),
+  retryReservationWithdrawal = () => Effect.die("not used"),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
 }: {
   readonly backfillLegacyAdministrator?: WorkspaceAdminApiClient["Service"]["backfillLegacyAdministrator"];
   readonly backfillReservationProductDetails?: WorkspaceAdminApiClient["Service"]["backfillReservationProductDetails"];
   readonly cancelReservation?: WorkspaceAdminApiClient["Service"]["cancelReservation"];
+  readonly restoreReservation?: WorkspaceAdminApiClient["Service"]["restoreReservation"];
   readonly clear?: AuthenticationService["Service"]["clear"];
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
   readonly getCustomerReservationActivity?: WorkspaceAdminApiClient["Service"]["getCustomerReservationActivity"];
   readonly getReservationActivity?: WorkspaceAdminApiClient["Service"]["getReservationActivity"];
   readonly getInvoiceCreationDefaults?: WorkspaceAdminApiClient["Service"]["getInvoiceCreationDefaults"];
+  readonly getInvoice?: WorkspaceAdminApiClient["Service"]["getInvoice"];
+  readonly cancelInvoice?: WorkspaceAdminApiClient["Service"]["cancelInvoice"];
+  readonly archiveInvoice?: WorkspaceAdminApiClient["Service"]["archiveInvoice"];
+  readonly listInvoices?: WorkspaceAdminApiClient["Service"]["listInvoices"];
+  readonly getInvoicePdf?: WorkspaceAdminApiClient["Service"]["getInvoicePdf"];
+  readonly getInvoiceCorrectiveDocumentPdf?: WorkspaceAdminApiClient["Service"]["getInvoiceCorrectiveDocumentPdf"];
   readonly getOverview?: WorkspaceAdminApiClient["Service"]["getOverview"];
   readonly listDiscountGroups?: WorkspaceAdminApiClient["Service"]["listDiscountGroups"];
   readonly previewInvoice?: WorkspaceAdminApiClient["Service"]["previewInvoice"];
   readonly getReservation?: WorkspaceAdminApiClient["Service"]["getReservation"];
   readonly authenticatedSession?: CliSessionType;
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
+  readonly retryReservationWithdrawal?: WorkspaceAdminApiClient["Service"]["retryReservationWithdrawal"];
   readonly stateDirectory?: string;
 } = {}) => {
   const mutations: unknown[] = [];
@@ -1741,6 +2306,8 @@ const makeCommandLayer = ({
     backfillLegacyAdministrator,
     backfillReservationProductDetails,
     cancelReservation,
+    retryReservationWithdrawal,
+    restoreReservation,
     createInvoice,
     createStandaloneAccessCode: (
       accessToken: Redacted.Redacted<CliAccessTokenType>,
@@ -1765,6 +2332,12 @@ const makeCommandLayer = ({
     getCustomerReservationActivity,
     getReservationActivity,
     getInvoiceCreationDefaults,
+    getInvoice,
+    cancelInvoice,
+    archiveInvoice,
+    listInvoices,
+    getInvoicePdf,
+    getInvoiceCorrectiveDocumentPdf,
     getOverview,
     getReservation,
     listDiscountGroups,
@@ -1817,10 +2390,14 @@ const makeCommandLayer = ({
     previewInvoice,
     revokeSession,
   });
+  const errors: string[] = [];
   const console = Layer.succeed(Console.Console, {
     ...globalThis.console,
     log: (...args: ReadonlyArray<unknown>) => {
       output.push(args.join(" "));
+    },
+    error: (...args: ReadonlyArray<unknown>) => {
+      errors.push(args.join(" "));
     },
   } satisfies Console.Console);
   const authentication = Layer.succeed(AuthenticationService, {
@@ -1844,13 +2421,16 @@ const makeCommandLayer = ({
   return {
     accessCodeCreations,
     accessMutations,
+    errors,
     mutations,
     layer: Layer.mergeAll(
       api,
       authentication,
       console,
-      AccessCodeAttemptStore.Default
-    ).pipe(Layer.provideMerge(config), Layer.provideMerge(BunServices.layer)),
+      AccessCodeAttemptStore.Default,
+      UnreachedClientIdentity,
+      UnreachedUpdateService
+    ).pipe(Layer.provideMerge(config), Layer.provideMerge(PlatformLive)),
     output,
   };
 };

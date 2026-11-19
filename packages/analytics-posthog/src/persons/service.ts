@@ -1,10 +1,6 @@
 import { Context, type Duration, Effect, Layer, type Redacted } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
 import type { SchemaError } from "effect/Schema";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientError,
-} from "effect/unstable/http";
 import type { PersonBulkDeleteResponse } from "../generated/effect.gen";
 import type { PostHogDistinctId, PostHogProjectId } from "../identifiers";
 import { makePostHogManagementClient } from "../management-client";

@@ -1,6 +1,7 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import * as WebBrowser from "expo-web-browser";
+import { appBrowserTabColors } from "../routing/open-site-page";
 import { paymentBrowserLayer } from "./payment-browser.native";
 import { PaymentBrowser } from "./payment-browser.service";
 
@@ -8,7 +9,7 @@ const openAuthSession = spyOn(WebBrowser, "openAuthSessionAsync");
 
 afterAll(() => openAuthSession.mockRestore());
 
-test("opens the payment page in the app's own task, so a later payment can't bring back an earlier page", async () => {
+test("opens the payment page in the app's own task and colours, so a later payment can't bring back an earlier page", async () => {
   await Effect.runPromise(
     Effect.service(PaymentBrowser).pipe(
       Effect.flatMap((browser) =>
@@ -25,7 +26,7 @@ test("opens the payment page in the app's own task, so a later payment can't bri
     [
       "https://gateway.example.test/pay/1",
       "deskohub://reservations/order-1?after=payment",
-      { createTask: false },
+      { ...appBrowserTabColors, createTask: false },
     ],
   ]);
 });

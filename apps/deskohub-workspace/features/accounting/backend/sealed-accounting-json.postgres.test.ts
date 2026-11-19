@@ -9,13 +9,22 @@ import {
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq, sql } from "drizzle-orm";
-import { Effect, Layer, Logger, References, Result, Tracer } from "effect";
+import {
+  Effect,
+  Layer,
+  Logger,
+  Option,
+  References,
+  Result,
+  Tracer,
+} from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountingDocumentSnapshots,
   invoices,
   paymentAttempts,
 } from "@/db/schema";
+import { type DatabaseQueryError, findSqlState } from "@/db/sql-constraint";
 import {
   type AccountingDocumentSnapshot,
   accountingSnapshotKeyIdSchema,
@@ -35,6 +44,7 @@ import {
 } from "@/features/checkout/checkout-quote.test-utils";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { censorDatabaseQueryParams } from "@/shared/backend/logging/censorship";
+import { isUndecryptableSealedColumn } from "@/shared/backend/sealed-column";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
@@ -625,5 +635,65 @@ describe.skipIf(!testDatabase)("sealed accounting JSON in PostgreSQL", () => {
       cause: { _tag: "EffectDrizzleQueryError" },
     });
     expectNoSecrets(error);
+  });
+
+  test("tells a record pgcrypto cannot decrypt from a failure of the database", async () => {
+    const attempt = await createSealedSnapshot();
+    const decryptWith = (secret: string) =>
+      postgres.db
+        .select({
+          json: sql<string>`pgp_sym_decrypt(${accountingDocumentSnapshots.encryptedSnapshot}, ${secret})`,
+        })
+        .from(accountingDocumentSnapshots)
+        .where(
+          eq(
+            accountingDocumentSnapshots.paymentAttemptId,
+            attempt.paymentAttemptId
+          )
+        );
+    const classify = <A>(
+      statement: Effect.Effect<A, DatabaseQueryError, WorkspaceDatabase>
+    ) =>
+      run(
+        statement.pipe(
+          Effect.flip,
+          Effect.map((error) => ({
+            sqlState: findSqlState(error),
+            undecryptable: isUndecryptableSealedColumn(error),
+          }))
+        )
+      );
+
+    // A wrong key.
+    expect(await classify(decryptWith(otherKey.secret))).toEqual({
+      sqlState: Option.some("39000"),
+      undecryptable: true,
+    });
+    // Text that isn't valid UTF-8, as invalid decrypted text would fail; the
+    // message quotes its bytes. pgcrypto refuses such a message first, so
+    // `convert_from` stands in for it.
+    expect(
+      await classify(
+        Effect.flatMap(WorkspaceDatabase, ({ db }) =>
+          db.execute(sql`select convert_from('\\xc328'::bytea, 'UTF8')`)
+        )
+      )
+    ).toEqual({ sqlState: Option.some("22021"), undecryptable: true });
+    // A statement timeout while decrypting with the right key.
+    expect(
+      await classify(
+        Effect.gen(function* () {
+          const { db, transaction } = yield* WorkspaceDatabase;
+          return yield* transaction(
+            Effect.gen(function* () {
+              yield* db.execute(sql`set local statement_timeout = 1`);
+              return yield* db.execute(
+                sql`select pgp_sym_decrypt(${accountingDocumentSnapshots.encryptedSnapshot}, ${keySecret}), pg_sleep(1) from ${accountingDocumentSnapshots}`
+              );
+            })
+          );
+        })
+      )
+    ).toEqual({ sqlState: Option.some("57014"), undecryptable: false });
   });
 });

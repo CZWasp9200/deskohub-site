@@ -1,9 +1,12 @@
 import { Column, Img, Row, Section, Text } from "react-email";
 import { type Locale, m } from "@/features/i18n";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
+import { getBookedCoworkStay } from "@/features/reservation/cowork-stay";
+import { formatReservationDisplayDateTimeRange } from "@/features/reservation/reservation-date";
 import { workspaceSiteConstants } from "@/shared/utils";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
 import {
+  type ReservationEmailPeople,
   type ReservationEmailReservation,
   reservationEmailDetails,
 } from "./_components/reservation-email-details";
@@ -31,6 +34,8 @@ export type CustomerReservationEmailProps = {
   readonly accessUrl: string;
   /** The invoice download, issued in the reservation's own locale. */
   readonly invoiceUrl: string;
+  /** Who is coming, for an office booked with a people list. */
+  readonly people?: ReservationEmailPeople;
   readonly network?: {
     readonly ssid: string;
     readonly password: string;
@@ -44,17 +49,32 @@ export const customerReservationEmailSubject = ({
 }: Pick<CustomerReservationEmailProps, "locale">) =>
   m.checkoutEmailCustomerAccessSubject({}, { locale });
 
-const headingDate = ({ reservation, locale }: CustomerReservationEmailProps) =>
-  new Intl.DateTimeFormat(locale, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: workspaceSiteConstants.location.timeZone,
-  }).format(temporalInstantToDate(reservation.reservedFrom));
+/**
+ * The arrival date, or, for an overnight stay, which ends on the next date,
+ * both dates with their times.
+ */
+const headingDate = ({
+  reservation,
+  locale,
+}: CustomerReservationEmailProps) => {
+  const { reservationDetails, reservedFrom, reservedUntil } = reservation;
+  return reservationDetails.kind === "cowork" &&
+    getBookedCoworkStay({
+      tier: reservationDetails.entryTier,
+      interval: { startsAt: reservedFrom, endsAt: reservedUntil },
+    }) === "overnight"
+    ? formatReservationDisplayDateTimeRange(reservedFrom, reservedUntil, locale)
+    : new Intl.DateTimeFormat(locale, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone: workspaceSiteConstants.location.timeZone,
+      }).format(temporalInstantToDate(reservedFrom));
+};
 
 /** Confirms a paid reservation to its customer, with access and directions. */
 export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
-  const { locale, reservation, accessUrl, invoiceUrl, network } = props;
+  const { locale, reservation, accessUrl, invoiceUrl, network, people } = props;
   const { table } = reservation.placement;
 
   return (
@@ -71,7 +91,7 @@ export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
 
       <ReservationEmailActionPanel
         action={{
-          button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+          button: m.reservationShowPinCode({}, { locale }),
           url: accessUrl,
         }}
         locale={locale}
@@ -117,7 +137,7 @@ export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
 
       <WorkspaceEmailDetails
         details={[
-          ...reservationEmailDetails(reservation, locale),
+          ...reservationEmailDetails(reservation, locale, people),
           {
             href: invoiceUrl,
             label: m.checkoutEmailCustomerInvoiceLabel({}, { locale }),

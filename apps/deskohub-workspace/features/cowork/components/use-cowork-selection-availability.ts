@@ -20,7 +20,7 @@ export const useCoworkSelectionAvailability = ({
   initialAvailability,
   locale,
   replacementToken,
-  selection: { date, entryTier, monitorOption },
+  selection: { date, entryTier, monitorOption, stay },
   today,
 }: {
   readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
@@ -28,14 +28,20 @@ export const useCoworkSelectionAvailability = ({
   readonly replacementToken?: string;
   readonly selection: Pick<
     CoworkReservationInput,
-    "date" | "entryTier" | "monitorOption"
+    "date" | "entryTier" | "monitorOption" | "stay"
   >;
   readonly today: string;
 }) => {
   const queries = useMemo(
     () =>
-      getCoworkAvailabilityQueries({ date, entryTier, monitorOption, today }),
-    [date, entryTier, monitorOption, today]
+      getCoworkAvailabilityQueries({
+        date,
+        entryTier,
+        monitorOption,
+        stay,
+        today,
+      }),
+    [date, entryTier, monitorOption, stay, today]
   );
   const queryOptions = { initialAvailability, replacementToken };
   const selectionResult = useReservationAvailability(

@@ -4,12 +4,14 @@ import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { DotyposUncertain } from "@deskohub/dotypos";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { Context, Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { SqlClient } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   WorkspaceDatabaseAdvisoryLock,
   withPostgresAdvisoryLock,
 } from "@/db/postgres-advisory-lock";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import { ReviewAccounts } from "@/features/review-accounts";
 import { BotDetectedError } from "@/shared/backend/bot-protection/bot-protection.service";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -114,10 +116,13 @@ const makeTestDeletionLayers = (
             Layer.mergeAll(
               links,
               Layer.mock(CustomerAuthentication, {}),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                testDatabase!.databasePool
+              )
             )
           )
         ),
+        NoReservationInvitees,
         Layer.mock(CustomerDotyposAdapter, { expireCustomer }),
         Layer.mock(CustomerAvatarService, { destroy: destroyAvatar }),
         Layer.mock(AnalyticsPersonAnonymisation, {
@@ -1206,7 +1211,10 @@ describe.skipIf(!testDatabase)(
 
           const holdFiber = yield* Effect.forkChild(
             withPostgresAdvisoryLock(
-              testDatabase!.pool,
+              Context.get(
+                testDatabase!.databasePool.postgres,
+                SqlClient.SqlClient
+              ),
               lockKey,
               Deferred.succeed(lockHeld, undefined).pipe(
                 Effect.andThen(Deferred.await(lockReleased)),

@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -6,13 +7,22 @@ import { DotyposService } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Duration, Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
+import { InviteeEmail } from "@/features/office/office-people";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
+import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import { reservationInviteeIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import { ReviewSandboxMock } from "@/features/review-accounts/backend/review-sandbox.service.mock";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
-import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
+import type {
+  ProviderPaymentFinalizationResult,
+  ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType,
+} from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 const reviewSandboxLayer = ReviewSandboxMock({
   status: () => Effect.succeed(Option.none()),
@@ -165,6 +175,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -220,6 +232,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {}),
@@ -291,6 +305,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -418,6 +434,8 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(NoReservationInvitees),
+            Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -630,6 +648,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -739,6 +759,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -875,6 +897,8 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(NoReservationInvitees),
+            Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -933,13 +957,29 @@ describe("CheckoutStatusService", () => {
 
     const getPaidStatus = async (
       now: Temporal.Instant,
-      overrides: Partial<ReturnType<typeof makeReservation>> = {},
+      overrides: Partial<
+        Omit<ReturnType<typeof makeReservation>, "reservationDetails">
+      > &
+        Pick<
+          Partial<WorkspaceReservation>,
+          "reservationDetails" | "officeContactAttends"
+        > = {},
       {
         dotypos = makeContactDotypos(),
         includeSupportContact,
+        provider = observePaymentPagesAs("unknown"),
+        refreshedAs,
+        invitees = NoReservationInvitees,
+        webAuthorized,
       }: {
         readonly dotypos?: ReturnType<typeof makeDotypos>;
         readonly includeSupportContact?: boolean;
+        /** What the provider's order shows when the status asks. */
+        readonly provider?: ReturnType<typeof observePaymentPagesAs>;
+        /** Refreshes first, with this finalization result, instead of a plain lookup. */
+        readonly refreshedAs?: ProviderPaymentFinalizationResult;
+        readonly invitees?: Layer.Layer<ReservationInvitees>;
+        readonly webAuthorized?: boolean;
       } = {}
     ) => {
       const { CheckoutStatusService } = await import(
@@ -958,19 +998,48 @@ describe("CheckoutStatusService", () => {
       return Effect.gen(function* () {
         yield* TestClock.setTime(now.epochMilliseconds);
         const service = yield* CheckoutStatusService;
-        return yield* service.getStatus({
+        if (webAuthorized !== undefined) {
+          const { loadCheckoutStatusPage } = yield* Effect.promise(
+            () => import("./checkout-status-page.server")
+          );
+          return yield* loadCheckoutStatusPage(
+            service,
+            {
+              isAuthorized: ({ permission }) =>
+                Effect.succeed(permission === "view-status" && webAuthorized),
+              authorizeViewer: () =>
+                Effect.die("the status route needs status access"),
+            },
+            {
+              orderId: workspaceReservationIdSchema.make(
+                "reservation-provider-return"
+              ),
+              returnOutcome: "success",
+              locale: "en-US",
+              requestHeaders: new Headers(),
+            }
+          );
+        }
+        const lookup = {
           orderId: "reservation-provider-return",
           returnOutcome: "success",
           ...(includeSupportContact !== undefined && { includeSupportContact }),
-        });
+        } as const;
+        return yield* refreshedAs
+          ? service.refreshStatus(lookup)
+          : service.getStatus(lookup);
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(invitees),
+            Layer.provide(provider.layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, {
                   finalizePendingProviderPayment: mock(() =>
-                    Effect.die("not used")
+                    refreshedAs
+                      ? Effect.succeed(refreshedAs)
+                      : Effect.die("not used")
                   ),
                 }),
                 Layer.mock(WorkspaceReservationRepository, {
@@ -997,6 +1066,8 @@ describe("CheckoutStatusService", () => {
                       makePaymentAttempt({
                         state: "pending",
                         providerOrderCreatedAt: paidAt,
+                        providerRedirectUrl: "https://sandbox.example/hpp/page",
+                        securityToken: "security-token",
                       })
                     )
                   ),
@@ -1022,6 +1093,93 @@ describe("CheckoutStatusService", () => {
         supportContactPrefill: { email: testEmailAddress("ada") },
       });
     });
+
+    test.each([
+      ["confirmed", "CONFIRMED", true],
+      ["confirmed", "CANCELLED", false],
+      ["cancelled", "CONFIRMED", false],
+    ] as const)(
+      "returns office people and contact without a summary (%s / %s)",
+      async (reservationState, providerStatus, resendable) => {
+        const base = makeDotypos();
+        const dotypos = makeContactDotypos();
+        dotypos.getReservationWithoutCustomer.mockImplementation(() =>
+          base.getReservationWithoutCustomer().pipe(
+            Effect.map((record) => ({
+              ...record,
+              status: providerStatus,
+              startDate: "unreadable",
+            }))
+          )
+        );
+        const email = InviteeEmail.make(
+          testEmailAddress("status-office-guest")
+        );
+        const invitees = Layer.mock(ReservationInvitees, {
+          findBookedPeople: ({ id }) =>
+            Effect.succeed(
+              Option.some({
+                contactAttends: true,
+                invitees: [
+                  {
+                    id: reservationInviteeIdSchema.make("office-guest"),
+                    reservationId: id,
+                    position: 0,
+                    email,
+                    lastInvitationSentAt: paidAt,
+                    invitationSendCount: 1,
+                  },
+                ],
+              })
+            ),
+        });
+        const order = {
+          id: workspaceReservationIdSchema.make("reservation-provider-return"),
+          reservationDetails: { kind: "office", seats: 2 },
+          officeContactAttends: true,
+          reservationState,
+          fulfillmentState: "fulfilled",
+          fulfilledAt: paidAt,
+        } as const satisfies Partial<WorkspaceReservation>;
+        const afterVisit = paidAt.add({ hours: 24 * 60 });
+        const status = await getPaidStatus(afterVisit, order, {
+          dotypos,
+          invitees,
+          webAuthorized: true,
+          refreshedAs: "terminal",
+        });
+
+        expect(status.summary).toBeUndefined();
+        expect(status).toMatchObject({
+          status: resendable ? "fulfilled" : "reservation_cancelled",
+          supportContactPrefill: {
+            name: "Ada Lovelace",
+            email: testEmailAddress("ada"),
+          },
+          people: { resendable, invitees: [{ email }] },
+        });
+        dotypos.getCustomer.mockClear();
+        const denied = await getPaidStatus(afterVisit, order, {
+          dotypos,
+          invitees,
+          webAuthorized: false,
+        });
+        expect(denied).toMatchObject({ status: "not_found" });
+        expect(denied).not.toHaveProperty("people");
+        expect(denied).not.toHaveProperty("supportContactPrefill");
+        const apiStatus = await getPaidStatus(afterVisit, order, {
+          dotypos,
+          invitees,
+          includeSupportContact: false,
+          refreshedAs: "terminal",
+        });
+        expect(apiStatus).toMatchObject({
+          supportContactPrefill: undefined,
+          people: { resendable, invitees: [{ email }] },
+        });
+        expect(dotypos.getCustomer).not.toHaveBeenCalled();
+      }
+    );
 
     test("skips the contact read for a caller that never shows it", async () => {
       const dotypos = makeContactDotypos();
@@ -1108,6 +1266,96 @@ describe("CheckoutStatusService", () => {
       );
 
       expect(status).toMatchObject({ status: "pending" });
+    });
+
+    test("offers the stored payment page again just inside its reopening window while the provider can't be asked", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 5, seconds: 59 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({
+        status: "pending",
+        paymentPageReopenable: true,
+      });
+    });
+
+    test("offers the stored payment page past the provisional window while the provider's order shows no activity", async () => {
+      const provider = observePaymentPagesAs("no_activity");
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 20 }),
+        pendingPayment,
+        { provider }
+      );
+
+      expect(status).toMatchObject({
+        status: "pending",
+        paymentPageReopenable: true,
+      });
+      expect(provider.observe).toHaveBeenCalledTimes(1);
+    });
+
+    test("stops offering the stored payment page once the provider's order shows activity", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 1 }),
+        pendingPayment,
+        { provider: observePaymentPagesAs("activity") }
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
+    test.each([
+      ["awaiting_payment", true],
+      ["pending", false],
+    ] as const)(
+      "reuses a refresh's provider read (%s) instead of asking the provider again",
+      async (refreshedAs, reopenable) => {
+        const provider = observePaymentPagesAs("unknown");
+        const status = await getPaidStatus(
+          paidAt.add({ minutes: 20 }),
+          pendingPayment,
+          { provider, refreshedAs }
+        );
+
+        expect(status).toMatchObject({ status: "pending" });
+        expect("paymentPageReopenable" in status).toBe(reopenable);
+        expect(provider.observe).not.toHaveBeenCalled();
+      }
+    );
+
+    test("stops offering the stored payment page when the abandonment cutoff passes while the provider answers", async () => {
+      const provider = observePaymentPagesAs("no_activity", {
+        answersAfter: "2 seconds",
+      });
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 29, seconds: 59 }),
+        pendingPayment,
+        { provider }
+      );
+
+      expect(provider.observe).toHaveBeenCalledTimes(1);
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
+    test("asks the provider about no page once the payment is past its abandonment cutoff", async () => {
+      const provider = observePaymentPagesAs("no_activity");
+      await getPaidStatus(paidAt.add({ minutes: 45 }), pendingPayment, {
+        provider,
+      });
+
+      expect(provider.observe).not.toHaveBeenCalled();
+    });
+
+    test("stops offering the stored payment page once its reopening window ends while the provider can't be asked, and the payment stays pending", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 6 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+      expect(status).not.toHaveProperty("paymentPageReopenable");
     });
 
     test("offers support for a payment still unconfirmed after the abandonment cutoff", async () => {
@@ -1207,6 +1455,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -1277,6 +1527,8 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -1330,6 +1582,8 @@ describe("CheckoutStatusService summary reconstruction", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -1487,6 +1741,8 @@ describe("CheckoutStatusService retry selection", () => {
     ).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -1525,6 +1781,51 @@ describe("CheckoutStatusService retry selection", () => {
       Effect.runPromise
     );
   };
+
+  test("shows a Dotypos cancellation while payment is still pending", async () => {
+    const getReservationWithoutCustomer = mock(() =>
+      Effect.succeed({
+        id: "dotypos-reservation-id",
+        _customerId: "customer-id",
+        startDate: "2026-06-20T00:00:00.000+02:00",
+        endDate: "2026-06-21T00:00:00.000+02:00",
+        seats: "1",
+        status: "CANCELLED",
+      })
+    );
+    const result = await getStatusFor({
+      reservation: makeReservation(),
+      dotypos: makeDotypos({ getReservationWithoutCustomer }),
+      elapsed: "1 second",
+    });
+
+    expect(result).toMatchObject({
+      status: "reservation_cancelled",
+      paymentStatus: "pending",
+    });
+    expect(getReservationWithoutCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["paid", "cancelled"] as const)(
+    "shows an operator cancellation with payment %s",
+    async (paymentState) => {
+      const result = await getStatusFor({
+        reservation: makeReservation({
+          reservationState: "cancelled",
+          cancellationCause: "operator",
+          paymentState,
+          fulfillmentState: "fulfilled",
+        }),
+      });
+
+      expect(result).toMatchObject({
+        status: "reservation_cancelled",
+        paymentStatus: paymentState,
+      });
+      expect("retrySelection" in result).toBe(false);
+      expect("paymentPageReopenable" in result).toBe(false);
+    }
+  );
 
   test.each([
     { paymentState: "failed", status: "payment_failed" },

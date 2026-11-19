@@ -10,9 +10,9 @@ import {
   customerAvailabilityReplacementHeader,
 } from "@deskohub/workspace-customer-api";
 import { Data, Effect, Layer, Match, Option, Struct } from "effect";
-import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { loadPublicOfferings } from "@/features/checkout/backend/checkout/public-offerings";
+import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import {
   getPublicOpeningHours,
   type PublicOffering,
@@ -20,20 +20,29 @@ import {
 import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import type { Locale } from "@/features/i18n";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { resolveBookingQuoteSelection } from "@/features/reservation/backend/booking-selection";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { AvailabilityQueryInvalid } from "@/features/reservation/backend/workspace-availability.service";
 import {
   loadAvailability,
   loadMeetingRoomStartTimes,
   loadMeetingRoomUnavailableDates,
 } from "@/features/reservation/backend/workspace-availability-loader";
+import { getBookableDates } from "@/features/reservation/bookable-dates";
+import {
+  getOvernightStayTimes,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import {
   getMeetingRoomUnavailableDatesQuery,
   parseMeetingRoomStartTimesQuery,
   parseWorkspaceAvailabilityQuery,
   type WorkspaceAvailability,
+  type WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { currentInstant } from "@/shared/utils/temporal";
@@ -42,11 +51,16 @@ import {
   type CustomerSessionApiFailure,
 } from "./customer-api-failure";
 import { CustomerBookingCatalogLayers } from "./customer-booking-catalog-layers";
-import type { CustomerBookingEndpoint } from "./customer-booking-endpoint";
+import type {
+  CustomerBookingEndpointName,
+  CustomerBookingHandlers,
+} from "./customer-booking-endpoint";
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
+  withEarlySetup,
 } from "./customer-booking-selection";
+import { toCustomerCheckoutSummary } from "./customer-checkout-summary";
 
 /**
  * A public sale source couldn't answer, so the prices may miss a sale. The
@@ -71,22 +85,32 @@ export type CustomerBookingCatalogEndpointName =
  * the booking pages read. The offerings and the quote read release gates,
  * so they build their Layers per request with `providePerRequest`;
  * availability's Layers keep nothing for a request.
+ *
+ * The offerings list the meeting room only while its release gate is open,
+ * as the office only while office reservations are. The meeting room's start
+ * times and quotes still answer, since the website's reservation page still
+ * books it while the gate hides it.
  */
 export const handleCustomerBookingCatalog = <R>(
-  handlers: HttpApiBuilder.Handlers<
+  handlers: CustomerBookingHandlers<
     R,
-    CustomerBookingEndpoint<CustomerBookingCatalogEndpointName>
+    Exclude<CustomerBookingEndpointName, CustomerBookingCatalogEndpointName>
   >
 ) =>
   Effect.gen(function* () {
     const { pricing, inventory, availability, sealedStateKeys, releases } =
       yield* CustomerBookingCatalogLayers;
 
-    /** What the offerings read: anonymous prices and the office capacity. */
+    /**
+     * What the offerings read: anonymous prices, the office capacity, and
+     * the gates that decide which offerings the catalog lists.
+     */
     const offerings = Layer.mergeAll(
       pricing.pipe(Layer.provideMerge(releases.referral)),
       inventory,
-      releases.office
+      releases.meetingRoom,
+      releases.office,
+      releases.overnightStay
     );
 
     /**
@@ -102,11 +126,24 @@ export const handleCustomerBookingCatalog = <R>(
             ({ complete }) => complete,
             () => new SalePricesUnavailable()
           ),
+          Effect.bind(
+            "overnightStayOffered",
+            () => OvernightStayReleaseGate.isOpen
+          ),
+          Effect.bind(
+            "meetingRoomOffered",
+            () => MeetingRoomReleaseGate.isOpen
+          ),
           Effect.map(
             (listing): CustomerBookingOfferings => ({
               advertisedOn: listing.advertisedOn.toString(),
               openingHours: getPublicOpeningHours(locale),
-              offerings: listing.offerings.map(toCustomerOffering),
+              offerings: listing.offerings
+                .filter(
+                  ({ kind }) =>
+                    kind !== "meeting-room" || listing.meetingRoomOffered
+                )
+                .map((offering) => toCustomerOffering(offering, listing)),
             })
           ),
           providePerRequest(offerings),
@@ -118,6 +155,7 @@ export const handleCustomerBookingCatalog = <R>(
           parseWorkspaceAvailabilityQuery,
           new URLSearchParams(definedEntries(query))
         ).pipe(
+          Effect.tap(ensureAvailabilityStayOffered(releases.overnightStay)),
           Effect.flatMap((parsed) =>
             loadAvailability({
               query: parsed,
@@ -180,6 +218,7 @@ export const handleCustomerBookingCatalog = <R>(
 
 type QuoteQuery = typeof CustomerBookingSelectionQuery.Type & {
   readonly locale: Locale;
+  readonly earlySetup?: "true" | "false";
 };
 
 /**
@@ -191,7 +230,7 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
   query: QuoteQuery
 ) {
   const now = yield* currentInstant;
-  const { locale: _locale, coffee, ...fields } = query;
+  const { locale: _locale, coffee, earlySetup, ...fields } = query;
   const selection = yield* resolveBookingQuoteSelection({
     selection: yield* toBookingSelectionInput({
       ...fields,
@@ -200,9 +239,14 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
     locale: query.locale,
     now,
   });
+  const reservation = yield* withEarlySetup(selection, earlySetup === "true");
   const advertised = yield* buildAdvertisedPrice(selection.request);
   if (!advertised.discountsComplete) return yield* new SalePricesUnavailable();
   const { payment } = advertised.quote;
+  const summary =
+    advertised.kind === "meeting-room" && reservation.kind === "meeting-room"
+      ? getMeetingRoomCheckoutSummary(advertised.quote, reservation)
+      : advertised.summary;
 
   return {
     family: advertised.kind,
@@ -210,10 +254,28 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
     regularPrice: payment.undiscountedPrice,
     discount: getReservationQuoteDiscount(payment),
     quotedAt: now.toString(),
-    summary: advertised.summary,
+    summary: toCustomerCheckoutSummary(summary),
     advertisedPriceToken: advertised.advertisedPriceToken,
   } satisfies CustomerBookingQuote;
 });
+
+/**
+ * An overnight availability query is invalid while overnight stays are not
+ * offered, as a quote or checkout for one is.
+ */
+const ensureAvailabilityStayOffered =
+  (overnightStayRelease: Layer.Layer<OvernightStayReleaseGate>) =>
+  (query: WorkspaceAvailabilityQuery) =>
+    query.kind === coworkReservationKind && query.stay === "overnight"
+      ? OvernightStayReleaseGate.isOpen.pipe(
+          Effect.filterOrFail(
+            (open) => open,
+            () => new CustomerBookingSelectionInvalid({ field: "stay" })
+          ),
+          Effect.asVoid,
+          providePerRequest(overnightStayRelease)
+        )
+      : Effect.void;
 
 /**
  * Reads the query the way the availability route does, so both accept the
@@ -278,9 +340,19 @@ const toCustomerAvailability = ({
   })),
 });
 
-const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
+const toCustomerOffering = (
+  offering: PublicOffering,
+  {
+    advertisedOn,
+    overnightStayOffered,
+  }: {
+    readonly advertisedOn: Temporal.PlainDate;
+    readonly overnightStayOffered: boolean;
+  }
+): CustomerOffering => {
   const copy = Struct.pick(offering, ["name", "description", "usage"]);
   const advertisedPrice = offering.advertisedPrice;
+  const bookableDates = getBookableDates(offering.kind, advertisedOn);
 
   return Match.value(offering).pipe(
     Match.discriminatorsExhaustive("kind")({
@@ -288,17 +360,25 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         family: "cowork",
         tier: cowork.tier,
         ...copy,
+        summary: cowork.summary,
         price: cowork.price,
         advertisedPrice,
+        bookableDates,
         addOns: cowork.addOns,
+        ...(overnightStayOffered &&
+          cowork.tier === overnightCoworkStayTier && {
+            overnightStay: getOvernightStayTimes(),
+          }),
       }),
       "meeting-room": (meetingRoom): CustomerOffering => ({
         family: "meeting-room",
         duration: getMeetingRoomReservationDurationKey(meetingRoom.duration),
         durationLabel: meetingRoom.durationLabel,
         ...copy,
+        facts: meetingRoom.facts,
         price: meetingRoom.price,
         advertisedPrice,
+        bookableDates,
       }),
       office: (office): CustomerOffering => ({
         family: "office",
@@ -310,6 +390,7 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         }),
         maximumDurationHours: office.maximumDurationHours,
         advertisedPrice,
+        bookableDates,
       }),
     })
   );

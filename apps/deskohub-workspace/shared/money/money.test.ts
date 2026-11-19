@@ -10,6 +10,7 @@ import {
   moneyEquals,
   moneyFromBigDecimal,
   moneyMajorAmount,
+  moneyShareRoundedUp,
   moneyToBigDecimal,
   moneyToDecimalString,
   moneyWithValue,
@@ -203,5 +204,29 @@ describe("money display", () => {
     expect(formatMoney(czk(21_750), "cs-CZ")).toBe("217,50 Kč");
     expect(formatMoney(czk(120_000), "cs-CZ")).toBe("1 200 Kč");
     expect(formatMoney(czk(-12_550), "cs-CZ")).toBe("-125,50 Kč");
+  });
+});
+
+describe("moneyShareRoundedUp", () => {
+  const paid: Money = { value: 1000, exponent: 2, currency: "CZK" };
+
+  test("keeps the whole amount for a full share", () => {
+    expect(moneyShareRoundedUp(paid, 3, 3)).toEqual(paid);
+  });
+
+  test("rounds a fractional minor unit up", () => {
+    expect(moneyShareRoundedUp(paid, 1, 3)).toEqual({ ...paid, value: 334 });
+    expect(moneyShareRoundedUp(paid, 2, 3)).toEqual({ ...paid, value: 667 });
+  });
+
+  test("answers zero for an empty share", () => {
+    expect(moneyShareRoundedUp(paid, 0, 4)).toEqual({ ...paid, value: 0 });
+  });
+
+  test("rejects a share outside zero to one", () => {
+    expect(() => moneyShareRoundedUp(paid, 4, 3)).toThrow();
+    expect(() => moneyShareRoundedUp(paid, 1, 0)).toThrow();
+    expect(() => moneyShareRoundedUp(paid, -1, 3)).toThrow();
+    expect(() => moneyShareRoundedUp(paid, 0.5, 3)).toThrow();
   });
 });

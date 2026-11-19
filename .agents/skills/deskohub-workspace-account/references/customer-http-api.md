@@ -12,9 +12,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
   Next, Node, React, Better Auth, or `@/` imports; `import-boundary.test.ts`
   enforces it). `workspace-customer-api.ts` composes the `account`,
   `reservations`, `booking`, and `invoices` groups into
-  `WorkspaceCustomerApi`; each group has its own file
+  `WorkspaceCustomerApi`, with `companies`; each group has its own file
   (`customer-reservations-api.ts`, `customer-booking-api.ts`,
-  `customer-invoices-api.ts`).
+  `customer-invoices-api.ts`, `customer-companies-api.ts`).
   `./client` holds the typed client factories, `./referral-code` the
   browser-safe `ReferralCode` brand.
 - Adapter: `features/customer-api/`. `customer-api.server.ts` builds the
@@ -51,10 +51,11 @@ The app's client and data layer are in the `deskohub-mobile` skill
    An endpoint is Dotypos-backed when it, or the account resolution it starts
    with, can call Dotypos (resolving an unlinked account looks its customer up
    and may reactivate an expired one). A GET the app repeats on every load,
-   history visit or status poll (the account, the reservation history, an
-   order's status and its door code) is `account-read` (40 per 30 minutes);
+   history visit or status poll (the account, the reservation history and
+   the invited orders beside it, an order's status and its door code) is
+   `account-read` (40 per 30 minutes);
    any other Dotypos-backed GET (consent, referrals, an order's invoice, the
-   invoice list and an invoice's PDF, the data archive) is
+   invoice list, an invoice's PDF and its credit note's, the data archive) is
    `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
    (15 per 30 minutes, which account edits and checkout steps share; two
    bookings fit). Each has its own per-account budget so reads can't use up
@@ -70,7 +71,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    `catalog-read` (120 per 10 minutes): they read the shared snapshots, which
    call Dotypos only on a miss, and a booking compares several dates before it
    checks out, so they keep off the account read budget. `workspace-only` reads or writes only the Workspace database
-   and Better Auth, as the account's language save (`updateLocale`) does. Account reads count as Dotypos-backed: they read Dotypos live,
+   and Better Auth, as the account's language save (`updateLocale`) does, or
+   also calls a public provider no site budget tracks, as the company lookup
+   asks the ARES registry; it spends only the general budget. Account reads count as Dotypos-backed: they read Dotypos live,
    with no response cache. If the
    endpoint changes the Dotypos call rate, recheck the budget numbers against
    the site's shared 150 requests per 30 minutes. Per-account budgets bound one account's share;
@@ -170,7 +173,8 @@ The app's client and data layer are in the `deskohub-mobile` skill
 
 ## Invoices
 
-The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`) adapts
+The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`,
+`GET /invoices/:invoiceId/corrective-document/pdf`) adapts
 `CustomerInvoiceService`, the account page's invoice reader, built from
 `CustomerAccountLayers`' `invoices` over the request's `currentAccount`. The
 service owns authorization and ownership (checkout skill, accounting
@@ -178,16 +182,46 @@ documents); the handlers only map. A refused account carries its
 `CustomerAccountAccessError` on `CustomerInvoicesUnavailableError.account`
 and answers as the account endpoints do; any id the service can't find,
 another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
-exact decimal text, as issued. An order's own invoice stays
-`getReservationInvoice`, authorized by the order.
+exact decimal text, as issued. An order's invoice carries `reservation`:
+the product's catalog name in the optional `?locale` (as `listReservations`
+names it), an office's seats, and the start and exclusive end, all from the
+service's summary; a manual invoice has none. A cancelled invoice stays listed
+and downloadable with its `cancellation` (the credit note's number), as on the
+account page; hiding it in the Admin UI changes nothing here. The credit note
+downloads through `getCorrectiveDocumentPdf`, over the service's
+`correctiveDocumentPdf` that the account page's credit-note route reads, so an
+invoice that isn't cancelled is not found like another customer's. Each
+`cancellation` sets `correctiveDocumentDownloadable: true`; the app offers the
+credit note only when it is present, so a Workspace without the endpoint
+leaves the row with its invoice download alone. An order's own
+invoice stays `getReservationInvoice`, authorized by the order, which serves
+only the live invoice.
+
+## Company lookup
+
+The `companies` group (`GET /companies/:companyId`, `workspace-only`) adapts
+`CompanyLookupService`
+(`features/account/backend/company-lookup.service.ts`), the port the
+website's `lookupAresBusiness` action also adapts: it refuses a session
+awaiting deletion with `requireActive` and never resolves the account (a
+resolution can reactivate and claim a Dotypos profile), then makes one ARES
+request through `@deskohub/ares`, which checks the IČO format and check digit
+first, and maps the company onto the business billing fields
+(`ares-business-draft.ts`). The handler only maps its outcomes: found answers
+`CustomerCompanyDetails` with the fields present, an invalid ID 400
+`CustomerCompanyIdInvalid`, an unknown company 404 `CustomerCompanyNotFound`,
+a registry that didn't answer 503 `CustomerCompanyRegistryUnavailable`, a
+deletion 409 `deletion-pending`. The action words the same outcomes in the
+locale.
 
 ## Booking checkout
 
 The booking group's checkout endpoints (`customer-booking-checkout-api.ts`,
 handlers in `customer-booking-checkout-handlers.ts`) call the same shared
 operations the site's booking form, Pay page and agent tools call:
-`prepareWorkspacePayState`, `applyDiscountCodeToPayState`, the Pay state
-price acceptance, and `CheckoutService.createHostedPaymentCheckout`.
+`prepareWorkspacePayState`, `applyDiscountCodeToPayState`,
+`clearDiscountCodeFromPayState`, the Pay state price acceptance, and
+`CheckoutService.createHostedPaymentCheckout`.
 
 Flow:
 
@@ -203,7 +237,10 @@ Flow:
    leaves the checkout usable; when the server signed a replacement that keeps
    the attempted code, the error carries its token. An unknown Calendar
    discount or a provider outage, the referral store's included, answers 503,
-   never a price review or a rejected code.
+   never a price review or a rejected code. `clearCheckoutDiscountCode`
+   removes the entered code, and the intended one with it, and answers the
+   checkout as a `price_review` without it; a checkout without a code comes
+   back as it is. Its unavailable answers are entry's, without the 422.
 4. A `price_review` checkout shows the new summary and calls
    `acceptCheckoutPriceChange`, the same continuation the Pay page's link
    issues. Acceptance needs only the token: it doesn't renew the hold, so the
@@ -234,10 +271,10 @@ Flow:
    when the lookup fails; nothing in its query picks the destination. The
    app's status call (`returnOutcome: "unknown"`) reconciles the payment.
 
-Author check: discount-code, price-acceptance and submit open the token and
-answer 404 `CustomerCheckoutNotFound` unless the signed-in account authored
-the held reservation (`authorAccountId`), so a token alone never acts for
-another account. A repository failure answers 503.
+Author check: discount-code entry and removal, price-acceptance and submit
+open the token and answer 404 `CustomerCheckoutNotFound` unless the
+signed-in account authored the held reservation (`authorAccountId`), so a
+token alone never acts for another account. A repository failure answers 503.
 
 Referral fields: the client keeps the remembered referral code and sends it in
 `x-deskohub-referral-code`. `RememberedReferral.fromClient` writes nothing, so
@@ -271,7 +308,7 @@ keys, and services that can't be built answer 503. A checkout state the
 server fails to seal or sign also answers 503, never `expired`: only the
 client's own token can expire. Mutations keep their site
 actions' deadlines (`getPreparePayStateDeadline`,
-`getApplyDiscountCodeDeadline`, `getCheckoutSubmitDeadline`); one that runs
+`getDiscountCodeChangeDeadline`, `getCheckoutSubmitDeadline`); one that runs
 out answers 503. Handler tests fake `CustomerCheckoutOperations` and
 `CheckoutService` through the `bookingCheckout` option of
 `makeCustomerApiTestServer`.

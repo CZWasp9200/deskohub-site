@@ -11,11 +11,20 @@ import {
   test,
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
+import {
+  type CheckoutStatusKind,
+  checkoutStatusKinds,
+} from "@/features/checkout/checkout-status-kind";
+import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
+import { readContactPrefill } from "@/features/contact/components/contact-page-link";
 import { type Locale, m } from "@/features/i18n";
+import { InviteeEmail } from "@/features/office/office-people";
+import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
+import { reservationInviteeIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -51,7 +60,35 @@ mock.module("next/link", () => ({
   },
 }));
 
+const { workspaceUseAction } = await import(
+  "@/shared/testing/workspace-component-module-mocks"
+);
+mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
+  reopenPaymentPage: mock(),
+}));
+// The link's dialog has its own tests; here it marks where it's offered.
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({
+    ReservationWithdrawalLink: () => (
+      <button type="button">
+        {m.reservationWithdrawalAction({}, { locale: "en-US" })}
+      </button>
+    ),
+  })
+);
+mock.module("@/features/checkout/actions/prepare-payment-retry", () => ({
+  preparePaymentRetry: mock(),
+}));
+
 const { CheckoutStatusPage } = await import("./checkout-status-page");
+
+beforeEach(() => {
+  workspaceUseAction.mockReturnValue({
+    execute: mock(),
+    isExecuting: false,
+  } as never);
+});
 
 const baseStatus: CheckoutStatusViewModel = {
   kind: "cowork",
@@ -205,6 +242,45 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
   });
 
+  test("reads a withdrawn reservation as cancelled, without PIN or withdrawal", () => {
+    const withdrawalLinks = (view: ReturnType<typeof render>) =>
+      view.queryAllByRole("button", {
+        name: m.reservationWithdrawalAction({}, { locale: "en-US" }),
+      });
+    const offered = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={reconstructedCoworkStatus}
+        withdrawal={{ status: "offered" }}
+      />
+    );
+    expect(withdrawalLinks(offered).length).toBeGreaterThan(0);
+    cleanup();
+
+    const withdrawn = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={reconstructedCoworkStatus}
+        withdrawal={{
+          status: "withdrawn",
+          refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+        }}
+      />
+    );
+
+    expect(
+      withdrawn.getByRole("heading", {
+        name: m.checkoutStatusWithdrawnTitle({}, { locale: "en-US" }),
+      })
+    ).toBeDefined();
+    expect(withdrawalLinks(withdrawn)).toEqual([]);
+    expect(
+      withdrawn.queryByRole("link", {
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
+      })
+    ).toBeNull();
+  });
+
   test("renders fulfilled modal content without the page shell or page CTAs", () => {
     const view = render(
       <CheckoutStatusPage
@@ -219,7 +295,11 @@ describe("CheckoutStatusPage", () => {
     expect(view.getByText("Reservation summary")).toBeDefined();
     expect(view.getByText("reservation-status-page")).toBeDefined();
     expect(view.getByText("Profi Workstation")).toBeDefined();
-    expect(view.getByRole("link", { name: "Show access code" })).toBeDefined();
+    expect(
+      view.getByRole("link", {
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
+      })
+    ).toBeDefined();
     expect(
       view.container.querySelector(
         '#checkout-status-access[href="/en-US/reservation/access/reservation-status-page"]'
@@ -388,7 +468,9 @@ describe("CheckoutStatusPage", () => {
 
     expect(
       modalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("href")
     ).toBe(accessHref);
     expect(capturedLinks).toContainEqual({
@@ -404,13 +486,17 @@ describe("CheckoutStatusPage", () => {
 
     expect(
       canonicalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("href")
     ).toBe(accessHref);
     expect(capturedLinks.some(({ href }) => href === accessHref)).toBe(false);
     expect(
       canonicalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("data-next-link")
     ).toBeNull();
   });
@@ -494,6 +580,199 @@ describe("CheckoutStatusPage", () => {
     ).toBe("/en-US/reservation/office?dayCount=3&seats=3");
   });
 
+  test.each([
+    { resendable: true, withdrawn: false },
+    { resendable: false, withdrawn: false },
+    { resendable: true, withdrawn: true },
+  ])(
+    "shows office people without a summary (resendable $resendable, withdrawn $withdrawn)",
+    ({ resendable, withdrawn }) => {
+      const email = InviteeEmail.make(testEmailAddress("office-status-guest"));
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          resendInvitation={async () => ({ status: "failed" })}
+          withdrawal={
+            withdrawn
+              ? {
+                  status: "withdrawn",
+                  refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+                }
+              : undefined
+          }
+          status={{
+            ...baseStatus,
+            kind: "office",
+            status: resendable ? "fulfilled" : "reservation_cancelled",
+            supportContactPrefill: {
+              name: "Alex Sample",
+              email: testEmailAddressForAda,
+            },
+            people: {
+              contactAttends: false,
+              invitees: [
+                {
+                  id: reservationInviteeIdSchema.make("office-guest"),
+                  email,
+                  invitationSentAt: null,
+                },
+              ],
+              resendable,
+            },
+          }}
+        />
+      );
+      const people = view.container.querySelector(
+        "[data-office-status-people]"
+      );
+      expect(people?.textContent).toContain(email);
+      const href = people?.querySelector("a")?.getAttribute("href");
+      if (!href) throw new Error("Expected the change-request link");
+      const { searchParams } = new URL(href, "https://deskohub.test");
+      expect(searchParams.get("name")).toBe("Alex Sample");
+      expect(searchParams.get("email")).toBe(testEmailAddressForAda);
+      expect(searchParams.get("message")).toContain(baseStatus.orderId);
+      expect(
+        Boolean(
+          view.queryByRole("button", {
+            name: m.checkoutStatusPeopleResendLabel(
+              { email },
+              { locale: "en-US" }
+            ),
+          })
+        )
+      ).toBe(resendable && !withdrawn);
+    }
+  );
+
+  test("lists who is coming to an office and sends an invitation again", async () => {
+    const reservedFrom = Temporal.Instant.from("2026-11-17T23:00:00Z");
+    const jana = InviteeEmail.make(testEmailAddress("office-guest-jana"));
+    const petr = InviteeEmail.make(testEmailAddress("office-guest-petr"));
+    const resendInvitation = mock(async () => ({
+      status: "sent" as const,
+      resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }).toString(),
+    }));
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        resendInvitation={resendInvitation}
+        status={{
+          ...baseStatus,
+          kind: "office",
+          supportContactPrefill: {
+            name: "Alex Sample",
+            email: testEmailAddressForAda,
+          },
+          summary: {
+            kind: "office",
+            reservedFrom,
+            reservedUntil: Temporal.Instant.from("2026-11-18T23:00:00Z"),
+            seats: 2,
+            price: { value: 116_000, exponent: 2, currency: "CZK" },
+          },
+          people: {
+            contactAttends: true,
+            invitees: [
+              {
+                id: reservationInviteeIdSchema.make("invitee-jana"),
+                email: jana,
+                invitationSentAt: reservedFrom,
+              },
+              {
+                id: reservationInviteeIdSchema.make("invitee-petr"),
+                email: petr,
+                invitationSentAt: reservedFrom,
+                resendAvailableAt: Temporal.Now.instant().add({ seconds: 60 }),
+              },
+            ],
+            resendable: true,
+          },
+        }}
+      />
+    );
+
+    const people = view.container.querySelector("[data-office-status-people]");
+    expect(people?.textContent).toContain(
+      m.checkoutStatusPeopleContact(
+        { name: "Alex Sample" },
+        { locale: "en-US" }
+      )
+    );
+    expect(people?.textContent).toContain(jana);
+    expect(
+      view.getByRole("button", {
+        name: m.checkoutStatusPeopleResendLabel(
+          { email: petr },
+          { locale: "en-US" }
+        ),
+      })
+    ).toHaveProperty("disabled", true);
+    expect(
+      view.queryByText(
+        m.checkoutStatusSummarySeatsLabel({}, { locale: "en-US" })
+      )
+    ).toBeNull();
+
+    const changeLink = people?.querySelector("a");
+    const changeHref = new URL(
+      changeLink?.getAttribute("href") ?? "",
+      "https://x.test"
+    );
+    expect(changeHref.pathname).toBe("/en-US/contact");
+    expect(readContactPrefill(changeHref.searchParams)).toEqual({
+      name: "Alex Sample",
+      email: testEmailAddressForAda,
+      phone: undefined,
+      message: m.checkoutStatusPeopleChangeMessage(
+        {
+          reservationDetails: [
+            m.checkoutStatusContactOrderReference(
+              { orderId: baseStatus.orderId },
+              { locale: "en-US" }
+            ),
+            m.checkoutStatusContactReservation(
+              {
+                reservation: getWorkspaceOfficeProductTitle("en-US"),
+                date: formatReservationDisplayDate(reservedFrom, "en-US"),
+              },
+              { locale: "en-US" }
+            ),
+          ].join("\n"),
+        },
+        { locale: "en-US" }
+      ),
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.checkoutStatusPeopleResendLabel(
+            { email: jana },
+            { locale: "en-US" }
+          ),
+        })
+      );
+    });
+    expect(resendInvitation).toHaveBeenCalledWith({
+      orderId: baseStatus.orderId,
+      inviteeId: "invitee-jana",
+    });
+    expect(
+      view.getByText(m.checkoutStatusPeopleSent({}, { locale: "en-US" }))
+    ).toBeDefined();
+    expect(
+      view
+        .getByText(
+          m.checkoutStatusPeopleSentAnnouncement(
+            { email: jana },
+            { locale: "en-US" }
+          )
+        )
+        .getAttribute("role")
+    ).toBe("status");
+  });
+
   test("links the completed order step to the cowork repeat start as a raw document anchor", () => {
     const view = render(
       <CheckoutStatusPage locale="en-US" status={reconstructedCoworkStatus} />
@@ -541,17 +820,18 @@ describe("CheckoutStatusPage", () => {
       />
     );
 
-    const cta = view.container.querySelector("#checkout-status-reserve-again");
-    expect(cta?.textContent).toBe(
-      m.checkoutStatusTryAgain({}, { locale: "en-US" })
-    );
-    const ctaHref = cta?.getAttribute("href");
-    expect(ctaHref).toBe("/en-US/reservation/cowork");
+    // Paying the same order again leads; the new reservation is its
+    // fallback, which the completed order step links to.
+    expect(
+      view.container.querySelector("#checkout-status-try-payment-again")
+    ).not.toBeNull();
     const completedOrderStep = view.container.querySelector(
       "main ol > li:nth-child(1) > a"
     );
     expect(completedOrderStep).not.toBeNull();
-    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("href")).toBe(
+      "/en-US/reservation/cowork"
+    );
     expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
     const stepHref = completedOrderStep?.getAttribute("href");
     expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
@@ -1240,7 +1520,7 @@ describe("CheckoutStatusPage payment retry", () => {
       retryStatuses.map((status) => ({ ...retry, ...status }))
     )
   )(
-    "offers Try again with the $kind selection after a $status payment",
+    "offers paying the same order again after a $status payment, with the $kind selection as its fallback",
     ({ href, kind, paymentStatus, retrySelection, status }) => {
       const view = render(
         <CheckoutStatusPage
@@ -1256,10 +1536,12 @@ describe("CheckoutStatusPage payment retry", () => {
         />
       );
 
-      const tryAgain = view.getByRole("link", {
-        name: m.checkoutStatusTryAgain({}, { locale: "en-US" }),
-      });
-      expect(tryAgain.getAttribute("href")).toBe(href);
+      expect(
+        view.container.querySelector("#checkout-status-try-payment-again")
+      ).not.toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
       expect(
         view.container
           .querySelector("main ol > li:nth-child(1) > a")
@@ -1288,4 +1570,106 @@ describe("CheckoutStatusPage payment retry", () => {
     );
     expect(cta?.getAttribute("href")).toBe("/en-US/reservation/cowork");
   });
+});
+
+describe("CheckoutStatusPage payment page reopening", () => {
+  beforeAll(() => {
+    registerWorkspaceComponentTestEnv();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
+  });
+
+  const openPaymentPageSelector = "#checkout-status-open-payment-page";
+  const backHome = m.checkoutStatusBackHome({}, { locale: "en-US" });
+
+  test.each(["page", "modal"] as const)(
+    "leads the actions with the payment page while the payment is pending in %s presentation",
+    (presentation) => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          presentation={presentation}
+          status={{
+            ...baseStatus,
+            status: "pending",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+            paymentPageReopenable: true,
+          }}
+        />
+      );
+
+      const openPaymentPage = view.container.querySelector(
+        openPaymentPageSelector
+      );
+      expect(openPaymentPage?.tagName).toBe("BUTTON");
+      expect(openPaymentPage?.parentElement?.firstElementChild).toBe(
+        openPaymentPage
+      );
+      expect(view.queryByRole("link", { name: backHome }) !== null).toBe(
+        presentation === "page"
+      );
+    }
+  );
+
+  const statusesWithoutPaymentPage: readonly CheckoutStatusViewModel[] = [
+    {
+      orderId: "reservation-no-payment-page",
+      returnOutcome: "unknown",
+      status: "not_found",
+    },
+    // Pending past the page's reopening window.
+    {
+      ...baseStatus,
+      status: "pending",
+      paymentStatus: "pending",
+      fulfillmentStatus: "not_started",
+    },
+    ...checkoutStatusKinds
+      .filter(
+        (kind): kind is Exclude<CheckoutStatusKind, "not_found" | "pending"> =>
+          kind !== "not_found" && kind !== "pending"
+      )
+      .map(
+        (kind): CheckoutStatusViewModel => ({
+          ...baseStatus,
+          status: kind,
+          paymentStatus: "pending",
+          fulfillmentStatus: "not_started",
+          paymentPageReopenable: true,
+        })
+      ),
+  ];
+
+  test.each(
+    statusesWithoutPaymentPage.flatMap((status) =>
+      (["page", "modal"] as const).map((presentation) => ({
+        kind:
+          status.status === "pending"
+            ? "pending past its window"
+            : status.status,
+        presentation,
+        status,
+      }))
+    )
+  )(
+    "offers no payment page for $kind in $presentation presentation",
+    ({ presentation, status }) => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          presentation={presentation}
+          status={status}
+        />
+      );
+
+      expect(view.container.querySelector(openPaymentPageSelector)).toBeNull();
+    }
+  );
 });

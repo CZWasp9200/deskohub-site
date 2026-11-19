@@ -8,6 +8,7 @@ import {
 } from "@/db/schema";
 import { quotedSqlList } from "@/db/schema/sql-list";
 import {
+  type StoredWorkspaceReservationDetails,
   storedWorkspaceReservationDetailsSchema,
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
@@ -26,25 +27,37 @@ export class WorkspaceReservationDetailsMalformedError extends Data.TaggedError(
 }> {}
 
 /**
- * What the column holds. Its Drizzle type is the decoded document, but a value
- * written outside the encoder may not match it, so every reader decodes it.
+ * The document the column holds. The column itself is untyped JSON: a value
+ * written outside `encode` may not match, so every reader decodes it.
  */
-type StoredDocument = WorkspaceReservationRow["reservationDetails"];
+type StoredDocument = StoredWorkspaceReservationDetails;
 
-const storedDetailsDecoder: Schema.Decoder<StoredDocument> =
+/** What a read of the column returns before decoding: any JSON value. */
+type ColumnValue = WorkspaceReservationRow["reservationDetails"];
+
+const storedDetailsCodec: Schema.Codec<StoredDocument> =
   storedWorkspaceReservationDetailsSchema;
 
-// Every reader accepts the same documents: a field the schema doesn't know
-// fails the read instead of being dropped, so no write-back loses it.
+// Readers and the writer accept the same documents: a field the schema doesn't
+// know fails the read or write instead of being dropped, so no write-back
+// loses it and everything written decodes.
 const parseOptions = { errors: "all", onExcessProperty: "error" } as const;
 
 const decodeDetails = Schema.decodeUnknownEffect(
-  storedDetailsDecoder,
+  storedDetailsCodec,
   parseOptions
 );
 
+const encodeDetails = Schema.encodeEffect(storedDetailsCodec, parseOptions);
+
+// A document typed as stored details that fails their schema is a bug in the
+// code that built it, not a state the caller can handle, so it dies.
+const encode = Effect.fn("StoredReservationDetails.encode")(
+  (document: StoredDocument) => encodeDetails(document).pipe(Effect.orDie)
+);
+
 const decode = Effect.fn("StoredReservationDetails.decode")(
-  (reservationId: WorkspaceReservationId, raw: StoredDocument) =>
+  (reservationId: WorkspaceReservationId, raw: ColumnValue) =>
     decodeDetails(raw).pipe(
       Effect.mapError(
         (cause) =>
@@ -58,7 +71,7 @@ const decode = Effect.fn("StoredReservationDetails.decode")(
 );
 
 const projectDetails = Schema.decodeUnknownOption(
-  storedDetailsDecoder,
+  storedDetailsCodec,
   parseOptions
 );
 
@@ -114,14 +127,26 @@ type RowWithDetails = Pick<
   "id" | "reservationDetails"
 >;
 
-const decodeRow = <Row extends RowWithDetails>(row: Row) =>
+/** A row read with its reservation's ID, its document decoded. */
+export type WithStoredReservationDetails<Row extends RowWithDetails> = Omit<
+  Row,
+  "reservationDetails"
+> & { readonly reservationDetails: StoredDocument };
+
+const decodeRow = <Row extends RowWithDetails>(
+  row: Row
+): Effect.Effect<
+  WithStoredReservationDetails<Row>,
+  WorkspaceReservationDetailsMalformedError
+> =>
   decode(row.id, row.reservationDetails).pipe(
     Effect.map((reservationDetails) => ({ ...row, reservationDetails }))
   );
 
 /**
- * The app-owned `reservation_details` document of a workspace reservation:
- * the one place that decodes it and knows its JSON layout. The accessors carry
+ * The app-owned `reservation_details` document of a workspace reservation (and
+ * of a review account's simulated hold): the one place that encodes and
+ * decodes it and knows its JSON layout. The accessors carry
  * no bound parameters, so a query can group by the expression it selects.
  */
 export const StoredReservationDetails = {
@@ -136,7 +161,13 @@ export const StoredReservationDetails = {
     Effect.forEach(rows, decodeRow),
 
   /** Reads a document for a view that shows less, not fails, when it's malformed. */
-  project: (raw: StoredDocument) => projectDetails(raw),
+  project: (raw: ColumnValue) => projectDetails(raw),
+
+  /**
+   * The column value to write for a document, checked against the schema the
+   * readers decode with, so a write never stores what a read would reject.
+   */
+  encode,
 
   /** The reservation's family, null when the document names none. */
   kind: sql<WorkspaceReservationKind | null>`case

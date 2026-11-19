@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Layer, Logger, Option, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import {
   DotyposRuntimeConfigSchema,
   makeDotyposRuntimeConfigLayer,
@@ -11,6 +11,7 @@ import {
   DotyposCustomerSchema,
   DotyposReservationIdSchema,
   DotyposReservationSchema,
+  DotyposTableIdSchema,
 } from "../types";
 import { DotyposAccessToken, DotyposGeneratedClient } from "./api";
 import { makeInMemoryDotypos } from "./in-memory-dotypos";
@@ -38,6 +39,7 @@ const config = Schema.decodeUnknownSync(DotyposRuntimeConfigSchema)({
 
 const customerId = Schema.decodeUnknownSync(DotyposCustomerIdSchema);
 const reservationId = Schema.decodeUnknownSync(DotyposReservationIdSchema);
+const tableId = Schema.decodeUnknownSync(DotyposTableIdSchema);
 
 const customerFixture = (overrides: Partial<Customer>): Customer => ({
   id: "customer-id",
@@ -62,6 +64,15 @@ const reservationFixture = (overrides: Partial<Reservation>): Reservation => ({
   status: "NEW",
   ...overrides,
 });
+
+/** The booking every reservation fixture holds. */
+const fixtureBooking = {
+  customerId: customerId("customer-id"),
+  tableId: tableId("table-id"),
+  startDate: new Date("2026-06-20T10:00:00.000Z"),
+  endDate: new Date("2026-06-20T12:00:00.000Z"),
+  seats: 2,
+};
 
 const fixtures = () => ({
   customers: [
@@ -265,6 +276,65 @@ describe("in-memory Dotypos agrees with Live on recorded response shapes", () =>
       {
         failure: expect.objectContaining({
           _tag: "DotyposReservationCancelledError",
+        }),
+      },
+    ]);
+  });
+
+  test("restores a CANCELLED reservation and reads it back confirmed", async () => {
+    const result = await agree(
+      withService((service) =>
+        service
+          .restoreCancelledReservation({
+            reservationId: reservationId("cancelled"),
+            expectedBooking: fixtureBooking,
+          })
+          .pipe(
+            Effect.flatMap((restored) =>
+              service
+                .getReservationStatus(restored.reservation.id)
+                .pipe(
+                  Effect.map((status) => [
+                    restored._tag,
+                    restored.reservation.status,
+                    status,
+                  ])
+                )
+            )
+          )
+      )
+    );
+    expect(result).toEqual({ value: ["Restored", "CONFIRMED", "CONFIRMED"] });
+  });
+
+  test("keeps a CONFIRMED reservation and refuses a NEW or changed one", async () => {
+    const restore = (id: string, expectedBooking = fixtureBooking) =>
+      agree(
+        withService((service) =>
+          service.restoreCancelledReservation({
+            reservationId: reservationId(id),
+            expectedBooking,
+          })
+        ),
+        (restored) => restored._tag
+      );
+    const results = await Promise.all([
+      restore("confirmed"),
+      restore("new"),
+      restore("cancelled", { ...fixtureBooking, seats: 3 }),
+    ]);
+    expect(results).toEqual([
+      { value: "AlreadyConfirmed" },
+      {
+        failure: expect.objectContaining({
+          _tag: "DotyposReservationNotRestorable",
+          reason: "not-cancelled",
+        }),
+      },
+      {
+        failure: expect.objectContaining({
+          _tag: "DotyposReservationNotRestorable",
+          reason: "booking-changed",
         }),
       },
     ]);

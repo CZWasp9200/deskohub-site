@@ -17,6 +17,7 @@ import {
   type IPaymentLifecycleRepository,
   PaymentLifecycleRepository,
 } from "../repositories/payment-lifecycle.repository";
+import { withReservationPaymentHandlers } from "./order-payment-handlers.test-utils";
 
 type NexiServiceType = typeof NexiServiceTag.Service;
 
@@ -50,6 +51,7 @@ const pendingReservation = {
 };
 
 const pendingAttempt = {
+  orderId: "reservation-id",
   id: "attempt-id",
   workspaceReservationId: "reservation-id",
   provider: "nexi" as const,
@@ -155,7 +157,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 paymentLifecycleLayer(),
                 recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, {} as NexiServiceType)
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -223,7 +225,7 @@ describe("ProviderPaymentFinalizationService", () => {
               paymentLifecycleLayer(),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -283,7 +285,7 @@ describe("ProviderPaymentFinalizationService", () => {
               paymentLifecycleLayer(),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -372,7 +374,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 }),
                 recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, nexi)
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -392,7 +394,7 @@ describe("ProviderPaymentFinalizationService", () => {
         expect(markPaidForReservation).toHaveBeenCalledWith(
           expect.objectContaining({
             id: "attempt-id",
-            workspaceReservationId: "reservation-id",
+            orderId: "reservation-id",
             webhookEventId: "event-id",
           })
         );
@@ -404,7 +406,7 @@ describe("ProviderPaymentFinalizationService", () => {
         expect(markTerminalForReservation).toHaveBeenCalledWith(
           expect.objectContaining({
             id: "attempt-id",
-            workspaceReservationId: "reservation-id",
+            orderId: "reservation-id",
             state: "failed",
             failureCode: "nexi_payment_failed",
             webhookEventId: "event-id",
@@ -493,7 +495,7 @@ describe("ProviderPaymentFinalizationService", () => {
                     Effect.succeed(scenario.verification)
                   ),
                 })
-              )
+              ).pipe(withReservationPaymentHandlers)
             )
           )
         ),
@@ -557,7 +559,7 @@ describe("ProviderPaymentFinalizationService", () => {
                   Effect.succeed(buildVerification("success"))
                 ),
               })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -627,7 +629,7 @@ describe("ProviderPaymentFinalizationService", () => {
               Layer.mock(NexiService, {
                 verifyPaymentOutcome,
               })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -727,7 +729,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
               paymentLifecycleLayer({ markTerminal }),
               recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, { getOrder, verifyPaymentOutcome })
-            )
+            ).pipe(withReservationPaymentHandlers)
           )
         )
       ),
@@ -782,7 +784,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
     });
     expect(markTerminal).toHaveBeenCalledWith({
       id: "attempt-id",
-      workspaceReservationId: "reservation-id",
+      orderId: "reservation-id",
       state: "failed",
       failureCode: "nexi_hpp_create_unconfirmed",
       providerStatus: "hpp_create_unconfirmed",
@@ -837,7 +839,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
 
   test("yields to a provider session attached concurrently", async () => {
     const { PaymentLifecycleStateError } = await import(
-      "../repositories/payment-lifecycle.repository"
+      "../repositories/payment-lifecycle-state"
     );
     const { result } = await finalizeUnattached({
       abandonmentCheckedAt: afterCutoff,

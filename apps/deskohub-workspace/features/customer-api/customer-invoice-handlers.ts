@@ -6,13 +6,22 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
-import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
+import {
+  type CustomerInvoiceListing,
+  type CustomerInvoiceNotFoundError,
+  CustomerInvoiceService,
+  type CustomerInvoicesLoadError,
+  type CustomerInvoicesUnavailableError,
+} from "@/features/account/backend/customer-invoice.service";
+import { defaultLocale } from "@/features/i18n";
 import { CustomerAccountLayers } from "./customer-account-layers";
 import { answerCustomerApiFailure } from "./customer-api-failure";
-import { answerFileDownload } from "./customer-file-download";
+import {
+  answerFileDownload,
+  type CustomerFileDownload,
+} from "./customer-file-download";
 
 /**
  * The invoices group's handlers, over the account's `CustomerInvoiceService`
@@ -38,8 +47,10 @@ export const CustomerInvoicesApiHandlers = HttpApiBuilder.group(
     );
 
     return handlers
-      .handle("listInvoices", () =>
-        Effect.flatMap(CustomerInvoiceService, (service) => service.list).pipe(
+      .handle("listInvoices", ({ query: { locale = defaultLocale } }) =>
+        Effect.flatMap(CustomerInvoiceService, (service) =>
+          service.list({ locale })
+        ).pipe(
           Effect.provide(invoices),
           Effect.catchTag("CustomerInvoicesUnavailableError", ({ account }) =>
             Effect.fail(account)
@@ -55,25 +66,48 @@ export const CustomerInvoicesApiHandlers = HttpApiBuilder.group(
           service.pdf(invoiceId)
         ).pipe(
           Effect.provide(invoices),
-          Effect.catchTags(
-            {
-              CustomerInvoiceNotFoundError: () =>
-                Effect.fail(new CustomerInvoiceNotFound()),
-              CustomerInvoicesUnavailableError: ({ account }) =>
-                answerCustomerApiFailure("customerApi.getInvoicePdf")(
-                  Effect.fail(account)
-                ),
-            },
-            (failure) =>
-              answerCustomerApiFailure("customerApi.getInvoicePdf")(
-                Effect.fail(failure)
-              )
-          ),
-          Effect.map(answerFileDownload("application/pdf"))
+          answerInvoiceFile("customerApi.getInvoicePdf")
+        )
+      )
+      .handle("getCorrectiveDocumentPdf", ({ params: { invoiceId } }) =>
+        Effect.flatMap(CustomerInvoiceService, (service) =>
+          service.correctiveDocumentPdf(invoiceId)
+        ).pipe(
+          Effect.provide(invoices),
+          answerInvoiceFile("customerApi.getCorrectiveDocumentPdf")
         )
       );
   })
 );
+
+/**
+ * One of the account's invoice PDFs as a download: an invoice the service
+ * can't find is not found, and a refused account answers as the account
+ * endpoints do.
+ */
+const answerInvoiceFile =
+  (operation: string) =>
+  <R>(
+    read: Effect.Effect<
+      CustomerFileDownload,
+      | CustomerInvoiceNotFoundError
+      | CustomerInvoicesUnavailableError
+      | CustomerInvoicesLoadError,
+      R
+    >
+  ) =>
+    read.pipe(
+      Effect.catchTags(
+        {
+          CustomerInvoiceNotFoundError: () =>
+            Effect.fail(new CustomerInvoiceNotFound()),
+          CustomerInvoicesUnavailableError: ({ account }) =>
+            answerCustomerApiFailure(operation)(Effect.fail(account)),
+        },
+        (failure) => answerCustomerApiFailure(operation)(Effect.fail(failure))
+      ),
+      Effect.map(answerFileDownload("application/pdf"))
+    );
 
 /** An invoice as the contract carries it, without unknown fields. */
 const answerInvoice = ({
@@ -82,10 +116,26 @@ const answerInvoice = ({
   workspaceReservationId,
   issuedOn,
   total: { amount, currency },
-}: CustomerInvoiceSummary): CustomerInvoice => ({
+  cancellation,
+  reservation,
+}: CustomerInvoiceListing): CustomerInvoice => ({
   id,
   invoiceNumber,
   issuedOn,
   total: { amount, currency },
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
+  ...(cancellation && {
+    cancellation: {
+      correctiveDocumentNumber: cancellation.correctiveDocumentNumber,
+      correctiveDocumentDownloadable: true,
+    },
+  }),
+  ...(reservation && {
+    reservation: {
+      productName: reservation.productName,
+      ...(reservation.seats !== null && { seats: reservation.seats }),
+      startsAt: reservation.startsAt,
+      endsAt: reservation.endsAt,
+    },
+  }),
 });

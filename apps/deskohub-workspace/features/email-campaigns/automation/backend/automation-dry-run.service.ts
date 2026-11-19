@@ -3,10 +3,12 @@ import "server-only";
 import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
+  type DotyposCustomerLifecycle,
   DotyposService,
   dotyposIdReadRequests,
 } from "@deskohub/dotypos";
 import type {
+  AutomationDryRunCustomerType as AutomationDryRunCustomer,
   AutomationFlowType as AutomationFlow,
   AutomationPreviewRefType as AutomationPreviewRef,
   AutomationPreviewStatusType as AutomationPreviewStatus,
@@ -101,6 +103,21 @@ type AutomationDryRunReadError =
   | AutomationPageCursorInvalid
   | DatabaseQueryError;
 
+/**
+ * A dry run's customer with its lifecycle when Dotypos returned it, so the
+ * Admin UI can show a deleted or expired customer's placeholder. Null when
+ * Dotypos didn't return the customer or couldn't be read. The
+ * administration API contract doesn't declare it, so the API leaves it out.
+ */
+export type AutomationDryRunCustomerWithLifecycle = AutomationDryRunCustomer & {
+  readonly lifecycle: DotyposCustomerLifecycle | null;
+};
+
+/** A dry run whose page's customers carry their lifecycle. */
+export type AutomationDryRunWithLifecycle = Omit<DryRunReport, "customers"> & {
+  readonly customers: readonly AutomationDryRunCustomerWithLifecycle[];
+};
+
 interface IAutomationDryRun {
   /**
    * Starts a dry run of the campaign's working copy (D6, D20), or returns
@@ -121,7 +138,7 @@ interface IAutomationDryRun {
    */
   readonly get: (
     input: AutomationPreviewRef
-  ) => Effect.Effect<DryRunReport, AutomationDryRunReadError>;
+  ) => Effect.Effect<AutomationDryRunWithLifecycle, AutomationDryRunReadError>;
 }
 
 /** The keyset position after a page's last row. */
@@ -474,8 +491,10 @@ export class AutomationDryRun extends Context.Service<
         );
       });
 
-      /** Names and emails of the page's customers, read live and never stored. */
-      const hydrate = (customers: readonly DotyposCustomerId[]) =>
+      /** Names, emails and lifecycles of the page's customers, read live and never stored. */
+      const hydrate = (
+        customers: readonly DotyposCustomerId[]
+      ): Effect.Effect<readonly AutomationDryRunCustomerWithLifecycle[]> =>
         readAutomationCustomerContacts(customers).pipe(
           Effect.provideService(DotyposService, dotypos),
           Effect.map((contacts) =>
@@ -485,6 +504,7 @@ export class AutomationDryRun extends Context.Service<
                 customerId,
                 name: contact?.name ?? null,
                 email: contact?.email ?? null,
+                lifecycle: contact?.lifecycle ?? null,
               };
             })
           )
@@ -596,7 +616,7 @@ export class AutomationDryRun extends Context.Service<
           const customers = yield* hydrate([
             ...new Set(page.map(({ dotyposCustomerId }) => dotyposCustomerId)),
           ]);
-          const dryRun: DryRunReport = {
+          const dryRun: AutomationDryRunWithLifecycle = {
             ...previewStatus(preview),
             nextFires: Option.match(schedule, {
               onNone: () => [],

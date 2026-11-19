@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import customerProject from "../../../project.inlang/settings.json";
 import {
   type CatalogText,
   classifyChunks,
@@ -21,10 +22,6 @@ import {
 const appDirectory = path.resolve(import.meta.dir, "../../..");
 const nextDirectory = path.join(appDirectory, ".next");
 const administrationMessagesDirectory = path.join(import.meta.dir, "messages");
-const customerMessagesDirectory = path.join(
-  appDirectory,
-  "features/i18n/messages"
-);
 const administrationContractDirectory = path.resolve(
   appDirectory,
   "../../packages/workspace-admin-api/src"
@@ -126,9 +123,20 @@ const isAdministrationRoute = (route: string) =>
 const routeChunks = await readRouteChunks();
 const rootChunks = await readRootChunks();
 const chunks = await readEmittedChunks();
-const customerCatalogTexts = await readCatalogDirectory(
-  customerMessagesDirectory
-);
+const customerCatalogTexts = (
+  await Promise.all(
+    customerProject["plugin.inlang.messageFormat"].pathPattern.flatMap(
+      (pattern) =>
+        supportedLocales.map(async (locale) => {
+          const file = path.resolve(
+            appDirectory,
+            pattern.replace("{languageTag}", locale)
+          );
+          return readCatalogTexts(locale, await readFile(file, "utf8"));
+        })
+    )
+  )
+).flat();
 const administrationCatalogTexts = await readCatalogDirectory(
   administrationMessagesDirectory
 );

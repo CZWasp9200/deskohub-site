@@ -25,6 +25,10 @@ import {
   locales,
 } from "@/features/i18n/routing";
 import {
+  findLegalDocumentOfPathname,
+  getInAppLegalDocumentPath,
+} from "@/features/legal/legal-document-path";
+import {
   findLocalizedPublicPage,
   getPageMarkdownRoutePath,
   prefersMarkdown,
@@ -35,11 +39,15 @@ import {
 } from "@/features/referrals/referral-code-cookie";
 import { env } from "./env";
 import { appendVercelPreviewProtectionBypass } from "./features/checkout/backend/checkout/vercel-preview-protection-bypass";
-import { reservationAccessTokenQueryParam } from "./features/reservation/reservation-access-token";
+import {
+  reservationAccessTokenQueryParam,
+  reservationInvitationTokenQueryParam,
+} from "./features/reservation/reservation-access-token";
 import { classifyAgentTraffic } from "./shared/agent-traffic/agent-traffic";
 import { scheduleAgentPageRequest } from "./shared/backend/agent-traffic/agent-page-request";
 import { resolveWorkspaceRuntimeCallbackOrigin } from "./shared/backend/config/workspace-url.config";
 import { withRequestPathname } from "./shared/backend/utils/request-pathname";
+import { isOpenedFromApp } from "./shared/utils/opened-from-app";
 import { markPrivateResponse } from "./shared/utils/private-response";
 import { workspaceSiteOrigin } from "./shared/utils/site-constants";
 
@@ -80,7 +88,8 @@ const isReservationCapabilityExchangePath = (pathname: string) =>
 const hasReservationCapabilityToExchange = (request: NextRequest) =>
   request.method === "GET" &&
   isReservationCapabilityExchangePath(request.nextUrl.pathname) &&
-  request.nextUrl.searchParams.has(reservationAccessTokenQueryParam);
+  (request.nextUrl.searchParams.has(reservationAccessTokenQueryParam) ||
+    request.nextUrl.searchParams.has(reservationInvitationTokenQueryParam));
 
 const isAccountPath = (pathname: string) => /\/account(\/|$)/.test(pathname);
 
@@ -273,9 +282,9 @@ const resolvedLocalePageResponse = (
     );
   }
 
-  const response = continuePageRequest(request, locale, {
-    forwardRequestHeaders,
-  });
+  const response =
+    inAppLegalDocumentResponse(request, locale) ??
+    continuePageRequest(request, locale, { forwardRequestHeaders });
   // The same URL answers with Markdown when `Accept` prefers it.
   if (publicPage) response.headers.append("Vary", "Accept");
   if (isPrivatePagePath(request.nextUrl.pathname)) {
@@ -283,6 +292,23 @@ const resolvedLocalePageResponse = (
   }
   setLocaleCookie(response, localeCookieName, locale);
   return response;
+};
+
+// A legal document the mobile app opened (`native=1`) renders without the
+// site's header, footer and consent banner. The URL keeps its query, which
+// the app's variant carries on to the other legal documents it links.
+const inAppLegalDocumentResponse = (request: NextRequest, locale: Locale) => {
+  if (!isOpenedFromApp(request.nextUrl.searchParams)) return undefined;
+  const legalDocument = findLegalDocumentOfPathname(request.nextUrl.pathname);
+  if (!legalDocument) return undefined;
+
+  recordAgentPageRequest(request, locale);
+  const inAppUrl = request.nextUrl.clone();
+  inAppUrl.pathname = getInAppLegalDocumentPath(
+    locale,
+    legalDocument.documentKey
+  );
+  return NextResponse.rewrite(inAppUrl);
 };
 
 // Hands a page load on to its render with the shared referral code its URL
@@ -552,6 +578,8 @@ const previewCallbackOriginRedirect = (request: NextRequest) => {
 // `/en-US/x.html`. The prefix spells out both letter cases because matchers
 // compare them. RSC and segment requests stay out: Next strips their suffix
 // before the proxy sees the URL, so they would pass for page loads.
+// `/android/download` stays out too: it redirects to the APK and has no
+// locale.
 export const config: MiddlewareConfig = {
   matcher: [
     "/admin/:path*",
@@ -559,6 +587,6 @@ export const config: MiddlewareConfig = {
     "/account/:path*",
     "/:locale((?!api)[^/]+)/account/:path*",
     "/([a-zA-Z]{2}-[a-zA-Z]{2}/(?!.*\\.(?:prefetch\\.)?rsc$|.*\\.segments/).*\\..*)",
-    "/((?!api|_next/static|_next/image|favicon.ico|favicon.svg|.*\\..*).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|favicon.svg|android/download(?:/|$)|.*\\..*).*)",
   ],
 };

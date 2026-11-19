@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Locale } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { formatMoney } from "@/shared/money/money";
+import { restoreAdministrationReservation } from "./actions";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationDetail as ReservationDetailData } from "./administration.service";
 import { administrationHref } from "./administration-href";
@@ -17,7 +18,10 @@ import {
   ReservationReferences,
   ReservationTimeline,
 } from "./components";
-import { getAdministrationCustomerName } from "./customer-presentation";
+import {
+  AdministrationCustomerNameLabel,
+  AdministrationCustomerNameLink,
+} from "./customer-name-label";
 import {
   AdministrationDetailSection,
   AdministrationFact,
@@ -35,6 +39,8 @@ import { ReservationAccessAdministration } from "./reservation-access-administra
 import { ReservationCancellation } from "./reservation-cancellation";
 import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 import { getAdministrationReservationProductTitle } from "./reservation-product";
+import { ReservationRestoration } from "./reservation-restoration";
+import { ReservationWithdrawalSection } from "./reservation-withdrawal-section";
 
 /**
  * The reservation detail screen. It awaits only the route locale, which
@@ -82,6 +88,17 @@ async function ReservationDetailContent({
           locale={locale}
           notice={detail.operatorNotice}
         />
+      )}
+
+      {detail.withdrawal && (
+        <div className="mb-6">
+          <ReservationWithdrawalSection
+            customer={reservation.customer}
+            locale={locale}
+            reservationId={reservation.id}
+            withdrawal={detail.withdrawal}
+          />
+        </div>
       )}
 
       <section aria-labelledby="lifecycle-heading">
@@ -159,7 +176,7 @@ type ReservationDetailSectionProps = {
   readonly locale: Locale;
 };
 
-/** The reservation's booking status, cancellation, schedule and booked facts. */
+/** The reservation's booking status, cancellation or restoration, schedule and booked facts. */
 function ReservationSummarySection({
   detail,
   locale,
@@ -186,7 +203,13 @@ function ReservationSummarySection({
           )}
           <ReservationCancellation
             canCancel={detail.canCancel}
+            invoice={detail.invoice}
             reservationId={reservation.id}
+          />
+          <ReservationRestoration
+            reservationId={reservation.id}
+            restoration={detail.canRestore ? detail.restoration : null}
+            restoreReservation={restoreAdministrationReservation}
           />
         </div>
       </div>
@@ -273,14 +296,12 @@ function ReservationCustomerSection({
       title={m.administrationReservationDetailCustomer({}, { locale })}
     >
       {reservation.customer ? (
-        <Link
+        <AdministrationCustomerNameLink
           className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
-          href={administrationHref("/[locale]/admin/customers/[customerId]", {
-            customerId: reservation.customerId,
-          })}
-        >
-          {getAdministrationCustomerName(reservation.customer, locale)}
-        </Link>
+          customer={reservation.customer}
+          customerId={reservation.customerId}
+          locale={locale}
+        />
       ) : (
         <p className="font-medium">
           {m.administrationReservationCustomerDetailsUnavailable(
@@ -496,23 +517,25 @@ function ReservationAuthorFact({
           author.kind === "account" ? (
             <>
               {author.customerId ? (
-                <Link
+                <AdministrationCustomerNameLink
                   className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
-                  href={administrationHref(
-                    "/[locale]/admin/customers/[customerId]",
-                    { customerId: author.customerId }
-                  )}
-                >
-                  {getAdministrationCustomerName(author, locale)}
-                </Link>
+                  customer={author}
+                  customerId={author.customerId}
+                  locale={locale}
+                />
               ) : (
                 <span className="font-semibold">
-                  {getAdministrationCustomerName(author, locale)}
+                  <AdministrationCustomerNameLabel
+                    customer={author}
+                    locale={locale}
+                  />
                 </span>
               )}
-              <span className="mt-1 block break-all font-normal text-navy-blue/60">
-                {author.email}
-              </span>
+              {author.email && (
+                <span className="mt-1 block break-all font-normal text-navy-blue/60">
+                  {author.email}
+                </span>
+              )}
             </>
           ) : (
             {

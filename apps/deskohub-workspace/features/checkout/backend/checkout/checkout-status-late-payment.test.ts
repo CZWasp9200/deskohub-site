@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -16,10 +17,13 @@ import { ProviderPaymentFinalizationService } from "../payment/provider-payment-
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { CheckoutStatusService } from "./checkout-status.service";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 const testEmailAddressForLate = testEmailAddress("late");
 
 const instant = (value: string) => Temporal.Instant.from(value);
+
+const confirmedDotyposReservationId = "dotypos-confirmed";
 
 const reservationFixture = {
   id: "late-reservation",
@@ -77,6 +81,8 @@ const makeHarness = (options: {
     Effect.succeed("recovery_started" as const)
   );
   const layer = CheckoutStatusService.Default.pipe(
+    Layer.provide(NoReservationInvitees),
+    Layer.provide(observePaymentPagesAs("unknown").layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProviderPaymentFinalizationService, {
@@ -114,15 +120,18 @@ const makeHarness = (options: {
         ReservationRecords.Provider.pipe(
           Layer.provideMerge(
             Layer.mock(DotyposService, {
-              getReservationWithoutCustomer: mock(() =>
+              getReservationWithoutCustomer: mock((id) =>
                 Effect.succeed({
-                  id: "dotypos-original",
+                  id,
                   _customerId: "customer-id",
                   _tableId: "open-table",
                   startDate: "2026-06-20T00:00:00.000+02:00",
                   endDate: "2026-06-20T17:00:00.000+02:00",
                   seats: "1",
-                  status: "CANCELLED",
+                  status:
+                    id === confirmedDotyposReservationId
+                      ? "CONFIRMED"
+                      : "CANCELLED",
                 } as never)
               ),
               getCustomer: mock(() =>
@@ -216,6 +225,7 @@ describe("CheckoutStatusService for late payments", () => {
   test("shows a recovered late payment as an ordinary confirmed reservation", async () => {
     const status = await makeHarness({
       reservation: {
+        dotyposReservationId: confirmedDotyposReservationId,
         reservationState: "confirmed",
         paymentState: "paid",
         fulfillmentState: "fulfilled",
@@ -229,6 +239,7 @@ describe("CheckoutStatusService for late payments", () => {
   test("keeps a reservation paid by its active attempt confirmed when a superseded attempt needs a refund", async () => {
     const status = await makeHarness({
       reservation: {
+        dotyposReservationId: confirmedDotyposReservationId,
         reservationState: "confirmed",
         paymentState: "paid",
         fulfillmentState: "fulfilled",

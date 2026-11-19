@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Effect } from "effect";
-import * as SqlError from "effect/unstable/sql/SqlError";
+import * as SqlError from "effect/sql/SqlError";
 import { retryDatabaseRead } from "./retry-database-read";
 
 test("retries a failed database read once", async () => {

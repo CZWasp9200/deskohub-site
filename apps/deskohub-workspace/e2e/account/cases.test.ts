@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { strToU8, zipSync } from "fflate";
 import {
   accountDataExportManifestPath,
@@ -20,7 +20,7 @@ import { isLocale, type Locale, locales, m } from "@/features/i18n";
 import { languageNames } from "@/features/i18n/language-labels";
 import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../case-runner";
 import type { DatasourceConfig } from "../config";
-import type { WorkspaceE2EError } from "../errors";
+import { type WorkspaceE2EError, workspaceE2ETimeoutError } from "../errors";
 import { formatWorkspaceE2EFailureAnnotation } from "../github-actions";
 import { E2EDatabase } from "../integrations/database.service";
 import { makeE2ETelemetryMock } from "../services/telemetry.mock";
@@ -2363,6 +2363,16 @@ const makeScenario = (
       Effect.sync(() => browser.profileDrafts(drafts)),
     readSessionMatches: (email) =>
       Effect.sync(() => browser.sessionMatches(email)),
+    waitForSessionOf: (description, email) =>
+      Effect.suspend(() =>
+        browser.sessionMatches(email)
+          ? Effect.void
+          : Effect.fail(
+              workspaceE2ETimeoutError(`Timed out waiting for ${description}`, {
+                operation: description,
+              })
+            )
+      ),
     readSignInEmailBlocked: Effect.sync(() => browser.signInEmailBlocked()),
     restartSignIn: (buttonLabel) =>
       Effect.sync(() => browser.restartSignIn(buttonLabel)),

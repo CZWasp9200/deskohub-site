@@ -124,6 +124,11 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . Lehota je zachovaná, ak je oznámenie odoslané pred jej uplynutím.
+        Odstúpenie možno odoslať aj online funkciou „Odstúpiť od zmluvy“ pri
+        Rezervácii v zákazníckom účte na webe alebo v aplikácii a potvrdiť
+        tlačidlom „Potvrdiť odstúpenie od zmluvy“. Prijatie odstúpenia
+        Poskytovateľ bez zbytočného odkladu potvrdí e-mailom na adresu účtu
+        vrátane obsahu vyhlásenia a dátumu a času jeho odoslania.
       </>,
       "9.4 Po platnom odstúpení vráti Poskytovateľ prijaté peňažné prostriedky bez zbytočného odkladu, najneskôr do 14 dní, rovnakým spôsobom, akým boli prijaté, ak sa strany nedohodnú inak bez vzniku ďalších nákladov Spotrebiteľa.",
       "9.5 Vzor oznámenia: „Oznamujem, že odstupujem od zmluvy na túto Službu: [opis a číslo Rezervácie], objednanú dňa [dátum]. Meno a priezvisko Spotrebiteľa: [doplniť]. Adresa Spotrebiteľa: [doplniť]. Dátum: [doplniť]. Podpis iba pri listinnom podaní.“ Použitie vzoru nie je povinné.",
@@ -297,7 +302,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "15. novembra 2026",
+    updatedAt: "18. novembra 2026",
     sections: [
       {
         heading: "1. Prevádzkovateľ",
@@ -334,6 +339,17 @@ const legalDocuments = {
             dátumov, čas začiatku, dobu trvania, počet miest a prípadné
             coworkingové preferencie týkajúce sa občerstvenia, monitorov alebo
             pracovnej stanice.
+          </>,
+          <>
+            E-mailovú adresu osoby pozvanej do súkromnej kancelárie získavame od
+            zákazníka, ktorý kanceláriu rezervoval. Používame ju na zaslanie
+            pozvánky a správ o zmenách tejto rezervácie a na to, aby pozvaná
+            osoba mohla využiť prístup do kancelárie. Právnym základom je náš
+            oprávnený záujem umožniť pozvaným osobám využiť rezerváciu a
+            informovať ich o jej stave. Adresu uchovávame do 30 dní po skončení
+            prístupu. Ak adresa patrí k zákazníckemu účtu alebo evidovanému
+            zákazníkovi, potom uchovávame iba prepojenie pozvánky s týmto účtom
+            alebo záznamom o zákazníkovi, kým účet alebo záznam existuje.
           </>,
           <>
             Pri pokračovaní k objednávke spracúvame aj ponúknutú a zaplatenú
@@ -761,7 +777,7 @@ const legalDocuments = {
     ],
   },
   "terms-and-conditions": {
-    updatedAt: "12. augusta 2026",
+    updatedAt: "17. novembra 2026",
     sections: termsAndConditionsSections,
   },
   "cookie-policy": {

@@ -1,13 +1,15 @@
 "use server";
 
-import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
-import { Effect, Layer, Match, Result, Schema } from "effect";
+import { Effect, Layer, Match, Schema } from "effect";
 import { revalidatePath } from "next/cache";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { accountActionError } from "@/features/account/account-action-guards";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
-import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import {
+  type CompanyLookupOutcome,
+  CompanyLookupService,
+} from "@/features/account/backend/company-lookup.service";
 import { requestCurrentAccountDeletion } from "@/features/account/backend/current-account-deletion";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountSections } from "@/features/account/backend/customer-account-sections";
@@ -209,58 +211,33 @@ export type AresBusinessLookupResult =
   | { readonly status: "not-found"; readonly message: string }
   | { readonly status: "unavailable"; readonly message: string };
 
-const aresLookupFailureResult = (
-  failure: AresLookupFailure,
+/** The lookup's outcome as the profile forms show it, worded in the locale. */
+const aresLookupResult = (
+  outcome: CompanyLookupOutcome,
   locale: Locale
 ): AresBusinessLookupResult =>
-  Match.value(failure).pipe(
-    Match.discriminatorsExhaustive("reason")({
-      InvalidIco: () => ({
-        status: "invalid-ico" as const,
+  Match.value(outcome).pipe(
+    Match.withReturnType<AresBusinessLookupResult>(),
+    Match.discriminatorsExhaustive("status")({
+      found: (found) => found,
+      "invalid-ico": () => ({
+        status: "invalid-ico",
         message: m.accountAresLookupInvalidIco({}, { locale }),
       }),
-      NotFound: () => ({
-        status: "not-found" as const,
+      "not-found": () => ({
+        status: "not-found",
         message: m.accountAresLookupNotFound({}, { locale }),
       }),
-      Unavailable: () => ({
-        status: "unavailable" as const,
+      unavailable: () => ({
+        status: "unavailable",
         message: m.accountAresLookupUnavailable({}, { locale }),
       }),
     })
   );
 
-const lookupAresBusinessWorkflow = Effect.fn(function* (
-  input: { ico: string },
-  locale: Locale
-) {
-  // The read-only lookup never resolves the customer account: resolution
-  // may reactivate and claim an expired provider profile, which is a
-  // provider write, and it rejects accounts whose profile link is not
-  // settled. The active session refuses a pending deletion.
-  yield* Effect.flatMap(
-    CurrentCustomerAccount,
-    (current) => current.requireActive
-  );
-
-  const ares = yield* AresLookupService;
-  const lookup = yield* Effect.result(ares.lookup(input.ico.trim()));
-
-  if (Result.isFailure(lookup)) {
-    return aresLookupFailureResult(lookup.failure, locale);
-  }
-  return {
-    status: "found" as const,
-    company: toAresBusinessBillingDraft(lookup.success),
-  };
-});
-
 /**
  * Looks up one Czech company in the public ARES registry for the business
- * billing form. Runs behind the verified session and the durable deletion
- * marker, and performs exactly one provider request per
- * invocation without any retry loop and without any customer classify,
- * reactivate, claim, create, update, or other provider write.
+ * billing form, through `CompanyLookupService`.
  */
 const lookupAresBusinessAction = defineWorkspaceAction(
   {
@@ -269,11 +246,12 @@ const lookupAresBusinessAction = defineWorkspaceAction(
     logInput: false,
   },
   (input, { locale }) =>
-    lookupAresBusinessWorkflow(input, locale).pipe(
+    Effect.flatMap(CompanyLookupService, (companies) =>
+      companies.lookup(input.ico)
+    ).pipe(
+      Effect.map((outcome) => aresLookupResult(outcome, locale)),
       Effect.mapError(accountActionError(locale)),
-      Effect.provide(
-        Layer.mergeAll(CurrentCustomerAccount.Live, AresLookupService.Live)
-      )
+      Effect.provide(CompanyLookupService.Live)
     )
 );
 

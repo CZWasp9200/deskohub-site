@@ -35,9 +35,61 @@ export const invoiceCountryCodes: ReadonlyArray<string> = Object.keys(
   .filter((code) => !notInvoiceCountries.has(code))
   .sort();
 
-/** A country's name in the app's language, or its code when it has none. */
-export const countryName = (code: string, locale: AppLocale): string =>
-  countries.getName(code, nameLanguage[locale], { select: "official" }) ?? code;
+/**
+ * The short names the website shows (CLDR, through `Intl.DisplayNames`) where
+ * the bundled list has only a long official one: the app's home country,
+ * which most customers pick, reads "Czechia", not "Czech Republic".
+ */
+const shortNames: Readonly<
+  Record<string, Readonly<Record<AppLocale, string>>>
+> = {
+  CZ: {
+    "en-US": "Czechia",
+    "cs-CZ": "Česko",
+    "de-DE": "Tschechien",
+    "sk-SK": "Česko",
+    "uk-UA": "Чехія",
+    "vi-VN": "Séc",
+    "hi-IN": "चेकिया",
+  },
+};
+
+/**
+ * A country's name from the bundled list, for engines without
+ * `Intl.DisplayNames` (Hermes), or its code when it has none.
+ */
+export const bundledCountryName = (code: string, locale: AppLocale): string =>
+  shortNames[code]?.[locale] ??
+  countries.getName(code, nameLanguage[locale], { select: "official" }) ??
+  code;
+
+const regionNames = new Map<AppLocale, Intl.DisplayNames | undefined>();
+const regionNamesOf = (locale: AppLocale) => {
+  if (!regionNames.has(locale)) {
+    let names: Intl.DisplayNames | undefined;
+    try {
+      names =
+        typeof Intl.DisplayNames === "function"
+          ? new Intl.DisplayNames([locale], { type: "region" })
+          : undefined;
+    } catch {
+      names = undefined;
+    }
+    regionNames.set(locale, names);
+  }
+  return regionNames.get(locale);
+};
+
+/**
+ * A country's name in the app's language, as the website names it where the
+ * engine can (`Intl.DisplayNames`), else from the bundled list.
+ */
+export const countryName = (code: string, locale: AppLocale): string => {
+  const shown = regionNamesOf(locale)?.of(code);
+  return shown === undefined || shown === code
+    ? bundledCountryName(code, locale)
+    : shown;
+};
 
 export interface CountryOption {
   readonly code: string;
@@ -51,3 +103,21 @@ export const invoiceCountries = (
   invoiceCountryCodes
     .map((code) => ({ code, name: countryName(code, locale) }))
     .sort((left, right) => left.name.localeCompare(right.name, locale));
+
+/** Deskohub's own country: where a new address starts when the device names none. */
+export const homeCountry = "CZ";
+
+/**
+ * The country a new address starts with: the first of the device's regions
+ * (its language preferences' regions, in order, such as `US` for en-US) that
+ * takes invoices, else the home country.
+ */
+export const detectedCountry = (
+  regions: ReadonlyArray<string | null | undefined>
+): string =>
+  regions
+    .map((region) => region?.toUpperCase())
+    .find(
+      (code): code is string =>
+        code !== undefined && invoiceCountryCodes.includes(code)
+    ) ?? homeCountry;

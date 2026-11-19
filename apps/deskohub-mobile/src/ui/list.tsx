@@ -1,7 +1,14 @@
+import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { listDividerInset, listRowLayout } from "./list-row-layout";
 import {
@@ -107,7 +114,9 @@ export type ListRowTrailing = "chevron" | "external" | "none" | ReactNode;
  * is cut.
  *
  * The row reads as one label, value and description. A custom `trailing`
- * node is read as part of the row, after its text.
+ * node is read as part of the row, after its text. Content `below` the
+ * text, such as what an item may do and its own button, keeps its own
+ * elements, so a row with it is not read as one.
  */
 export function ListRow({
   label,
@@ -121,6 +130,11 @@ export function ListRow({
   destructive = false,
   disabled = false,
   wrapValue = false,
+  badge,
+  below,
+  accessibilityLabel,
+  selected,
+  active = false,
 }: {
   readonly label: string;
   readonly description?: string;
@@ -136,14 +150,41 @@ export function ListRow({
   readonly destructive?: boolean;
   readonly disabled?: boolean;
   readonly wrapValue?: boolean;
+  /**
+   * A status beside the label, such as "Always on", wrapping under it when
+   * the line is full; the description keeps the text column's full width.
+   */
+  readonly badge?: ReactNode;
+  /** Content under the label and description, in the text column. */
+  readonly below?: ReactNode;
+  /**
+   * What the row reads instead of its text, for an action row whose
+   * trailing icon says what it does, such as a download.
+   */
+  readonly accessibilityLabel?: string;
+  /**
+   * Whether this is the chosen option of a pick list, such as a country
+   * sheet's: the chosen row ends in the action-coloured check, in place of
+   * `trailing`, and every row says whether it is chosen.
+   */
+  readonly selected?: boolean;
+  /** The navigation row for the page currently shown beside the list. */
+  readonly active?: boolean;
 }) {
   const { role, chevron } = listRowPresentation({
     pressable: onPress !== undefined,
     kind,
   });
   const tile = iconTileColors[iconTone ?? (destructive ? "danger" : "neutral")];
-  const end = trailing ?? (chevron ? "chevron" : "none");
-  const ownTrailing = end !== "chevron" && end !== "external" && end !== "none";
+  const tileInk = active ? color.action : tile.ink;
+  const end: RowEnd = selected
+    ? "check"
+    : (trailing ?? (chevron ? "chevron" : "none"));
+  const ownTrailing =
+    end !== "chevron" &&
+    end !== "external" &&
+    end !== "none" &&
+    end !== "check";
   // At large font sizes a custom trailing node, such as a badge, moves under
   // the label instead of squeezing it to a few letters per line.
   const { fontScale } = useWindowDimensions();
@@ -157,22 +198,30 @@ export function ListRow({
           <Icon
             icon={icon}
             size={20}
-            color={disabled ? color.disabledInk : tile.ink}
+            color={disabled ? color.disabledInk : tileInk}
           />
         </View>
       )}
       <View style={[styles.body, wrapValue && styles.bodyBeside]}>
         <View style={listRowLayout.text}>
-          <Text
-            variant="bodyStrong"
-            tone={destructive ? "danger" : "default"}
-            style={disabled && styles.disabledText}
-          >
-            {label}
-          </Text>
+          <View style={badge === undefined ? undefined : styles.labelWithBadge}>
+            <Text
+              variant="bodyStrong"
+              tone={destructive ? "danger" : "default"}
+              style={disabled && styles.disabledText}
+              // At large text a long word breaks at a hyphen, not mid-letter.
+              android_hyphenationFrequency="normal"
+            >
+              {label}
+            </Text>
+            {badge}
+          </View>
           {description !== undefined && (
-            <Text variant="bodySmall">{description}</Text>
+            <Text variant="bodySmall" android_hyphenationFrequency="normal">
+              {description}
+            </Text>
           )}
+          {below}
         </View>
         {value !== undefined && (
           <Text
@@ -189,14 +238,21 @@ export function ListRow({
     </>
   );
   // A custom trailing node, such as a badge, is read from the row's content.
-  const accessibleLabel = ownTrailing
-    ? undefined
-    : listRowAccessibleLabel({ label, value, description });
+  const accessibleLabel =
+    accessibilityLabel ??
+    (ownTrailing || badge !== undefined
+      ? undefined
+      : listRowAccessibleLabel({ label, value, description }));
   const rowStyle = [
     listRowLayout.row,
     description !== undefined && listRowLayout.withDescription,
+    below !== undefined && styles.withBelow,
+    active && styles.active,
   ];
 
+  if (onPress === undefined && below !== undefined) {
+    return <View style={rowStyle}>{content}</View>;
+  }
   if (onPress === undefined) {
     return (
       <View accessible aria-label={accessibleLabel} style={rowStyle}>
@@ -209,6 +265,10 @@ export function ListRow({
       role={role}
       aria-label={accessibleLabel}
       aria-disabled={disabled}
+      aria-selected={
+        selected ?? (active && Platform.OS !== "web" ? true : undefined)
+      }
+      aria-current={active ? "page" : undefined}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -221,7 +281,13 @@ export function ListRow({
   );
 }
 
-const trailingContent = (end: ListRowTrailing) => {
+// What ends a row: its `trailing`, or the check of a chosen option.
+type RowEnd = ListRowTrailing | "check";
+
+const trailingContent = (end: RowEnd) => {
+  if (end === "check") {
+    return <Icon icon={Check} size={20} color={color.action} />;
+  }
   if (end === "chevron") {
     return <Icon icon={ChevronRight} size={20} color={color.ink3} />;
   }
@@ -233,6 +299,7 @@ const trailingContent = (end: ListRowTrailing) => {
 };
 
 const styles = StyleSheet.create({
+  active: { backgroundColor: color.actionTint },
   sectionHeader: {
     gap: space.xxs,
     paddingBottom: space.sm,
@@ -268,6 +335,15 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   valueBeside: { flexShrink: 1, maxWidth: "65%", textAlign: "right" },
+  labelWithBadge: {
+    alignItems: "center",
+    columnGap: space.sm,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: space.xxs,
+  },
+  // The icon and trailing stay at the top beside taller content.
+  withBelow: { alignItems: "flex-start", paddingBottom: space.lg },
   pressed: { backgroundColor: color.pressed },
   disabledText: { color: color.disabledInk },
 });

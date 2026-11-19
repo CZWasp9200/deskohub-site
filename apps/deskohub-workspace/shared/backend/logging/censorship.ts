@@ -7,7 +7,7 @@ import {
 } from "@opentelemetry/api-logs";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
-import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import {
   Cause,
   type Context,
@@ -306,12 +306,16 @@ const censorStackTrace = (stack: string, message: string): string => {
     : `${CENSORED_LOG_VALUE}\n${frames.join("\n")}`;
 };
 
+// A censored query error keeps the tag but no parameters, so censoring it
+// again treats it as the record it now is.
 const isEffectDrizzleQueryError = <T>(
   value: T
 ): value is T & EffectDrizzleQueryError =>
   Predicate.isObject(value) &&
   "_tag" in value &&
-  value._tag === "EffectDrizzleQueryError";
+  value._tag === "EffectDrizzleQueryError" &&
+  "params" in value &&
+  Array.isArray(value.params);
 
 type LogValueCensorship = WeakMap<object, unknown>;
 
@@ -376,6 +380,24 @@ export const censorDatabaseQueryParams = (
     seen
   ) as readonly unknown[];
 };
+
+/**
+ * The failed query with its `deskohub:sensitive` parameters censored, for a
+ * statement that binds a secret: the query error's message lists every
+ * parameter. Keeps the query and the database's answer, so the failure can
+ * still be classified.
+ */
+export const censorDatabaseQueryError = (
+  error: EffectDrizzleQueryError
+): EffectDrizzleQueryError =>
+  new EffectDrizzleQueryError({
+    query: error.query,
+    // Drizzle keeps them only when the client asks it to (`paramsInErrors`).
+    params: error.params && [
+      ...censorDatabaseQueryParams(error.query, error.params),
+    ],
+    cause: error.cause,
+  });
 
 const isStackTraceKey = (key: string) =>
   ["exception.stacktrace", "stack", "stacktrace"].includes(key.toLowerCase());
@@ -477,7 +499,7 @@ function* censorDrizzleQueryError(
 ): CensorSteps {
   const result: MutableLogAnnotations = {
     _tag: value._tag,
-    parameterCount: value.params.length,
+    parameterCount: value.params?.length ?? 0,
   };
   seen.set(value, result);
 
@@ -745,8 +767,16 @@ export const censorLoggerOptions = (
   };
 };
 
+// Effect 4.1's logfmt upper-cases the level (`level=ERROR`); log drains,
+// alerts and log queries match the level name the lines have always carried
+// (`level=Error`). The level is the first `level=` token, after the timestamp.
 const CensoringFormatter = Logger.make((options) =>
-  Logger.formatLogFmt.log(censorLoggerOptions(options))
+  Logger.formatLogFmt
+    .log(censorLoggerOptions(options))
+    .replace(
+      `level=${options.logLevel.toUpperCase()}`,
+      `level=${options.logLevel}`
+    )
 );
 
 const CensoringLogger = Logger.withLeveledConsole(CensoringFormatter);

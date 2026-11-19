@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import type { LegalDocumentKey } from "./legal-document-path";
 import { legalDocumentSummaries as czech } from "./locales/cs-CZ/summaries";
 import { legalDocumentSummaries as german } from "./locales/de-DE/summaries";
 import { legalDocumentSummaries as english } from "./locales/en-US/summaries";
@@ -10,12 +11,7 @@ import { legalDocumentSummaries as vietnamese } from "./locales/vi-VN/summaries"
 // Page metadata and llms.txt read a legal document's title and lead without
 // its body, so this module holds plain strings and no rendering.
 
-export type LegalDocumentKey =
-  | "privacy-policy"
-  | "marketing-communications"
-  | "terms-and-conditions"
-  | "cookie-policy"
-  | "operating-rules";
+export type { LegalDocumentKey } from "./legal-document-path";
 
 export interface LegalDocumentSummary {
   readonly title: string;

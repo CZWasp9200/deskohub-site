@@ -124,7 +124,12 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . Thời hạn được coi là đã tuân thủ nếu thông báo được gửi đi trước khi
-        thời hạn kết thúc.
+        thời hạn kết thúc. Bạn cũng có thể gửi yêu cầu rút trực tuyến bằng chức
+        năng “Rút khỏi hợp đồng” tại Đặt chỗ trong tài khoản khách hàng trên
+        trang web hoặc trong ứng dụng, rồi xác nhận bằng nút “Xác nhận rút khỏi
+        hợp đồng”. Nhà cung cấp xác nhận đã nhận yêu cầu rút qua email đến địa
+        chỉ của tài khoản mà không chậm trễ quá mức, kèm nội dung tuyên bố cùng
+        ngày và giờ gửi.
       </>,
       "9.4 Sau khi rút khỏi hợp đồng hợp lệ, Bên Cung cấp hoàn trả số tiền đã nhận mà không chậm trễ không cần thiết, chậm nhất trong vòng 14 ngày, bằng cùng phương thức đã nhận, trừ khi các bên có thỏa thuận khác mà Người tiêu dùng không phải chịu thêm chi phí.",
       "9.5 Mẫu thông báo: “Tôi xin thông báo rằng tôi rút khỏi hợp đồng đối với Dịch vụ sau: [mô tả và số Đặt chỗ], được đặt ngày [ngày]. Họ và tên của Người tiêu dùng: [điền vào]. Địa chỉ của Người tiêu dùng: [điền vào]. Ngày: [điền vào]. Chữ ký chỉ khi gửi bằng văn bản giấy.” Việc sử dụng mẫu này không bắt buộc.",
@@ -298,7 +303,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "15 tháng 11, 2026",
+    updatedAt: "18 tháng 11, 2026",
     sections: [
       {
         heading: "1. Bên Kiểm soát dữ liệu cá nhân",
@@ -334,6 +339,18 @@ const legalDocuments = {
             số điện thoại, nhóm sản phẩm và sản phẩm đặt chỗ đã chọn, ngày hoặc
             khoảng ngày, giờ bắt đầu, thời lượng, số chỗ và các lựa chọn
             coworking (nếu có) về đồ ăn uống, màn hình hoặc trạm làm việc.
+          </>,
+          <>
+            Chúng tôi nhận địa chỉ email của người được mời từ khách hàng đã đặt
+            chỗ văn phòng riêng. Chúng tôi dùng địa chỉ này để gửi lời mời và
+            thông báo về những thay đổi đối với lượt đặt chỗ, đồng thời cấp
+            quyền vào văn phòng cho người được mời. Cơ sở pháp lý là lợi ích hợp
+            pháp của chúng tôi trong việc giúp người được mời sử dụng lượt đặt
+            chỗ và biết tình trạng của lượt đặt chỗ đó. Chúng tôi lưu địa chỉ
+            đến 30 ngày sau khi quyền ra vào kết thúc. Nếu địa chỉ thuộc về một
+            tài khoản khách hàng hoặc một khách hàng đã đăng ký, sau thời hạn
+            này chúng tôi chỉ lưu liên kết giữa lời mời và tài khoản hoặc hồ sơ
+            khách hàng trong thời gian tài khoản hoặc hồ sơ đó còn tồn tại.
           </>,
           <>
             Khi Quý khách tiếp tục đặt hàng, chúng tôi cũng xử lý số tiền được
@@ -793,7 +810,7 @@ const legalDocuments = {
     ],
   },
   "terms-and-conditions": {
-    updatedAt: "12 tháng 8, 2026",
+    updatedAt: "17 tháng 11, 2026",
     sections: termsAndConditionsSections,
   },
   "cookie-policy": {

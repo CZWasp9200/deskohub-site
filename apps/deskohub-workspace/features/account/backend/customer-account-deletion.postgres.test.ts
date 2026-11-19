@@ -107,7 +107,9 @@ const unreadSession = Layer.succeed(CustomerAuthentication, {
  * lock unless a test makes it unreachable.
  */
 const makeRepositoryLayer = (
-  sectionLock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+  sectionLock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  )
 ) => {
   const repositories = Layer.mergeAll(
     CustomerAccountLinkRepository.Default,
@@ -120,7 +122,7 @@ const makeRepositoryLayer = (
           WorkspaceDatabase,
           WorkspaceDatabase.make(testDatabase!.db)
         ),
-        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
       )
     )
   );
@@ -162,6 +164,7 @@ describe.skipIf(!testDatabase)(
               order.push(`destroy-avatar:${destroyAccountId}`);
               return Effect.void;
             },
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -213,6 +216,7 @@ describe.skipIf(!testDatabase)(
               providerCalls.push("destroy-avatar");
               return Effect.void;
             },
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -250,6 +254,7 @@ describe.skipIf(!testDatabase)(
             expireCustomer,
             destroyAvatar: () =>
               Effect.fail(new CustomerAvatarProviderError({})),
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -287,6 +292,7 @@ describe.skipIf(!testDatabase)(
             findLink: links.find,
             expireCustomer,
             destroyAvatar: () => Effect.void,
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -323,6 +329,7 @@ describe.skipIf(!testDatabase)(
                 providerCalls.push("destroy-avatar");
                 return Effect.void;
               },
+              deleteInvitations: () => Effect.void,
               tombstone: accounts.tombstone,
               withActiveAccount: sections.withActiveAccount,
               anonymiseAnalyticsPerson: () => Effect.void,
@@ -343,7 +350,7 @@ describe.skipIf(!testDatabase)(
         expect(marker.rows).toEqual([{ deletion_requested_at: null }]);
         expect(await readDeletedAt(account)).toBeNull();
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
       }
     });
 
@@ -374,6 +381,7 @@ describe.skipIf(!testDatabase)(
               findLink: links.find,
               expireCustomer,
               destroyAvatar: () => Effect.void,
+              deleteInvitations: () => Effect.void,
               tombstone: accounts.tombstone,
               withActiveAccount: sections.withActiveAccount,
               anonymiseAnalyticsPerson: () => Effect.void,
@@ -475,7 +483,7 @@ describe.skipIf(!invoiceDatabase)(
       );
       const storage = Layer.mergeAll(
         invoiceDatabase!.layer,
-        WorkspaceDatabaseAdvisoryLock.makeLayer(invoiceDatabase!.pool),
+        WorkspaceDatabaseAdvisoryLock.makeLayer(invoiceDatabase!.databasePool),
         accountingKeys
       );
       const repositories = Layer.mergeAll(
@@ -548,6 +556,7 @@ describe.skipIf(!invoiceDatabase)(
             findLink: links.find,
             expireCustomer,
             destroyAvatar: () => Effect.void,
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -600,7 +609,7 @@ describe.skipIf(!invoiceDatabase)(
       const denied = await run(
         Effect.flatMap(CustomerInvoiceService, (invoices) =>
           Effect.all([
-            Effect.flip(invoices.list),
+            Effect.flip(invoices.list({ locale: "cs-CZ" })),
             Effect.flip(invoices.pdf(issued.id)),
             Effect.flip(invoices.csv("cs-CZ")),
           ])

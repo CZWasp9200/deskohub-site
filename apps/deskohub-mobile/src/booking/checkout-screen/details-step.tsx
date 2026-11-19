@@ -1,5 +1,4 @@
 import { Option } from "effect";
-import Check from "lucide-react-native/icons/check";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import User from "lucide-react-native/icons/user";
 import UserPlus from "lucide-react-native/icons/user-plus";
@@ -20,20 +19,27 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { vatIdFormatExample } from "../../account/profile/profile-fields";
+import { CompanyLookup } from "../../company-lookup/company-lookup";
 import type { AppLocale } from "../../i18n/app-locale";
-import { countryName, invoiceCountries } from "../../i18n/country-names";
 import { m } from "../../i18n/messages";
-import { BottomSheet } from "../../ui/bottom-sheet";
 import { CheckboxRow } from "../../ui/checkbox";
 import { ChoiceList } from "../../ui/choice-list";
 import { Button, TextField } from "../../ui/controls";
+import { CountryField } from "../../ui/country-field";
+import { FieldPair } from "../../ui/field-pair";
+import {
+  FocusedFieldContext,
+  useFocusedFieldScroll,
+} from "../../ui/focused-field-scroll";
 import { Icon } from "../../ui/icon";
-import { ListGroup, ListRow } from "../../ui/list";
 import { Notice } from "../../ui/notice";
-import { SelectField } from "../../ui/select-field";
+import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Text } from "../../ui/text";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { useContentColumn } from "../../ui/viewport";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type {
   CheckoutDetails,
   DetailsNotice,
@@ -42,10 +48,13 @@ import { BookingBar, type BookingBarSummary } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingSteps } from "../ui/booking-steps";
 import { retryMessage } from "./checkout-copy";
+import { checkoutTrackStyles, useCheckoutLayout } from "./checkout-layout";
 import {
   type AddressDraft,
   asksPersonalAddress,
   type BillingChoice,
+  companyLookupFields,
+  companyWithDetails,
   type DetailsChange,
   type DetailsDraft,
   type DetailsField,
@@ -86,6 +95,8 @@ export interface DetailsStepProps extends Locale {
   readonly onRetry: () => void;
   /** Gallery and captures: the problems a submit left. */
   readonly initialProblems?: DetailsFieldProblems;
+  /** The height above the step, such as the stack header's. */
+  readonly keyboardOffset?: number;
 }
 
 /**
@@ -112,6 +123,7 @@ export function DetailsStep(props: DetailsStepProps) {
     useState<DetailsFieldProblems>(initialProblems);
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const focusedField = useFocusedFieldScroll(scroll);
   const fieldViews = useRef(
     new Map<DetailsField, ComponentRef<typeof View> | null>()
   );
@@ -119,6 +131,9 @@ export function DetailsStep(props: DetailsStepProps) {
     null
   );
   const keyboardShown = useKeyboardShown();
+  const { contentWidth, isWide } = useCheckoutLayout();
+  const column = useContentColumn(contentWidth);
+  const split = contentWidth === "wide";
 
   // A server refusal naming a field marks it as a submit's problem would.
   const serverField = notice.pipe(
@@ -199,65 +214,92 @@ export function DetailsStep(props: DetailsStepProps) {
     setRaised(event.nativeEvent.contentOffset.y > 0);
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
-      <BookingSteps current="details" raised={raised} locale={locale} />
-      <ScrollView
-        ref={scroll}
-        style={styles.body}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        onScroll={onScroll}
-        scrollEventThrottle={32}
-      >
-        <BookingSectionHeading
-          title={m.booking_details_who_heading({}, { locale })}
-          first
-        />
-        <WhoChoice
-          selected={draft.bookingFor}
-          onSelect={(bookingFor) =>
-            change({ ...draft, bookingFor }, { _tag: "BookingFor" })
-          }
-          disabled={busy}
-          locale={locale}
-        />
-        {draft.bookingFor === "self" ? (
-          <SelfSection {...props} self={self} change={change} field={field} />
-        ) : (
-          <SomeoneElseFields
-            draft={draft}
-            change={change}
-            field={field}
+    <KeyboardAvoidingView
+      behavior="padding"
+      // Without the header's height the keyboard covered Pay.
+      keyboardVerticalOffset={props.keyboardOffset ?? 0}
+      style={styles.screen}
+    >
+      <BookingSteps
+        current="details"
+        raised={raised}
+        locale={locale}
+        contentWidth={contentWidth}
+      />
+      <FocusedFieldContext value={focusedField.tracker}>
+        <ScrollView
+          ref={scroll}
+          onLayout={focusedField.onLayout}
+          style={styles.body}
+          contentContainerStyle={[styles.content, isWide && column]}
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={32}
+        >
+          <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
+          <View style={split && checkoutTrackStyles.container}>
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_details_who_heading({}, { locale })}
+                first
+              />
+              <WhoChoice
+                selected={draft.bookingFor}
+                onSelect={(bookingFor) =>
+                  change({ ...draft, bookingFor }, { _tag: "BookingFor" })
+                }
+                disabled={busy}
+                locale={locale}
+              />
+              {draft.bookingFor === "self" ? (
+                <SelfSection
+                  {...props}
+                  self={self}
+                  change={change}
+                  field={field}
+                />
+              ) : (
+                <SomeoneElseFields
+                  draft={draft}
+                  change={change}
+                  field={field}
+                  locale={locale}
+                />
+              )}
+            </View>
+            <View style={split && checkoutTrackStyles.track}>
+              <InvoiceSection
+                first={split}
+                draft={draft}
+                saved={profile.saved}
+                change={change}
+                field={field}
+                busy={busy}
+                locale={locale}
+              />
+              {draft.bookingFor === "self" && (
+                <MarketingSection
+                  checked={draft.marketingConsent}
+                  onChange={(marketingConsent) =>
+                    busy || onDraftChange({ ...draft, marketingConsent })
+                  }
+                  onOpenDocument={props.onOpenMarketingDocument}
+                  consentLocale={props.consentLocale}
+                />
+              )}
+            </View>
+          </View>
+          <RetryNotice
+            notice={notice}
+            busy={busy}
+            onRetry={onRetry}
             locale={locale}
           />
-        )}
-        <InvoiceSection
-          draft={draft}
-          saved={profile.saved}
-          change={change}
-          field={field}
-          busy={busy}
-          locale={locale}
-        />
-        {draft.bookingFor === "self" && (
-          <MarketingSection
-            checked={draft.marketingConsent}
-            onChange={(marketingConsent) =>
-              busy || onDraftChange({ ...draft, marketingConsent })
-            }
-            onOpenDocument={props.onOpenMarketingDocument}
-            consentLocale={props.consentLocale}
-          />
-        )}
-        <RetryNotice
-          notice={notice}
-          busy={busy}
-          onRetry={onRetry}
-          locale={locale}
-        />
-      </ScrollView>
+        </ScrollView>
+      </FocusedFieldContext>
       <BookingBar
         locale={locale}
+        contentWidth={contentWidth}
         // With the keyboard up only the button rides above it (board 30).
         summary={keyboardShown ? undefined : summary}
         action={{
@@ -281,7 +323,7 @@ type FieldPropsOf = (name: DetailsField) => {
   readonly viewRef: (view: ComponentRef<typeof View> | null) => void;
 };
 
-/** "Me" or "Someone else" (`.bk-seg`): icon rows, the chosen one tinted. */
+/** "Me" or "Someone else". */
 function WhoChoice({
   selected,
   onSelect,
@@ -292,53 +334,25 @@ function WhoChoice({
   readonly onSelect: (bookingFor: DetailsDraft["bookingFor"]) => void;
   readonly disabled: boolean;
 }) {
-  const options = [
-    {
-      value: "self",
-      icon: User,
-      label: m.booking_details_who_me({}, { locale }),
-    },
-    {
-      value: "someone-else",
-      icon: UserPlus,
-      label: m.booking_details_who_someone_else({}, { locale }),
-    },
-  ] as const;
   return (
-    <View
-      role="radiogroup"
-      aria-label={m.booking_details_who_heading({}, { locale })}
-      style={styles.segment}
-    >
-      {options.map((option, index) => {
-        const on = option.value === selected;
-        return (
-          <Pressable
-            key={option.value}
-            role="radio"
-            aria-checked={on}
-            aria-disabled={disabled}
-            disabled={disabled}
-            onPress={() => onSelect(option.value)}
-            style={({ pressed }) => [
-              styles.segmentOption,
-              index > 0 && styles.segmentDivider,
-              on && styles.segmentOn,
-              pressed && !on && styles.segmentPressed,
-            ]}
-          >
-            <Icon
-              icon={option.icon}
-              size={24}
-              color={on ? color.action : color.navy}
-            />
-            <Text variant="bodyStrong" style={styles.segmentLabel}>
-              {option.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+    <SegmentedChoice
+      label={m.booking_details_who_heading({}, { locale })}
+      options={[
+        {
+          value: "self",
+          icon: User,
+          label: m.booking_details_who_me({}, { locale }),
+        },
+        {
+          value: "someone-else",
+          icon: UserPlus,
+          label: m.booking_details_who_someone_else({}, { locale }),
+        },
+      ]}
+      selected={selected}
+      onSelect={onSelect}
+      disabled={disabled}
+    />
   );
 }
 
@@ -545,6 +559,7 @@ const savedAddressText = (address: InvoiceAddress, locale: AppLocale) =>
  * invoice asks for the company and its address.
  */
 function InvoiceSection({
+  first,
   draft,
   saved,
   change,
@@ -552,6 +567,7 @@ function InvoiceSection({
   busy,
   locale,
 }: Locale & {
+  readonly first: boolean;
   readonly draft: DetailsDraft;
   readonly saved: DetailsProfile["saved"];
   readonly change: Change;
@@ -597,6 +613,7 @@ function InvoiceSection({
     <>
       <BookingSectionHeading
         title={m.booking_details_invoice_heading({}, { locale })}
+        first={first}
       />
       <ChoiceList
         label={m.booking_details_invoice_heading({}, { locale })}
@@ -643,23 +660,43 @@ function InvoiceSection({
               autoComplete="organization"
               autoCapitalize="words"
             />
-            {/* Company lookup by IČO (#1254) goes under this field. */}
-            <Field
-              {...field("buyer.companyId")}
-              label={m.booking_details_company_id({}, { locale })}
-              hint={m.booking_details_company_id_hint({}, { locale })}
-              value={company.companyId}
-              onChangeText={(companyId) =>
-                setCompany({ companyId }, "buyer.companyId")
-              }
-              keyboardType="number-pad"
-            />
+            <View style={styles.companyIdLookup}>
+              <Field
+                {...field("buyer.companyId")}
+                label={m.booking_details_company_id({}, { locale })}
+                hint={m.booking_details_company_id_hint({}, { locale })}
+                value={company.companyId}
+                onChangeText={(companyId) =>
+                  setCompany({ companyId }, "buyer.companyId")
+                }
+                keyboardType="number-pad"
+              />
+              <CompanyLookup
+                companyId={company.companyId}
+                fields={companyLookupFields.map((detail) => ({
+                  field: detail,
+                  label: companyLookupLabel[detail]({}, { locale }),
+                }))}
+                onApply={(details) => {
+                  const applied = companyWithDetails(company, details);
+                  change(
+                    { ...draft, company: applied.company },
+                    { _tag: "Fields", fields: applied.fields }
+                  );
+                }}
+                disabled={busy}
+                // Checkout has no Save button: applying shows no line.
+                remindsToSave={false}
+                locale={locale}
+              />
+            </View>
             <Field
               {...field("buyer.vatId")}
               label={m.booking_details_vat_id({}, { locale })}
               optional={m.booking_details_optional_field({}, { locale })}
               value={company.vatId}
               onChangeText={(vatId) => setCompany({ vatId }, "buyer.vatId")}
+              placeholder={vatIdFormatExample}
               autoCapitalize="characters"
             />
             <AddressFields
@@ -684,6 +721,17 @@ function InvoiceSection({
   );
 }
 
+// The company form's own labels, which the lookup's review lists.
+const companyLookupLabel = {
+  companyName: m.booking_details_company_name,
+  companyId: m.booking_details_company_id,
+  vatId: m.booking_details_vat_id,
+  addressLine1: m.booking_details_street,
+  city: m.booking_details_city,
+  zip: m.booking_details_postal_code,
+  country: m.booking_details_country,
+} as const satisfies Record<(typeof companyLookupFields)[number], unknown>;
+
 /** Street, then city and postal code side by side, then the country picker. */
 function AddressFields({
   address,
@@ -697,7 +745,6 @@ function AddressFields({
   readonly field: FieldPropsOf;
   readonly busy: boolean;
 }) {
-  const [picking, setPicking] = useState(false);
   const set = (patch: Partial<AddressDraft>, name: DetailsField) =>
     onChange({ ...address, ...patch }, name);
   const country = field("address.country");
@@ -711,9 +758,8 @@ function AddressFields({
         autoComplete="address-line1"
         autoCapitalize="words"
       />
-      {/* Wraps under each other when they no longer fit side by side. */}
-      <View style={styles.pair}>
-        <View style={styles.city}>
+      <FieldPair
+        wide={
           <Field
             {...field("address.city")}
             label={m.booking_details_city({}, { locale })}
@@ -721,8 +767,8 @@ function AddressFields({
             onChangeText={(city) => set({ city }, "address.city")}
             autoCapitalize="words"
           />
-        </View>
-        <View style={styles.postalCode}>
+        }
+        narrow={
           <Field
             {...field("address.postalCode")}
             label={m.booking_details_postal_code({}, { locale })}
@@ -732,73 +778,19 @@ function AddressFields({
             }
             autoComplete="postal-code"
           />
-        </View>
-      </View>
+        }
+      />
       <View ref={country.viewRef}>
-        <SelectField
+        <CountryField
           label={m.booking_details_country({}, { locale })}
-          value={
-            address.country === ""
-              ? undefined
-              : countryName(address.country, locale)
-          }
-          onPress={() => busy || setPicking(true)}
+          value={address.country}
+          onChange={(code) => set({ country: code }, "address.country")}
           error={country.error}
+          disabled={busy}
+          locale={locale}
         />
       </View>
-      <CountrySheet
-        visible={picking}
-        selected={address.country}
-        onPick={(code) => {
-          setPicking(false);
-          set({ country: code }, "address.country");
-        }}
-        onDismiss={() => setPicking(false)}
-        locale={locale}
-      />
     </View>
-  );
-}
-
-/** Every invoice country by name in the app's language, the chosen one ticked. */
-function CountrySheet({
-  visible,
-  selected,
-  onPick,
-  onDismiss,
-  locale,
-}: Locale & {
-  readonly visible: boolean;
-  readonly selected: string;
-  readonly onPick: (code: string) => void;
-  readonly onDismiss: () => void;
-}) {
-  return (
-    <BottomSheet
-      visible={visible}
-      title={m.booking_details_country({}, { locale })}
-      onDismiss={onDismiss}
-    >
-      {visible && (
-        <ListGroup>
-          {invoiceCountries(locale).map((option) => (
-            <ListRow
-              key={option.code}
-              label={option.name}
-              kind="action"
-              trailing={
-                option.code === selected ? (
-                  <Icon icon={Check} size={20} color={color.action} />
-                ) : (
-                  "none"
-                )
-              }
-              onPress={() => onPick(option.code)}
-            />
-          ))}
-        </ListGroup>
-      )}
-    </BottomSheet>
   );
 }
 
@@ -960,7 +952,7 @@ const barReason = ({
   return undefined;
 };
 
-/** "Fix 2 fields to continue"; Hermes has no plural rules, so one is its own message. */
+/** "Fix 2 fields to continue"; one is its own message. */
 const fixFieldsMessage = (count: number, locale: AppLocale) =>
   count === 1
     ? m.booking_details_fix_one_field({}, { locale })
@@ -969,6 +961,7 @@ const fixFieldsMessage = (count: number, locale: AppLocale) =>
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   body: { flex: 1 },
+  updateOffer: { marginBottom: space.lg, marginTop: space.sm },
   content: {
     alignSelf: "center",
     maxWidth: 640,
@@ -978,25 +971,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   fields: { gap: space.lg },
-  segment: {
-    backgroundColor: color.surface,
-    borderColor: color.line,
-    borderRadius: radius.group,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  segmentOption: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: space.md,
-    minHeight: 60,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm,
-  },
-  segmentDivider: { borderTopColor: color.divider, borderTopWidth: 1 },
-  segmentOn: { backgroundColor: color.actionTint },
-  segmentPressed: { backgroundColor: color.pressed },
-  segmentLabel: { flex: 1, minWidth: 0 },
+  // The lookup sits right under the Company ID field it reads (board 30b).
+  companyIdLookup: { gap: space.sm },
   card: {
     ...shadow.group,
     alignItems: "flex-start",
@@ -1026,14 +1002,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   cardName: { flexShrink: 1 },
-  pair: {
-    columnGap: space.md,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    rowGap: space.lg,
-  },
-  city: { flexBasis: 160, flexGrow: 1.4 },
-  postalCode: { flexBasis: 110, flexGrow: 1 },
   group: {
     backgroundColor: color.surface,
     borderColor: color.line,

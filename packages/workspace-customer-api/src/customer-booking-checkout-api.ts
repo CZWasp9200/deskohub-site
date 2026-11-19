@@ -1,11 +1,12 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import {
   CustomerBookingDateOutOfRange,
   CustomerBookingSelection,
   CustomerBookingSelectionInvalid,
   CustomerOfferingUnavailable,
+  CustomerOfficePeople,
 } from "./customer-booking-selection";
 import { CustomerCheckoutSummary } from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
@@ -23,7 +24,7 @@ import { ReferralCode } from "./referral-code";
  * (`availability_changed`), or another submission of the same checkout
  * holds it (`checkout_conflict`). Quote again and start a new checkout.
  */
-export class CustomerSelectionUnavailable extends Schema.TaggedErrorClass<CustomerSelectionUnavailable>()(
+export class CustomerSelectionUnavailable extends Schema.TaggedError<CustomerSelectionUnavailable>()(
   "CustomerSelectionUnavailable",
   { reason: Schema.Literals(["availability_changed", "checkout_conflict"]) }
 ) {
@@ -34,7 +35,7 @@ export class CustomerSelectionUnavailable extends Schema.TaggedErrorClass<Custom
  * The quote's `advertisedPriceToken` expired, or doesn't match the
  * selection. Quote again.
  */
-export class CustomerQuoteExpired extends Schema.TaggedErrorClass<CustomerQuoteExpired>()(
+export class CustomerQuoteExpired extends Schema.TaggedError<CustomerQuoteExpired>()(
   "CustomerQuoteExpired",
   {}
 ) {
@@ -46,7 +47,7 @@ export class CustomerQuoteExpired extends Schema.TaggedErrorClass<CustomerQuoteE
  * `field` names the first one, such as `contact.email` or
  * `billing.address.postalCode`.
  */
-export class CustomerCheckoutDetailsInvalid extends Schema.TaggedErrorClass<CustomerCheckoutDetailsInvalid>()(
+export class CustomerCheckoutDetailsInvalid extends Schema.TaggedError<CustomerCheckoutDetailsInvalid>()(
   "CustomerCheckoutDetailsInvalid",
   { field: Schema.optionalKey(Schema.String) }
 ) {
@@ -57,7 +58,7 @@ export class CustomerCheckoutDetailsInvalid extends Schema.TaggedErrorClass<Cust
  * The signed-in customer started no checkout with this `payStateToken`.
  * The answer doesn't tell whether the order exists.
  */
-export class CustomerCheckoutNotFound extends Schema.TaggedErrorClass<CustomerCheckoutNotFound>()(
+export class CustomerCheckoutNotFound extends Schema.TaggedError<CustomerCheckoutNotFound>()(
   "CustomerCheckoutNotFound",
   {}
 ) {
@@ -80,7 +81,7 @@ export type CustomerCheckoutUnavailableReason =
   typeof CustomerCheckoutUnavailableReason.Type;
 
 /** The checkout can't take this step; `reason` names what to do instead. */
-export class CustomerCheckoutUnavailable extends Schema.TaggedErrorClass<CustomerCheckoutUnavailable>()(
+export class CustomerCheckoutUnavailable extends Schema.TaggedError<CustomerCheckoutUnavailable>()(
   "CustomerCheckoutUnavailable",
   { reason: CustomerCheckoutUnavailableReason }
 ) {
@@ -96,7 +97,7 @@ const isoInstant = Schema.String.annotate({
  * a replacement that keeps the attempted code, `payStateToken` and
  * `expiresAt` carry it and replace the client's token.
  */
-export class CustomerDiscountCodeRejected extends Schema.TaggedErrorClass<CustomerDiscountCodeRejected>()(
+export class CustomerDiscountCodeRejected extends Schema.TaggedError<CustomerDiscountCodeRejected>()(
   "CustomerDiscountCodeRejected",
   {
     reason: Schema.Literals([
@@ -116,7 +117,7 @@ export class CustomerDiscountCodeRejected extends Schema.TaggedErrorClass<Custom
  * The legal documents changed since the client read them: list them again
  * and ask for consent again.
  */
-export class CustomerLegalDocumentsChanged extends Schema.TaggedErrorClass<CustomerLegalDocumentsChanged>()(
+export class CustomerLegalDocumentsChanged extends Schema.TaggedError<CustomerLegalDocumentsChanged>()(
   "CustomerLegalDocumentsChanged",
   {}
 ) {
@@ -128,7 +129,7 @@ export class CustomerLegalDocumentsChanged extends Schema.TaggedErrorClass<Custo
  * (`legal`), or the request to start the service before the withdrawal
  * period ends (`early_performance`).
  */
-export class CustomerConsentRequired extends Schema.TaggedErrorClass<CustomerConsentRequired>()(
+export class CustomerConsentRequired extends Schema.TaggedError<CustomerConsentRequired>()(
   "CustomerConsentRequired",
   { consent: Schema.Literals(["legal", "early_performance"]) }
 ) {
@@ -146,16 +147,32 @@ export const CustomerCheckoutChangedKeys = Schema.Struct({
 /**
  * A held order ready to pay, as its signed checkout state describes it.
  * `price_review`: the price changed; show `summary` and `priceReview`, and
- * call `acceptCheckoutPriceChange` before submitting. `expiresAt` is when
- * `payStateToken` stops working; accepting a price doesn't extend the hold.
+ * call `acceptCheckoutPriceChange` before submitting.
  */
 export const CustomerCheckout = Schema.Struct({
   status: Schema.Literals(["ready", "price_review"]),
   orderId: Schema.String,
   /** Sent back with every later checkout step; opaque to the client. */
   payStateToken: Schema.String,
+  /**
+   * When `payStateToken` stops working. Each step that returns a new token
+   * gives it a new expiry; count the hold down with `holdExpiresAt`.
+   */
   expiresAt: isoInstant,
+  /**
+   * When the hold ends and the order can no longer be paid. Applying or
+   * clearing a code and accepting a price never move it.
+   */
+  holdExpiresAt: isoInstant,
   summary: CustomerCheckoutSummary,
+  /**
+   * The entered discount code the price includes. Its line is the summary
+   * discount whose `discount.id` is `discountId`; remove it with
+   * `clearCheckoutDiscountCode`.
+   */
+  appliedDiscountCode: Schema.optionalKey(
+    Schema.Struct({ code: Schema.String, discountId: Schema.String })
+  ),
   priceReview: Schema.optionalKey(
     Schema.Struct({ changedKeys: CustomerCheckoutChangedKeys })
   ),
@@ -179,6 +196,8 @@ export const CustomerCheckout = Schema.Struct({
    * on later bookings, as the site's referral cookie does.
    */
   rememberReferralCode: Schema.optionalKey(ReferralCode),
+  /** Office only: who is coming, as the checkout holds them. */
+  people: Schema.optionalKey(CustomerOfficePeople),
 }).annotate({ identifier: "CustomerCheckout" });
 export type CustomerCheckout = typeof CustomerCheckout.Type;
 
@@ -304,9 +323,16 @@ export const CreateCustomerCheckout = Schema.Struct({
   billing: CustomerCheckoutBilling,
   /** True only when the customer opted in; absent or false records nothing. */
   marketingConsent: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Office only: who is coming; `selection.seats` must equal their count.
+   * A rejected list answers `CustomerCheckoutDetailsInvalid` with `field`
+   * `people`, or `people.invitees.<index>` for an address. Apps released
+   * before people lists leave it out and book `selection.seats` with no
+   * invitations.
+   */
+  people: Schema.optionalKey(CustomerOfficePeople),
 }).annotate({
   identifier: "CreateCustomerCheckout",
-  parseOptions: customerInputParseOptions,
 });
 export type CreateCustomerCheckout = typeof CreateCustomerCheckout.Type;
 
@@ -320,14 +346,18 @@ export const ApplyCustomerCheckoutDiscountCode = Schema.Struct({
   code: Schema.String.check(Schema.isMaxLength(64)),
 }).annotate({
   identifier: "ApplyCustomerCheckoutDiscountCode",
-  parseOptions: customerInputParseOptions,
+});
+
+export const ClearCustomerCheckoutDiscountCode = Schema.Struct(
+  PayStateStep
+).annotate({
+  identifier: "ClearCustomerCheckoutDiscountCode",
 });
 
 export const AcceptCustomerCheckoutPriceChange = Schema.Struct(
   PayStateStep
 ).annotate({
   identifier: "AcceptCustomerCheckoutPriceChange",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -357,7 +387,6 @@ export const SubmitCustomerCheckout = Schema.Struct({
   returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
 }).annotate({
   identifier: "SubmitCustomerCheckout",
-  parseOptions: customerInputParseOptions,
 });
 
 // Endpoints
@@ -387,7 +416,7 @@ const createCheckout = HttpApiEndpoint.post("createCheckout", "/checkouts", {
     CustomerAccountLinkRequired.schema,
     CustomerServiceUnavailable.schema,
   ],
-});
+}).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /** Applies a discount or referral code to a held checkout. */
 const applyCheckoutDiscountCode = HttpApiEndpoint.post(
@@ -399,7 +428,23 @@ const applyCheckoutDiscountCode = HttpApiEndpoint.post(
     success: CustomerCheckoutDiscountCodeResult,
     error: [CustomerDiscountCodeRejected.schema, ...checkoutStepErrors],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
+
+/**
+ * Removes the entered discount code from a held checkout. When the code was
+ * in the price, the checkout comes back as `price_review` without it: accept
+ * it before submitting. With no code entered, it returns the checkout as it
+ * is, so a retry is safe. It doesn't extend the hold.
+ */
+const clearCheckoutDiscountCode = HttpApiEndpoint.post(
+  "clearCheckoutDiscountCode",
+  "/checkouts/discount-code/clear",
+  {
+    payload: ClearCustomerCheckoutDiscountCode,
+    success: CustomerCheckout,
+    error: [...checkoutStepErrors],
+  }
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /**
  * Accepts the changed price a `price_review` checkout shows. It doesn't
@@ -413,7 +458,7 @@ const acceptCheckoutPriceChange = HttpApiEndpoint.post(
     success: CustomerCheckout,
     error: [...checkoutStepErrors],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /**
  * Submits a checkout for payment, after checking its consents and the
@@ -433,12 +478,13 @@ const submitCheckout = HttpApiEndpoint.post(
       ...checkoutStepErrors,
     ],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /** The booking group's checkout endpoints, in the order a booking calls them. */
 export const customerBookingCheckoutEndpoints = [
   createCheckout,
   applyCheckoutDiscountCode,
+  clearCheckoutDiscountCode,
   acceptCheckoutPriceChange,
   submitCheckout,
 ] as const;

@@ -29,7 +29,7 @@ export const addPasskeyFailureMessage = (
   failure: PasskeyFailure,
   locale: AppLocale
 ): string => {
-  const failed = () => m.passkey_add_failed({}, { locale });
+  const failed = () => m.passkey_add_failed_hint({}, { locale });
   return Match.valueTags(failure, {
     PasskeyNotSupported: () => m.passkey_unsupported({}, { locale }),
     PasskeyAlreadyRegistered: () =>

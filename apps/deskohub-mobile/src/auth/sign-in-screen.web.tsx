@@ -1,4 +1,4 @@
-import { Effect, Exit, Option } from "effect";
+import { Duration, Effect, Exit, Fiber, Option } from "effect";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { trackSignInStarted } from "../analytics/events";
@@ -14,13 +14,24 @@ import {
 } from "../ui/controls";
 import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
+import { AppSignInFinishedInAppStep } from "./app-sign-in-finished-in-app-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import {
   type AuthUser,
   isFreshSignIn,
   safeReturnPath,
 } from "./auth-session-state";
+import {
+  closeTabWhenAppTakesOver,
+  currentHandoffTabPage,
+} from "./close-tab-on-handoff";
+import { ReauthenticationShield } from "./reauthentication-shield";
+import {
+  signInEmailLinkLifetime,
+  watchSignInElsewhere,
+} from "./sign-in-elsewhere-watch";
 import { webSignInFailureMessage } from "./sign-in-failure-message";
 import { signInResendAvailableAt } from "./sign-in-resend-gate";
 import type { SignInScreenProps } from "./sign-in-screen.native";
@@ -39,9 +50,11 @@ import {
 } from "./web-native-request-store";
 import { loadReauthenticatingUser } from "./web-reauthentication-store";
 import {
+  appAccountEmail,
   completeWebCodeSignIn,
   completeWebPasskeySignIn,
   finishSignIn,
+  isSignInAttemptCompleted,
   prepareNativeHandoffEmail,
   prepareReauthenticationEmail,
   reauthenticationExpectation,
@@ -71,6 +84,9 @@ const signInStatus = ({
   if (verifying) return m.signin_verifying_code({}, { locale });
   return undefined;
 };
+
+/** The sign-in status takes the five newest attempts at most. */
+const heldSignInAttempts = 5;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -106,6 +122,11 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   // It lasts until another email goes out, through later tries.
   const [resendGate, setResendGate] =
     useState<Omit<Parameters<typeof signInResendAvailableAt>[0], "sentAt">>();
+  // The sign-in attempts of the emails sent in this visit, newest last: an
+  // older email's link still signs in once.
+  const [attempts, setAttempts] = useState<readonly string[]>([]);
+  // One of them signed in elsewhere, in the app through the email's link.
+  const [signedInInApp, setSignedInInApp] = useState(false);
   const returnPath = safeReturnPath(params.return_to);
 
   const send = useAuthTask(
@@ -143,7 +164,11 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     setPageSession((known) => known ?? { user });
   }, [sessionRead, sessionUserId, sessionEmail]);
   // Its email goes only to that account, through any start over.
-  const emailField = signInEmailField({ reauthenticating, pageSession });
+  const emailField = signInEmailField({
+    reauthenticating,
+    pageSession,
+    appAccountEmail: appAccountEmail(nativeRequest),
+  });
   const verify = useAuthTask(
     standaloneTaskRuntime,
     (address: string, entered: string, expectation: WebAccountExpectation) =>
@@ -174,6 +199,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     if (finished.kind === "app") {
       clearNativeHandoffRequest();
       globalThis.location.assign(finished.url);
+      closeTabWhenAppTakesOver(currentHandoffTabPage());
     } else {
       router.replace(returnPath);
     }
@@ -182,15 +208,6 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   // A passkey sign-in being finished routes on once it is done, so the
   // session it created doesn't redirect before then.
   const finishingPasskey = passkey.state.status === "running";
-  if (
-    session.status === "signed-in" &&
-    Option.isNone(nativeRequest) &&
-    !reauthenticate &&
-    !finishingPasskey &&
-    finished === undefined
-  ) {
-    return <Redirect href={returnPath} />;
-  }
 
   const continueAs =
     session.status === "signed-in" &&
@@ -203,6 +220,55 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
       ? session.user.email
       : undefined;
   const step = signInStep(continueAs, sent);
+
+  // While the page opened by the app waits on the email, it asks whether the
+  // email's link signed in in the app, until the newest link expires. It
+  // asks only on the code and link steps, and stops once it checks a code,
+  // hands off, or finishes a sign-in itself, so it never closes the page
+  // during its own hand-off.
+  const waitingForEmail =
+    openedByApp &&
+    sent !== undefined &&
+    (step === "code" || step === "link") &&
+    attempts.length > 0 &&
+    finished === undefined &&
+    verify.state.status !== "running" &&
+    handoff.state.status !== "running" &&
+    !finishingPasskey &&
+    !signedInInApp;
+  const watchUntil = waitingForEmail
+    ? sent.sentAt + Duration.toMillis(signInEmailLinkLifetime)
+    : undefined;
+  useEffect(() => {
+    if (watchUntil === undefined) return;
+    const watch = Effect.runFork(
+      watchSignInElsewhere({
+        page: currentHandoffTabPage(),
+        until: watchUntil,
+        isCompleted: isSignInAttemptCompleted(attempts),
+        forgetSignIn: clearNativeHandoffRequest,
+      }).pipe(
+        Effect.flatMap((signedIn) =>
+          Effect.sync(() => {
+            if (signedIn) setSignedInInApp(true);
+          })
+        )
+      )
+    );
+    return () => {
+      Effect.runFork(Fiber.interrupt(watch));
+    };
+  }, [watchUntil, attempts]);
+
+  if (
+    session.status === "signed-in" &&
+    Option.isNone(nativeRequest) &&
+    !reauthenticate &&
+    !finishingPasskey &&
+    finished === undefined
+  ) {
+    return <Redirect href={returnPath} />;
+  }
 
   const failure = firstFailure(
     handoff.state,
@@ -258,6 +324,12 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
 
   const emailSent = (sentEmail: SentSignInEmail) => {
     setSent(sentEmail);
+    const attempt = sentEmail.signInAttempt;
+    if (Option.isSome(attempt)) {
+      setAttempts((held) =>
+        [...held, attempt.value].slice(-heldSignInAttempts)
+      );
+    }
     setResendGate({
       nextSignInEmailAt: sentEmail.nextSignInEmailAt,
       cooldownWaived: false,
@@ -319,6 +391,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
 
   const startOver = () => {
     setSent(undefined);
+    setAttempts([]);
     setResendGate(undefined);
     setCode("");
     setResent(false);
@@ -329,7 +402,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     passkey.reset();
   };
 
-  if (openedByApp) {
+  if (Option.isSome(nativeRequest)) {
     const verifyFailure =
       verify.state.status === "failed" ? verify.state.failure : undefined;
     // A refused resend outranks the earlier code result, so it is seen.
@@ -357,6 +430,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     const finishing = finished !== undefined;
     const resending = send.state.status === "running";
 
+    if (signedInInApp) return <AppSignInFinishedInAppStep />;
     if (step === "continue") {
       return (
         <AppSignInContinueStep
@@ -406,13 +480,13 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         />
       );
     }
+    const heading = appSignInEmailHeading(nativeRequest.value, locale);
     return (
       <AppSignInEmailStep
-        title={m.signin_create_title({}, { locale })}
-        body={
-          reauthenticate
-            ? m.signin_reauthenticate_body({}, { locale })
-            : undefined
+        title={heading.title}
+        body={heading.body}
+        illustration={
+          heading.confirmsAccount ? <ReauthenticationShield /> : undefined
         }
         email={{
           value: emailField.kind === "locked" ? emailField.email : email,

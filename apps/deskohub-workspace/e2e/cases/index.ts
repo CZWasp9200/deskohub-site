@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import type { WorkspaceE2EDateAllocation } from "../allocation";
 import { workspaceE2EMaximumSameDateCoworkReservations } from "../capacity";
 import {
@@ -163,7 +163,6 @@ export const makeWorkspaceE2ECases = ({
             assertPaymentTerminalPath({
               config,
               data,
-              reservationPath: "/en-US/reservation/cowork",
               runStep,
               scenario,
               openSession,

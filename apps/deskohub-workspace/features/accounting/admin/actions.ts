@@ -1,18 +1,29 @@
 "use server";
 
 import {
+  AdministrationInvoiceCancellationInput,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Match, Schema } from "effect";
+import { Effect, Layer, Match, Schema } from "effect";
+import { AdministrationService } from "@/features/administration/administration.service";
 import { administrationHref } from "@/features/administration/administration-href";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { customerSearchQuerySchema } from "@/features/administration/customer-search-query";
 import { m } from "@/features/administration/i18n";
-import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
+import { getReservationCancellationErrorMessage } from "@/features/administration/reservation-error-messages";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
-import { InvoiceAdministrationService } from "./invoice-administration.service";
-import { getInvoiceCustomerErrorMessage } from "./invoice-display";
+import {
+  type InvoiceAdministrationCancelResult,
+  InvoiceAdministrationService,
+} from "./invoice-administration.service";
+import { readInvoiceCancellationPreview } from "./invoice-cancellation-preview";
+import {
+  getInvoiceArchiveErrorMessage,
+  getInvoiceCancellationErrorMessage,
+  getInvoiceCustomerErrorMessage,
+} from "./invoice-display";
 
 const strict = { errors: "all", onExcessProperty: "error" } as const;
 
@@ -26,10 +37,25 @@ const invoiceCreateInputSchema = Schema.toStandardSchemaV1(
   { parseOptions: strict }
 );
 
+const invoiceIdInputSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({ invoiceId: AdministrationInvoiceId }),
+  { parseOptions: strict }
+);
+
 const invoicePaths = (invoiceId: string) => [
   administrationHref("/[locale]/admin/invoices"),
   administrationHref("/[locale]/admin/invoices/[invoiceId]", { invoiceId }),
 ];
+
+/** The reservation detail, whose cancellation shows the reservation's invoice. */
+const reservationPaths = (reservationId: string | null) =>
+  reservationId
+    ? [
+        administrationHref("/[locale]/admin/reservations/[reservationId]", {
+          reservationId,
+        }),
+      ]
+    : [];
 
 const createInvoiceAction = defineAdministrationAction(
   {
@@ -55,11 +81,11 @@ const createInvoiceAction = defineAdministrationAction(
       invoicePaths(invoiceId),
   },
   Effect.fn(function* (input) {
-    const administrator = yield* CurrentAdministrator;
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* InvoiceAdministrationService;
     return yield* administration.create(input, {
-      source: "admin-ui",
-      administrator,
+      source,
+      administrator: actor,
     });
   })
 );
@@ -74,11 +100,11 @@ const previewInvoiceAction = defineAdministrationAction(
     capabilities: InvoiceAdministrationService.Live,
   },
   Effect.fn(function* (input) {
-    const administrator = yield* CurrentAdministrator;
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* InvoiceAdministrationService;
     const pdf = yield* administration.preview(input, {
-      source: "admin-ui",
-      administrator,
+      source,
+      administrator: actor,
     });
     return {
       dataUrl: `data:application/pdf;base64,${Buffer.from(pdf).toString("base64")}`,
@@ -105,17 +131,138 @@ const retryInvoiceAction = defineAdministrationAction(
   {
     operation: "invoice-administration.retry-delivery",
     failureCopy,
-    schema: Schema.toStandardSchemaV1(
-      Schema.Struct({ invoiceId: AdministrationInvoiceId }),
-      { parseOptions: strict }
-    ),
+    schema: invoiceIdInputSchema,
     fallback: m.accountingInvoiceRetryDeliveryError,
     capabilities: InvoiceAdministrationService.Live,
-    revalidates: ({ invoiceId }) => invoicePaths(invoiceId),
+    revalidates: (
+      { invoiceId },
+      { reservationId }: { readonly reservationId: string | null }
+    ) => [...invoicePaths(invoiceId), ...reservationPaths(reservationId)],
   },
   Effect.fn(function* (input) {
     const administration = yield* InvoiceAdministrationService;
     return yield* administration.retry(input.invoiceId);
+  })
+);
+
+const invoiceCancellationInputSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    invoiceId: AdministrationInvoiceId,
+    ...AdministrationInvoiceCancellationInput.fields,
+  }),
+  { parseOptions: strict }
+);
+
+const previewInvoiceCancellationAction = defineAdministrationAction(
+  {
+    operation: "invoice-administration.cancellation-preview",
+    failureCopy,
+    schema: invoiceIdInputSchema,
+    fallback: m.accountingInvoiceCancelPreviewFailed,
+    capabilities: Layer.mergeAll(
+      InvoiceAdministrationService.Live,
+      AdministrationService.Live
+    ),
+    publicFailure: (cause, locale) =>
+      Match.value(cause).pipe(
+        Match.tag("InvoiceAdministrationNotFoundError", () =>
+          m.accountingInvoiceNotFound({}, { locale })
+        ),
+        Match.tag("InvoiceCancellationError", ({ code }) =>
+          getInvoiceCancellationErrorMessage(code, locale)
+        ),
+        Match.orElse(() => undefined)
+      ),
+  },
+  Effect.fn(function* ({ invoiceId }, { locale }) {
+    return yield* readInvoiceCancellationPreview(invoiceId, locale);
+  })
+);
+
+type CancelledReservation = NonNullable<
+  InvoiceAdministrationCancelResult["reservation"]
+>;
+
+/** What the cancel dialog reports once the invoice is cancelled. */
+type InvoiceCancellationActionResult = {
+  readonly outcome: InvoiceAdministrationCancelResult["outcome"];
+  readonly correctiveDocumentNumber: string;
+  /** Set when the invoice's reservation was cancelled with it. */
+  readonly reservationId: CancelledReservation["reservationId"] | null;
+  readonly reservationEmail: CancelledReservation["email"] | null;
+};
+
+const cancelInvoiceAction = defineAdministrationAction(
+  {
+    operation: "invoice-administration.cancel",
+    failureCopy,
+    schema: invoiceCancellationInputSchema,
+    fallback: m.accountingInvoiceCancelFailed,
+    capabilities: InvoiceAdministrationService.Live,
+    // The service messages stay English: the administration API forwards
+    // them to `dhw`.
+    publicFailure: (cause, locale) =>
+      Match.value(cause).pipe(
+        Match.tag("InvoiceAdministrationNotFoundError", () =>
+          m.accountingInvoiceNotFound({}, { locale })
+        ),
+        Match.tag("InvoiceCancellationError", ({ code }) =>
+          getInvoiceCancellationErrorMessage(code, locale)
+        ),
+        Match.tag("ReservationAdministrationError", ({ reason }) =>
+          getReservationCancellationErrorMessage(reason, locale)
+        ),
+        Match.orElse(() => undefined)
+      ),
+    revalidates: (
+      { invoiceId },
+      { reservationId }: InvoiceCancellationActionResult
+    ) => [...invoicePaths(invoiceId), ...reservationPaths(reservationId)],
+  },
+  Effect.fn(function* ({ invoiceId, ...confirmation }) {
+    const { actor, source } = yield* currentAdministrationProvenance;
+    const administration = yield* InvoiceAdministrationService;
+    const result = yield* administration.cancel({
+      ...confirmation,
+      invoiceId,
+      actor: { source, administrator: actor },
+    });
+    const outcome: InvoiceCancellationActionResult = {
+      outcome: result.outcome,
+      correctiveDocumentNumber: result.cancellation.correctiveDocumentNumber,
+      reservationId: result.reservation?.reservationId ?? null,
+      reservationEmail: result.reservation?.email ?? null,
+    };
+    return outcome;
+  })
+);
+
+const archiveInvoiceAction = defineAdministrationAction(
+  {
+    operation: "invoice-administration.archive",
+    failureCopy,
+    schema: invoiceIdInputSchema,
+    fallback: m.accountingInvoiceHideFailed,
+    capabilities: InvoiceAdministrationService.Live,
+    publicFailure: (cause, locale) =>
+      Match.value(cause).pipe(
+        Match.tag("InvoiceAdministrationNotFoundError", () =>
+          m.accountingInvoiceNotFound({}, { locale })
+        ),
+        Match.tag("InvoiceArchiveError", ({ code }) =>
+          getInvoiceArchiveErrorMessage(code, locale)
+        ),
+        Match.orElse(() => undefined)
+      ),
+    revalidates: ({ invoiceId }) => invoicePaths(invoiceId),
+  },
+  Effect.fn(function* ({ invoiceId }) {
+    const { actor, source } = yield* currentAdministrationProvenance;
+    const administration = yield* InvoiceAdministrationService;
+    return yield* administration.archive({
+      invoiceId,
+      actor: { source, administrator: actor },
+    });
   })
 );
 
@@ -144,4 +291,24 @@ export const retryAdministrationInvoice: typeof retryInvoiceAction = async (
 ) => {
   "use server";
   return await retryInvoiceAction(...args);
+};
+
+export const previewAdministrationInvoiceCancellation: typeof previewInvoiceCancellationAction =
+  async (...args: Parameters<typeof previewInvoiceCancellationAction>) => {
+    "use server";
+    return await previewInvoiceCancellationAction(...args);
+  };
+
+export const cancelAdministrationInvoice: typeof cancelInvoiceAction = async (
+  ...args: Parameters<typeof cancelInvoiceAction>
+) => {
+  "use server";
+  return await cancelInvoiceAction(...args);
+};
+
+export const archiveAdministrationInvoice: typeof archiveInvoiceAction = async (
+  ...args: Parameters<typeof archiveInvoiceAction>
+) => {
+  "use server";
+  return await archiveInvoiceAction(...args);
 };

@@ -123,10 +123,15 @@ const readablePhone = (stored: string, phoneRegion: string) =>
     }
   );
 
-/** The draft of a stored profile: what the customer has saved now. */
+/**
+ * The draft of a stored profile: what the customer has saved now. Without
+ * saved billing details, a new billing address starts in `deviceCountry`
+ * (`detectedCountry`).
+ */
 export const profileDraftOf = (
   profile: CustomerProfile,
-  phoneRegion: string
+  phoneRegion: string,
+  deviceCountry: string
 ): ProfileDraft => ({
   firstName: profile.firstName,
   lastName: profile.lastName ?? "",
@@ -139,14 +144,20 @@ export const profileDraftOf = (
   addressLine2: profile.billing?.addressLine2 ?? "",
   city: profile.billing?.city ?? "",
   zip: profile.billing?.zip ?? "",
-  country: profile.billing?.country ?? "",
+  country: profile.billing ? (profile.billing.country ?? "") : deviceCountry,
 });
 
-/** A new customer's completion draft, prefilled with their invitation code. */
+/**
+ * A new customer's completion draft, prefilled with their invitation code;
+ * billing details start in the device's country (`detectedCountry`), as
+ * Account billing and the checkout do (board 07b).
+ */
 export const completionDraftOf = (
-  invitationCode: string | undefined
+  invitationCode: string | undefined,
+  deviceCountry: string
 ): CompletionDraft => ({
   ...emptyProfileDraft,
+  country: deviceCountry,
   referralCode: invitationCode ?? "",
 });
 

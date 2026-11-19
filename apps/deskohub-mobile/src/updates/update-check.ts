@@ -1,11 +1,12 @@
 import { Effect } from "effect";
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http";
 import { checkNativeRelease, type NativeReleaseCheck } from "./native-release";
 import {
   findReadyUpdate,
   type OtaUpdateSource,
   type ReadyUpdate,
 } from "./ota-update";
+import { installedByUpdater } from "./updater-install";
 
 /**
  * The app checks on launch and whenever it returns to the foreground, at most
@@ -28,19 +29,24 @@ export type UpdateCheckPlan = {
 
 /**
  * Which checks apply. Web is served fresh by the Workspace. Only Android
- * installs APKs, so iOS checks only for JS updates. `otaUpdatesEnabled` is
- * `Updates.isEnabled`, false when the build disables or misconfigures
- * expo-updates.
+ * installs APKs, so iOS checks only for JS updates, and an Android app that
+ * an app store or updater installed leaves new APKs to it.
+ * `otaUpdatesEnabled` is `Updates.isEnabled`, false when the build disables
+ * or misconfigures expo-updates. `installingPackageName` is the installer
+ * Android records for the app.
  */
 export const planUpdateCheck = ({
   platform,
   otaUpdatesEnabled,
+  installingPackageName,
 }: {
   readonly platform: string;
   readonly otaUpdatesEnabled: boolean;
+  readonly installingPackageName: string | null;
 }): UpdateCheckPlan => ({
   otaUpdate: platform !== "web" && otaUpdatesEnabled,
-  nativeRelease: platform === "android",
+  nativeRelease:
+    platform === "android" && !installedByUpdater(installingPackageName),
 });
 
 /**

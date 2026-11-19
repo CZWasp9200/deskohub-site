@@ -93,7 +93,9 @@ export class ReservationInvoicePdfService extends Context.Service<
             });
           }
 
-          const invoice = yield* invoices.findByReservationId(request.orderId);
+          const invoice = yield* invoices.findLiveByReservationId(
+            request.orderId
+          );
           if (!invoice) {
             // A valid capability doesn't read the reservation, so it may still
             // name one that no longer exists.

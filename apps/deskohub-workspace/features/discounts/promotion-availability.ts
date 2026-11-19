@@ -90,46 +90,95 @@ const promotionAvailabilityRules = {
   },
 } as const;
 
-/**
- * The rules each caller checks at each step, in the order that decides which
- * reason wins when several fail. Pricing and admission order the shared rules
- * differently; keep each order as its caller reports it.
- */
-export const promotionAvailabilityPrecedence = {
-  /** Pricing and preview, before usage facts load, for both kinds. */
-  pricingSchedule: ["enabled", "started", "unexpired"],
-  pricingDiscountCode: [
-    "audience",
-    "totalUses",
-    "customerUses",
-    "serviceDates",
-  ],
-  /** Preview has no customer, so no audience or per-customer use. */
-  pricingDiscountCodePreview: ["totalUses", "serviceDates"],
-  pricingVoucher: ["voucherUnclaimed", "audience", "voucherCredit"],
-  /** Admission, under the promotion row lock, before the hold check. */
-  admissionEnabled: ["enabled"],
-  /** Admission, after the hold check, before the allowlist is read. */
-  admissionDiscountCodeSchedule: ["started", "unexpired", "serviceDates"],
-  admissionVoucherSchedule: ["started", "unexpired"],
-  /** Admission, before the accepted benefit check, for both kinds. */
-  admissionAudience: ["audience"],
-  /** Admission, after the accepted benefit check. */
-  admissionDiscountCodeUses: ["customerUses", "totalUses"],
-  admissionVoucherUses: ["voucherUnclaimed"],
-  /** Late recovery redeeming a released discount-code claim again. */
-  readmissionDiscountCodeUses: ["customerUses", "totalUses"],
-} as const satisfies Record<string, readonly PromotionAvailabilityRule[]>;
-
 type Rules = typeof promotionAvailabilityRules;
 
 export type PromotionAvailabilityRule = keyof Rules;
 
+/**
+ * The one order every caller checks the rules in. It decides which reason
+ * wins when several rules fail, so pricing, preview and claim admission
+ * report the same reason for the same promotion. It follows admission, whose
+ * row locks and reads split it into stages; every caller runs its stages in
+ * this order.
+ */
+export const promotionAvailabilityOrder = [
+  "enabled",
+  "started",
+  "unexpired",
+  "serviceDates",
+  "audience",
+  "customerUses",
+  "totalUses",
+  "voucherUnclaimed",
+  "voucherCredit",
+] as const satisfies readonly PromotionAvailabilityRule[];
+
+/** The given rules, in the shared order. */
+const inPromotionAvailabilityOrder = <
+  const Rule extends PromotionAvailabilityRule,
+>(
+  rules: readonly Rule[]
+): readonly Rule[] =>
+  promotionAvailabilityOrder.filter((rule): rule is Rule =>
+    (rules as readonly PromotionAvailabilityRule[]).includes(rule)
+  );
+
+/** The rules each caller checks at each step, in the shared order. */
+export const promotionAvailabilityStages = {
+  /** Pricing and preview, before usage facts load, for both kinds. */
+  pricingSchedule: inPromotionAvailabilityOrder([
+    "enabled",
+    "started",
+    "unexpired",
+  ]),
+  pricingDiscountCode: inPromotionAvailabilityOrder([
+    "serviceDates",
+    "audience",
+    "customerUses",
+    "totalUses",
+  ]),
+  /** Preview has no customer, so no audience or per-customer use. */
+  pricingDiscountCodePreview: inPromotionAvailabilityOrder([
+    "serviceDates",
+    "totalUses",
+  ]),
+  pricingVoucher: inPromotionAvailabilityOrder([
+    "audience",
+    "voucherUnclaimed",
+    "voucherCredit",
+  ]),
+  /** Admission, under the promotion row lock, before the hold check. */
+  admissionEnabled: inPromotionAvailabilityOrder(["enabled"]),
+  /** Admission, after the hold check, before the allowlist is read. */
+  admissionDiscountCodeSchedule: inPromotionAvailabilityOrder([
+    "started",
+    "unexpired",
+    "serviceDates",
+  ]),
+  admissionVoucherSchedule: inPromotionAvailabilityOrder([
+    "started",
+    "unexpired",
+  ]),
+  /** Admission, before the accepted benefit check, for both kinds. */
+  admissionAudience: inPromotionAvailabilityOrder(["audience"]),
+  /** Admission, after the accepted benefit check. */
+  admissionDiscountCodeUses: inPromotionAvailabilityOrder([
+    "customerUses",
+    "totalUses",
+  ]),
+  admissionVoucherUses: inPromotionAvailabilityOrder(["voucherUnclaimed"]),
+  /** Late recovery redeeming a released discount-code claim again. */
+  readmissionDiscountCodeUses: inPromotionAvailabilityOrder([
+    "customerUses",
+    "totalUses",
+  ]),
+};
+
 export type PromotionAvailabilityStage =
-  keyof typeof promotionAvailabilityPrecedence;
+  keyof typeof promotionAvailabilityStages;
 
 type StageRule<Stage extends PromotionAvailabilityStage> =
-  (typeof promotionAvailabilityPrecedence)[Stage][number];
+  (typeof promotionAvailabilityStages)[Stage][number];
 
 /** Every fact the rules of `Stage` read. */
 export type PromotionAvailabilityFacts<
@@ -147,7 +196,7 @@ export type PromotionUnavailable<
 }[StageRule<Stage>];
 
 /**
- * Checks the rules of one caller's stage in that stage's order and returns
+ * Checks the rules of one caller's stage in the shared order and returns
  * the first that fails. Reads no clock: `at` is a fact.
  */
 export const evaluatePromotionAvailability = <
@@ -157,7 +206,7 @@ export const evaluatePromotionAvailability = <
   facts: PromotionAvailabilityFacts<Stage>
 ): Result.Result<void, PromotionUnavailable<Stage>> => {
   const rules: readonly PromotionAvailabilityRule[] =
-    promotionAvailabilityPrecedence[stage];
+    promotionAvailabilityStages[stage];
   const failed = rules.find(
     (rule) =>
       !(

@@ -9,7 +9,10 @@ import {
   test,
 } from "bun:test";
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { EmailDraft } from "@deskohub/workspace-admin-api";
+import {
+  administrationInputParseOptions,
+  EmailDraft,
+} from "@deskohub/workspace-admin-api";
 import { Effect, Option } from "effect";
 import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
@@ -76,7 +79,10 @@ const renderSection = (defaultValues: Draft = {}) => {
   let read: () => Draft = () => defaultValues;
   function Host() {
     const form = useForm<Draft, unknown, EmailDraft>({
-      resolver: effectSchemaResolver(EmailDraft),
+      resolver: effectSchemaResolver(
+        EmailDraft,
+        administrationInputParseOptions
+      ),
       defaultValues,
     });
     read = () => form.getValues();

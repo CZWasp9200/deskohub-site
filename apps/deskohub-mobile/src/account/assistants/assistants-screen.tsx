@@ -1,16 +1,24 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
+import Bot from "lucide-react-native/icons/bot";
+import ExternalLink from "lucide-react-native/icons/external-link";
 import { useState } from "react";
+import { View } from "react-native";
+import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { openSitePage } from "../../routing/open-site-page";
+import { sitePageUrl } from "../../routing/site-page";
 import { ConfirmDialog } from "../../ui/confirm-dialog";
-import { BodyText, LiveMessage } from "../../ui/controls";
-import { ListGroup, ListRow } from "../../ui/list";
+import { Button, LiveMessage } from "../../ui/controls";
+import { EmptyState } from "../../ui/empty-state";
+import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { useViewport } from "../../ui/viewport";
 import { AssistantConnectionRow } from "./assistant-connection-row";
 import {
   assistantConnectionsAtom,
@@ -28,21 +36,38 @@ const listErrorMessage = (locale: AppLocale) => (error: CustomerViewError) =>
     ? m.assistants_unavailable({}, { locale })
     : undefined;
 
+// Includes the row's icon and insets, plus room for a translated action.
+const inlineActionsMinimumWidth = 440;
+
 /**
  * Connected assistants: the AI assistants the customer let use their
  * account, what each may do, and a way to disconnect one. It needs only the
- * session, so it works without a linked Dotypos profile.
+ * session, so it works without a linked Dotypos profile. The disconnect
+ * dialog states what disconnecting does, so the screen has no intro line.
  */
 export function AssistantsScreen() {
   const locale = useAppLocale();
+  const { isWide, fontScale } = useViewport();
+  const [listWidth, setListWidth] = useState(0);
   const connections = useAtomValue(assistantConnectionsAtom);
   const refresh = useAtomRefresh(assistantConnectionsAtom);
   const disconnected = useAtomValue(disconnectedAssistantsAtom);
   const [result, disconnect] = useAtom(disconnectAssistantAtom);
   const [target, setTarget] = useState<DisconnectTarget>();
+  const [helpFailed, setHelpFailed] = useState(false);
+
+  // The site's help page with the steps for each assistant.
+  const openConnectingHelp = () => {
+    setHelpFailed(false);
+    openSitePage(sitePageUrl("/ai-assistants", apiOrigin)).catch(() =>
+      setHelpFailed(true)
+    );
+  };
 
   const view = disconnectView({ target, result });
   const targetName = target?.name ?? m.assistants_unnamed({}, { locale });
+  const inlineActions =
+    isWide && listWidth / fontScale >= inlineActionsMinimumWidth;
 
   const ask = (next: DisconnectTarget) => {
     // A new confirmation starts without the last attempt's outcome.
@@ -51,8 +76,10 @@ export function AssistantsScreen() {
   };
 
   return (
-    <ScrollScreen refreshing={connections.waiting} onRefresh={refresh}>
-      <BodyText>{m.assistants_intro({}, { locale })}</BodyText>
+    <ScrollScreen
+      refreshing={connections.waiting && !AsyncResult.isInitial(connections)}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <LiveMessage
         role="status"
@@ -60,6 +87,12 @@ export function AssistantsScreen() {
           view.outcome === "disconnected"
             ? m.assistants_disconnected({}, { locale })
             : undefined
+        }
+      />
+      <LiveMessage
+        role="alert"
+        message={
+          helpFailed ? m.assistants_help_open_failed({}, { locale }) : undefined
         }
       />
       <Notice
@@ -78,23 +111,37 @@ export function AssistantsScreen() {
         {(current) => {
           const rows = assistantRows(current, disconnected, locale);
           return rows.length === 0 ? (
-            <ListGroup>
-              <ListRow
-                label={m.assistants_empty_title({}, { locale })}
-                description={m.assistants_empty_body({}, { locale })}
+            <EmptyState
+              icon={Bot}
+              dashed
+              title={m.assistants_empty_title({}, { locale })}
+              body={m.assistants_empty_connect({}, { locale })}
+            >
+              <Button
+                variant="text"
+                width="content"
+                icon={ExternalLink}
+                iconPlacement="end"
+                label={m.assistants_how_connecting_works({}, { locale })}
+                onPress={openConnectingHelp}
               />
-            </ListGroup>
+            </EmptyState>
           ) : (
-            <ListGroup>
-              {rows.map((row) => (
-                <AssistantConnectionRow
-                  key={row.id}
-                  row={row}
-                  locale={locale}
-                  onDisconnect={() => ask({ id: row.id, name: row.name })}
-                />
-              ))}
-            </ListGroup>
+            <View
+              onLayout={(event) => setListWidth(event.nativeEvent.layout.width)}
+            >
+              <ListGroup>
+                {rows.map((row) => (
+                  <AssistantConnectionRow
+                    key={row.id}
+                    row={row}
+                    locale={locale}
+                    inlineActions={inlineActions}
+                    onDisconnect={() => ask({ id: row.id, name: row.name })}
+                  />
+                ))}
+              </ListGroup>
+            </View>
           );
         }}
       </AsyncView>
@@ -102,9 +149,10 @@ export function AssistantsScreen() {
         visible={view.dialogOpen}
         title={m.assistants_disconnect_title({ name: targetName }, { locale })}
         body={m.assistants_disconnect_body({}, { locale })}
-        confirmLabel={m.assistants_disconnect_confirm({}, { locale })}
+        confirmLabel={m.assistants_disconnect({}, { locale })}
         cancelLabel={m.account_cancel({}, { locale })}
         destructive
+        irreversible
         busy={view.busy}
         busyMessage={m.assistants_disconnecting({}, { locale })}
         onConfirm={() => {

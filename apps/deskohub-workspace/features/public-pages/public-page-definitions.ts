@@ -67,7 +67,7 @@ export const publicPageDefinitions: Readonly<
   "/": {
     title: m.landingMetadataTitle,
     description: m.landingMetadataDescription,
-    contentDate: "2026-10-25",
+    contentDate: "2026-11-18",
   },
   "/coworking": {
     title: m.coworkingMetadataTitle,
@@ -82,7 +82,7 @@ export const publicPageDefinitions: Readonly<
   "/faq": {
     title: m.faqMetadataTitle,
     description: m.faqMetadataDescription,
-    contentDate: "2026-10-26",
+    contentDate: "2026-11-18",
   },
   "/ai-assistants": {
     title: m.aiAssistantsMetadataTitle,
@@ -102,7 +102,7 @@ export const publicPageDefinitions: Readonly<
   "/meeting-room": {
     title: m.meetingRoomMetadataTitle,
     description: m.meetingRoomMetadataDescription,
-    contentDate: "2026-10-26",
+    contentDate: "2026-11-18",
     releaseGate: "meeting-room-page",
   },
   "/team": {
@@ -120,8 +120,8 @@ export const publicPageDefinitions: Readonly<
     description: m.ttrpgRoomMetadataDescription,
     contentDate: "2026-10-25",
   },
-  "/terms-and-conditions": legalPage("terms-and-conditions", "2026-08-12"),
-  "/privacy-policy": legalPage("privacy-policy", "2026-11-15"),
+  "/terms-and-conditions": legalPage("terms-and-conditions", "2026-11-17"),
+  "/privacy-policy": legalPage("privacy-policy", "2026-11-18"),
   "/cookie-policy": legalPage("cookie-policy", "2026-11-08"),
   "/operating-rules": legalPage("operating-rules", "2026-08-12"),
   "/marketing-communications": legalPage(
@@ -141,7 +141,7 @@ export const publicPageDefinitions: Readonly<
   "/reservation/office": {
     title: m.reservationOfficeMetadataTitle,
     description: m.reservationOfficeMetadataDescription,
-    contentDate: "2026-10-25",
+    contentDate: "2026-11-18",
     releaseGate: "office-page",
   },
 };

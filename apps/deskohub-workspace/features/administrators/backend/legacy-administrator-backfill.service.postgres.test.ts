@@ -34,6 +34,7 @@ import {
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import type { AdministratorAccountActor } from "../account-role";
@@ -86,7 +87,7 @@ const runIsolated = async <A, E>(
     LegacyAdministratorBackfill | InvoiceRepository | WorkspaceDatabase
   >
 ) => {
-  const connection = await testDatabase!.pool.connect();
+  const connection = await holdDatabaseConnection(testDatabase!);
   try {
     await connection.query("begin");
     return await Effect.runPromise(
@@ -125,7 +126,7 @@ const runIsolated = async <A, E>(
     );
   } finally {
     await connection.query("rollback").catch(() => {});
-    connection.release();
+    await connection.release();
   }
 };
 

@@ -67,6 +67,17 @@ describe("ConfirmDialog", () => {
     ]);
   });
 
+  test("an irreversible confirmation leads with a filled danger confirm, an outlined cancel below", () => {
+    expect(
+      buttons({ destructive: true, irreversible: true }).map(
+        ({ label, variant }) => [label, variant]
+      )
+    ).toEqual([
+      ["confirm", "danger"],
+      ["cancel", "secondary"],
+    ]);
+  });
+
   test("any other confirmation leads with the primary confirm and a quiet cancel", () => {
     expect(buttons().map(({ label, variant }) => [label, variant])).toEqual([
       ["confirm", "primary"],

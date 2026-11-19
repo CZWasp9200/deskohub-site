@@ -7,11 +7,7 @@ import {
   type WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Match } from "effect";
-import type {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/unstable/httpapi";
+import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   RequestBudget,
   type RequestBudgetPolicy,
@@ -20,7 +16,8 @@ import { budgetKeyDigest } from "@/shared/backend/request-budget/request-budget-
 
 /**
  * What an endpoint costs beyond its general request budget:
- * `workspace-only` reads only the Workspace database and Better Auth;
+ * `workspace-only` reads only the Workspace database and Better Auth, or
+ * also calls a public provider whose allowance no site budget tracks;
  * `catalog-read` reads the booking catalog's shared snapshots;
  * `account-read`, `dotypos-read` and `dotypos-mutation` may call Dotypos,
  * whose allowance the whole site shares, and spend that kind's budget.
@@ -39,8 +36,8 @@ type CustomerApiGroup =
 
 /** Every endpoint of every group, by group then endpoint name. */
 export type CustomerApiEndpointClassification = {
-  readonly [Group in CustomerApiGroup as HttpApiGroup.Name<Group>]: Record<
-    HttpApiEndpoint.Name<HttpApiGroup.Endpoints<Group>>,
+  readonly [Group in CustomerApiGroup as HttpApiGroup.Identifier<Group>]: Record<
+    HttpApiEndpoint.Identifier<HttpApiGroup.Endpoints<Group>>,
     CustomerRequestBudgetClass
   >;
 };
@@ -95,16 +92,37 @@ export const customerRequestBudgetClasses = {
     listReservations: "account-read",
     getReservationStatus: "account-read",
     getReservationAccess: "account-read",
+    // The invited orders, read live like the history the app loads beside it.
+    listInvitedReservations: "account-read",
+    // Authorizes the booker against the live order, then sends an email.
+    resendInvitation: "dotypos-mutation",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // Authorizes like the invoice, then records the page's return target.
+    reopenPaymentPage: "dotypos-mutation",
+    // May book the order's spot again in Dotypos and asks the payment provider.
+    retryPayment: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
+    // Reads the reservation live from Dotypos to price the withdrawal; the
+    // app asks once per withdrawal, never while polling.
+    getWithdrawalQuote: "dotypos-read",
+    // Records the withdrawal, then cancels the Dotypos booking.
+    withdrawFromReservation: "dotypos-mutation",
   },
   invoices: {
-    // Authorizing either read can resolve the account's Dotypos customer;
-    // the app reads them when the customer opens or downloads an invoice.
+    // Authorizing any of these reads can resolve the account's Dotypos
+    // customer; the app reads them when the customer opens the list or
+    // downloads an invoice or a cancelled invoice's credit note.
     listInvoices: "dotypos-read",
     getInvoicePdf: "dotypos-read",
+    getCorrectiveDocumentPdf: "dotypos-read",
+  },
+  companies: {
+    // One request to the public business registry (ARES), which needs no
+    // account resolution and no Dotypos call; the general budget bounds it,
+    // as the website's lookup has no budget of its own.
+    lookupCompany: "workspace-only",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
@@ -121,8 +139,10 @@ export const customerRequestBudgetClasses = {
     listLegalDocuments: "workspace-only",
     // A booking spends two to four Dotypos mutations: the hold, an
     // optional code, the submission, and one retry after a price change.
+    // Removing a code reprices like entering one.
     createCheckout: "dotypos-mutation",
     applyCheckoutDiscountCode: "dotypos-mutation",
+    clearCheckoutDiscountCode: "dotypos-mutation",
     submitCheckout: "dotypos-mutation",
     // Reseals the signed checkout state only.
     acceptCheckoutPriceChange: "workspace-only",

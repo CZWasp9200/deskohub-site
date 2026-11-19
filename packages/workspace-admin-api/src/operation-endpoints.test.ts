@@ -7,14 +7,14 @@ import {
   HttpClientResponse,
   HttpRouter,
   HttpServer,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiClient,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   administrationOperations,
   destructiveOperation,
@@ -24,11 +24,11 @@ import {
 import {
   defineOperations,
   mutation,
-  NoInput,
   type OperationInput,
   type OperationOutput,
   query,
-} from "./campaign-operations";
+} from "./administration-operation-port";
+import { NoInput } from "./campaign-operations";
 import { DhwVersion, MinimumDhwVersion } from "./dhw-version";
 import {
   type OperationRequest,
@@ -247,7 +247,7 @@ describe("operation endpoints", () => {
   });
 
   test("each endpoint's request and success types are the operation's", () => {
-    type Endpoint<Name extends string> = HttpApiEndpoint.WithName<
+    type Endpoint<Name extends string> = HttpApiEndpoint.WithIdentifier<
       HttpApiGroup.Endpoints<typeof Notes>,
       Name
     >;

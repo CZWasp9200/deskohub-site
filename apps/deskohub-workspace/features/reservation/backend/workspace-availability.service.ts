@@ -3,7 +3,10 @@ import type {
   DotyposReservationInterval,
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Option, Result } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import {
   excludeDotyposReservationsById,
   type InvalidDotyposTableSeats,
@@ -13,6 +16,10 @@ import {
   type CoworkReservationDetails,
   getCoworkReservationIntervalInput,
 } from "@/features/reservation/cowork-reservation";
+import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomOccupiedInterval } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import {
@@ -108,7 +115,7 @@ export class WorkspaceTableUnavailableError extends Data.TaggedError(
 type CoworkWorkspaceAvailabilityEnsureQuery = Extract<
   WorkspaceAvailabilityUnavailableTarget,
   { readonly kind: typeof coworkReservationKind }
-> & { readonly date: string };
+> & { readonly date: string; readonly stay?: CoworkStay };
 
 type MeetingRoomWorkspaceAvailabilityEnsureQuery = Extract<
   WorkspaceAvailabilityUnavailableTarget,
@@ -128,10 +135,13 @@ type WorkspaceAvailabilityEnsureQuery =
 
 /** The facts of a reservation, of any family, that decide its availability. */
 export type AvailabilityReservation =
-  | Pick<
+  | (Pick<
       CoworkReservationDetails,
       "kind" | "date" | "entryTier" | "monitorOption"
-    >
+    > & {
+      /** The booked Reserved Desk stay; absence is a day stay. */
+      readonly stay?: CoworkStay;
+    })
   | Pick<
       MeetingRoomReservationDetails,
       "kind" | "startsAt" | "endsAt" | "earlySetup"
@@ -216,19 +226,21 @@ const implementation = Effect.gen(function* () {
       yield* Effect.logInfo("Workspace availability inventory load started");
 
       const [tables, reservations, limitations, expiredDotyposReservationIds] =
-        yield* Effect.all(
-          [
-            inventory.tables,
-            inventory.listActiveReservationsOverlapping(
-              getDateRangeReservationInterval(input.dates)
-            ),
-            inventory.listLimitations({
-              from: input.dates[0]!.toString(),
-              to: input.dates.at(-1)!.toString(),
-            }),
-            loadExpiredHoldDotyposReservationIds(),
-          ],
-          { concurrency: "inherit" }
+        yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+          Effect.all(
+            [
+              inventory.tables,
+              inventory.listActiveReservationsOverlapping(
+                getDateRangeReservationInterval(input.dates)
+              ),
+              inventory.listLimitations({
+                from: input.dates[0]!.toString(),
+                to: input.dates.at(-1)!.toString(),
+              }),
+              loadExpiredHoldDotyposReservationIds(),
+            ],
+            { concurrency }
+          )
         );
       const replacementReservationId =
         input.occupancyExclusion?.dotyposReservationId;
@@ -399,14 +411,18 @@ const implementation = Effect.gen(function* () {
         Match.discriminatorsExhaustive("kind")({
           "meeting-room": ({ startsAt, endsAt }) =>
             normalizeMeetingRoomAvailabilityInterval({ startsAt, endsAt }),
-          cowork: ({ date, entryTier }) =>
-            normalizeCoworkAvailabilityInterval(date, entryTier),
+          cowork: ({ date, entryTier, stay }) =>
+            normalizeCoworkAvailabilityInterval(date, entryTier, stay),
           office: ({ startsAt, endsAt }) =>
             normalizeMeetingRoomAvailabilityInterval({ startsAt, endsAt }),
         })
       );
+      // A cowork query's dates are arrival dates, so an overnight stay checks
+      // its arrival date alone; its inventory still covers the next date.
       const availabilityRange =
-        getAvailabilityTouchedDateRange(reservationInterval);
+        query.kind === coworkReservationKind
+          ? { from: query.date, to: query.date }
+          : getAvailabilityTouchedDateRange(reservationInterval);
       const availability = yield* computeAvailability(providerInventory, {
         query: {
           ...query,
@@ -634,6 +650,7 @@ const getAvailabilityEnsureQuery = (reservation: AvailabilityReservation) =>
           date: cowork.date,
           entryTier: cowork.entryTier,
           monitorOption: cowork.monitorOption,
+          ...(cowork.stay && { stay: cowork.stay }),
         }),
       "meeting-room": (meetingRoom) =>
         Effect.succeed<WorkspaceAvailabilityEnsureQuery>({
@@ -848,12 +865,18 @@ const getMeetingRoomInventoryDates = (
 
 /**
  * Dates the inventory snapshot covers for a query: its own dates, extended for
- * a meeting room through every date a booking from its start date can occupy.
+ * a meeting room through every date a booking from its start date can occupy,
+ * and for an overnight cowork stay through the date after its last arrival.
  */
 const getInventoryDates = (
   query: WorkspaceAvailabilityQuery,
   dates: readonly Temporal.PlainDate[]
 ): readonly Temporal.PlainDate[] => {
+  if (query.kind === coworkReservationKind) {
+    return isOvernightCoworkStay(query.entryTier, query.stay)
+      ? [...dates, dates.at(-1)!.add({ days: 1 })]
+      : dates;
+  }
   if (query.kind !== meetingRoomReservationKind) return dates;
 
   const meetingRoomDates = getMeetingRoomInventoryDates(dates[0]!);
@@ -895,9 +918,9 @@ const getAvailabilityReservation = (
         startsAt && endsAt
           ? normalizeMeetingRoomAvailabilityInterval({ startsAt, endsAt })
           : Effect.void.pipe(Effect.as(undefined)),
-      cowork: ({ date, entryTier }) =>
+      cowork: ({ date, entryTier, stay }) =>
         date
-          ? normalizeCoworkAvailabilityInterval(date, entryTier)
+          ? normalizeCoworkAvailabilityInterval(date, entryTier, stay)
           : Effect.void.pipe(Effect.as(undefined)),
       office: ({ startsAt, endsAt }) =>
         startsAt && endsAt
@@ -915,10 +938,11 @@ const normalizeMeetingRoomAvailabilityInterval = (
 
 const normalizeCoworkAvailabilityInterval = (
   date: string,
-  entryTier?: WorkspaceCoworkProductTier
+  entryTier?: WorkspaceCoworkProductTier,
+  stay?: CoworkStay
 ) =>
   normalizeReservationInterval(
-    getCoworkReservationIntervalInput(entryTier, date)
+    getCoworkReservationIntervalInput(entryTier, date, stay)
   ).pipe(
     Effect.mapError((error) =>
       toAvailabilityIntervalError(error, ` for date: ${date}`)

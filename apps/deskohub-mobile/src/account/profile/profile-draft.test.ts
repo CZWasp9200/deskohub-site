@@ -38,7 +38,7 @@ const personalProfile: CustomerProfile = {
 };
 
 const validDraft = (draft: Partial<ProfileDraft> = {}): ProfileDraft => ({
-  ...profileDraftOf(sampleProfile, phoneRegion),
+  ...profileDraftOf(sampleProfile, phoneRegion, "CZ"),
   ...draft,
 });
 
@@ -50,7 +50,7 @@ const invalidFields = (draft: ProfileDraft) =>
 
 describe("profileDraftOf", () => {
   test("keeps every stored business field", () => {
-    expect(profileDraftOf(sampleProfile, phoneRegion)).toEqual({
+    expect(profileDraftOf(sampleProfile, phoneRegion, "CZ")).toEqual({
       firstName: "Alex",
       lastName: "Sample",
       phone: "+420 600 000 000",
@@ -67,7 +67,7 @@ describe("profileDraftOf", () => {
   });
 
   test("reads personal billing and empty stored values", () => {
-    expect(profileDraftOf(personalProfile, phoneRegion)).toMatchObject({
+    expect(profileDraftOf(personalProfile, phoneRegion, "CZ")).toMatchObject({
       firstName: "Jordan",
       lastName: "",
       phone: "",
@@ -79,16 +79,27 @@ describe("profileDraftOf", () => {
 
   test("reads a profile without billing as no billing details", () => {
     expect(
-      profileDraftOf({ ...personalProfile, billing: null }, phoneRegion)
+      profileDraftOf({ ...personalProfile, billing: null }, phoneRegion, "CZ")
         .billingKind
     ).toBe("none");
+  });
+
+  test("starts a new billing address in the device's country, keeping a saved one", () => {
+    const withoutBilling = { ...personalProfile, billing: null };
+    const draft = profileDraftOf(withoutBilling, phoneRegion, "AT");
+    expect(draft.country).toBe("AT");
+    // With no billing details chosen, a save sends no address at all.
+    const sent = Result.getOrThrow(validateProfileDraft(draft, phoneRegion));
+    expect(sent.billing).toBeUndefined();
+    expect(profileDraftOf(sampleProfile, phoneRegion, "AT").country).toBe("CZ");
   });
 
   test("shows a stored phone number in international format", () => {
     const stored = Option.getOrThrow(parsePhoneNumber("600 000 001", "CZ"));
     const draft = profileDraftOf(
       { ...sampleProfile, phone: stored },
-      phoneRegion
+      phoneRegion,
+      "CZ"
     );
     expect(draft.phone).toBe(formatPhoneNumber(stored));
     expect(draft.phone).not.toBe(stored);
@@ -99,7 +110,8 @@ describe("profileDraftOf", () => {
     "shows stored text that isn't just a phone number as stored: %p",
     (stored) => {
       expect(
-        profileDraftOf({ ...sampleProfile, phone: stored }, phoneRegion).phone
+        profileDraftOf({ ...sampleProfile, phone: stored }, phoneRegion, "CZ")
+          .phone
       ).toBe(stored);
     }
   );
@@ -108,7 +120,8 @@ describe("profileDraftOf", () => {
     const stored = Option.getOrThrow(parsePhoneNumber("600 000 001", "CZ"));
     const saved = profileDraftOf(
       { ...sampleProfile, phone: stored },
-      phoneRegion
+      phoneRegion,
+      "CZ"
     );
     expect(
       sameDraft({ ...saved, phone: "600000001" }, saved, phoneRegion)
@@ -248,7 +261,7 @@ describe("validateProfileDraft", () => {
 describe("validateCompletionDraft", () => {
   test("sends the referral code and the invitation it came from", () => {
     const draft = {
-      ...completionDraftOf("FRIEND-1"),
+      ...completionDraftOf("FRIEND-1", "CZ"),
       firstName: "Jordan",
     };
     expect(
@@ -261,7 +274,10 @@ describe("validateCompletionDraft", () => {
   });
 
   test("an emptied referral code is left out", () => {
-    const draft = { ...completionDraftOf(undefined), firstName: "Jordan" };
+    const draft = {
+      ...completionDraftOf(undefined, "CZ"),
+      firstName: "Jordan",
+    };
     const input = Result.getOrThrow(
       validateCompletionDraft(draft, undefined, phoneRegion)
     );
@@ -271,7 +287,7 @@ describe("validateCompletionDraft", () => {
 
   test("orders the referral code after identity and before billing", () => {
     const draft = {
-      ...completionDraftOf(undefined),
+      ...completionDraftOf(undefined, "CZ"),
       firstName: "Jordan",
       referralCode: "x".repeat(65),
       billingKind: "personal" as const,
@@ -313,7 +329,8 @@ describe("an account with a saved language", () => {
   test("counts its stored number as unchanged as typed in that region", () => {
     const saved = profileDraftOf(
       { ...sampleProfile, phone: "+4915123456789" },
-      german
+      german,
+      "CZ"
     );
     expect(sameDraft({ ...saved, phone: nationalNumber }, saved, german)).toBe(
       true
@@ -363,5 +380,11 @@ describe("drafts", () => {
 
   test("the empty draft has no billing details", () => {
     expect(emptyProfileDraft.billingKind).toBe("none");
+  });
+});
+
+describe("completionDraftOf", () => {
+  test("starts billing details in the device's country, as the checkout does", () => {
+    expect(completionDraftOf(undefined, "AT").country).toBe("AT");
   });
 });

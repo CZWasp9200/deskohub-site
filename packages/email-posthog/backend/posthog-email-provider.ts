@@ -22,11 +22,7 @@ import {
   Ref,
   Schema,
 } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import {
   type PostHogEmailConnection,
   postHogAppHost,

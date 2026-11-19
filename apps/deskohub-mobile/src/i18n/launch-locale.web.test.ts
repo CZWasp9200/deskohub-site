@@ -10,6 +10,7 @@ import { saveNativeHandoffRequest } from "../auth/web-native-request-store";
 // language differs from the app's.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-GB" }],
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const { readLaunchLocale } = await import("./launch-locale.web");

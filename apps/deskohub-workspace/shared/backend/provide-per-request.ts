@@ -6,11 +6,12 @@ import { type Context, Effect, Layer } from "effect";
  * builds, including those provided again inside `self`, stays out of
  * requests that overlap it.
  *
- * Use it where an HTTP API endpoint provides its request's Layers. A plain
- * `Effect.provide` there builds in the handler's memo map, where requests
- * that overlap share an instance still in use, along with whatever state it
- * keeps for its request, such as a cache or a release decision. Workspace
- * runs need no such step: each run already builds in its own fork.
+ * Use it where an HTTP API endpoint provides its request's Layers, so the
+ * request keeps its own instances, along with whatever state they keep for
+ * it, such as a cache or a release decision. Since Effect 4.1 a plain
+ * `Effect.provide` also builds in a fork of the enclosing memo map, so the
+ * two build the same way; this names the requirement where it matters.
+ * Workspace runs need no such step: each run already builds in its own fork.
  */
 export const providePerRequest =
   <ROut, E2, RIn>(layer: Layer.Layer<ROut, E2, RIn>) =>
@@ -21,7 +22,7 @@ export const providePerRequest =
       Effect.contextWith((context: Context.Context<never>) =>
         Layer.buildWithMemoMap(
           layer,
-          Layer.forkMemoMapUnsafe(Layer.CurrentMemoMap.getOrCreate(context)),
+          Layer.CurrentMemoMap.forkOrCreate(context),
           scope
         )
       ).pipe(

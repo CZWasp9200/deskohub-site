@@ -6,7 +6,7 @@ import {
   AdminCliCampaignsApi,
   AdministrationAuthentication,
   AdministrationLegacyUsername,
-  type CampaignOperationError,
+  type AdministrationOperationError,
   type CampaignOperationName,
   type CampaignOperations as CampaignOperationRegistry,
   CliMutationRequestId,
@@ -23,8 +23,8 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { cliSessions } from "@/db/schema";
 import type { AdministratorAccountActor } from "@/features/administrators/account-role";
@@ -75,7 +75,7 @@ type Outcome =
   | { readonly _tag: "Success"; readonly output: unknown }
   | {
       readonly _tag: "Failure";
-      readonly category: CampaignOperationError["_tag"];
+      readonly category: AdministrationOperationError["_tag"];
       readonly code: string;
     };
 
@@ -117,7 +117,7 @@ const unfinishedBody = "Více na [webu]().\n\n[[button: ]()]";
 
 const success = { _tag: "Success" } as const;
 const failure = (
-  category: CampaignOperationError["_tag"],
+  category: AdministrationOperationError["_tag"],
   code: string
 ): Outcome => ({ _tag: "Failure", category, code });
 const requestId = () => CliMutationRequestId.make(crypto.randomUUID());
@@ -921,7 +921,7 @@ describe.skipIf(!testDatabase)("campaign operation adapters", () => {
       : run();
 
   const outcomeOf = (
-    result: Effect.Effect<unknown, CampaignOperationError>
+    result: Effect.Effect<unknown, AdministrationOperationError>
   ): Effect.Effect<Outcome> =>
     result.pipe(
       Effect.match({

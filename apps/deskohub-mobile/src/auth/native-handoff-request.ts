@@ -1,7 +1,18 @@
 import { CustomerAnalyticsChoice } from "@deskohub/workspace-customer-api";
 import { Option, Schema } from "effect";
+import type { StoredConsent } from "../consent/analytics-consent";
 import { type AppLocale, appLocales, isAppLocale } from "../i18n/app-locale";
 import { nativeReturnUri, webCallbackPath } from "./auth-callback";
+import { isEmailAddress } from "./email-address";
+
+/** Why the app asks the customer to sign in again. */
+export const reauthenticationPurposes = ["delete-account"] as const;
+export type ReauthenticationPurpose = (typeof reauthenticationPurposes)[number];
+
+const isReauthenticationPurpose = (
+  value: string | undefined
+): value is ReauthenticationPurpose =>
+  reauthenticationPurposes.some((purpose) => purpose === value);
 
 /**
  * What the native app asks the web sign-in page for: after the customer
@@ -25,6 +36,14 @@ export interface NativeHandoffRequest {
    */
   readonly locale?: AppLocale;
   /**
+   * The account a reauthentication signs in as. The page shows it locked, so
+   * nobody confirms as someone else; the app still refuses another account's
+   * session when it comes back.
+   */
+  readonly loginHint?: string;
+  /** What a reauthentication is for, so the page can say so. */
+  readonly purpose?: ReauthenticationPurpose;
+  /**
    * The app's own analytics answer, which the page takes over the site's
    * consent before its analytics can run. None when the app holds no
    * answer, or was built before it sent one; never read as consent.
@@ -46,6 +65,23 @@ const analyticsAnswerSchema = Schema.Struct({
 });
 const isAnalyticsAnswer = Schema.is(analyticsAnswerSchema);
 
+/**
+ * The answer the app carries to the page from its stored consent: whether
+ * the stored categories include analytics, dated exactly as stored. None
+ * while the answer loads, when there is none, or when its date isn't one the
+ * page accepts, so the page never reads a partial answer as consent.
+ */
+export const handoffAnalyticsAnswer = (
+  stored: StoredConsent | undefined
+): NativeHandoffAnalyticsAnswer | undefined => {
+  if (stored?.kind !== "decided") return undefined;
+  const answer = {
+    granted: stored.categories.includes("analytics"),
+    decidedAt: stored.decidedAt,
+  };
+  return isAnalyticsAnswer(answer) ? answer : undefined;
+};
+
 /** The web page that runs the email sign-in for the native app. */
 export const webSignInPath = "/app/sign-in";
 
@@ -60,6 +96,8 @@ const params = {
   returnUri: "return_uri",
   prompt: "prompt",
   locale: "locale",
+  loginHint: "login_hint",
+  purpose: "purpose",
   analytics: "analytics",
   analyticsDecidedAt: "analytics_decided_at",
 } as const;
@@ -84,6 +122,11 @@ export const nativeSignInUrl = (
   });
   if (request.reauthenticate) search.set(params.prompt, "login");
   if (request.locale !== undefined) search.set(params.locale, request.locale);
+  if (request.loginHint !== undefined) {
+    search.set(params.loginHint, request.loginHint);
+  }
+  if (request.purpose !== undefined)
+    search.set(params.purpose, request.purpose);
   if (request.analytics !== undefined) {
     search.set(
       params.analytics,
@@ -135,6 +178,10 @@ export const readNativeHandoffRequest = (
   // The language only picks the page's copy, so a value the page doesn't
   // support leaves the browser's instead of refusing the sign-in.
   const locale = only(search, params.locale);
+  // The hint and the purpose only shape what the page shows, so a value it
+  // can't use leaves them out instead of refusing the sign-in.
+  const loginHint = only(search, params.loginHint);
+  const purpose = only(search, params.purpose);
   // Neither does the analytics answer: without one the page keeps analytics
   // off, which the sign-in doesn't need.
   const analytics = readAnalyticsAnswer(search);
@@ -156,6 +203,10 @@ export const readNativeHandoffRequest = (
     returnUri,
     reauthenticate: prompt[0] === "login",
     ...(isAppLocale(locale) ? { locale } : {}),
+    ...(loginHint !== undefined && isEmailAddress(loginHint)
+      ? { loginHint }
+      : {}),
+    ...(isReauthenticationPurpose(purpose) ? { purpose } : {}),
     ...(analytics === undefined ? {} : { analytics }),
   });
 };
@@ -187,6 +238,10 @@ const storedRequestSchema = Schema.fromJsonString(
       returnUri: Schema.String,
       reauthenticate: Schema.Boolean,
       locale: Schema.optionalKey(Schema.Literals(appLocales)),
+      loginHint: Schema.optionalKey(
+        Schema.String.check(Schema.makeFilter(isEmailAddress))
+      ),
+      purpose: Schema.optionalKey(Schema.Literals(reauthenticationPurposes)),
       // Checked on its own below, so a bad answer drops only itself.
       analytics: Schema.optionalKey(Schema.Unknown),
     }),

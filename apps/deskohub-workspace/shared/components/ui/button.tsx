@@ -7,7 +7,8 @@ import { cn } from "@/shared/utils";
  * Colours each variant accepts. A primary tone sets the fill, its hover and
  * the glow together; secondary, ghost and link tones set text, edge and hover.
  * `inverse` is for dark backgrounds, `danger` for destructive actions. The
- * ghost `outline` tone adds a hairline edge and `tinted` a light fill.
+ * ghost `outline` tone adds a hairline edge and `tinted` a light fill;
+ * `tinted-success` is that fill confirming a finished action, such as a copy.
  * `tile` is a dashed, card-sized add action, such as "Add payment card".
  */
 interface ButtonTones {
@@ -16,7 +17,9 @@ interface ButtonTones {
     | "burned-orange-ink"
     | "navy-blue"
     | "chilean-fire"
-    | "danger";
+    | "danger"
+    /** An affirmative choice beside a destructive one, such as "Don't withdraw". */
+    | "positive";
   secondary: "navy-blue" | "burned-orange" | "burned-orange-ink" | "inverse";
   ghost:
     | "navy-blue"
@@ -24,6 +27,7 @@ interface ButtonTones {
     | "inverse"
     | "outline"
     | "tinted"
+    | "tinted-success"
     | "success"
     | "warning"
     | "danger";
@@ -72,7 +76,9 @@ const buttonClasses = cva(
         muted: "",
         "navy-blue": "",
         outline: "",
+        positive: "",
         success: "",
+        "tinted-success": "",
         tinted: "",
         warning: "",
       },
@@ -138,6 +144,12 @@ const buttonClasses = cva(
           "bg-red-800 text-white [--button-tint:var(--color-red-800)] hover:bg-red-900",
       },
       {
+        variant: "primary",
+        tone: "positive",
+        class:
+          "bg-aquamarine-ink text-white [--button-tint:var(--color-aquamarine-ink)] hover:bg-aquamarine-ink/90",
+      },
+      {
         variant: "secondary",
         tone: "navy-blue",
         class: "border-navy-blue/20 text-navy-blue hover:border-navy-blue/50",
@@ -184,6 +196,11 @@ const buttonClasses = cva(
         variant: "ghost",
         tone: "tinted",
         class: "bg-navy-blue/5 text-navy-blue hover:bg-burned-orange/10",
+      },
+      {
+        variant: "ghost",
+        tone: "tinted-success",
+        class: "bg-aquamarine-green/20 text-aquamarine-ink",
       },
       {
         variant: "ghost",

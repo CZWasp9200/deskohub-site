@@ -1,7 +1,14 @@
 import type { PaymentAttemptState } from "@/db/schema";
 import type { Locale } from "@/features/i18n";
+import { type Money, moneyWithValue } from "@/shared/money/money";
 import type { AdministrationPaymentAttempt } from "./administration.service";
 import { m } from "./i18n";
+
+export const getRefundAmountDue = (
+  target: Money,
+  refundedValue: number | null
+): Money =>
+  moneyWithValue(Math.max(0, target.value - (refundedValue ?? 0)), target);
 
 /** A raw Nexi code in English words, as the administration API shows it. */
 export const formatProviderCode = (value: string) =>

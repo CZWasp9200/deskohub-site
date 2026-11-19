@@ -31,17 +31,25 @@ export class SelectionIncomplete extends Data.TaggedClass(
   "SelectionIncomplete"
 )<{ readonly missing: ReadonlyArray<keyof CustomerBookingSelection> }> {}
 
-// Every selection field, in the one order the key lists them.
-const selectionKeyFields = [
-  "date",
-  "endDate",
-  "startTime",
-  "duration",
-  "tier",
-  "monitorOption",
-  "seats",
-  "coffee",
-] as const satisfies ReadonlyArray<keyof CustomerBookingSelection>;
+// Every selection field but the family, in the one order the key lists
+// them; typecheck names a field the contract adds.
+const selectionKeyFieldOrder: Record<
+  Exclude<keyof CustomerBookingSelection, "family">,
+  true
+> = {
+  date: true,
+  endDate: true,
+  startTime: true,
+  duration: true,
+  tier: true,
+  stay: true,
+  monitorOption: true,
+  seats: true,
+  coffee: true,
+};
+const selectionKeyFields = Object.keys(selectionKeyFieldOrder) as ReadonlyArray<
+  keyof typeof selectionKeyFieldOrder
+>;
 
 /**
  * A stable string for one selection, the same for equal selections however

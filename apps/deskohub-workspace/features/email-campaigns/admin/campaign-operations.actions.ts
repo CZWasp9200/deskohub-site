@@ -1,7 +1,7 @@
 "use server";
 
 import {
-  type CampaignOperationError,
+  type AdministrationOperationError,
   type CampaignOperationName,
   type CampaignOperations as CampaignOperationRegistry,
   campaignOperations,
@@ -58,7 +58,7 @@ export type CampaignOperationResult<
     }
   | {
       readonly _tag: "Failure";
-      readonly category: CampaignOperationError["_tag"];
+      readonly category: AdministrationOperationError["_tag"];
       readonly code: string;
       readonly message: string;
     };
@@ -85,7 +85,9 @@ type CampaignOperationActionResult<Name extends CampaignOperationName> =
     CampaignOperationResult<Name>
   >;
 
-const toFailure = (error: CampaignOperationError): CampaignOperationResult => ({
+const toFailure = (
+  error: AdministrationOperationError
+): CampaignOperationResult => ({
   _tag: "Failure",
   category: error._tag,
   code: error.code,

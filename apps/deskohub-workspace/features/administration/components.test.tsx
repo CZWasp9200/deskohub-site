@@ -37,6 +37,7 @@ import {
   ReservationTimeline,
 } from "./components";
 import { loadFixtureReservation, loadFixtureReservations } from "./fixtures";
+import { m } from "./i18n";
 import { ReservationOrderList } from "./payment-components";
 import { OperationTable, OrderTable } from "./payment-tables";
 import { ReservationAccessAdministration } from "./reservation-access-administration";
@@ -50,6 +51,7 @@ const readableText = (element: Element | null | undefined) =>
   element?.textContent?.replace(/\s+/g, " ");
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   getAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
 }));
@@ -96,6 +98,47 @@ describe("administration reservation components", () => {
       kind: "retry-failed",
       reservationId: detail.reservation.id,
     });
+  });
+
+  test("offers retrying access only while no credential exists", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    if (!detail?.accessGrant) throw new Error("Missing access grant fixture");
+    const { accessGrant } = detail;
+    const execute = mock();
+    workspaceUseAction.mockReturnValue({
+      execute,
+      isExecuting: false,
+    } as never);
+    const retriesFrom = (state: typeof accessGrant.state) => {
+      execute.mockClear();
+      const view = render(
+        <ReservationAccessAdministration
+          grant={{ ...accessGrant, state }}
+          reservationId={detail.reservation.id}
+        />
+      );
+      const retry = view.queryByRole("button", {
+        name: m.administrationReservationAccessRetry({}, { locale: "en-US" }),
+      });
+      if (retry) fireEvent.click(retry);
+      cleanup();
+      return retry !== null;
+    };
+
+    for (const state of ["pending", "failed"] as const) {
+      expect(retriesFrom(state)).toBe(true);
+      expect(execute.mock.calls).toEqual([
+        [{ kind: "retry-failed", reservationId: detail.reservation.id }],
+      ]);
+    }
+    for (const state of [
+      "provisioning",
+      "issued",
+      "expired",
+      "uncertain",
+    ] as const) {
+      expect(retriesFrom(state)).toBe(false);
+    }
   });
 
   test("requires explicit manual provider reconciliation for uncertain access", async () => {
@@ -771,6 +814,50 @@ describe("administration reservation components", () => {
       />
     );
     expect(activity.getByText(/Nexi reports payment activity/i)).toBeDefined();
+  });
+
+  test("shows the amount still owed after a partial withdrawal refund", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    const attempt = detail?.paymentAttempts[0];
+    if (!detail || !attempt) throw new Error("Expected a fixture payment");
+
+    const refundTarget = { ...attempt.amount, value: 2_000 };
+    const refundAmountDue = { ...attempt.amount, value: 1_000 };
+    const payment = {
+      ...attempt,
+      refundState: "required" as const,
+      refundTarget,
+      refundedAmount: refundAmountDue,
+      refundedAt: "2026-10-12T09:00:00Z",
+    };
+    const expected = ` · ${formatMoney(refundAmountDue, "en-US")}`.replaceAll(
+      "\u00a0",
+      " "
+    );
+
+    const payments = render(
+      <PaymentAttemptList attempts={[payment]} locale="en-US" />
+    );
+    expect(readableText(payments.container)).toContain(expected);
+    payments.unmount();
+
+    const reservations = render(
+      <ReservationTable
+        reservations={[
+          {
+            ...detail.reservation,
+            latestPayment: payment,
+            statusNoteCode: "needs_refund",
+            withdrawal: {
+              refundAmount: refundTarget,
+              refundAmountDue,
+              settlement: "settled",
+            },
+          },
+        ]}
+      />
+    );
+    expect(readableText(reservations.container)).toContain(expected);
   });
 
   test("words payment attempts and Nexi orders in Czech", () => {

@@ -1,7 +1,6 @@
 import {
   AdministrationAuthentication,
-  type AdministrationChannel,
-  AdministrationDiscountMutationResult,
+  AdministrationInvoiceId,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
@@ -13,6 +12,7 @@ import {
   type CliMutationRequestIdType,
   CliMutationUncertain,
   CliResourceNotFound,
+  CliServiceUnavailable,
   CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
@@ -20,16 +20,19 @@ import {
   CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Match, Redacted, Schema } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { DateTime, Effect, Layer, Match, Redacted, Schema } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   StandaloneAccessCodeAdministration,
   type StandaloneAccessCodeCreationError,
 } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
+import type { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import type { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import {
   getAdministrationOperationFilters,
@@ -45,10 +48,14 @@ import {
   ReservationAdministrationService,
 } from "@/features/administration/reservation-administration.service";
 import {
+  ReservationWithdrawalNotFoundError,
+  retryReservationWithdrawal,
+} from "@/features/administration/reservation-withdrawal";
+import {
   AdministratorRoster,
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
-import { refreshCalendarDiscountSourceAfterMutation } from "@/features/discounts/admin/calendar-discount-source-maintenance.server";
+import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import {
   type AdminCustomerProfile,
   type AdminDiscountCode,
@@ -61,7 +68,10 @@ import {
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
 import { toAdminDotyposCustomer } from "@/features/discounts/admin/discount-administration-reads";
-import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
+import {
+  DiscountRequestLedger,
+  makeDiscountOperations,
+} from "@/features/discounts/admin/discount-operations.service";
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
@@ -69,6 +79,7 @@ import {
   getReservationAccessName,
   type ReservationAccessGrant,
 } from "@/features/reservation-access";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { AdministrationActionLog } from "./administration-action-log.service";
 import { AdministrationActionRecordLive } from "./administration-action-record.server";
@@ -78,7 +89,6 @@ import {
   mapServiceFailure,
 } from "./administration-api-failure";
 import {
-  discountMutationRecovery,
   reservationAccessRecovery,
   standaloneAccessCodeRecovery,
   standaloneAccessCodeStoredResult,
@@ -88,12 +98,14 @@ import {
   StoredResult,
 } from "./administration-request-ledger.service";
 import { AdminCliAdministratorsApiHandlers } from "./administrators-api.server";
+import { invokeAsCliCaller } from "./cli-administration-operations.server";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import {
   CliClientCompatibilityLive,
   minimumDhwVersions,
 } from "./cli-client-version";
+import { cliDiscountRequestLedger } from "./cli-discount-request-ledger";
 import { AdminCliAutomationsApiHandlers } from "./email-automations-api.server";
 import { AdminCliCampaignsApiHandlers } from "./email-campaigns-api.server";
 
@@ -149,9 +161,11 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const administration = yield* AdministrationService;
     const reservationAdministration = yield* ReservationAdministrationService;
+    const withdrawals = yield* WithdrawalService;
     const reservationAccess = yield* ReservationAccessAdministration;
     const authentication = yield* CliAuthentication;
     const discounts = yield* DiscountAdministration;
+    const discountOperations = yield* makeDiscountOperations;
     const customerDirectory = yield* AdministrationCustomerDirectory;
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
@@ -188,21 +202,79 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           mapServiceFailure,
           Effect.flatMap((detail) =>
             detail
-              ? Effect.succeed(detail)
+              ? Effect.succeed({
+                  ...detail,
+                  invoice: detail.invoice && {
+                    ...detail.invoice,
+                    id: AdministrationInvoiceId.make(detail.invoice.id),
+                  },
+                })
               : new CliResourceNotFound({
                   message: "The reservation was not found.",
                 })
           )
         )
       )
-      .handle("cancelReservation", ({ params, payload }) =>
+      .handle(
+        "cancelReservation",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* reservationAdministration
+            .cancel({
+              actor: {
+                source,
+                administrator: actor,
+              },
+              ...(payload.confirmedConsequences && {
+                confirmedConsequences: payload.confirmedConsequences,
+              }),
+              force: payload.force ?? false,
+              reservationId: params.reservationId,
+              sendCancellationEmail: payload.sendCancellationEmail,
+            })
+            .pipe(
+              Effect.map(({ invoice, ...result }) => ({
+                ...result,
+                invoice: invoice && {
+                  ...invoice,
+                  invoiceId: AdministrationInvoiceId.make(invoice.invoiceId),
+                },
+              })),
+              mapAdministrationApiFailure(mapReservationCancellationFailure)
+            );
+        })
+      )
+      .handle("restoreReservation", ({ params, payload }) =>
         reservationAdministration
-          .cancel({
-            force: payload.force ?? false,
+          .restore({
+            acknowledgeRefundedPayment: payload.acknowledgeRefundedPayment,
             reservationId: params.reservationId,
-            sendCancellationEmail: payload.sendCancellationEmail,
+            sendRestorationEmail: payload.sendRestorationEmail,
           })
-          .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
+          .pipe(
+            Effect.map(({ invoice, ...result }) => ({
+              ...result,
+              invoice: invoice && {
+                ...invoice,
+                invoiceId:
+                  invoice.invoiceId &&
+                  AdministrationInvoiceId.make(invoice.invoiceId),
+              },
+            })),
+            mapAdministrationApiFailure(mapReservationRestorationFailure)
+          )
+      )
+      .handle("retryReservationWithdrawal", ({ params }) =>
+        retryReservationWithdrawal(params.reservationId).pipe(
+          Effect.provideService(WithdrawalService, withdrawals),
+          mapAdministrationApiFailure((cause) =>
+            cause instanceof ReservationWithdrawalNotFoundError
+              ? new CliResourceNotFound({
+                  message: "The reservation has no customer withdrawal.",
+                })
+              : makeServiceUnavailable()
+          )
+        )
       )
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
@@ -304,10 +376,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         administration.listCustomers(query).pipe(mapServiceFailure)
       )
       .handle("searchCustomers", ({ query }) =>
-        customerDirectory.search(query.query).pipe(
-          Effect.map(({ kind, customers }) => ({
+        Effect.all({
+          search: customerDirectory.search(query.query),
+          now: DateTime.nowAsDate,
+        }).pipe(
+          Effect.map(({ search: { kind, customers }, now }) => ({
             kind,
-            customers: customers.map(toAdminDotyposCustomer),
+            customers: customers.map((customer) =>
+              toAdminDotyposCustomer(customer, now)
+            ),
           })),
           mapServiceFailure
         )
@@ -391,14 +468,22 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       )
       .handle("getInvoice", ({ params }) =>
         invoices
-          .get(params.invoiceId)
+          .get(params.invoiceId, { includeArchived: true })
           .pipe(mapAdministrationApiFailure(mapInvoiceReadFailure))
       )
       .handle("getInvoicePdf", ({ params }) =>
-        invoices.getPdf(params.invoiceId).pipe(
+        invoices.getPdf(params.invoiceId, { includeArchived: true }).pipe(
           Effect.map(({ bytes }) => bytes),
           mapAdministrationApiFailure(mapInvoiceReadFailure)
         )
+      )
+      .handle("getInvoiceCorrectiveDocumentPdf", ({ params }) =>
+        invoices
+          .getCorrectiveDocumentPdf(params.invoiceId, { includeArchived: true })
+          .pipe(
+            Effect.map(({ bytes }) => bytes),
+            mapAdministrationApiFailure(mapCorrectiveDocumentReadFailure)
+          )
       )
       .handle("getInvoiceCreationDefaults", () =>
         invoices.getCreationDefaults().pipe(mapServiceFailure)
@@ -406,28 +491,25 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "previewInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .preview(payload, { source: "dhw-cli", administrator: actor })
+            .preview(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoicePreviewFailure));
         })
       )
       .handle(
         "createInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .create(payload, {
-              source: provenanceSourceOf(channel),
-              administrator: actor,
-            })
+            .create(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoiceMutationFailure));
         })
       )
       .handle(
         "createStandaloneAccessCode",
         Effect.fn(function* ({ payload }) {
-          const caller = yield* CurrentAdministrationCaller;
+          const provenance = yield* currentAdministrationProvenance;
           const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
             payload.attemptId
           );
@@ -445,8 +527,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             apply: standaloneAccessCodes
               .create({
                 attemptId: payload.attemptId,
-                actor: caller.actor,
-                source: provenanceSourceOf(caller.channel),
+                ...provenance,
                 request: payload.input,
                 providerCredentialRemovedAttemptId:
                   payload.providerCredentialRemovedAttemptId,
@@ -473,6 +554,38 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         )
       )
       .handle(
+        "cancelInvoice",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* invoices
+            .cancel({
+              invoiceId: params.invoiceId,
+              actor: {
+                source,
+                administrator: actor,
+              },
+              confirmedCustomerNotice: payload.confirmedCustomerNotice,
+              ...(payload.reservation && { reservation: payload.reservation }),
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceCancellationFailure));
+        })
+      )
+      .handle(
+        "archiveInvoice",
+        Effect.fn(function* ({ params }) {
+          const { actor, source } = yield* currentAdministrationProvenance;
+          return yield* invoices
+            .archive({
+              invoiceId: params.invoiceId,
+              actor: {
+                source,
+                administrator: actor,
+              },
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceArchiveFailure));
+        })
+      )
+      .handle(
         "listSessions",
         Effect.fn(function* () {
           const { actor } = yield* CurrentAdministrationCaller;
@@ -482,19 +595,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         })
       )
       .handle("mutateDiscounts", ({ payload }) =>
-        ledger.applyOnceWithEffects({
-          requestId: payload.requestId,
-          mutation: payload.mutation,
-          stored: StoredResult.unchanged(AdministrationDiscountMutationResult),
-          apply: executeDiscountAdminMutation(payload.mutation).pipe(
-            Effect.provideService(DiscountAdministration, discounts),
-            mapAdministrationApiFailure(mapDiscountMutationFailure)
-          ),
-          afterSettled: refreshCalendarDiscountSourceAfterMutation(
-            payload.mutation
-          ),
-          recovery: discountMutationRecovery,
-        })
+        invokeAsCliCaller(
+          discountOperations.invoke("mutateDiscounts", payload.mutation),
+          DiscountRequestLedger,
+          (caller) =>
+            cliDiscountRequestLedger(ledger, caller, payload.requestId)
+        ).pipe(
+          // The endpoint decoded the payload with the port's strict schema.
+          Effect.catchTag("CliInputInvalid", (invalid) => Effect.die(invalid))
+        )
       )
       .handle(
         "renameSession",
@@ -596,26 +705,6 @@ export const CliSessionAdministrationAuthenticationLive = Layer.effect(
   })
 );
 
-const mapDiscountMutationFailure = (
-  cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
-) =>
-  Match.value(cause).pipe(
-    Match.tag(
-      "DiscountAdminNotFoundError",
-      ({ message }) => new CliResourceNotFound({ message })
-    ),
-    Match.tag(
-      "DiscountAdminAudienceError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.tag(
-      "DiscountAdminConflictError",
-      "DiscountAdminServiceDatesError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.orElse(makeServiceUnavailable)
-  );
-
 type InvoiceAdministration = typeof InvoiceAdministrationService.Service;
 
 const mapInvoiceReadFailure = (
@@ -625,6 +714,81 @@ const mapInvoiceReadFailure = (
     Match.tag(
       "InvoiceAdministrationNotFoundError",
       () => new CliResourceNotFound({ message: "The invoice was not found." })
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const invoiceNotFound = () =>
+  new CliResourceNotFound({ message: "The invoice was not found." });
+
+/**
+ * The invoice's documents can't be read, so nothing was changed; the code
+ * tells it apart from an unavailable API.
+ */
+const invoiceDocumentUnavailable = () =>
+  new CliServiceUnavailable({
+    code: "document_unavailable",
+    message:
+      "The invoice's documents can't be read right now. Nothing was changed; try again later.",
+  });
+
+const mapInvoiceCancellationError = ({
+  code,
+  message,
+}: InvoiceCancellationError) => {
+  switch (code) {
+    case "not_found":
+      return invoiceNotFound();
+    case "reservation_confirmation_required":
+    case "confirmation_stale":
+    case "reservation_cancellation_in_progress":
+      return new CliMutationRejected({ code, message });
+    case "document_unavailable":
+      return invoiceDocumentUnavailable();
+    case "persistence_failed":
+      return makeServiceUnavailable();
+  }
+};
+
+const mapInvoiceCancellationFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["cancel"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", mapInvoiceCancellationError),
+    Match.tag(
+      "ReservationAdministrationError",
+      mapReservationCancellationFailure
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapInvoiceArchiveFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["archive"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag(
+      "InvoiceArchiveError",
+      ({ code, message }: InvoiceArchiveError) =>
+        code === "not_cancelled"
+          ? new CliMutationRejected({ code, message })
+          : invoiceNotFound()
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapCorrectiveDocumentReadFailure = (
+  cause: Effect.Error<
+    ReturnType<InvoiceAdministration["getCorrectiveDocumentPdf"]>
+  >
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", ({ code }) =>
+      code === "document_unavailable"
+        ? invoiceDocumentUnavailable()
+        : makeServiceUnavailable()
     ),
     Match.orElse(makeServiceUnavailable)
   );
@@ -718,6 +882,22 @@ const mapReservationCancellationFailure = (
     return new CliResourceNotFound({ message: cause.message });
   }
   if (cause.code === "not_cancellable") {
+    return new CliMutationRejected({
+      message: cause.message,
+      ...(cause.reason === "confirmation_stale" && { code: cause.reason }),
+    });
+  }
+  return makeServiceUnavailable();
+};
+
+/** A refusal over a refund keeps its message, which names the refunded amount. */
+const mapReservationRestorationFailure = (
+  cause: ReservationAdministrationError
+) => {
+  if (cause.code === "not_found") {
+    return new CliResourceNotFound({ message: cause.message });
+  }
+  if (cause.code === "not_restorable") {
     return new CliMutationRejected({ message: cause.message });
   }
   return makeServiceUnavailable();
@@ -822,18 +1002,6 @@ const toCliVoucherDetail = (detail: AdminVoucherDetail) => ({
   claims: detail.claims.map(toCliVoucherClaim),
 });
 
-/**
- * The provenance source invoices and access-code events record for an
- * administration channel.
- */
-const provenanceSourceOf = (channel: AdministrationChannel) =>
-  Match.value(channel).pipe(
-    Match.tagsExhaustive({
-      CliSession: () => "dhw-cli" as const,
-      AssistantConnection: () => "assistant" as const,
-    })
-  );
-
 const noStore = HttpRouter.middleware(
   (effect) =>
     Effect.map(effect, (response) =>
@@ -902,11 +1070,13 @@ export const provideWorkspaceAdminApiServices = <A, E, R>(
   layer.pipe(
     Layer.provide(AdministrationService.Live),
     Layer.provide(ReservationAdministrationService.Live),
+    Layer.provide(WithdrawalService.Live),
     Layer.provide(ReservationProductDetailsBackfill.Live),
     Layer.provide(AdministratorRoster.Live),
     Layer.provide(LegacyAdministratorBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
+    Layer.provide(AccountRoleGrants.Live),
     Layer.provide(AdministrationCustomerDirectory.Live),
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),

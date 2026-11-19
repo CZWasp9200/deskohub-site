@@ -8,11 +8,15 @@ import { workspaceSiteConstants } from "@/shared/utils";
 import { WorkspaceCampaignFooter } from "../_components/workspace-campaign-footer";
 import type { ContactBusinessEmailProps } from "../contact-business";
 import type { ContactConfirmationEmailProps } from "../contact-confirmation";
+import type { ContractWithdrawalNoticeEmailProps } from "../contract-withdrawal-notice";
+import type { ContractWithdrawalReceiptEmailProps } from "../contract-withdrawal-receipt";
 import type { CustomerReservationEmailProps } from "../customer-reservation";
+import type { InvoiceCancellationNoticeEmailProps } from "../invoice-cancellation-notice";
 import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationAuthorEmailProps } from "../reservation-author";
 import type { ReservationCancellationEmailProps } from "../reservation-cancellation";
 import type { ReservationNotificationEmailProps } from "../reservation-notification";
+import type { ReservationRestorationEmailProps } from "../reservation-restoration";
 import type { WorkspaceCampaignEmailProps } from "../workspace-campaign";
 
 const customerEmail = testEmailAddress("customer");
@@ -89,11 +93,50 @@ export const reservationCancellationPreviewProps = {
   reservation: previewReservation,
 } satisfies ReservationCancellationEmailProps;
 
+export const contractWithdrawalReceiptPreviewProps = {
+  locale: "en-US",
+  reference: "reservation-3",
+  customerName: "Alex Example",
+  receiptEmail: testEmailAddress("alex"),
+  contractLabel: "Open Space · 14 Jan 2027",
+  submittedAt: Temporal.Instant.from("2027-01-12T09:41:00Z"),
+  paidAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+  refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+  refundBasis: { kind: "full" },
+} satisfies ContractWithdrawalReceiptEmailProps;
+
+export const contractWithdrawalNoticePreviewProps = {
+  contractLabel: "Office · 14–16 Jan 2027",
+  contractId: "reservation-3",
+  accountId: "account-preview",
+  customerName: "Alex Example",
+  customerEmail: testEmailAddress("alex"),
+  submittedAt: Temporal.Instant.from("2027-01-14T09:41:00Z"),
+  paidAmount: { value: 300_000, exponent: 2, currency: "CZK" },
+  refundAmount: { value: 200_000, exponent: 2, currency: "CZK" },
+  refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
+  adminUrl: "https://workspace.deskohub.cz/admin/reservations/reservation-3",
+  cancelledAt: null,
+} satisfies ContractWithdrawalNoticeEmailProps;
+export const reservationRestorationPreviewProps = {
+  locale: "en-US",
+  reservation: previewReservation,
+  accessUrl: customerReservationPreviewProps.accessUrl,
+} satisfies ReservationRestorationEmailProps;
+
 export const invoiceDeliveryPreviewProps = {
   invoiceNumber: "WS-FV-2026-000003",
   invoice: { source: "reservation", orderId: "reservation-3" },
   recipient: { audience: "customer", locale: "en-US" },
 } satisfies InvoiceDeliveryEmailProps;
+
+export const invoiceCancellationNoticePreviewProps = {
+  invoiceNumber: "WS-FV-2026-000003",
+  documentNumber: "WS-OD-2026-000001",
+  invoice: { source: "reservation", orderId: "reservation-3" },
+  settlement: { settlement: "refund_due", total: "-450.00", currency: "CZK" },
+  recipient: { audience: "customer", locale: "en-US" },
+} satisfies InvoiceCancellationNoticeEmailProps;
 
 const text = (value: string) => ({ type: "text", text: value });
 

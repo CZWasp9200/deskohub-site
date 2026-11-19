@@ -1,9 +1,19 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import type { CustomerCompanyDetails } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type JSXElementConstructor,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import * as ReactNative from "react-native";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 import type { HostProps } from "../../ui/testing/element-tree";
+import { AvailableWidthContext } from "../../ui/viewport";
 import type { DetailsDraft } from "./details-form";
 import type { DetailsStepProps } from "./details-step";
 
@@ -23,6 +33,13 @@ const { describePriceLine } = await import("../ui/price-line-description");
 const { openSpaceWithCoffee } = await import("../ui/testing/price-fixtures");
 const { initialDetailsDraft } = await import("./details-form");
 const { DetailsStep } = await import("./details-step");
+const { CompanyLookup } = await import("../../company-lookup/company-lookup");
+const { appliedDetails } = await import(
+  "../../company-lookup/company-lookup-model"
+);
+const { sampleCompanies } = await import(
+  "../../customer-api/testing/sample-fixtures"
+);
 
 const locale = "en-US" as const;
 const ignore = () => undefined;
@@ -40,10 +57,10 @@ const props = (
   },
   initials: Option.some("SB"),
   onEditProfile: Option.some(ignore),
-  draft: initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  }),
+  draft: initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    "CZ"
+  ),
   onDraftChange: ignore,
   notice: Option.none(),
   busy: false,
@@ -89,6 +106,42 @@ const business = (patch: Partial<DetailsDraft> = {}): DetailsDraft => ({
 });
 
 describe("DetailsStep layout (the company form scrolls, board 30)", () => {
+  test.each([
+    { width: 800, availableWidth: 688, fontScale: 1, contentWidth: "form" },
+    { width: 1024, availableWidth: 912, fontScale: 1, contentWidth: "wide" },
+    { width: 1280, availableWidth: 1168, fontScale: 1.3, contentWidth: "wide" },
+    { width: 1280, availableWidth: 1168, fontScale: 2, contentWidth: "form" },
+    { width: 1280, availableWidth: 700, fontScale: 1, contentWidth: "form" },
+  ])(
+    "fits tracks to $availableWidth dp at $fontScale text scale",
+    (viewport) => {
+      const { width, availableWidth, fontScale, contentWidth } = viewport;
+      const dimensions = spyOn(
+        ReactNative,
+        "useWindowDimensions"
+      ).mockReturnValue({
+        width,
+        height: 800,
+        fontScale,
+        scale: 2,
+      });
+      try {
+        const screen = elementTree(DetailsStep, props(), (node) =>
+          createElement(AvailableWidthContext, { value: availableWidth }, node)
+        );
+        const bar = find(screen, BookingBar);
+        const scroll = find(screen, "ScrollView");
+        const tracks = findAll(scroll, "View").filter(
+          (view) => flatStyle(view.props.style).flexDirection === "row"
+        );
+        expect(bar?.props.contentWidth).toBe(contentWidth);
+        expect(tracks).toHaveLength(contentWidth === "wide" ? 1 : 0);
+      } finally {
+        dimensions.mockRestore();
+      }
+    }
+  );
+
   test("the whole company form is inside one scroll view that grows with it", () => {
     const screen = screenOf({ draft: business() });
     const scroll = scrollOf(screen);
@@ -114,10 +167,18 @@ describe("DetailsStep layout (the company form scrolls, board 30)", () => {
     const children = (screen.props.children as ReadonlyArray<ReactNode>).filter(
       isValidElement
     );
-    const scrollAt = children.findIndex((child) => child.type === "ScrollView");
+    const scrollAt = children.findIndex(
+      (child) => find(child, "ScrollView") !== undefined
+    );
     const barAt = children.findIndex((child) => child.type === BookingBar);
     expect(scrollAt).toBeGreaterThanOrEqual(0);
     expect(barAt).toBeGreaterThan(scrollAt);
+  });
+
+  test("the keyboard lifts the screen by the header above it too, so Continue stays visible", () => {
+    const screen = screenOf({ keyboardOffset: 56 });
+    expect(screen.type).toBe("KeyboardAvoidingView");
+    expect(screen.props.keyboardVerticalOffset).toBe(56);
   });
 });
 
@@ -205,5 +266,89 @@ describe("DetailsStep booking as", () => {
     expect(texts).toHaveLength(1);
     expect(texts[0]?.props.numberOfLines).toBe(1);
     expect(texts[0]?.props.adjustsFontSizeToFit).toBe(true);
+  });
+});
+
+/** The first element of `type`, running the components above it to reach it. */
+const findRendered = <Props,>(
+  node: ReactNode,
+  type: JSXElementConstructor<Props>
+): ReactElement<Props> | undefined => {
+  if (!isValidElement<HostProps>(node)) return undefined;
+  if (node.type === type) return node as unknown as ReactElement<Props>;
+  if (typeof node.type === "function") {
+    return findRendered(
+      elementTree(node.type as (props: HostProps) => ReactNode, node.props),
+      type
+    );
+  }
+  for (const child of Children.toArray(node.props.children)) {
+    const found = findRendered(child, type);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+
+describe("DetailsStep company lookup (board 30b)", () => {
+  const typed = (companyId: string) =>
+    business({
+      company: {
+        ...business().company,
+        companyId,
+        vatId: "typed VAT ID",
+        address: { ...business().company.address, line1: "Typed street 1" },
+      },
+    });
+
+  const applyFound = (companyId: string) => {
+    const changes: Array<DetailsDraft> = [];
+    const lookup = findRendered(
+      screenOf({
+        draft: typed(companyId),
+        onDraftChange: (draft) => changes.push(draft),
+      }),
+      CompanyLookup
+    );
+    if (lookup === undefined) throw new Error("no company lookup");
+    const company = sampleCompanies.get(companyId) as CustomerCompanyDetails;
+    lookup.props.onApply(
+      appliedDetails(
+        company,
+        lookup.props.fields.map(({ field }) => field)
+      )
+    );
+    return { lookup: lookup.props, changes, company };
+  };
+
+  test("Apply reaches the details draft as typing would", () => {
+    const { lookup, changes, company } = applyFound("12345679");
+    expect(lookup.companyId).toBe("12345679");
+    // Checkout has no Save button to remind of.
+    expect(lookup.remindsToSave).toBe(false);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.billing).toBe("business");
+    expect<unknown>(changes[0]?.company).toEqual({
+      legalName: company.companyName,
+      companyId: company.companyId,
+      vatId: company.vatId,
+      address: {
+        line1: company.addressLine1,
+        city: company.city,
+        postalCode: company.zip,
+        country: company.country,
+      },
+    });
+  });
+
+  test("a detail the registry lacks keeps what was typed", () => {
+    const { changes } = applyFound("00000019");
+    expect(changes[0]?.company.vatId).toBe("typed VAT ID");
+  });
+
+  test("the review lists only the fields the company form has", () => {
+    const { lookup } = applyFound("12345679");
+    expect(lookup.fields.map(({ field }) => field)).not.toContain(
+      "addressLine2"
+    );
   });
 });

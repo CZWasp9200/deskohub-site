@@ -1,7 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { testEmailAddress } from "@deskohub/test-email";
+import { Deferred, Effect, Layer, Option } from "effect";
 import type {
   CustomerReservationHistory,
   CustomerReservationSummary,
@@ -29,9 +30,26 @@ import {
   ReservationInvoicePdfService,
 } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import {
+  CheckoutPaymentPageService,
+  type PaymentPageReopening,
+} from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import {
+  CheckoutPaymentRetryService,
+  type PaymentRetryDetails,
+  type PaymentRetryPreparation,
+  PaymentRetryUnavailableError,
+} from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
+import {
   CheckoutStatusService,
   type CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout/checkout-status.service";
+import { buildSignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import {
+  getPayStateCheckoutView,
+  type PayStateCheckoutView,
+} from "@/features/checkout/backend/checkout/pay-state-checkout-view";
+import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
+import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import {
   ReservationAccessService,
   type ReservationAccessViewModel,
@@ -42,8 +60,13 @@ import {
   ReservationAuthorizationUnavailableError,
 } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  type ContractWithdrawal,
+  WithdrawalRepository,
+} from "@/features/withdrawal/backend/withdrawal.repository";
+import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import type { PlainDate } from "@/shared/utils/temporal";
+import { instantStringSchema, type PlainDate } from "@/shared/utils/temporal";
 import {
   workspaceFormattedAddress,
   workspaceGoogleDirectionsUrl,
@@ -55,6 +78,7 @@ import {
   makeCustomerApiTestServer,
   testCustomerEndpointGuards,
 } from "./customer-api.test-utils";
+import { CustomerInvitedReservationsService } from "./customer-invited-reservations.service";
 import type { CustomerReservationServiceLayers } from "./customer-reservation-layers";
 
 const orderId = workspaceReservationIdSchema.make(
@@ -81,7 +105,16 @@ const ownOrderAuthorization = (
           ),
           Effect.orElseSucceed(() => false)
         );
-      return { isAuthorized, authorize: isAuthorized };
+      return {
+        isAuthorized,
+        authorize: isAuthorized,
+        authorizeViewer: (input: ReservationAuthorizationInput) =>
+          isAuthorized(input).pipe(
+            Effect.map((allowed) =>
+              allowed ? Option.some("customer" as const) : Option.none()
+            )
+          ),
+      };
     })
   );
 
@@ -164,7 +197,7 @@ describe("listReservations", () => {
         {
           id: orderId,
           orderId,
-          product: { kind: "cowork", tier: "open-space" },
+          product: { kind: "cowork", tier: "open-space", stay: "day" },
           startsAt: "2099-07-01T06:00:00Z",
           endsAt: "2099-07-01T22:00:00Z",
           seats: 1,
@@ -197,6 +230,76 @@ describe("listReservations", () => {
     });
     // Names included, as the account page shows them, in the default locale.
     expect(load).toHaveBeenCalledWith(testLinkedAccount, { locale: "en-US" });
+  });
+
+  test("tells an overnight Reserved Desk stay from a day by its booked time", async () => {
+    const reservedDesk = { kind: "cowork", tier: "reserved-desk" } as const;
+    const { reservations } = historyServices({
+      history: Effect.succeed({
+        kind: "available",
+        groups: {
+          current: [
+            {
+              ...ownReservation,
+              product: reservedDesk,
+              startsAt: "2099-07-01T10:00:00Z",
+              endsAt: "2099-07-02T10:00:00Z",
+              bookedSelection: {
+                selection: {
+                  family: "cowork",
+                  date: "2099-07-01" as PlainDate,
+                  tier: "reserved-desk",
+                  stay: "overnight",
+                },
+              },
+            },
+            {
+              ...ownReservation,
+              id: "dotypos-day",
+              product: reservedDesk,
+              startsAt: "2099-06-30T22:00:00Z",
+              endsAt: "2099-07-01T22:00:00Z",
+            },
+          ],
+          past: [],
+          unavailable: [
+            { ...undated, product: reservedDesk },
+            {
+              ...undated,
+              id: "dotypos-unreadable",
+              product: reservedDesk,
+              startsAt: "2099-07-01T10:00:00Z",
+              endsAt: "not-a-date",
+            },
+          ],
+        },
+      }),
+    });
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(customerApiRequest(listReservations));
+    const history = (await response.json()) as {
+      readonly current: readonly {
+        readonly product: unknown;
+        readonly bookedSelection?: { readonly selection: unknown };
+      }[];
+      readonly unavailable: readonly { readonly product: unknown }[];
+    };
+
+    expect(history.current.map(({ product }) => product)).toEqual([
+      { ...reservedDesk, stay: "overnight" },
+      { ...reservedDesk, stay: "day" },
+    ]);
+    // Booking it again books the same stay.
+    expect(history.current[0]?.bookedSelection?.selection).toMatchObject({
+      tier: "reserved-desk",
+      stay: "overnight",
+    });
+    // Without a readable time, no stay is told.
+    expect(history.unavailable.map(({ product }) => product)).toEqual([
+      reservedDesk,
+      reservedDesk,
+    ]);
   });
 
   test("lists only the reservations an account without a Dotypos customer authored", async () => {
@@ -268,7 +371,7 @@ describe("listReservations", () => {
     expect(body.current[0]).toEqual({
       id: orderId,
       orderId,
-      product: { kind: "cowork", tier: "open-space" },
+      product: { kind: "cowork", tier: "open-space", stay: "day" },
       productName: "Open Space",
       startsAt: "2099-07-01T06:00:00Z",
       endsAt: "2099-07-01T22:00:00Z",
@@ -461,6 +564,7 @@ describe("getReservationStatus", () => {
     options: {
       readonly authorized?: boolean;
       readonly getStatus?: CheckoutStatusService["Service"]["getStatus"];
+      readonly findWithdrawal?: WithdrawalRepository["Service"]["findByContract"];
     } = {}
   ): Partial<CustomerReservationServiceLayers> => ({
     authorization: ownOrderAuthorization(options.authorized ?? true),
@@ -469,7 +573,17 @@ describe("getReservationStatus", () => {
       getStatus:
         options.getStatus ?? (() => Effect.die("must not read local status")),
     }),
+    ...(options.findWithdrawal && {
+      withdrawalRecords: Layer.mock(WithdrawalRepository, {
+        findByContract: options.findWithdrawal,
+      }),
+    }),
   });
+
+  const withdrawal = {
+    submittedAt: Temporal.Instant.from("2026-06-19T14:30:00Z"),
+    refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+  } as ContractWithdrawal;
 
   testCustomerEndpointGuards(getReservationStatus);
 
@@ -494,10 +608,104 @@ describe("getReservationStatus", () => {
       total: { value: 35_000, exponent: 2, currency: "CZK" },
     });
     expect(refreshStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
       orderId,
       returnOutcome: "unknown",
     });
   });
+
+  test("answers a reservation cancellation with its separate payment status", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(() =>
+        Effect.succeed({ ...fulfilledOrder, status: "reservation_cancelled" })
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "cancelled",
+      reservationCancelled: true,
+      paymentStatus: "paid",
+    });
+  });
+
+  test.each([
+    { resendable: true, withdrawn: false },
+    { resendable: false, withdrawn: false },
+    { resendable: true, withdrawn: true },
+  ])(
+    "sends office people (resendable $resendable, withdrawn $withdrawn)",
+    async ({ resendable, withdrawn }) => {
+      const email = testEmailAddress("office-status-api-guest");
+      const resendAvailableAt = Temporal.Instant.from("2026-06-20T08:00:00Z");
+      const refreshStatus = mock(() =>
+        Effect.succeed({
+          orderId,
+          returnOutcome: "unknown",
+          kind: "office",
+          status: resendable ? "fulfilled" : "reservation_cancelled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          people: {
+            contactAttends: false,
+            resendable,
+            invitees: [
+              {
+                id: "office-guest",
+                email,
+                invitationSentAt: null,
+                resendAvailableAt: resendable ? resendAvailableAt : undefined,
+              },
+            ],
+          },
+          supportContactPrefill: {
+            name: "Ada Example",
+            email: testEmailAddress("office-status-api-contact"),
+          },
+        } as CheckoutStatusViewModel)
+      );
+      const api = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus, {
+          findWithdrawal: () =>
+            Effect.succeed(withdrawn ? Option.some(withdrawal) : Option.none()),
+        }),
+      });
+      const response = await api.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.people).toEqual({
+        contactAttends: false,
+        resendable: resendable && !withdrawn,
+        invitees: [
+          {
+            id: "office-guest",
+            email,
+            invitationSentAt: null,
+            ...(resendable &&
+              !withdrawn && {
+                resendAvailableAt: resendAvailableAt.toString(),
+              }),
+          },
+        ],
+      });
+      expect(body).not.toHaveProperty("supportContactPrefill");
+
+      const unrelated = makeCustomerApiTestServer({
+        reservations: statusServices(refreshStatus, { authorized: false }),
+      });
+      refreshStatus.mockClear();
+      const rejected = await unrelated.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(rejected.status).toBe(404);
+      expect(await rejected.text()).not.toContain(email);
+      expect(refreshStatus).not.toHaveBeenCalled();
+    }
+  );
 
   test("answers the order's booked selection beside its status", async () => {
     const refreshStatus = mock(() =>
@@ -560,6 +768,101 @@ describe("getReservationStatus", () => {
     });
   });
 
+  test("marks a pending order whose payment page can be opened again", async () => {
+    const pendingOrder = {
+      orderId,
+      returnOutcome: "unknown",
+      kind: "cowork",
+      status: "pending",
+      paymentStatus: "pending",
+      fulfillmentStatus: "not_started",
+    } as CheckoutStatusViewModel;
+    const answer = async (state: CheckoutStatusViewModel) => {
+      const api = makeCustomerApiTestServer({
+        reservations: statusServices(() => Effect.succeed(state)),
+      });
+      const response = await api.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    expect(
+      await answer({
+        ...pendingOrder,
+        paymentPageReopenable: true,
+      } as CheckoutStatusViewModel)
+    ).toMatchObject({ status: "pending", paymentPageReopenable: true });
+    expect(await answer(pendingOrder)).not.toHaveProperty(
+      "paymentPageReopenable"
+    );
+  });
+
+  test("answers a withdrawn order with when the customer withdrew and the refund", async () => {
+    const findWithdrawal = mock(() => Effect.succeed(Option.some(withdrawal)));
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(
+        () => Effect.succeed({ ...fulfilledOrder, status: "cancelled" }),
+        { findWithdrawal }
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orderId,
+      status: "cancelled",
+      withdrawal: {
+        submittedAt: "2026-06-19T14:30:00Z",
+        refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+      },
+    });
+    expect(findWithdrawal).toHaveBeenCalledWith({
+      kind: "reservation",
+      id: orderId,
+    });
+  });
+
+  test("reads the withdrawal beside the status, not after it", async () => {
+    const withdrawalRead = Deferred.makeUnsafe<void>();
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(
+        // The refresh answers only once the withdrawal read has started.
+        () => Effect.as(Deferred.await(withdrawalRead), fulfilledOrder),
+        {
+          findWithdrawal: () =>
+            Effect.as(
+              Deferred.succeed(withdrawalRead, undefined),
+              Option.none()
+            ),
+        }
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty("withdrawal");
+  });
+
+  test("answers someone else's withdrawn order as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(() => Effect.succeed(fulfilledOrder), {
+        authorized: false,
+        findWithdrawal: () => Effect.succeed(Option.some(withdrawal)),
+      }),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
+  });
+
   test("answers someone else's order as not found, without reading it", async () => {
     const refreshStatus = mock(() => Effect.succeed(fulfilledOrder));
     const api = makeCustomerApiTestServer({
@@ -575,11 +878,12 @@ describe("getReservationStatus", () => {
     expect(refreshStatus).not.toHaveBeenCalled();
   });
 
-  test("answers the local status when the refresh fails", async () => {
+  test("answers the local status without requesting support contact when refresh fails", async () => {
+    const getStatus = mock(() => Effect.succeed(fulfilledOrder));
     const api = makeCustomerApiTestServer({
       reservations: statusServices(
         () => Effect.fail(new Error("refresh failed") as never),
-        { getStatus: () => Effect.succeed(fulfilledOrder) }
+        { getStatus }
       ),
     });
 
@@ -587,6 +891,11 @@ describe("getReservationStatus", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "fulfilled" });
+    expect(getStatus).toHaveBeenCalledWith({
+      includeSupportContact: false,
+      orderId,
+      returnOutcome: "unknown",
+    });
   });
 
   test("answers unavailable when no status can be read", async () => {
@@ -638,6 +947,404 @@ describe("getReservationStatus", () => {
   });
 });
 
+describe("reopenPaymentPage", () => {
+  const reopenPaymentPage: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/payment-page`,
+    body: {},
+  };
+
+  const paymentPageServices = (
+    reopen: CheckoutPaymentPageService["Service"]["reopen"]
+  ): Partial<CustomerReservationServiceLayers> => ({
+    authorization: ownOrderAuthorization(true),
+    paymentPage: () => Layer.mock(CheckoutPaymentPageService, { reopen }),
+  });
+
+  const answering = (reopening: PaymentPageReopening) =>
+    paymentPageServices(() => Effect.succeed(reopening));
+
+  testCustomerEndpointGuards(reopenPaymentPage);
+
+  test("answers the payment page the order's unpaid payment opened", async () => {
+    const reopen = mock(() =>
+      Effect.succeed<PaymentPageReopening>({
+        state: "opened",
+        providerRedirectUrl: "https://sandbox.example/hpp/order-page",
+      })
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(reopen),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://sandbox.example/hpp/order-page",
+    });
+    // The session alone authorizes it: no access cookie or link token.
+    expect(reopen).toHaveBeenCalledWith({ orderId, locale: "en-US" });
+  });
+
+  test("returns the reopened page's payment where the app asks", async () => {
+    const reopen = mock(() =>
+      Effect.succeed<PaymentPageReopening>({ state: "not_found" })
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(reopen),
+    });
+
+    await api.handle(
+      customerApiRequest({
+        ...reopenPaymentPage,
+        body: { returnTarget: "native-app" },
+      })
+    );
+
+    expect(reopen).toHaveBeenCalledWith({
+      orderId,
+      locale: "en-US",
+      returnTarget: "native-app",
+    });
+  });
+
+  test("hands the payment page service the authorization read through the session", async () => {
+    const authorizations: boolean[] = [];
+    const api = makeCustomerApiTestServer({
+      reservations: {
+        authorization: ownOrderAuthorization(true),
+        paymentPage: (authorization) =>
+          Layer.effect(
+            CheckoutPaymentPageService,
+            Effect.map(ReservationAuthorizationService, (authorizer) => ({
+              reopen: (input) =>
+                authorizer
+                  .isAuthorized({ ...input, permission: "open-payment-page" })
+                  .pipe(
+                    Effect.tap((authorized) =>
+                      Effect.sync(() => authorizations.push(authorized))
+                    ),
+                    Effect.as<PaymentPageReopening>({ state: "not_found" })
+                  ),
+            }))
+          ).pipe(Layer.provide(authorization)),
+      },
+    });
+
+    await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(authorizations).toEqual([true]);
+  });
+
+  test("answers someone else's order, or one that doesn't exist, as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering({ state: "not_found" }),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
+  });
+
+  test.each([
+    "paid",
+    "late_payment",
+    "released",
+    "no_active_attempt",
+    "window_elapsed",
+  ] as const)(
+    "answers an order whose page closed as %s with that reason",
+    async (reason) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering({ state: "closed", reason }),
+      });
+
+      const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerPaymentPageClosed",
+        reason,
+      });
+    }
+  );
+
+  test("answers unavailable when the order can't be read", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(() =>
+        Effect.fail(new Error("read failed") as never)
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("retryPayment", () => {
+  const retryPayment: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/payment-retry`,
+    body: { locale: "cs-CZ" },
+  };
+
+  const retryReservation = {
+    kind: "cowork" as const,
+    entryTier: "basic" as const,
+    coffee: false,
+    date: "2026-08-04",
+    name: "Ada Lovelace",
+    email: testEmailAddress("ada"),
+    phone: "+420777000111",
+  };
+
+  /** The checkout view of an order-bound Pay state, as a retry issues it. */
+  const retryCheckout = async (
+    changedKeys?: PayStateCheckoutView["changedKeys"]
+  ) => {
+    const state = await Effect.runPromise(
+      buildSignedPayState({
+        locale: "cs-CZ",
+        reservation: retryReservation,
+        quote: buildCoworkReservationQuote(retryReservation),
+        orderId,
+        bookedAt: instantStringSchema.make("2026-07-01T10:00:00.000Z"),
+        holdExpiresAt: instantStringSchema.make("2026-07-01T10:10:00.000Z"),
+        binding: "order",
+        retriedAttemptId: paymentAttemptIdSchema.make("retried-attempt"),
+        changedKeys,
+      }).pipe(Effect.provide(TestSealedStateKeys))
+    );
+    return getPayStateCheckoutView(
+      state,
+      Temporal.Instant.from("2026-07-01T10:00:00Z")
+    );
+  };
+
+  const paymentRetryServices = (
+    prepare: CheckoutPaymentRetryService["Service"]["prepare"]
+  ): Partial<CustomerReservationServiceLayers> => ({
+    authorization: ownOrderAuthorization(true),
+    paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, { prepare }),
+  });
+
+  const answering = (preparation: PaymentRetryPreparation) =>
+    paymentRetryServices(() => Effect.succeed(preparation));
+
+  /** An order booked for someone else, invoiced to a company. */
+  const retryDetails = {
+    bookingFor: "someone-else",
+    contact: { name: retryReservation.name, email: retryReservation.email },
+    billing: {
+      purpose: "business",
+      invoice: "required",
+      buyer: {
+        kind: "business",
+        legalName: "Analytical Engines s.r.o.",
+        companyId: "27074358",
+        vatId: "CZ27074358",
+        address: {
+          line1: "Na Pankráci 1",
+          city: "Praha",
+          postalCode: "140 00",
+          country: "CZ",
+        },
+      },
+    },
+  } as const satisfies PaymentRetryDetails;
+
+  const ready = async (
+    changedKeys?: PayStateCheckoutView["changedKeys"],
+    details: PaymentRetryDetails = retryDetails
+  ): Promise<PaymentRetryPreparation> => {
+    const checkout = await retryCheckout(changedKeys);
+    return {
+      state: "ready",
+      payState: {
+        freshPayUrl: "/cs-CZ/checkout/pay?orderId=x",
+        freshPayStateToken: "retry-pay-state-token",
+        expiresAt: checkout.expiresAt,
+      },
+      checkout,
+      details,
+    };
+  };
+
+  testCustomerEndpointGuards(retryPayment);
+
+  test("answers the same order's checkout to pay again with its kept details, in the app's locale", async () => {
+    const preparation = await ready();
+    const prepare = mock(() => Effect.succeed(preparation));
+    const api = makeCustomerApiTestServer({
+      reservations: paymentRetryServices(prepare),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(200);
+    const answer = await response.json();
+    expect(answer).toMatchObject({
+      status: "ready",
+      orderId,
+      payStateToken: "retry-pay-state-token",
+    });
+    expect(answer.details).toEqual({
+      bookingFor: retryDetails.bookingFor,
+      contact: retryDetails.contact,
+      billing: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
+    });
+    // The session alone authorizes it: no access cookie or link token.
+    expect(prepare).toHaveBeenCalledWith({ orderId, locale: "cs-CZ" });
+  });
+
+  test.each([
+    {
+      case: "no invoice",
+      billing: { purpose: "personal", invoice: "none" },
+      answered: { purpose: "personal", invoice: "none" },
+    },
+    {
+      case: "a personal invoice, by its city",
+      billing: {
+        purpose: "personal",
+        invoice: "requested",
+        address: {
+          line1: "Vinohradská 12",
+          city: "Brno",
+          postalCode: "602 00",
+          country: "CZ",
+        },
+      },
+      answered: { purpose: "personal", invoice: "requested", city: "Brno" },
+    },
+    {
+      case: "a business invoice, by the company's name",
+      billing: retryDetails.billing,
+      answered: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
+    },
+  ] satisfies ReadonlyArray<{
+    case: string;
+    billing: PaymentRetryDetails["billing"];
+    answered: unknown;
+  }>)(
+    "answers only the billing the review shows: $case",
+    async ({ billing, answered }) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering(
+          await ready(undefined, { ...retryDetails, billing })
+        ),
+      });
+
+      const response = await api.handle(customerApiRequest(retryPayment));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).details.billing).toEqual(answered);
+    }
+  );
+
+  test("answers a changed price as a price review to accept first", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering(
+        await ready({ sectionKeys: ["total"], itemKeys: [] })
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "price_review",
+      priceReview: { changedKeys: { sectionKeys: ["total"], itemKeys: [] } },
+    });
+  });
+
+  test("answers someone else's order, or one that doesn't exist, as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering({ state: "not_found" }),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
+  });
+
+  test.each([
+    [{ state: "not_retryable", reason: "paid" }, "paid"],
+    [
+      { state: "not_retryable", reason: "payment_in_progress" },
+      "payment_in_progress",
+    ],
+    [{ state: "not_retryable", reason: "late_payment" }, "late_payment"],
+    [{ state: "not_retryable", reason: "superseded" }, "superseded"],
+    [
+      { state: "not_retryable", reason: "reservation_cancelled" },
+      "reservation_cancelled",
+    ],
+    [
+      { state: "not_retryable", reason: "reservation_ended" },
+      "reservation_ended",
+    ],
+    [
+      { state: "not_retryable", reason: "details_unavailable" },
+      "details_unavailable",
+    ],
+    [{ state: "not_retryable", reason: "needs_review" }, "needs_review"],
+    [{ state: "spot_unavailable" }, "spot_unavailable"],
+    [{ state: "payment_settling" }, "payment_settling"],
+  ] as const)(
+    "answers a refused retry with its reason (%o)",
+    async (preparation, reason) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering(preparation),
+      });
+
+      const response = await api.handle(customerApiRequest(retryPayment));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerPaymentRetryRefused",
+        reason,
+      });
+    }
+  );
+
+  test("answers unavailable when the retry can't be prepared now", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: paymentRetryServices(() =>
+        Effect.fail(
+          new PaymentRetryUnavailableError({ message: "provider down" })
+        )
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
 describe("getReservationAccess", () => {
   const getReservationAccess: CustomerApiCall = {
     method: "GET",
@@ -660,6 +1367,7 @@ describe("getReservationAccess", () => {
     const getAccess = mock(() =>
       Effect.succeed<ReservationAccessViewModel>({
         state: "available",
+        viewer: "customer",
         code: "2468",
         accessStartsAt: Temporal.Instant.from("2026-06-20T08:00:00Z"),
         accessEndsAt: Temporal.Instant.from("2026-06-20T11:00:00Z"),
@@ -953,6 +1661,59 @@ describe("getEstablishment", () => {
       coordinates: workspaceSiteConstants.location.coordinates,
       directionsUrl: workspaceGoogleDirectionsUrl,
       mapUrl: workspaceGoogleMapUrl,
+    });
+  });
+});
+
+describe("office invitations", () => {
+  const list: CustomerApiCall = {
+    method: "GET",
+    path: "/reservations/invitations?locale=cs-CZ",
+  };
+  const resend: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/invitees/invitee-1/invitation`,
+  };
+
+  testCustomerEndpointGuards(list);
+  testCustomerEndpointGuards(resend);
+
+  test("lists the signed-in person's office invitations in the requested locale", async () => {
+    const current = [
+      {
+        orderId,
+        product: { kind: "office" as const },
+        status: "confirmed" as const,
+        accessStartsAt: "2026-11-17T23:00:00Z",
+        accessEndsAt: "2026-11-18T23:00:00Z",
+        bookedBy: { name: "Alex Sample" },
+      },
+    ];
+    const load = mock(() => Effect.succeed({ current, past: [] }));
+    const api = makeCustomerApiTestServer({
+      reservations: {
+        invitedReservations: () =>
+          Layer.mock(CustomerInvitedReservationsService, { load }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(list));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ current, past: [] });
+    expect(load).toHaveBeenCalledWith("cs-CZ");
+  });
+
+  test("answers not found when the signed-in account cannot resend", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: { authorization: ownOrderAuthorization(false) },
+    });
+
+    const response = await api.handle(customerApiRequest(resend));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
     });
   });
 });

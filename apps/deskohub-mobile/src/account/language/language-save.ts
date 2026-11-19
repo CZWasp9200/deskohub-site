@@ -1,5 +1,5 @@
 import { Cause, Effect, Match, Option } from "effect";
-import type { AsyncResult } from "effect/unstable/reactivity";
+import type { AsyncResult } from "effect/reactivity";
 import {
   CustomerApi,
   CustomerSessionCheck,

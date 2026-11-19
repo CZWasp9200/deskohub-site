@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Logger, Predicate } from "effect";
 import {
   WorkspaceDatabase,
@@ -15,6 +15,7 @@ import {
   referralAttributions,
   referralCodes,
   referralInvitationClaims,
+  workspaceReservations,
 } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { AppliedDiscount } from "@/features/discounts/contracts";
@@ -23,7 +24,9 @@ import {
   type DiscountApplicationId,
   type PromotionCodeId,
 } from "@/features/discounts/persistence-contracts";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
@@ -214,6 +217,58 @@ const createOtherBooking = (
       customer,
     })
   );
+
+/**
+ * A paid booking the customer withdrew from: the recorded withdrawal owes the
+ * whole payment back (`full`) or a share of it, and the booking is cancelled
+ * once `cancelled`, as the withdrawal's settlement leaves it.
+ */
+const createWithdrawnBooking = async (
+  customer: DotyposCustomerId,
+  input: { readonly refund: "full" | "partial"; readonly cancelled: boolean }
+) => {
+  const db = testDatabase!.db;
+  const reservation = await createOtherBooking(customer, "paid");
+  const paid = czk(subtotal);
+  const submittedAt = now();
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const withdrawals = yield* WithdrawalRepository;
+      yield* withdrawals.record({
+        contract: { kind: "reservation", id: reservation.id },
+        accountId: reservation.authorAccountId,
+        locale,
+        contractLabel: "Office",
+        statementName: "Synthetic Customer",
+        submittedAt,
+        periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
+        paidAmount: paid,
+        ...(input.refund === "full"
+          ? { refundAmount: paid, refundBasis: { kind: "full" as const } }
+          : {
+              refundAmount: czk(subtotal / 2),
+              refundBasis: {
+                kind: "partial" as const,
+                unit: "day" as const,
+                unstarted: 1,
+                total: 2,
+              },
+            }),
+      });
+    }).pipe(
+      Effect.provide(WithdrawalRepository.Default),
+      Effect.provide(testDatabase!.layer)
+    )
+  );
+  if (input.cancelled) {
+    await Effect.runPromise(
+      db
+        .update(workspaceReservations)
+        .set({ reservationState: "cancelled" })
+        .where(eq(workspaceReservations.id, reservation.id))
+    );
+  }
+};
 
 const admission = (
   offer: Offer,
@@ -504,6 +559,36 @@ describe.skipIf(!testDatabase)(
             false
           )
         ).toMatchObject({ _tag: "Success" });
+      });
+
+      test("gives the invitation back after a booking withdrawn in full and cancelled, never after a partial withdrawal", async () => {
+        const admitsInvitationAfter = async (withdrawal: {
+          readonly refund: "full" | "partial";
+          readonly cancelled: boolean;
+        }) => {
+          const customer = newCustomer();
+          await attribute(customer, await createReferralCode());
+          await createWithdrawnBooking(customer, withdrawal);
+          const attempt = await createAttempt(
+            customer,
+            invitationOffer(customer, await createReferralCode()).application
+          );
+          return admitFirstBooking(
+            customer,
+            attempt.workspaceReservationId,
+            true
+          );
+        };
+
+        expect(
+          await admitsInvitationAfter({ refund: "full", cancelled: true })
+        ).toMatchObject({ _tag: "Success" });
+        expect(
+          await admitsInvitationAfter({ refund: "full", cancelled: false })
+        ).toMatchObject(claimConflict("reserve"));
+        expect(
+          await admitsInvitationAfter({ refund: "partial", cancelled: true })
+        ).toMatchObject(claimConflict("reserve"));
       });
 
       test("admits one first booking of an invited customer at a time", async () => {
@@ -861,6 +946,68 @@ describe.skipIf(!testDatabase)(
         expect(await release(attempt)).toMatchObject(claimConflict("release"));
         expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
           { state: "redeemed" },
+        ]);
+      });
+    });
+
+    describe("administration cancellation", () => {
+      /** Makes the attempt its reservation's pending payment. */
+      const startPayment = (attempt: Attempt) =>
+        Effect.runPromise(
+          testDatabase!.db
+            .update(workspaceReservations)
+            .set({
+              paymentState: "pending",
+              activePaymentAttemptId: attempt.paymentAttemptId,
+            })
+            .where(eq(workspaceReservations.id, attempt.workspaceReservationId))
+        );
+
+      const cancelPendingPayment = (attempt: Attempt) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            const reservations = yield* WorkspaceReservationRepository;
+            return yield* reservations.claimRequestedCancellation({
+              id: attempt.workspaceReservationId,
+              cause: "operator",
+              staleCancellingBefore: now(),
+              pendingPaymentCancellation: {
+                paymentAttemptId: attempt.paymentAttemptId,
+                failureCode: "operator_cancelled",
+              },
+            });
+          }).pipe(
+            Effect.provide(WorkspaceReservationRepository.Default),
+            Effect.provide(testDatabase!.layer)
+          )
+        );
+
+      test("releases the cancelled payment's claim so the invited customer can claim the invitation again", async () => {
+        const { invited, code, offer, attempt, result } = await admitNew();
+        expect(result).toMatchObject({ _tag: "Success" });
+        await startPayment(attempt);
+        const blocked = await createAttempt(invited, offer.application);
+        expect(
+          await inTransaction(
+            ReferralInvitationLedger.admit(admission(offer, blocked))
+          )
+        ).toMatchObject(claimConflict("reserve"));
+
+        expect((await cancelPendingPayment(attempt))?.reservationState).toBe(
+          "cancelling"
+        );
+        expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
+          {
+            state: "released",
+            release_reason: "operator_cancelled",
+            released: true,
+          },
+        ]);
+
+        const again = await admitNew({ invited, code });
+        expect(again.result).toMatchObject({ _tag: "Success" });
+        expect(await claimRows(again.attempt.paymentAttemptId)).toMatchObject([
+          { state: "reserved", referrer: code.referrer },
         ]);
       });
     });

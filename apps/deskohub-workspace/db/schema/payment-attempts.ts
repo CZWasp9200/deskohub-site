@@ -64,16 +64,16 @@ export const paymentAttempts = pgTable(
       .default(postgresUuidV7)
       .$type<PaymentAttemptId>(),
     workspaceReservationId: text("workspace_reservation_id")
-      .notNull()
       .$type<WorkspaceReservationId>()
       .references(() => workspaceReservations.id, { onDelete: "cascade" }),
     /**
-     * The order the attempt pays: the reservation's mirrored order, so always
-     * equal to `workspace_reservation_id`. A trigger fills it on insert when
-     * the writer leaves it out, which repairs attempts that writers from
-     * before the mirror insert during a rolling deployment.
+     * The order the attempt pays. For a reservation order it equals
+     * `workspace_reservation_id`. A trigger fills it from the reservation on
+     * insert when the writer leaves it out, which repairs attempts that
+     * writers from before the order key insert during a rolling deployment.
      */
     orderId: text("order_id")
+      .notNull()
       .$type<OrderId>()
       .references(() => orders.id, { onDelete: "cascade" }),
     provider: text("provider").notNull().$type<PaymentProvider>(),
@@ -84,7 +84,17 @@ export const paymentAttempts = pgTable(
       .notNull()
       .default("not_required")
       .$type<PaymentRefundState>(),
-    /** Sum of successful Nexi refunds, in the attempt's minor units. */
+    /**
+     * The refund owed while `refund_state` is `required`, in the attempt's
+     * minor units, when it is less than everything paid, such as a consumer
+     * withdrawal after part of the service ran. Absent, the whole payment is
+     * owed back and any successful refund settles it.
+     */
+    refundTargetValue: integer("refund_target_value"),
+    /**
+     * Sum of successful Nexi refunds, in the attempt's minor units: set once
+     * refunded, or while a partial refund owed is still short of its target.
+     */
     refundedAmountValue: integer("refunded_amount_value"),
     /** Time of the latest successful Nexi refund. */
     refundedAt: instant("refunded_at"),
@@ -125,7 +135,11 @@ export const paymentAttempts = pgTable(
     ),
     check(
       "payment_attempts_refund_record_check",
-      sql`(${t.refundState} = 'refunded' and ${t.refundedAmountValue} > 0 and ${t.refundedAt} is not null) or (${t.refundState} <> 'refunded' and ${t.refundedAmountValue} is null and ${t.refundedAt} is null)`
+      sql`(${t.refundState} = 'refunded' and ${t.refundedAmountValue} > 0 and ${t.refundedAt} is not null) or (${t.refundState} = 'required' and ${t.refundTargetValue} is not null and ${t.refundedAmountValue} > 0 and ${t.refundedAmountValue} < ${t.refundTargetValue} and ${t.refundedAt} is not null) or (${t.refundState} <> 'refunded' and ${t.refundedAmountValue} is null and ${t.refundedAt} is null)`
+    ),
+    check(
+      "payment_attempts_refund_target_check",
+      sql`${t.refundTargetValue} is null or (${t.refundState} <> 'not_required' and ${t.refundTargetValue} > 0 and ${t.refundTargetValue} <= ${t.amountValue})`
     ),
     check("payment_attempts_currency_check", sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check(
@@ -152,7 +166,7 @@ export const paymentAttempts = pgTable(
     ),
     check(
       "payment_attempts_reservation_order_match_check",
-      sql`${t.orderId} is null or ${t.orderId} = ${t.workspaceReservationId}`
+      sql`${t.workspaceReservationId} is null or ${t.orderId} = ${t.workspaceReservationId}`
     ),
     index("payment_attempts_order_idx").on(t.orderId),
     index("payment_attempts_state_created_idx").on(t.state, t.createdAt),

@@ -1,3 +1,4 @@
+import type { OfficePeopleRejection } from "@/features/reservation/backend/office-people-submission";
 import "server-only";
 
 import {
@@ -28,14 +29,13 @@ import {
   Effect,
   Layer,
   Match,
+  Option,
   Predicate,
   Schema,
   type SchemaIssue,
 } from "effect";
-import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { env } from "@/env";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { getApplyDiscountCodeDeadline } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
   CheckoutService,
   getPaymentReturnDestination,
@@ -43,7 +43,10 @@ import {
   type PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
 import { getCheckoutSubmitDeadline } from "@/features/checkout/backend/checkout/checkout-submit-deadline";
-import type { SignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import {
+  type DiscountCodeChangeUnavailable,
+  getDiscountCodeChangeDeadline,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import type { Locale } from "@/features/i18n";
 import { isCurrentPaymentSubmitLegalAcceptance } from "@/features/legal/payment-submit-evidence";
 import { preparePayStateInputSchema } from "@/features/reservation/actions/prepare-pay-state.schema";
@@ -61,15 +64,17 @@ import {
   answerUnavailable,
 } from "./customer-api-failure";
 import { CustomerBookingCheckoutLayers } from "./customer-booking-checkout-layers";
-import type { CustomerBookingEndpoint } from "./customer-booking-endpoint";
+import type { CustomerBookingHandlers } from "./customer-booking-endpoint";
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
+  withEarlySetup,
 } from "./customer-booking-selection";
 import {
   CheckoutServicesUnavailable,
   CustomerCheckoutOperations,
 } from "./customer-checkout-operations.service";
+import { toCustomerCheckout } from "./customer-checkout-view";
 import { CustomerReferralUpdates } from "./customer-referral-updates";
 
 type Operations = CustomerCheckoutOperations["Service"];
@@ -82,9 +87,9 @@ type PreparationFailure = Effect.Error<
 type DiscountCodeResult = Effect.Success<
   ReturnType<Operations["applyDiscountCode"]>
 >;
-type DiscountCodeFailure = Effect.Error<
-  ReturnType<Operations["applyDiscountCode"]>
->;
+type DiscountCodeFailure =
+  | Effect.Error<ReturnType<Operations["applyDiscountCode"]>>
+  | Effect.Error<ReturnType<Operations["clearDiscountCode"]>>;
 type AuthorFailure = Effect.Error<ReturnType<Operations["requireAuthor"]>>;
 type CheckoutSubmission = Effect.Success<
   ReturnType<CheckoutService["Service"]["createHostedPaymentCheckout"]>
@@ -104,7 +109,7 @@ type CheckoutSubmissionFailure = Effect.Error<
  * with a fixed public error.
  */
 export const handleCustomerBookingCheckout = <R>(
-  handlers: HttpApiBuilder.Handlers<R, CustomerBookingEndpoint>
+  handlers: CustomerBookingHandlers<R>
 ) =>
   Effect.gen(function* () {
     const { operations, checkout, inventory, releases } =
@@ -134,7 +139,8 @@ export const handleCustomerBookingCheckout = <R>(
           Layer.mergeAll(
             CustomerReferralUpdates.fromClient(referralCode),
             releases.referral,
-            releases.office
+            releases.office,
+            releases.overnightStay
           )
         )
       );
@@ -158,7 +164,16 @@ export const handleCustomerBookingCheckout = <R>(
           ),
           withDeadline(
             "customerApi.applyCheckoutDiscountCode",
-            getApplyDiscountCodeDeadline(env.VERCEL_ENV)
+            getDiscountCodeChangeDeadline(env.VERCEL_ENV)
+          )
+        )
+      )
+      .handle("clearCheckoutDiscountCode", ({ payload }) =>
+        clearDiscountCode(payload).pipe(
+          providePerRequest(forRequest(undefined, Layer.empty)),
+          withDeadline(
+            "customerApi.clearCheckoutDiscountCode",
+            getDiscountCodeChangeDeadline(env.VERCEL_ENV)
           )
         )
       )
@@ -220,23 +235,6 @@ const createCheckout = Effect.fn("customerApi.createCheckout")(function* (
 });
 
 /**
- * Adds the early setup a meeting-room booking asked for, at no cost, as
- * `start_reservation` does. Other families offer none.
- */
-const withEarlySetup = (
-  selection: QuoteSelection,
-  earlySetup: boolean | undefined
-): Effect.Effect<
-  QuoteSelection["reservation"],
-  CustomerBookingSelectionInvalid
-> => {
-  if (earlySetup !== true) return Effect.succeed(selection.reservation);
-  return selection.reservation.kind === "meeting-room"
-    ? Effect.succeed({ ...selection.reservation, earlySetup: true })
-    : Effect.fail(new CustomerBookingSelectionInvalid({ field: "earlySetup" }));
-};
-
-/**
  * The booking form's input for the checkout: the account's own booking
  * books as its linked customer, a booking for someone else as the submitted
  * contact. A grant of marketing consent is labeled with the app's channel;
@@ -260,6 +258,7 @@ const toPreparationInput = (
       phone: payload.contact.phone,
       billing: payload.billing,
     },
+    ...(payload.people && { people: payload.people }),
   }).pipe(
     Effect.map((decoded): Parameters<Operations["preparePayState"]>[0] =>
       decoded.marketingConsent === true
@@ -290,6 +289,28 @@ const toCheckoutDetailsField = (issue: SchemaIssue.Issue) => {
   return {};
 };
 
+/**
+ * The contract error for a people list booking can't take: an invitee or an
+ * empty list is a checkout detail, a head count that isn't the selected seats
+ * or the office's capacity is the selection's `seats`, and a list beside
+ * anything but an office is the selection's `people`.
+ */
+const toOfficePeopleAnswer = (rejection: OfficePeopleRejection) =>
+  Match.value(rejection).pipe(
+    Match.tagsExhaustive({
+      InviteeRejected: ({ index }) =>
+        new CustomerCheckoutDetailsInvalid({
+          field: `people.invitees.${index}`,
+        }),
+      NoPeople: () => new CustomerCheckoutDetailsInvalid({ field: "people" }),
+      OverCapacity: () =>
+        new CustomerBookingSelectionInvalid({ field: "seats" }),
+      SeatsMismatch: () =>
+        new CustomerBookingSelectionInvalid({ field: "seats" }),
+      NotOffice: () => new CustomerBookingSelectionInvalid({ field: "people" }),
+    })
+  );
+
 const answerPreparationFailure =
   (operation: string) => (failure: PreparationFailure) =>
     Match.value(failure).pipe(
@@ -298,6 +319,8 @@ const answerPreparationFailure =
           Effect.fail(accessFailure).pipe(answerCustomerApiFailure(operation)),
         AdvertisedPriceMismatchError: () =>
           Effect.fail(new CustomerQuoteExpired()),
+        OfficePeopleRejectedError: ({ rejection }) =>
+          Effect.fail(toOfficePeopleAnswer(rejection)),
         // Preparation seals the checkout it starts; the client sent no
         // checkout token, so this is the server's failure.
         PayStateTokenError: (tokenFailure) =>
@@ -324,6 +347,8 @@ const answerPreparationFailure =
           ),
         OfficeReservationsDisabledError: () =>
           Effect.fail(new CustomerOfferingUnavailable({ family: "office" })),
+        OvernightStayUnavailableError: () =>
+          Effect.fail(new CustomerBookingSelectionInvalid({ field: "stay" })),
         ReservationIntervalValidationError: () =>
           Effect.fail(new CustomerBookingSelectionInvalid({})),
         UndeliverableContactEmailError: () =>
@@ -451,25 +476,36 @@ const toDiscountCodeAnswer = (
         Effect.fail(codeRejected("ineligible", rejected)),
       unavailable: (unavailable) =>
         Match.value(unavailable).pipe(
-          Match.discriminatorsExhaustive("reason")({
+          Match.discriminators("reason")({
             code: (rejected) =>
               Effect.fail(codeRejected("unavailable", rejected)),
             code_already_applied: (rejected) =>
               Effect.fail(codeRejected("code_already_applied", rejected)),
-            provider: () =>
-              answerUnavailable(operation, { failure: "discount-provider" }),
-            price_review_pending: () =>
-              Effect.fail(
-                new CustomerCheckoutUnavailable({
-                  reason: "price_review_pending",
-                })
-              ),
-            checkout: ({ checkoutReason }) =>
-              Effect.fail(
-                new CustomerCheckoutUnavailable({
-                  reason: toCheckoutUnavailableReason(checkoutReason),
-                })
-              ),
+          }),
+          Match.orElse((unchanged) =>
+            answerCodeChangeUnavailable(operation, unchanged)
+          )
+        ),
+    })
+  );
+
+/** Why entering or removing a code left the checkout as it was. */
+const answerCodeChangeUnavailable = (
+  operation: string,
+  unavailable: DiscountCodeChangeUnavailable
+) =>
+  Match.value(unavailable).pipe(
+    Match.discriminatorsExhaustive("reason")({
+      provider: () =>
+        answerUnavailable(operation, { failure: "discount-provider" }),
+      price_review_pending: () =>
+        Effect.fail(
+          new CustomerCheckoutUnavailable({ reason: "price_review_pending" })
+        ),
+      checkout: ({ checkoutReason }) =>
+        Effect.fail(
+          new CustomerCheckoutUnavailable({
+            reason: toCheckoutUnavailableReason(checkoutReason),
           })
         ),
     })
@@ -522,6 +558,35 @@ const answerDiscountCodeFailure =
       })
     );
 
+// clearCheckoutDiscountCode
+
+/**
+ * Removes the entered code: the checkout comes back without it, for review
+ * when its price changed, or as it is when it carried none.
+ */
+const clearDiscountCode = Effect.fn("customerApi.clearCheckoutDiscountCode")(
+  function* (payload: {
+    readonly locale: Locale;
+    readonly payStateToken: string;
+  }) {
+    const operation = "customerApi.clearCheckoutDiscountCode";
+    yield* requireAuthor(operation, payload);
+    const operations = yield* CustomerCheckoutOperations;
+    const result = yield* operations
+      .clearDiscountCode(payload)
+      .pipe(Effect.catch(answerDiscountCodeFailure(operation)));
+
+    return yield* Match.value(result).pipe(
+      Match.discriminatorsExhaustive("status")({
+        cleared: (cleared) => checkoutAt(cleared.freshPayStateToken),
+        unchanged: (unchanged) => checkoutAt(unchanged.freshPayStateToken),
+        unavailable: (unavailable) =>
+          answerCodeChangeUnavailable(operation, unavailable),
+      })
+    );
+  }
+);
+
 // acceptCheckoutPriceChange
 
 const acceptPriceChange = Effect.fn("customerApi.acceptCheckoutPriceChange")(
@@ -536,6 +601,15 @@ const acceptPriceChange = Effect.fn("customerApi.acceptCheckoutPriceChange")(
       Effect.catchTags({
         PayStateTokenError: answerTokenFailure(operation),
         PayStateIssueError: retryable(operation),
+        // Only a state signed without its hold deadline reads the reservation.
+        CheckoutUnavailableError: ({ reason }) =>
+          Effect.fail(
+            new CustomerCheckoutUnavailable({
+              reason: toCheckoutUnavailableReason(reason),
+            })
+          ),
+        EffectDrizzleQueryError: retryable(operation),
+        WorkspaceReservationDetailsMalformedError: retryable(operation),
         CheckoutServicesUnavailable: retryable(operation),
       })
     );
@@ -750,41 +824,22 @@ const checkoutAt = (
       Effect.flatMap((updates) => updates.recorded)
     );
 
-    return toCustomerCheckout(state, yield* currentInstant, payStateToken, {
-      ...facts,
-      ...referral,
-    });
-  });
+    const people = yield* operations
+      .findOfficePeople(state.orderId)
+      .pipe(Effect.catch(retryable("customerApi.findCheckoutOfficePeople")));
 
-const toCustomerCheckout = (
-  state: SignedPayState,
-  now: Temporal.Instant,
-  payStateToken: string,
-  facts: Pick<
-    CustomerCheckout,
-    "referralApplied" | "rememberReferralCode" | "rememberedReferralCodeUsed"
-  >
-): CustomerCheckout => {
-  const view = getPayStateCheckoutView(state, now);
-  return {
-    status: view.changedKeys === undefined ? "ready" : "price_review",
-    orderId: view.orderId,
-    payStateToken,
-    expiresAt: view.expiresAt,
-    summary: view.summary,
-    ...(view.changedKeys !== undefined && {
-      priceReview: { changedKeys: view.changedKeys },
-    }),
-    earlyPerformanceConsent: view.earlyPerformanceConsent,
-    ...(facts.referralApplied && { referralApplied: true }),
-    ...(facts.rememberReferralCode !== undefined && {
-      rememberReferralCode: facts.rememberReferralCode,
-    }),
-    ...(facts.rememberedReferralCodeUsed && {
-      rememberedReferralCodeUsed: true,
-    }),
-  };
-};
+    return toCustomerCheckout(
+      {
+        ...getPayStateCheckoutView(state, yield* currentInstant),
+        ...Option.match(people, {
+          onNone: () => ({}),
+          onSome: (found) => ({ people: found }),
+        }),
+      },
+      payStateToken,
+      { ...facts, ...referral }
+    );
+  });
 
 /**
  * A token the client can't use any more starts a new checkout; keys that

@@ -1,5 +1,5 @@
-import type { HttpApiEndpoint } from "effect/unstable/httpapi";
-import { HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiEndpoint } from "effect/http-api";
+import { HttpApi, type HttpApiGroup } from "effect/http-api";
 import { AdminCliAdministratorsApi } from "./administrators";
 import {
   AdminCliAutomationsApi,
@@ -19,8 +19,8 @@ export const WorkspaceAdminApi = HttpApi.make("workspaceAdminApi")
   .add(AdminCliAutomationsApi)
   .add(AdminCliAdministratorsApi);
 
-type GroupOperationReference<Group> = Group extends HttpApiGroup.Any
-  ? `${HttpApiGroup.Name<Group>}.${HttpApiEndpoint.Name<HttpApiGroup.Endpoints<Group>>}`
+type GroupOperationReference<Group> = Group extends HttpApiGroup.Constraint
+  ? `${HttpApiGroup.Identifier<Group>}.${HttpApiEndpoint.Identifier<HttpApiGroup.Endpoints<Group>>}`
   : never;
 
 type ApiGroups<Api> =

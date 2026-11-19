@@ -44,6 +44,9 @@ export const loadAuthorizedCheckoutStatus = Effect.fn(
   const statusInput: CheckoutStatusInput = {
     orderId: input.orderId,
     returnOutcome: input.returnOutcome,
+    ...(input.includeSupportContact !== undefined && {
+      includeSupportContact: input.includeSupportContact,
+    }),
   };
   return yield* checkoutStatus.refreshStatus(statusInput).pipe(
     Effect.catch((cause) =>

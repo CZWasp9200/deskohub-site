@@ -1,11 +1,4 @@
-import {
-  Data,
-  Effect,
-  Option,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-} from "effect";
+import { Data, Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import type {
   ReservationInterval,
   ReservationIntervalInput,
@@ -57,7 +50,7 @@ export const reservationIntervalSchema = reservationIntervalInputSchema.pipe(
       endsAt: instantStringSchema,
     }),
     {
-      decode: SchemaGetter.transformOrFail((input) =>
+      decode: SchemaGetter.transformEffect((input) =>
         normalizeReservationIntervalFields(
           input,
           workspaceSiteConstants.location.timeZone
@@ -73,7 +66,8 @@ export const wholeHourReservationInstantSchema =
 
 export const coworkReservationIntervalSchema = reservationIntervalSchema.check(
   Schema.makeFilter(isCoworkReservationInterval, {
-    message: "Cowork reservations must use the full-day duration.",
+    message:
+      "Cowork reservations must use a full-day, Open Space, or overnight interval.",
   })
 );
 
@@ -121,8 +115,6 @@ const toSchemaIssue = (
 ) => {
   return new SchemaIssue.Pointer(
     [cause.path],
-    new SchemaIssue.InvalidValue(Option.some(input), {
-      message: cause.message,
-    })
+    new SchemaIssue.InvalidValue({ message: cause.message }, input)
   );
 };

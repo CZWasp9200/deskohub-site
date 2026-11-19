@@ -149,7 +149,7 @@ const triageRow = (
 };
 
 const triageRows = ({ rows }: { readonly rows: readonly BackfillRow[] }) => {
-  const [unresolved, pending] = Arr.partition(rows, triageRow);
+  const [pending, unresolved] = Arr.partition(rows, triageRow);
   const incomplete = Arr.getSomes(pending);
   return {
     unresolved,
@@ -267,7 +267,7 @@ const resolveRows = ({
       (reservation) => [reservation.id, reservation] as const
     )
   );
-  const [unresolved, resolved] = Arr.partition(incomplete, (row) =>
+  const [resolved, unresolved] = Arr.partition(incomplete, (row) =>
     resolveRow({ row, dotyposById })
   );
   return { unresolved, resolved };
@@ -334,17 +334,23 @@ export class ReservationProductDetailsBackfill extends Context.Service<
       // wins. updated_at stays: it records business activity, and claims
       // compare it.
       const writeDetails = (row: ResolvedRow) =>
-        db
-          .update(workspaceReservations)
-          .set({ reservationDetails: row.details })
-          .where(
-            and(
-              eq(workspaceReservations.id, row.id),
-              sql`${workspaceReservations.reservationDetails} = ${JSON.stringify(row.reservationDetails)}::jsonb`
-            )
+        StoredReservationDetails.encode(row.details).pipe(
+          Effect.flatMap((reservationDetails) =>
+            db
+              .update(workspaceReservations)
+              .set({ reservationDetails })
+              .where(
+                and(
+                  eq(workspaceReservations.id, row.id),
+                  sql`${workspaceReservations.reservationDetails} = ${JSON.stringify(row.reservationDetails)}::jsonb`
+                )
+              )
+              .returning({ id: workspaceReservations.id })
+              .pipe(
+                Effect.mapError(fail("A reservation could not be updated."))
+              )
           )
-          .returning({ id: workspaceReservations.id })
-          .pipe(Effect.mapError(fail("A reservation could not be updated.")));
+        );
 
       /** Rows written; a dry run counts every resolved row instead. */
       const writeResolvedRows = ({

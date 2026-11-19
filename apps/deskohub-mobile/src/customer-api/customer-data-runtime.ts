@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import type { AccountReadBudget } from "./account-read-budget";
 import type {
   AccountExitFence,

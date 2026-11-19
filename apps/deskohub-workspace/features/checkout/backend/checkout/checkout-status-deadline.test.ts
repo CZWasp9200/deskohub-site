@@ -1,11 +1,13 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
+import { withReservationPaymentHandlers } from "../payment/order-payment-handlers.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Fiber, Layer } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
@@ -22,12 +24,11 @@ import { getNexiCurrencyOverride } from "../payment/nexi-currency";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
-import {
-  PaymentLifecycleRepository,
-  PaymentLifecycleStateError,
-} from "../repositories/payment-lifecycle.repository";
+import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
+import { PaymentLifecycleStateError } from "../repositories/payment-lifecycle-state";
 import { CheckoutStatusService } from "./checkout-status.service";
 import { loadCheckoutStatusPage } from "./checkout-status-page.server";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 mock.module("server-only", () => ({}));
 
@@ -58,6 +59,7 @@ const pendingReservation = {
 };
 
 const pendingAttempt = {
+  orderId,
   id: "attempt-stalled-nexi",
   workspaceReservationId: orderId,
   provider: "nexi" as const,
@@ -128,6 +130,8 @@ const loadStatusPageOnTestClock = (options: {
   }).pipe(
     Effect.provide(
       CheckoutStatusService.Default.pipe(
+        Layer.provide(NoReservationInvitees),
+        Layer.provide(observePaymentPagesAs("unknown").layer),
         Layer.provide(
           Layer.mergeAll(
             ProviderPaymentFinalizationService.Default,
@@ -177,7 +181,7 @@ const loadStatusPageOnTestClock = (options: {
             }),
             SeatingMapReleaseGate.fromDecision(true),
             ReviewSandboxMock({})
-          )
+          ).pipe(withReservationPaymentHandlers)
         )
       )
     ),

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
-  campaignOperations,
   type LedgerOperationName,
   OperationInputInvalid,
-} from "./campaign-operations";
+} from "./administration-operation-port";
+import { campaignOperations } from "./campaign-operations";
 
 describe("campaign operations", () => {
   test.each([
@@ -33,7 +34,8 @@ describe("campaign operations", () => {
     ],
   ] as const)("%s rejects an unknown key", (name, input) => {
     const decode = Schema.decodeUnknownResult(
-      campaignOperations[name].input as Schema.Decoder<unknown>
+      campaignOperations[name].input as Schema.Decoder<unknown>,
+      administrationInputParseOptions
     );
 
     expect(Result.isSuccess(decode(input))).toBe(true);

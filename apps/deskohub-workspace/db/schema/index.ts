@@ -12,6 +12,10 @@ export {
   cliMutationRequests,
   cliSessions,
 } from "./cli-authentication";
+export {
+  type ContractWithdrawalRow,
+  contractWithdrawals,
+} from "./contract-withdrawals";
 export { customerAccounts } from "./customer-accounts";
 export { customerEventSweeps, customerEvents } from "./customer-events";
 export { customerMarketingConsents } from "./customer-marketing-consents";
@@ -41,6 +45,11 @@ export {
   type Voucher,
   vouchers,
 } from "./discounts";
+export {
+  type AnnualNumberCounter,
+  correctiveDocumentNumberCounters,
+  invoiceNumberCounters,
+} from "./document-number-counters";
 export {
   emailCampaignAutomationEngine,
   emailCampaignAutomationPreviewRows,
@@ -77,12 +86,18 @@ export {
   emailValueSnapshots,
   emailVersions,
 } from "./emails";
+export { invoiceArchives } from "./invoice-archives";
+export {
+  correctiveDocuments,
+  invoiceCancellationNoticeDeliveries,
+  invoiceCancellations,
+} from "./invoice-cancellations";
 export {
   invoiceEmailDeliveries,
   invoiceEmailDeliveryAudiences,
   invoiceEmailDeliveryStates,
 } from "./invoice-email-deliveries";
-export { invoiceNumberCounters } from "./invoice-number-counters";
+export { invoicePreviews } from "./invoice-previews";
 export { invoices } from "./invoices";
 export {
   type LatePaymentRecovery,
@@ -122,6 +137,8 @@ export {
 } from "./referrals";
 export { requestBudgetSpends } from "./request-budget-spends";
 export { reservationAccessGrants } from "./reservation-access-grants";
+export { reservationInviteeNotices } from "./reservation-invitee-notices";
+export { reservationInvitees } from "./reservation-invitees";
 export {
   type ReviewAccountHold,
   reviewAccountHolds,
@@ -132,6 +149,7 @@ export {
 } from "./standalone-access-code-attempt-events";
 export {
   type WebhookEvent,
+  type WebhookEventState,
   webhookEventStates,
   webhookEvents,
   webhookProviders,
@@ -141,6 +159,7 @@ export {
   fulfillmentStates,
   type PaymentState,
   paymentStates,
+  type ReservationCancellationCause,
   type ReservationState,
   reservationStates,
   type WorkspaceReservationRow,
