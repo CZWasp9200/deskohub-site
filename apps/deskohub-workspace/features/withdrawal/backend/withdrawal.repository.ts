@@ -8,6 +8,7 @@ import {
   contractWithdrawals,
   workspaceReservations,
 } from "@/db/schema";
+import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
 import {
@@ -292,6 +293,7 @@ export class WithdrawalRepository extends Context.Service<
                 // the ledger. No network work runs while this lock is held.
                 const [reservation] = yield* db
                   .select({
+                    id: workspaceReservations.id,
                     state: workspaceReservations.reservationState,
                     payment: workspaceReservations.paymentState,
                     author: workspaceReservations.authorAccountId,
@@ -312,6 +314,9 @@ export class WithdrawalRepository extends Context.Service<
                 ) {
                   return yield* new WithdrawalContractChangedError();
                 }
+                // An explicit invitation resend holds this lock from its
+                // withdrawal check through delivery. Hold it until commit.
+                yield* WorkspaceLocks.reservationInviteeNotices(reservation.id);
                 const [inserted] = yield* db
                   .insert(contractWithdrawals)
                   .values({

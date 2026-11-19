@@ -11,7 +11,7 @@ import { IgloohomeDeviceIdSchema } from "@deskohub/igloohome";
 import { testEmailAddress } from "@deskohub/test-email";
 import { NodeCrypto } from "@effect/platform-node";
 import { eq } from "drizzle-orm";
-import { Effect, Layer, Option, Redacted } from "effect";
+import { Deferred, Effect, Layer, Option, Redacted } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { toStoredInstant } from "@/db/instant";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
@@ -48,6 +48,7 @@ import {
   fixtureReservationAuthorId,
   workspaceFixtures,
 } from "@/shared/testing/workspace-fixtures.test-utils";
+import { waitForAdvisoryLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { resendAuthorizedReservationInvitation } from "./resend-reservation-invitation";
 import { ReservationInvitations } from "./reservation-invitations.service";
@@ -410,7 +411,10 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     ]);
   });
 
-  const prepareGuestNotices = async ({ ended = false } = {}) => {
+  const prepareGuestNotices = async ({
+    ended = false,
+    beforeBookingRead = () => Effect.void,
+  } = {}) => {
     const start = toStoredInstant(Temporal.Now.instant());
     const tick = (minutes: number) => start.add({ minutes });
     const reservedUntil = ended ? tick(-5) : start.add({ hours: 72 });
@@ -486,34 +490,36 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     const sent: string[] = [];
     const workspace = Layer.mock(WorkspaceReservationService, {
       getReservation: () =>
-        Effect.sync(
-          () =>
-            ({
-              id,
-              dotyposCustomerId: row.dotyposCustomerId,
-              authorAccountId: row.authorAccountId,
-              dotyposReservationId: providerId,
-              reservationDetails: office,
-              locale: "en-US",
-              customer: {
-                id: row.dotyposCustomerId,
-                _cloudId: "synthetic-cloud",
-                firstName: delivery.bookerName,
-                lastName: "Sample",
-                companyName: null,
-                email: null,
-                phone: null,
-                points: null,
-                flags: "0",
-                display: true,
-                deleted: false,
-              },
-              reservedFrom: reservedUntil.subtract({ hours: 24 }),
-              reservedUntil,
-              providerStatus: delivery.providerStatus,
-              seats: 1,
-              placement: {},
-            }) satisfies WorkspaceReservationDetails
+        Effect.suspend(beforeBookingRead).pipe(
+          Effect.map(
+            () =>
+              ({
+                id,
+                dotyposCustomerId: row.dotyposCustomerId,
+                authorAccountId: row.authorAccountId,
+                dotyposReservationId: providerId,
+                reservationDetails: office,
+                locale: "en-US",
+                customer: {
+                  id: row.dotyposCustomerId,
+                  _cloudId: "synthetic-cloud",
+                  firstName: delivery.bookerName,
+                  lastName: "Sample",
+                  companyName: null,
+                  email: null,
+                  phone: null,
+                  points: null,
+                  flags: "0",
+                  display: true,
+                  deleted: false,
+                },
+                reservedFrom: reservedUntil.subtract({ hours: 24 }),
+                reservedUntil,
+                providerStatus: delivery.providerStatus,
+                seats: 1,
+                placement: {},
+              }) satisfies WorkspaceReservationDetails
+          )
         ),
     });
     const locks = WorkspaceDatabaseAdvisoryLock.makeLayer(
@@ -704,6 +710,29 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     expect(await acceptedCount()).toBe(1);
   });
 
+  const recordOfficeWithdrawal = (
+    id: WorkspaceReservationId,
+    submittedAt: Temporal.Instant
+  ) => {
+    const paidAmount = { value: 10_000, exponent: 2, currency: "CZK" } as const;
+    return run(
+      Effect.flatMap(WithdrawalRepository, (withdrawals) =>
+        withdrawals.record({
+          contract: { kind: "reservation", id },
+          accountId: fixtureReservationAuthorId,
+          locale: "en-US",
+          contractLabel: "Synthetic office reservation",
+          statementName: "Synthetic Customer",
+          submittedAt,
+          periodEndsAt: submittedAt.add({ hours: 24 }),
+          paidAmount,
+          refundAmount: paidAmount,
+          refundBasis: { kind: "full" },
+        })
+      ).pipe(Effect.provide(WithdrawalRepository.Default))
+    );
+  };
+
   test("a recorded withdrawal blocks office resends while the booking remains confirmed", async () => {
     const { id, delivery, drain, resend, sent, tick } =
       await prepareGuestNotices({ ended: true });
@@ -712,24 +741,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       "Synthetic process loss before dispatch"
     );
     delivery.loseProcessBeforeDispatch = false;
-
-    const paidAmount = { value: 10_000, exponent: 2, currency: "CZK" } as const;
-    await run(
-      Effect.flatMap(WithdrawalRepository, (withdrawals) =>
-        withdrawals.record({
-          contract: { kind: "reservation", id },
-          accountId: fixtureReservationAuthorId,
-          locale: "en-US",
-          contractLabel: "Synthetic office reservation",
-          statementName: "Synthetic Customer",
-          submittedAt: tick(1),
-          periodEndsAt: tick(1).add({ hours: 24 }),
-          paidAmount,
-          refundAmount: paidAmount,
-          refundBasis: { kind: "full" },
-        })
-      ).pipe(Effect.provide(WithdrawalRepository.Default))
-    );
+    await recordOfficeWithdrawal(id, tick(1));
 
     await expect(resend()).rejects.toMatchObject({
       _tag: "InvitationResendRefused",
@@ -738,6 +750,52 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     expect(await drain(tick(2))).toMatchObject({ delivered: 0, deferred: 1 });
     expect(sent).toEqual([]);
   });
+
+  test.each(["direct", "queued"] as const)(
+    "withdrawal waits for a %s resend that already checked the withdrawal ledger",
+    async (source) => {
+      const ledgerChecked = Deferred.makeUnsafe<void>();
+      const continueDispatch = Deferred.makeUnsafe<void>();
+      let pauseDispatch = false;
+      const { id, delivery, drain, resend, sent, tick } =
+        await prepareGuestNotices({
+          ended: true,
+          beforeBookingRead: () =>
+            pauseDispatch
+              ? Deferred.succeed(ledgerChecked, undefined).pipe(
+                  Effect.andThen(Deferred.await(continueDispatch))
+                )
+              : Effect.void,
+        });
+      if (source === "queued") {
+        delivery.loseProcessBeforeDispatch = true;
+        await expect(resend()).rejects.toThrow(
+          "Synthetic process loss before dispatch"
+        );
+        delivery.loseProcessBeforeDispatch = false;
+      }
+
+      pauseDispatch = true;
+      const dispatch = source === "direct" ? resend() : drain(tick(1));
+      let withdrawal: ReturnType<typeof recordOfficeWithdrawal> | undefined;
+      try {
+        await Effect.runPromise(
+          Deferred.await(ledgerChecked).pipe(Effect.timeout("3 seconds"))
+        );
+        withdrawal = recordOfficeWithdrawal(id, tick(1));
+        await waitForAdvisoryLockWaiter(testDatabase.pool, [
+          "reservation-invitee-notices",
+          id,
+        ]);
+        expect(sent).toEqual([]);
+      } finally {
+        await Effect.runPromise(Deferred.succeed(continueDispatch, undefined));
+        await Promise.all([dispatch, withdrawal]);
+      }
+      expect(await withdrawal).toMatchObject({ recorded: true });
+      expect(sent).toEqual(["invitation"]);
+    }
+  );
 
   test("skips a stale automatic invitation and recovers a fresh explicit resend before dispatch", async () => {
     const {
