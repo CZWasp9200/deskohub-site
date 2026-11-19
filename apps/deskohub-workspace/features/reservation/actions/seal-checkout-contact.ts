@@ -1,7 +1,6 @@
 "use server";
 
 import { Effect, Result, Schema } from "effect";
-import { env } from "@/env";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { validateOfficePeople } from "@/features/office/office-people";
 import {
@@ -63,7 +62,7 @@ const sealCheckoutContactAction = defineWorkspaceAction(
     cookies.set(checkoutOfficeSelectionCookieName(id), draft, {
       httpOnly: true,
       sameSite: "lax",
-      secure: env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production",
       maxAge: checkoutOfficeSelectionMaxAge,
       path: "/",
     });

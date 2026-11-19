@@ -307,7 +307,9 @@ const loadCheckoutContact = (token: string | undefined, locale: Locale) =>
         )
     : Effect.succeed(undefined);
 
-const getCheckoutAccountEmail = (account: ReservationCheckoutAccount) => {
+const getCheckoutAccountEmail = <Kind extends ReservationKind>(
+  account: ReservationCheckoutAccount<Kind>
+) => {
   switch (account.status) {
     case "linked":
       return account.customer.contact.email;

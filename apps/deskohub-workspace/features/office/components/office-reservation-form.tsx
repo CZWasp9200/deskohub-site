@@ -100,6 +100,10 @@ type OfficeCheckoutFormData = OfficeReservationData & {
   readonly people?: OfficePeople;
 };
 
+const hasResolvedOfficeReservation = (
+  values: OfficeReservationData | Record<string, never>
+): values is OfficeReservationData => "seats" in values;
+
 /** A people list the server would refuse, as the booking form words it. */
 const getOfficePeopleIssueError = (
   issue: OfficePeopleIssue,
@@ -175,7 +179,7 @@ const withOfficePeopleCheck =
       contactEmail: values.email.trim() || undefined,
     });
     if (Result.isSuccess(checked)) {
-      return "seats" in result.values
+      return hasResolvedOfficeReservation(result.values)
         ? { values: { ...result.values, people: checked.success }, errors: {} }
         : result;
     }
@@ -320,13 +324,12 @@ export function OfficeReservationForm({
               originalAmount: heldOfficeProduct.originalAmount,
             }),
           },
-          sale:
-            "discounts" in heldOfficeProduct
-              ? {
-                  discounts: heldOfficeProduct.discounts,
-                  productLabel: getWorkspaceOfficeProductTitle(locale),
-                }
-              : undefined,
+          sale: heldOfficeProduct.discounts
+            ? {
+                discounts: heldOfficeProduct.discounts,
+                productLabel: getWorkspaceOfficeProductTitle(locale),
+              }
+            : undefined,
         }
       : undefined;
   const officeQuoteItem =

@@ -1,7 +1,6 @@
 import { DotyposReservationIdSchema } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Option, Schema } from "effect";
-import type { WorkspaceReservationRow } from "@/db/schema";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { testSessionProfile } from "@/features/account/backend/customer-authentication.test-utils";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
@@ -12,7 +11,11 @@ import {
 } from "@/features/checkout/reservation-quote-office";
 import type { Locale } from "@/features/i18n";
 import { InviteeEmail } from "@/features/office/office-people";
-import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import {
+  type WorkspaceReservation,
+  WorkspaceReservationRepository,
+} from "@/features/reservation/backend/workspace-reservation.repository";
+import { withCoworkProductFields } from "@/features/reservation/cowork-reservation-product";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import {
   getStoredWorkspaceReservationDetails,
@@ -52,7 +55,7 @@ export const makeOfficePayRouteFixture = (
     billing: { purpose: "personal", invoice: "none" },
   });
   const holdExpiresAt = instantStringSchema.make("2099-06-01T10:08:00Z");
-  const row = {
+  const row = withCoworkProductFields({
     id: orderId,
     authorAccountId: author,
     officeContactAttends: options.seatOnly ? null : true,
@@ -61,16 +64,14 @@ export const makeOfficePayRouteFixture = (
     paymentState: "not_started",
     dotyposReservationId: DotyposReservationIdSchema.make("synthetic-office"),
     reservationHoldExpiresAt: Temporal.Instant.from(holdExpiresAt),
-  } satisfies Partial<WorkspaceReservationRow>;
+  } satisfies Partial<WorkspaceReservation>);
   let viewer = author;
   const services = Layer.mergeAll(
     TestSealedStateKeys,
     Layer.mock(WorkspaceReservationRepository, {
       // The guarded lookup reads only the held order fields above.
       findById: (id) =>
-        Effect.succeed(
-          id === orderId ? (row as WorkspaceReservationRow) : null
-        ),
+        Effect.succeed(id === orderId ? (row as WorkspaceReservation) : null),
     }),
     Layer.mock(CustomerAuthentication, {
       currentUser: Effect.sync(() => ({
