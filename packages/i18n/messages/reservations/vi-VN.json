@@ -18,6 +18,7 @@
   "withdrawalStartedDays": "Cho các ngày đã bắt đầu ({started}/{total})",
   "withdrawalStartedHours": "Cho các giờ đã bắt đầu ({started}/{total})",
   "withdrawalConfirmRefundNote": "Về phương thức thanh toán ban đầu trong vòng 14 ngày.",
+  "withdrawalRefundChanged": "Số tiền hoàn lại đã thay đổi. Bạn hãy kiểm tra số tiền mới và xác nhận lại việc rút khỏi hợp đồng.",
   "withdrawalConfirmDecline": "Không rút lại",
   "withdrawalConfirmSubmit": "Xác nhận rút khỏi hợp đồng",
   "withdrawalReceivedTitle": "Chúng tôi đã nhận yêu cầu rút khỏi hợp đồng của bạn",

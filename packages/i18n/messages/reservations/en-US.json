@@ -18,6 +18,7 @@
   "withdrawalStartedDays": "For started days ({started}/{total})",
   "withdrawalStartedHours": "For started hours ({started}/{total})",
   "withdrawalConfirmRefundNote": "To your original payment method within 14 days.",
+  "withdrawalRefundChanged": "Your refund has changed. Review the new amount and confirm your withdrawal again.",
   "withdrawalConfirmDecline": "Don't withdraw",
   "withdrawalConfirmSubmit": "Confirm withdrawal",
   "withdrawalReceivedTitle": "We've received your withdrawal",

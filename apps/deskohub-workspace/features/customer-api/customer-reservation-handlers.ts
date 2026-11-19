@@ -21,6 +21,7 @@ import {
   CustomerWithdrawalNameRequired,
   type CustomerWithdrawalQuote,
   type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundChanged,
   CustomerWithdrawalRefused,
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
@@ -305,20 +306,37 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
         // booking follows it, so it ends even when the client disconnects.
         .handle("withdrawFromReservation", ({ params: { orderId }, payload }) =>
           withSignedInWithdrawals((withdrawals, accountId) =>
-            withdrawals.withdraw({
-              accountId,
-              locale: payload.locale,
-              contract: { kind: "reservation", id: orderId },
-              ...(payload.customerName !== undefined && {
-                customerName: payload.customerName,
-              }),
-            })
+            withdrawals
+              .withdraw({
+                accountId,
+                locale: payload.locale,
+                contract: { kind: "reservation", id: orderId },
+                ...(payload.customerName !== undefined && {
+                  customerName: payload.customerName,
+                }),
+                ...(payload.refundTermsKey !== undefined && {
+                  refundTermsKey: payload.refundTermsKey,
+                }),
+              })
+              .pipe(
+                Effect.map((receipt) => ({
+                  kind: "receipt" as const,
+                  receipt,
+                })),
+                Effect.catchTag("WithdrawalRefundChangedError", ({ quote }) =>
+                  Effect.succeed({ kind: "refund_changed" as const, quote })
+                )
+              )
           ).pipe(
             providePerRequest(withdrawalLayer),
             runToCompletion,
             answerWithdrawalFailure("customerApi.withdrawFromReservation"),
-            Effect.map((receipt): typeof CustomerWithdrawalReceipt.Type =>
-              toWithdrawalReceiptData(receipt)
+            Effect.flatMap((result) =>
+              result.kind === "receipt"
+                ? Effect.succeed<CustomerWithdrawalReceipt>(
+                    toWithdrawalReceiptData(result.receipt)
+                  )
+                : Effect.fail(customerWithdrawalRefundChanged(result.quote))
             )
           )
         )
@@ -366,6 +384,27 @@ const withSignedInWithdrawals = <A, E>(
 type CustomerReservationAccountId = Parameters<
   WithdrawalService["Service"]["quote"]
 >[0]["accountId"];
+
+const customerWithdrawalRefundChanged = (
+  quote: Parameters<typeof toWithdrawalQuoteData>[0]
+) => {
+  const {
+    paidAmount,
+    refundAmount,
+    refundBasis,
+    refundTermsKey,
+    periodEndsAt,
+  } = toWithdrawalQuoteData(quote);
+  return new CustomerWithdrawalRefundChanged({
+    quote: {
+      paidAmount,
+      refundAmount,
+      refundBasis,
+      refundTermsKey,
+      periodEndsAt,
+    },
+  });
+};
 
 /** The public errors a withdrawal operation failing with `E` answers. */
 type WithdrawalFailureAnswer<E> =

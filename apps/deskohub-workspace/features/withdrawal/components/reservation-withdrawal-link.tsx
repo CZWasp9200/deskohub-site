@@ -10,12 +10,18 @@ import {
 } from "@/features/account/withdrawal-actions";
 import { type Locale, m } from "@/features/i18n";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { WithdrawalQuoteData } from "@/features/withdrawal/withdrawal-read-model";
 import { cn } from "@/shared/utils";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import {
   WithdrawalConfirmDialog,
   type WithdrawalDialogView,
 } from "./withdrawal-confirm-dialog";
+
+type StatementQuote = {
+  readonly quote: WithdrawalQuoteData;
+  readonly refundChanged: boolean;
+};
 
 /**
  * The prominent "Withdraw from the contract" link (§1830a(2)) of a
@@ -39,13 +45,21 @@ export function ReservationWithdrawalLink({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [statementQuote, setStatementQuote] = useState<StatementQuote>();
   const quote = useWorkspaceAction(quoteReservationWithdrawal, {});
-  const withdrawal = useWorkspaceAction(withdrawFromReservation, {});
+  const withdrawal = useWorkspaceAction(withdrawFromReservation, {
+    onSuccess: ({ data }) => {
+      if (data.status === "refund_changed") {
+        setStatementQuote({ quote: data.quote, refundChanged: true });
+      }
+    },
+  });
 
   const loadQuote = () => quote.execute({ orderId });
 
   const openDialog = () => {
     withdrawal.reset();
+    setStatementQuote(undefined);
     setOpen(true);
     loadQuote();
   };
@@ -56,14 +70,10 @@ export function ReservationWithdrawalLink({
     if (withdrawal.result.data?.status === "withdrawn") router.refresh();
   };
 
-  const confirm = (customerName: string | undefined) =>
-    withdrawal.execute({
-      orderId,
-      ...(customerName !== undefined && { customerName }),
-    });
-
   const view = dialogView({
     quoted: quote.result.data,
+    statementQuote:
+      statementQuote?.quote.contractId === orderId ? statementQuote : undefined,
     quoteServerError: quote.result.serverError,
     quoteSettled: !quote.isIdle && !quote.isExecuting,
     submitted: withdrawal.result.data,
@@ -73,6 +83,16 @@ export function ReservationWithdrawalLink({
       : undefined,
     submitting: withdrawal.isExecuting,
   });
+
+  const confirm = (customerName: string | undefined) => {
+    if (view.step !== "statement" || view.pending) return;
+    setStatementQuote({ quote: view.quote, refundChanged: view.refundChanged });
+    withdrawal.execute({
+      orderId,
+      refundTermsKey: view.quote.refundTermsKey,
+      ...(customerName !== undefined && { customerName }),
+    });
+  };
 
   return (
     <>
@@ -103,6 +123,7 @@ export function ReservationWithdrawalLink({
 /** What the dialog shows for the quote and the submission so far. */
 function dialogView({
   quoted,
+  statementQuote,
   quoteServerError,
   quoteSettled,
   submitError,
@@ -110,6 +131,7 @@ function dialogView({
   submitting,
 }: {
   readonly quoted: ReservationWithdrawalQuoteResult | undefined;
+  readonly statementQuote: StatementQuote | undefined;
   readonly quoteServerError: string | undefined;
   readonly quoteSettled: boolean;
   readonly submitError: string | undefined;
@@ -119,23 +141,30 @@ function dialogView({
   if (submitted?.status === "refused") {
     return { step: "refused", reason: submitted.reason };
   }
-  if (!quoteSettled) return { step: "loading" };
-  if (quoted?.status === "refused") {
-    return { step: "refused", reason: quoted.reason };
-  }
-  if (quoted?.status !== "available") {
+  const current =
+    submitted?.status === "refund_changed"
+      ? { quote: submitted.quote, refundChanged: true }
+      : (statementQuote ??
+        (quoteSettled && quoted?.status === "available"
+          ? { quote: quoted.quote, refundChanged: false }
+          : undefined));
+  if (!current) {
+    if (!quoteSettled) return { step: "loading" };
+    if (quoted?.status === "refused") {
+      return { step: "refused", reason: quoted.reason };
+    }
     return { step: "failed", message: quoteServerError };
   }
   if (submitted?.status === "withdrawn") {
     return {
       step: "received",
-      quote: quoted.quote,
+      quote: current.quote,
       receipt: submitted.receipt,
     };
   }
   return {
     step: "statement",
-    quote: quoted.quote,
+    ...current,
     pending: submitting,
     submitError,
     nameRequired: submitted?.status === "name_required",

@@ -215,6 +215,7 @@ const configureWithdrawal = (
           refundBasis: partial
             ? { kind: "partial", unit: "day", unstarted: 1, total: 4 }
             : { kind: "full" },
+          refundTermsKey: partial ? "sample-partial" : "sample-full",
           periodEndsAt: "2026-12-01T23:00:00.000Z",
         };
   if (withdraw === "loading")

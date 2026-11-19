@@ -27,6 +27,7 @@ import { rowOffersWithdrawal } from "./withdrawal-eligibility";
 import {
   type WithdrawalFailure,
   WithdrawalScreenState,
+  type WithdrawalStatementQuote,
   withdrawAtom,
   withdrawalScreenState,
   withdrawalSubmission,
@@ -44,6 +45,7 @@ const quote = (
   paidAmount: money(120_000),
   refundAmount: money(120_000),
   refundBasis: { kind: "full" },
+  refundTermsKey: "full",
   periodEndsAt: "2026-11-22T09:00:00Z",
   ...change,
 });
@@ -62,6 +64,7 @@ const idle = AsyncResult.initial<
 
 const stateOf = ({
   quoteResult = AsyncResult.success(quote()),
+  statementQuote,
   submission = idle,
   typedName = "",
   nameAttempted = false,
@@ -70,6 +73,7 @@ const stateOf = ({
     CustomerWithdrawalQuote,
     WithdrawalFailure
   >;
+  readonly statementQuote?: WithdrawalStatementQuote;
   readonly submission?: AsyncResult.AsyncResult<
     CustomerWithdrawalReceipt,
     WithdrawalFailure
@@ -79,6 +83,7 @@ const stateOf = ({
 } = {}) =>
   withdrawalScreenState({
     quote: quoteResult,
+    statementQuote,
     submission,
     typedName,
     nameAttempted,
@@ -204,14 +209,15 @@ describe("withdrawalScreenState: the receipt", () => {
 });
 
 describe("withdrawalSubmission", () => {
-  test("sends only the locale when the profile's name is confirmed", () => {
+  test("sends the confirmed refund terms when the profile's name is known", () => {
     expect(
       withdrawalSubmission(
         { kind: "known", name: "Alex Example" },
         "ignored",
-        "cs-CZ"
+        "cs-CZ",
+        "full"
       )
-    ).toEqual(Option.some({ locale: "cs-CZ" }));
+    ).toEqual(Option.some({ locale: "cs-CZ", refundTermsKey: "full" }));
   });
 
   test("sends the trimmed typed name when the statement asks for one", () => {
@@ -219,15 +225,27 @@ describe("withdrawalSubmission", () => {
       withdrawalSubmission(
         { kind: "input", missing: false },
         "  Alex Example ",
-        "en-US"
+        "en-US",
+        "full"
       )
-    ).toEqual(Option.some({ locale: "en-US", customerName: "Alex Example" }));
+    ).toEqual(
+      Option.some({
+        locale: "en-US",
+        refundTermsKey: "full",
+        customerName: "Alex Example",
+      })
+    );
   });
 
   test("sends nothing while the asked-for name is blank", () => {
     expect(
       Option.isNone(
-        withdrawalSubmission({ kind: "input", missing: true }, "   ", "en-US")
+        withdrawalSubmission(
+          { kind: "input", missing: true },
+          "   ",
+          "en-US",
+          "full"
+        )
       )
     ).toBe(true);
   });
@@ -239,11 +257,15 @@ describe("withdrawAtom over the Workspace", () => {
   /** Confirms the withdrawal and waits for its answer, like the screen. */
   const confirm = async (
     registry: AtomRegistry.AtomRegistry,
-    payload: { readonly locale: AppLocale; readonly customerName?: string }
+    payload: {
+      readonly locale: AppLocale;
+      readonly customerName?: string;
+      readonly refundTermsKey?: string;
+    }
   ) => {
     const atom = withdrawAtom(orderId);
     registry.mount(atom);
-    registry.set(atom, payload);
+    registry.set(atom, { refundTermsKey: "full", ...payload });
     await Effect.runPromise(
       Effect.result(
         AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
@@ -276,6 +298,79 @@ describe("withdrawAtom over the Workspace", () => {
     expect(rowOffersWithdrawal(row ?? {})).toBe(false);
   });
 
+  test("keeps the statement open for deliberate confirmation of the changed refund", async () => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    const originalQuote = quote({ contractId: orderId, customerName: null });
+    const freshQuote = {
+      ...originalQuote,
+      refundAmount: money(5_000),
+      refundBasis: { kind: "partial", unit: "hour", unstarted: 1, total: 2 },
+      refundTermsKey: "one-hour",
+    } satisfies CustomerWithdrawalQuote;
+    workspace.withdrawal = freshQuote;
+    const originalHistory = await settle(registry, reservationHistoryAtom);
+    if (!Result.isSuccess(originalHistory))
+      throw new Error("The list didn't load.");
+    const originalRow = listed(originalHistory.success);
+    expect(originalRow).toBeDefined();
+    const typedName = "  Alex Example ";
+    const submission = await confirm(registry, {
+      locale: "en-US",
+      customerName: typedName,
+      refundTermsKey: originalQuote.refundTermsKey,
+    });
+
+    expect(AsyncResult.isFailure(submission)).toBe(true);
+    const current = statement(
+      stateOf({
+        quoteResult: AsyncResult.initial(true),
+        statementQuote: { quote: originalQuote, refundChanged: false },
+        submission,
+        typedName,
+        nameAttempted: true,
+      })
+    );
+    expect(current).toMatchObject({
+      quote: freshQuote,
+      refundChanged: true,
+      name: { kind: "input", missing: false },
+      pending: false,
+      failure: Option.none(),
+    });
+    const before = await settle(registry, reservationHistoryAtom);
+    if (!Result.isSuccess(before)) throw new Error("The list didn't load.");
+    expect(listed(before.success)).toEqual(originalRow);
+    const payload = Option.getOrThrow(
+      withdrawalSubmission(
+        current.name,
+        typedName,
+        "en-US",
+        current.quote.refundTermsKey
+      )
+    );
+    expect(payload).toEqual({
+      locale: "en-US",
+      customerName: "Alex Example",
+      refundTermsKey: "one-hour",
+    });
+    const confirmed = await confirm(registry, payload);
+    expect(confirmed).toMatchObject({
+      _tag: "Success",
+      value: { refundAmount: freshQuote.refundAmount },
+    });
+    expect(
+      stateOf({
+        quoteResult: AsyncResult.failure(
+          Cause.fail(
+            new CustomerWithdrawalRefused({ reason: "already_withdrawn" })
+          )
+        ),
+        statementQuote: { quote: current.quote, refundChanged: true },
+        submission: confirmed,
+      })
+    ).toMatchObject({ _tag: "Received", quote: freshQuote });
+  });
+
   test("answers a statement without a name as needing one, and records it once named", async () => {
     const { registry, workspace } = makeFakeCustomerData("linked");
     workspace.withdrawal = quote({ contractId: orderId, customerName: null });
@@ -284,6 +379,7 @@ describe("withdrawAtom over the Workspace", () => {
     expect(
       withdrawalScreenState({
         quote: AsyncResult.success(quote({ customerName: null })),
+        statementQuote: undefined,
         submission: unnamed,
         typedName: "",
         nameAttempted: true,

@@ -35,6 +35,7 @@ const reservationWithdrawalSchema = Schema.toStandardSchemaV1(
 const reservationWithdrawalStatementSchema = Schema.toStandardSchemaV1(
   Schema.Struct({
     orderId: workspaceReservationIdSchema,
+    refundTermsKey: Schema.optionalKey(Schema.String),
     /** The name the customer typed; used only when the profile has none. */
     customerName: Schema.optionalKey(Schema.String),
   }),
@@ -52,6 +53,7 @@ export type ReservationWithdrawalQuoteResult =
  */
 export type ReservationWithdrawalResult =
   | { readonly status: "withdrawn"; readonly receipt: WithdrawalReceiptData }
+  | { readonly status: "refund_changed"; readonly quote: WithdrawalQuoteData }
   | { readonly status: "refused"; readonly reason: WithdrawalRefusal }
   | { readonly status: "name_required" };
 
@@ -135,6 +137,9 @@ const withdrawFromReservationAction = defineWorkspaceAction(
           accountId,
           locale,
           contract: { kind: "reservation", id: input.orderId },
+          ...(input.refundTermsKey !== undefined && {
+            refundTermsKey: input.refundTermsKey,
+          }),
           ...(input.customerName !== undefined && {
             customerName: input.customerName,
           }),
@@ -149,6 +154,12 @@ const withdrawFromReservationAction = defineWorkspaceAction(
           Effect.catchTag("WithdrawalNameRequiredError", () =>
             Effect.succeed<ReservationWithdrawalResult>({
               status: "name_required",
+            })
+          ),
+          Effect.catchTag("WithdrawalRefundChangedError", ({ quote }) =>
+            Effect.succeed<ReservationWithdrawalResult>({
+              status: "refund_changed",
+              quote: toWithdrawalQuoteData(quote),
             })
           )
         )

@@ -18,6 +18,7 @@
   "withdrawalStartedDays": "Für begonnene Tage ({started}/{total})",
   "withdrawalStartedHours": "Für begonnene Stunden ({started}/{total})",
   "withdrawalConfirmRefundNote": "Auf deine ursprüngliche Zahlungsmethode innerhalb von 14 Tagen.",
+  "withdrawalRefundChanged": "Die Erstattung hat sich geändert. Prüfe den neuen Betrag und bestätige den Widerruf erneut.",
   "withdrawalConfirmDecline": "Nicht widerrufen",
   "withdrawalConfirmSubmit": "Widerruf bestätigen",
   "withdrawalReceivedTitle": "Wir haben deinen Widerruf erhalten",

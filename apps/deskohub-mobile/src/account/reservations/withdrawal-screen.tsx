@@ -35,6 +35,7 @@ import { color, space } from "../../ui/tokens";
 import {
   type WithdrawalNameField,
   WithdrawalScreenState,
+  type WithdrawalStatementQuote,
   withdrawAtom,
   withdrawalQuoteAtom,
   withdrawalQuoteKey,
@@ -58,11 +59,15 @@ export function WithdrawalScreen({
   const quote = useAtomValue(quoteAtom);
   const refreshQuote = useAtomRefresh(quoteAtom);
   const [submission, withdraw] = useAtom(withdrawAtom(orderId));
+  const [statementQuote, setStatementQuote] =
+    useState<WithdrawalStatementQuote>();
   // The name comes from the account; an input stands in only when it has none.
   const [typedName, setTypedName] = useState("");
   const [nameAttempted, setNameAttempted] = useState(false);
   const state = withdrawalScreenState({
     quote,
+    statementQuote:
+      statementQuote?.quote.contractId === orderId ? statementQuote : undefined,
     submission,
     typedName,
     nameAttempted,
@@ -87,7 +92,7 @@ export function WithdrawalScreen({
         reference={reference}
       />
     ),
-    Statement: ({ quote, name, pending, failure }) => (
+    Statement: ({ quote, refundChanged, name, pending, failure }) => (
       <WithdrawalStatement
         quote={quote}
         reference={reference}
@@ -95,10 +100,20 @@ export function WithdrawalScreen({
         typedName={typedName}
         onNameChange={setTypedName}
         pending={pending}
+        refundChanged={refundChanged}
         failure={failure}
         onConfirm={() => {
+          if (pending) return;
           setNameAttempted(true);
-          Option.map(withdrawalSubmission(name, typedName, locale), withdraw);
+          const payload = withdrawalSubmission(
+            name,
+            typedName,
+            locale,
+            quote.refundTermsKey
+          );
+          if (Option.isNone(payload)) return;
+          setStatementQuote({ quote, refundChanged });
+          withdraw(payload.value);
         }}
       />
     ),
@@ -117,6 +132,7 @@ function WithdrawalStatement({
   typedName,
   onNameChange,
   pending,
+  refundChanged,
   failure,
   onConfirm,
 }: {
@@ -126,6 +142,7 @@ function WithdrawalStatement({
   readonly typedName: string;
   readonly onNameChange: (name: string) => void;
   readonly pending: boolean;
+  readonly refundChanged: boolean;
   readonly failure: Option.Option<CustomerViewError>;
   readonly onConfirm: () => void;
 }) {
@@ -136,6 +153,14 @@ function WithdrawalStatement({
     <View style={styles.screen}>
       <ScrollScreen>
         <View style={styles.stack}>
+          <Notice
+            tone="info"
+            message={
+              refundChanged
+                ? m.withdrawalRefundChanged({}, { locale })
+                : undefined
+            }
+          />
           {/* Kept mounted so assistive tech announces a failed confirmation. */}
           <Notice
             tone="error"
