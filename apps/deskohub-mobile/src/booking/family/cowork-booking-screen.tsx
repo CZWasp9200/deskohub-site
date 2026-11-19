@@ -320,10 +320,9 @@ function CoworkSelection({
           from: {
             title: chosen.name,
             amount: chosen.advertisedPrice.price,
-            unit:
-              model.draft.stay === "overnight"
-                ? m.booking_price_unit_per_night({}, { locale })
-                : m.booking_price_unit_per_day({}, { locale }),
+            ...(model.draft.stay === "overnight" && {
+              unit: m.booking_price_unit_per_night({}, { locale }),
+            }),
             ...overnightTimes,
           },
           selection: model.selection,

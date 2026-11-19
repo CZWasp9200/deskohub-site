@@ -48,7 +48,7 @@ export const selectionBar = ({
     readonly title: string;
     readonly amount: Money;
     /** Such as "per day". */
-    readonly unit: string;
+    readonly unit?: string;
     /**
      * A Reserved Desk's overnight stay times, which an overnight selection's
      * summary shows.
@@ -69,7 +69,11 @@ export const selectionBar = ({
     return {
       summary: {
         title: from.title,
-        price: { kind: "from", amount: from.amount, unit: from.unit },
+        price: {
+          kind: "from",
+          amount: from.amount,
+          ...(from.unit !== undefined && { unit: from.unit }),
+        },
       },
       action: "continue",
       disabled: true,
