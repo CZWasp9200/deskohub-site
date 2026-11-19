@@ -83,7 +83,7 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.reservations).filter(
         (budgetClass) => budgetClass === "dotypos-read"
       )
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-read"

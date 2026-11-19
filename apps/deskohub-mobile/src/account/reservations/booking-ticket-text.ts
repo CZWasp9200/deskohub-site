@@ -3,6 +3,7 @@ import { DateTime, Option } from "effect";
 import Check from "lucide-react-native/icons/check";
 import Hourglass from "lucide-react-native/icons/hourglass";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
+import X from "lucide-react-native/icons/x";
 import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant, workspaceTimeZone } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
@@ -28,27 +29,32 @@ export const ticketBadge = (
 ): TicketBadge =>
   ({
     pending: () => ({
-      label: m.reservations_status_pending({}, { locale }),
+      label: m.reservationStatusPending({}, { locale }),
       tone: "warning" as const,
       icon: Hourglass,
     }),
     confirmed: () => ({
-      label: m.reservations_status_confirmed({}, { locale }),
+      label: m.reservationStatusConfirmed({}, { locale }),
       tone: "positive" as const,
       icon: Check,
     }),
     attention: () => ({
-      label: m.reservations_status_attention({}, { locale }),
+      label: m.reservationStatusAttention({}, { locale }),
       tone: "warning" as const,
       icon: TriangleAlert,
     }),
     cancelled: () => ({
-      label: m.reservations_status_cancelled({}, { locale }),
+      label: m.reservationStatusCancelled({}, { locale }),
       tone: "neutral" as const,
     }),
     "not-booked": () => ({
       label: m.reservations_badge_not_booked({}, { locale }),
       tone: "neutral" as const,
+    }),
+    withdrawn: () => ({
+      label: m.reservationStatusCancelled({}, { locale }),
+      tone: "neutral" as const,
+      icon: X,
     }),
   })[kind]();
 
@@ -78,7 +84,7 @@ const reasonText = (reason: TicketReason, locale: AppLocale) =>
   ({
     "payment-failed": m.reservations_reason_payment_failed,
     "time-ran-out": m.reservations_reason_time_ran_out,
-    cancelled: m.reservations_status_cancelled,
+    cancelled: m.reservationStatusCancelled,
     refund: m.reservations_reason_refund,
     "email-late": m.reservations_reason_email_late,
   })[reason]({}, { locale });
@@ -205,6 +211,35 @@ export const shortDate = (instant: DateTime.DateTime, locale: AppLocale) =>
     month: "short",
     timeZone: workspaceTimeZone,
   }).format(DateTime.toEpochMillis(instant));
+
+/** A Prague day without its weekday, which the row's tile already shows. */
+const dayMonth = (instant: DateTime.DateTime, locale: AppLocale) =>
+  new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    timeZone: workspaceTimeZone,
+  }).format(DateTime.toEpochMillis(instant));
+
+/** A whole-day booking's first and last dates when it spans several days. */
+export const bookingDateRange = (
+  start: DateTime.DateTime,
+  end: DateTime.DateTime,
+  locale: AppLocale
+): string | undefined => {
+  if (
+    !isMidnight(start) ||
+    !isMidnight(end) ||
+    !DateTime.isGreaterThan(end, start)
+  )
+    return undefined;
+  const last = DateTime.subtract(end, { milliseconds: 1 });
+  return dayOf(start) === dayOf(last)
+    ? undefined
+    : m.reservations_time_range(
+        { start: dayMonth(start, locale), end: dayMonth(last, locale) },
+        { locale }
+      );
+};
 
 /**
  * A booking's time under its title. A booking within one day reads "Until

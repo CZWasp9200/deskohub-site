@@ -28,6 +28,7 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { readReservationWithdrawalEntry } from "@/features/withdrawal/backend/withdrawal-entry.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { RouteAutoRefresh } from "@/shared/components/route-auto-refresh";
 import {
@@ -129,7 +130,7 @@ async function renderReservationStatus({
     () => ({ outcome: undefined })
   );
   const returnOutcome = decodedSearchParams.outcome ?? "unknown";
-  const status = await Effect.gen(function* () {
+  const loadStatus = Effect.gen(function* () {
     const service = yield* CheckoutStatusService;
     const authorization = yield* ReservationAuthorizationService;
     return yield* loadCheckoutStatusPage(service, authorization, {
@@ -152,9 +153,15 @@ async function renderReservationStatus({
         CheckoutStatusService.Live,
         ReservationAuthorizationService.Live
       )
-    ),
-    runWorkspaceEffect("checkout.status.load")
+    )
   );
+  const [status, withdrawal] = await Effect.all(
+    [
+      loadStatus,
+      readReservationWithdrawalEntry({ reservationId: orderId, locale }),
+    ],
+    { concurrency: "unbounded" }
+  ).pipe(runWorkspaceEffect("checkout.status.load"));
   // A signed-out visitor, such as one following the link in the author's
   // email, signs in and comes back instead of seeing "not found".
   if (status.status === "not_found" && (await isSignedOut())) {
@@ -182,6 +189,11 @@ async function renderReservationStatus({
         presentation={presentation}
         resendInvitation={resendReservationInvitation}
         status={status}
+        withdrawal={
+          withdrawal.status === "offered" && status.status !== "fulfilled"
+            ? { status: "none" }
+            : withdrawal
+        }
       />
     </>
   );

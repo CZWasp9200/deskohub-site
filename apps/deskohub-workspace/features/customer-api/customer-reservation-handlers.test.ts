@@ -2,7 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer, Option } from "effect";
+import { Deferred, Effect, Layer, Option } from "effect";
 import type {
   CustomerReservationHistory,
   CustomerReservationSummary,
@@ -60,6 +60,10 @@ import {
   ReservationAuthorizationUnavailableError,
 } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import {
+  type ContractWithdrawal,
+  WithdrawalRepository,
+} from "@/features/withdrawal/backend/withdrawal.repository";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { instantStringSchema, type PlainDate } from "@/shared/utils/temporal";
@@ -560,6 +564,7 @@ describe("getReservationStatus", () => {
     options: {
       readonly authorized?: boolean;
       readonly getStatus?: CheckoutStatusService["Service"]["getStatus"];
+      readonly findWithdrawal?: WithdrawalRepository["Service"]["findByContract"];
     } = {}
   ): Partial<CustomerReservationServiceLayers> => ({
     authorization: ownOrderAuthorization(options.authorized ?? true),
@@ -568,7 +573,17 @@ describe("getReservationStatus", () => {
       getStatus:
         options.getStatus ?? (() => Effect.die("must not read local status")),
     }),
+    ...(options.findWithdrawal && {
+      withdrawalRecords: Layer.mock(WithdrawalRepository, {
+        findByContract: options.findWithdrawal,
+      }),
+    }),
   });
+
+  const withdrawal = {
+    submittedAt: Temporal.Instant.from("2026-06-19T14:30:00Z"),
+    refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+  } as ContractWithdrawal;
 
   testCustomerEndpointGuards(getReservationStatus);
 
@@ -616,10 +631,15 @@ describe("getReservationStatus", () => {
     });
   });
 
-  test.each([true, false])(
-    "sends office people with explicit resend eligibility %s",
-    async (resendable) => {
+  test.each([
+    { resendable: true, withdrawn: false },
+    { resendable: false, withdrawn: false },
+    { resendable: true, withdrawn: true },
+  ])(
+    "sends office people (resendable $resendable, withdrawn $withdrawn)",
+    async ({ resendable, withdrawn }) => {
       const email = testEmailAddress("office-status-api-guest");
+      const resendAvailableAt = Temporal.Instant.from("2026-06-20T08:00:00Z");
       const refreshStatus = mock(() =>
         Effect.succeed({
           orderId,
@@ -631,7 +651,14 @@ describe("getReservationStatus", () => {
           people: {
             contactAttends: false,
             resendable,
-            invitees: [{ id: "office-guest", email, invitationSentAt: null }],
+            invitees: [
+              {
+                id: "office-guest",
+                email,
+                invitationSentAt: null,
+                resendAvailableAt: resendable ? resendAvailableAt : undefined,
+              },
+            ],
           },
           supportContactPrefill: {
             name: "Ada Example",
@@ -640,19 +667,30 @@ describe("getReservationStatus", () => {
         } as CheckoutStatusViewModel)
       );
       const api = makeCustomerApiTestServer({
-        reservations: statusServices(refreshStatus),
+        reservations: statusServices(refreshStatus, {
+          findWithdrawal: () =>
+            Effect.succeed(withdrawn ? Option.some(withdrawal) : Option.none()),
+        }),
       });
       const response = await api.handle(
         customerApiRequest(getReservationStatus)
       );
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body).toMatchObject({
-        people: {
-          contactAttends: false,
-          resendable,
-          invitees: [{ email, invitationSentAt: null }],
-        },
+      expect(body.people).toEqual({
+        contactAttends: false,
+        resendable: resendable && !withdrawn,
+        invitees: [
+          {
+            id: "office-guest",
+            email,
+            invitationSentAt: null,
+            ...(resendable &&
+              !withdrawn && {
+                resendAvailableAt: resendAvailableAt.toString(),
+              }),
+          },
+        ],
       });
       expect(body).not.toHaveProperty("supportContactPrefill");
 
@@ -759,6 +797,70 @@ describe("getReservationStatus", () => {
     expect(await answer(pendingOrder)).not.toHaveProperty(
       "paymentPageReopenable"
     );
+  });
+
+  test("answers a withdrawn order with when the customer withdrew and the refund", async () => {
+    const findWithdrawal = mock(() => Effect.succeed(Option.some(withdrawal)));
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(
+        () => Effect.succeed({ ...fulfilledOrder, status: "cancelled" }),
+        { findWithdrawal }
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orderId,
+      status: "cancelled",
+      withdrawal: {
+        submittedAt: "2026-06-19T14:30:00Z",
+        refundAmount: { value: 35_000, exponent: 2, currency: "CZK" },
+      },
+    });
+    expect(findWithdrawal).toHaveBeenCalledWith({
+      kind: "reservation",
+      id: orderId,
+    });
+  });
+
+  test("reads the withdrawal beside the status, not after it", async () => {
+    const withdrawalRead = Deferred.makeUnsafe<void>();
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(
+        // The refresh answers only once the withdrawal read has started.
+        () => Effect.as(Deferred.await(withdrawalRead), fulfilledOrder),
+        {
+          findWithdrawal: () =>
+            Effect.as(
+              Deferred.succeed(withdrawalRead, undefined),
+              Option.none()
+            ),
+        }
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty("withdrawal");
+  });
+
+  test("answers someone else's withdrawn order as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(() => Effect.succeed(fulfilledOrder), {
+        authorized: false,
+        findWithdrawal: () => Effect.succeed(Option.some(withdrawal)),
+      }),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
   });
 
   test("answers someone else's order as not found, without reading it", async () => {

@@ -20,7 +20,7 @@ retention) sees it; the page never offers a download it would refuse.
 
 ## Scope
 
-Every archive contains a manifest and exactly the nine data sections below.
+Every archive contains a manifest and exactly the ten data sections below.
 Nothing else is included.
 
 1. **Identity**: the account identifier, the verified login email, the stored
@@ -48,6 +48,10 @@ Nothing else is included.
    with the document version each acceptance was given under.
 9. **Access grants**: door-access grants for the customer's own reservations:
    grant state and the access interval. No access codes, PINs, or credentials.
+10. **Withdrawals**: the customer's online withdrawals from contracts: which
+    contract, when the withdrawal was submitted, the amount paid and the
+    amount owed back, and whether processing is complete. The withdrawal
+    confirmation email itself is not stored, so it is not included.
 
 The manifest describes every section and carries the archive's schema version
 and the notes described under "Honesty rules".

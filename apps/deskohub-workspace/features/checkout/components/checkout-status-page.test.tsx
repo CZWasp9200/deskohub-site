@@ -66,6 +66,17 @@ const { workspaceUseAction } = await import(
 mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
   reopenPaymentPage: mock(),
 }));
+// The link's dialog has its own tests; here it marks where it's offered.
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({
+    ReservationWithdrawalLink: () => (
+      <button type="button">
+        {m.reservationWithdrawalAction({}, { locale: "en-US" })}
+      </button>
+    ),
+  })
+);
 mock.module("@/features/checkout/actions/prepare-payment-retry", () => ({
   preparePaymentRetry: mock(),
 }));
@@ -231,6 +242,45 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
   });
 
+  test("reads a withdrawn reservation as cancelled, without PIN or withdrawal", () => {
+    const withdrawalLinks = (view: ReturnType<typeof render>) =>
+      view.queryAllByRole("button", {
+        name: m.reservationWithdrawalAction({}, { locale: "en-US" }),
+      });
+    const offered = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={reconstructedCoworkStatus}
+        withdrawal={{ status: "offered" }}
+      />
+    );
+    expect(withdrawalLinks(offered).length).toBeGreaterThan(0);
+    cleanup();
+
+    const withdrawn = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={reconstructedCoworkStatus}
+        withdrawal={{
+          status: "withdrawn",
+          refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+        }}
+      />
+    );
+
+    expect(
+      withdrawn.getByRole("heading", {
+        name: m.checkoutStatusWithdrawnTitle({}, { locale: "en-US" }),
+      })
+    ).toBeDefined();
+    expect(withdrawalLinks(withdrawn)).toEqual([]);
+    expect(
+      withdrawn.queryByRole("link", {
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
+      })
+    ).toBeNull();
+  });
+
   test("renders fulfilled modal content without the page shell or page CTAs", () => {
     const view = render(
       <CheckoutStatusPage
@@ -245,7 +295,11 @@ describe("CheckoutStatusPage", () => {
     expect(view.getByText("Reservation summary")).toBeDefined();
     expect(view.getByText("reservation-status-page")).toBeDefined();
     expect(view.getByText("Profi Workstation")).toBeDefined();
-    expect(view.getByRole("link", { name: "Show access code" })).toBeDefined();
+    expect(
+      view.getByRole("link", {
+        name: m.reservationShowPinCode({}, { locale: "en-US" }),
+      })
+    ).toBeDefined();
     expect(
       view.container.querySelector(
         '#checkout-status-access[href="/en-US/reservation/access/reservation-status-page"]'
@@ -414,7 +468,9 @@ describe("CheckoutStatusPage", () => {
 
     expect(
       modalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("href")
     ).toBe(accessHref);
     expect(capturedLinks).toContainEqual({
@@ -430,13 +486,17 @@ describe("CheckoutStatusPage", () => {
 
     expect(
       canonicalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("href")
     ).toBe(accessHref);
     expect(capturedLinks.some(({ href }) => href === accessHref)).toBe(false);
     expect(
       canonicalView
-        .getByRole("link", { name: "Show access code" })
+        .getByRole("link", {
+          name: m.reservationShowPinCode({}, { locale: "en-US" }),
+        })
         .getAttribute("data-next-link")
     ).toBeNull();
   });
@@ -520,14 +580,26 @@ describe("CheckoutStatusPage", () => {
     ).toBe("/en-US/reservation/office?dayCount=3&seats=3");
   });
 
-  test.each([true, false])(
-    "shows people and the change request without a price or date summary (resendable %s)",
-    (resendable) => {
+  test.each([
+    { resendable: true, withdrawn: false },
+    { resendable: false, withdrawn: false },
+    { resendable: true, withdrawn: true },
+  ])(
+    "shows office people without a summary (resendable $resendable, withdrawn $withdrawn)",
+    ({ resendable, withdrawn }) => {
       const email = InviteeEmail.make(testEmailAddress("office-status-guest"));
       const view = render(
         <CheckoutStatusPage
           locale="en-US"
           resendInvitation={async () => ({ status: "failed" })}
+          withdrawal={
+            withdrawn
+              ? {
+                  status: "withdrawn",
+                  refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+                }
+              : undefined
+          }
           status={{
             ...baseStatus,
             kind: "office",
@@ -569,7 +641,7 @@ describe("CheckoutStatusPage", () => {
             ),
           })
         )
-      ).toBe(resendable);
+      ).toBe(resendable && !withdrawn);
     }
   );
 

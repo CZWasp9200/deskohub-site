@@ -17,6 +17,7 @@ import { CustomerBookedReservations } from "@/features/reservation/backend/custo
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import {
   CustomerAccountAccessError,
   customerAccountIdSchema,
@@ -82,6 +83,10 @@ type OwnerAnswers = {
   readonly accessGrants: ReadOf<
     typeof ReservationAccessRepository,
     "listForReservations"
+  >;
+  readonly withdrawals: ReadOf<
+    typeof WithdrawalRepository,
+    "listRecordsForAccount"
   >;
 };
 
@@ -273,6 +278,17 @@ export const syntheticExportSources = (): AccountDataExportSources => ({
       issuedAt: at("2026-08-10T06:30:00Z"),
     },
   ]),
+  withdrawals: Effect.succeed([
+    {
+      contractKind: "reservation",
+      contractId: exportReservationId,
+      contractLabel: "Office · 10. 8. 2026",
+      submittedAt: at("2026-08-02T09:00:00Z"),
+      paidAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+      refundAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+      status: "completed",
+    },
+  ]),
 });
 
 /**
@@ -429,6 +445,9 @@ export const fakeAccountDataExportSources = (
     }),
     Layer.mock(ReservationAccessRepository, {
       listForReservations: read("accessGrants"),
+    }),
+    Layer.mock(WithdrawalRepository, {
+      listRecordsForAccount: read("withdrawals"),
     })
   );
 };

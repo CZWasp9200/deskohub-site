@@ -123,6 +123,11 @@ mock.module("@/features/account/actions", () => ({
   deleteCustomerAccount: () => Promise.resolve({ data: { status: "deleted" } }),
 }));
 
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({ ReservationWithdrawalLink: () => null })
+);
+
 mock.module("@/features/account/avatar-actions", () => ({
   removeCustomerAvatar: () => Promise.resolve({ data: { status: "removed" } }),
   uploadCustomerAvatar: () =>

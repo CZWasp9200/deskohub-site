@@ -80,6 +80,8 @@ export type ButtonVariant =
   | "primary"
   | "secondary"
   | "danger"
+  /** An affirmative choice beside a destructive one, such as "Don't withdraw". */
+  | "positive"
   | "text"
   | "quiet"
   | "dangerText"
@@ -89,6 +91,7 @@ const buttonLabelColor = {
   primary: color.white,
   secondary: color.navy,
   danger: color.white,
+  positive: color.white,
   text: color.action,
   quiet: color.navy,
   dangerText: color.dangerInk,
@@ -164,7 +167,8 @@ export function Button({
   const reasonId = useId();
   const reason = disabled && !busy ? disabledReason : undefined;
   const labelColor = disabled ? color.disabledInk : buttonLabelColor[variant];
-  const filled = variant === "primary" || variant === "danger";
+  const filled =
+    variant === "primary" || variant === "danger" || variant === "positive";
   const textOnly =
     variant === "text" || variant === "quiet" || variant === "dangerText";
   const busyIndicator = (
@@ -327,6 +331,7 @@ const buttonStyles = StyleSheet.create({
     borderWidth: 1,
   },
   danger: { backgroundColor: color.danger },
+  positive: { backgroundColor: color.positiveInk },
   text: { backgroundColor: "transparent" },
   quiet: { backgroundColor: "transparent" },
   dangerText: { backgroundColor: "transparent" },
@@ -368,6 +373,11 @@ const buttonPressedStyles = StyleSheet.create({
   secondary: { backgroundColor: color.sunken },
   danger: {
     backgroundColor: color.dangerInk,
+    transform: [{ translateY: 1 }],
+  },
+  positive: {
+    backgroundColor: color.positiveInk,
+    opacity: 0.9,
     transform: [{ translateY: 1 }],
   },
   text: textPressed,

@@ -58,6 +58,7 @@ export const reservationStates = [
  * - `hold_expired`, `late_payment`, `payment_retry`: the unpaid-hold release
  *   reasons that claim it;
  * - `operator`: an administrator cancelled it;
+ * - `customer_withdrawal`: the customer withdrew from the contract;
  * - `checkout_superseded`: a newer submission of its checkout session (the
  *   customer's edit, or an agent's rotated session) replaced it.
  * Null for cancellations recorded before causes were (their origin is unknown).
@@ -68,6 +69,7 @@ const reservationCancellationCauses = [
   "payment_retry",
   "operator",
   "checkout_superseded",
+  "customer_withdrawal",
 ] as const;
 
 export type ReservationCancellationCause =

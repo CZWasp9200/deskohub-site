@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { Locale } from "@/features/i18n";
 import { useRouteLocale } from "@/features/i18n/route-locale";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
+import { formatMoney } from "@/shared/money/money";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationSummary } from "./administration.service";
 import { administrationHref } from "./administration-href";
@@ -307,10 +308,19 @@ function ReservationStatus({
       {reservation.statusNoteCode ? (
         <ReservationStatusBadge
           group="attention"
-          label={getAdministrationReservationStatusNoteLabel(
-            reservation.statusNoteCode,
-            locale
-          )}
+          label={
+            reservation.statusNoteCode === "needs_refund" &&
+            reservation.withdrawal &&
+            reservation.withdrawal.refundAmountDue.value > 0
+              ? `${getAdministrationReservationStatusNoteLabel(
+                  reservation.statusNoteCode,
+                  locale
+                )} · ${formatMoney(reservation.withdrawal.refundAmountDue, locale)}`
+              : getAdministrationReservationStatusNoteLabel(
+                  reservation.statusNoteCode,
+                  locale
+                )
+          }
         />
       ) : (
         <ReservationStatusBadge

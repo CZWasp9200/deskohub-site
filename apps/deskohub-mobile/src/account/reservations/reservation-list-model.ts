@@ -2,6 +2,7 @@ import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
   CustomerReservationParty,
+  CustomerReservationSummary,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, DateTime, Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -10,6 +11,7 @@ import { m } from "../../i18n/messages";
 import { opensReservationStatus } from "../account-gating";
 import type { TicketBadgeKind } from "./booking-ticket-model";
 import {
+  bookingDateRange,
   bookingTimeLine,
   historyBadgeKind,
   shortDate,
@@ -33,6 +35,8 @@ import type {
  */
 export type ReservationListRow = SavedReservation & {
   readonly todayAccess?: CustomerReservationAccess;
+  /** A fresh row's withdrawal entry point; saved rows never keep it. */
+  readonly withdrawal?: CustomerReservationSummary["withdrawal"];
   /** The other party, on a fresh row only. */
   readonly party?: CustomerReservationParty;
 };
@@ -102,7 +106,10 @@ export interface ReservationRowView {
   readonly title: string;
   /** Its day's tile; none when its time can't be read. */
   readonly date: Option.Option<DateTileParts>;
-  /** The time, or for a past cancelled one only that it was cancelled. */
+  /**
+   * The time (with seats for an office), or for a past cancelled one only
+   * that it was cancelled. Always shown, the badge beside it.
+   */
   readonly detail: string;
   /** The status badge of an upcoming one not confirmed yet. */
   readonly badge: Option.Option<TicketBadgeKind>;
@@ -112,6 +119,15 @@ const seatsOf = (row: ReservationListRow, locale: AppLocale) =>
   row.product.kind === "office" && row.seats !== null
     ? Option.some(m.reservations_seats({ count: row.seats }, { locale }))
     : Option.none();
+
+/** A compact row's time: the date range for a booking of several whole days. */
+const rowTimeLineOf = (row: ReservationListRow, locale: AppLocale): string =>
+  Option.match(Option.all([instantOf(row.startsAt), instantOf(row.endsAt)]), {
+    onNone: () => m.reservations_value_unavailable({}, { locale }),
+    onSome: ([start, end]) =>
+      bookingDateRange(start, end, locale) ??
+      bookingTimeLine(start, end, locale),
+  });
 
 export const reservationRowView = (
   row: ReservationListRow,
@@ -129,9 +145,9 @@ export const reservationRowView = (
     // the history can't tell whether a payment was taken.
     detail:
       place === "past" && cancelled
-        ? m.reservations_status_cancelled({}, { locale })
+        ? m.reservationStatusCancelled({}, { locale })
         : [
-            timeLineOf(row, locale),
+            rowTimeLineOf(row, locale),
             ...Option.toArray(seatsOf(row, locale)),
           ].join(" · "),
     badge:

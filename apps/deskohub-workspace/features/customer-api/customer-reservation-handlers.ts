@@ -18,15 +18,21 @@ import {
   CustomerReservationNotFound,
   type CustomerReservationSummary,
   CustomerSessionRequired,
+  CustomerWithdrawalNameRequired,
+  type CustomerWithdrawalQuote,
+  type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundChanged,
+  CustomerWithdrawalRefused,
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Layer, Match } from "effect";
+import { Effect, Layer, Match, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import {
   currentReservationHistoryAccount,
   type CustomerReservationHistory as ReservationHistoryRecord,
   type CustomerReservationSummary as ReservationSummaryRecord,
 } from "@/features/account";
+import { requireAccountFeature } from "@/features/account/backend/account-feature-withheld";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import { getReservationSummaryStay } from "@/features/account/reservation-summary-stay";
@@ -49,6 +55,20 @@ import {
 } from "@/features/reservation/backend/reservation-access.service";
 import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { resendAuthorizedReservationInvitation } from "@/features/reservation-invitees/backend/resend-reservation-invitation";
+import {
+  type ContractWithdrawal,
+  WithdrawalRepository,
+} from "@/features/withdrawal/backend/withdrawal.repository";
+import {
+  WithdrawalNameRequiredError,
+  WithdrawalRefusedError,
+  WithdrawalService,
+} from "@/features/withdrawal/backend/withdrawal.service";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
+import {
+  toWithdrawalQuoteData,
+  toWithdrawalReceiptData,
+} from "@/features/withdrawal/withdrawal-read-model";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { runToCompletion } from "@/shared/backend/run-to-completion";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -61,6 +81,7 @@ import {
   answerCustomerApiFailure,
   answerSessionApiFailure,
   answerUnavailable,
+  type CustomerApiFailure,
 } from "./customer-api-failure";
 import { toCustomerCheckout } from "./customer-checkout-view";
 import { answerFileDownload } from "./customer-file-download";
@@ -89,6 +110,11 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
       Layer.provide(authentication)
     );
     const currentAccount = reservations.currentAccount.pipe(
+      Layer.provide(authentication)
+    );
+    // The gate and the reservation reads behind a withdrawal decide per
+    // request, so each request builds them.
+    const withdrawalLayer = reservations.withdrawals.pipe(
       Layer.provide(authentication)
     );
 
@@ -188,19 +214,35 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
         )
         // A refresh can finalize a payment, so it ends even when the client
         // disconnects.
+        // The withdrawal record is read beside the status, so it adds no
+        // wait; an order the account may not see drops it unanswered.
         .handle("getReservationStatus", ({ params: { orderId } }) =>
-          loadAuthorizedCheckoutStatus({
-            includeSupportContact: false,
-            orderId,
-            locale: defaultLocale,
-            returnOutcome: "unknown",
-          }).pipe(
+          Effect.all(
+            [
+              loadAuthorizedCheckoutStatus({
+                includeSupportContact: false,
+                orderId,
+                locale: defaultLocale,
+                returnOutcome: "unknown",
+              }),
+              Effect.flatMap(WithdrawalRepository, (withdrawals) =>
+                withdrawals.findByContract({ kind: "reservation", id: orderId })
+              ),
+            ],
+            { concurrency: "unbounded" }
+          ).pipe(
             providePerRequest(
-              Layer.mergeAll(reservations.checkoutStatus, authorization)
+              Layer.mergeAll(
+                reservations.checkoutStatus,
+                reservations.withdrawalRecords,
+                authorization
+              )
             ),
             runToCompletion,
             answerSessionApiFailure("customerApi.getReservationStatus"),
-            Effect.flatMap(answerOrderState)
+            Effect.flatMap(([state, withdrawal]) =>
+              answerOrderState(state, withdrawal)
+            )
           )
         )
         .handle("reopenPaymentPage", ({ params: { orderId }, payload }) =>
@@ -242,6 +284,62 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             Effect.flatMap(answerReservationAccess)
           )
         )
+        .handle(
+          "getWithdrawalQuote",
+          ({ params: { orderId }, query: { locale = defaultLocale } }) =>
+            withSignedInWithdrawals((withdrawals, accountId) =>
+              withdrawals.quote({
+                accountId,
+                locale,
+                contract: { kind: "reservation", id: orderId },
+              })
+            ).pipe(
+              providePerRequest(withdrawalLayer),
+              answerWithdrawalFailure("customerApi.getWithdrawalQuote"),
+              Effect.map((quote): typeof CustomerWithdrawalQuote.Type => ({
+                ...toWithdrawalQuoteData(quote),
+                contractId: orderId,
+              }))
+            )
+        )
+        // The withdrawal is recorded before the response, and ending the
+        // booking follows it, so it ends even when the client disconnects.
+        .handle("withdrawFromReservation", ({ params: { orderId }, payload }) =>
+          withSignedInWithdrawals((withdrawals, accountId) =>
+            withdrawals
+              .withdraw({
+                accountId,
+                locale: payload.locale,
+                contract: { kind: "reservation", id: orderId },
+                ...(payload.customerName !== undefined && {
+                  customerName: payload.customerName,
+                }),
+                ...(payload.refundTermsKey !== undefined && {
+                  refundTermsKey: payload.refundTermsKey,
+                }),
+              })
+              .pipe(
+                Effect.map((receipt) => ({
+                  kind: "receipt" as const,
+                  receipt,
+                })),
+                Effect.catchTag("WithdrawalRefundChangedError", ({ quote }) =>
+                  Effect.succeed({ kind: "refund_changed" as const, quote })
+                )
+              )
+          ).pipe(
+            providePerRequest(withdrawalLayer),
+            runToCompletion,
+            answerWithdrawalFailure("customerApi.withdrawFromReservation"),
+            Effect.flatMap((result) =>
+              result.kind === "receipt"
+                ? Effect.succeed<CustomerWithdrawalReceipt>(
+                    toWithdrawalReceiptData(result.receipt)
+                  )
+                : Effect.fail(customerWithdrawalRefundChanged(result.quote))
+            )
+          )
+        )
         .handle("getReservationInvoice", ({ params: { orderId } }) =>
           Effect.flatMap(ReservationInvoicePdfService, (invoices) =>
             invoices.getPdf({ orderId, locale: defaultLocale })
@@ -265,6 +363,95 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
     );
   })
 );
+
+/**
+ * Runs a withdrawal operation for the session's account while the online
+ * withdrawal function is released.
+ */
+const withSignedInWithdrawals = <A, E>(
+  operation: (
+    withdrawals: WithdrawalService["Service"],
+    accountId: CustomerReservationAccountId
+  ) => Effect.Effect<A, E>
+) =>
+  Effect.gen(function* () {
+    yield* requireAccountFeature("withdrawal", WithdrawalReleaseGate.isOpen);
+    const session = yield* CurrentCustomerSession;
+    const withdrawals = yield* WithdrawalService;
+    return yield* operation(withdrawals, session.accountId);
+  });
+
+type CustomerReservationAccountId = Parameters<
+  WithdrawalService["Service"]["quote"]
+>[0]["accountId"];
+
+const customerWithdrawalRefundChanged = (
+  quote: Parameters<typeof toWithdrawalQuoteData>[0]
+) => {
+  const {
+    paidAmount,
+    refundAmount,
+    refundBasis,
+    refundTermsKey,
+    periodEndsAt,
+  } = toWithdrawalQuoteData(quote);
+  return new CustomerWithdrawalRefundChanged({
+    quote: {
+      paidAmount,
+      refundAmount,
+      refundBasis,
+      refundTermsKey,
+      periodEndsAt,
+    },
+  });
+};
+
+/** The public errors a withdrawal operation failing with `E` answers. */
+type WithdrawalFailureAnswer<E> =
+  | CustomerReservationNotFound
+  | CustomerWithdrawalRefused
+  | ([Extract<E, WithdrawalNameRequiredError>] extends [never]
+      ? never
+      : CustomerWithdrawalNameRequired)
+  | CustomerApiFailure<
+      Exclude<E, WithdrawalRefusedError | WithdrawalNameRequiredError>
+    >;
+
+/**
+ * Answers a refused withdrawal with its public reason, an order the account
+ * didn't book as not found, a statement without a name as name required, and
+ * every other failure as the API's failures.
+ */
+const answerWithdrawalFailure =
+  (operation: string) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>
+  ): Effect.Effect<A, WithdrawalFailureAnswer<E>, R> =>
+    effect.pipe(
+      Effect.catch(
+        (failure): Effect.Effect<never, WithdrawalFailureAnswer<E>> => {
+          if (failure instanceof WithdrawalNameRequiredError) {
+            return Effect.fail(
+              new CustomerWithdrawalNameRequired() as WithdrawalFailureAnswer<E>
+            );
+          }
+          if (!(failure instanceof WithdrawalRefusedError)) {
+            return answerCustomerApiFailure(operation)(
+              Effect.fail(
+                failure as Exclude<
+                  E,
+                  WithdrawalRefusedError | WithdrawalNameRequiredError
+                >
+              )
+            );
+          }
+          const { reason } = failure;
+          return reason === "not_found"
+            ? Effect.fail(new CustomerReservationNotFound())
+            : Effect.fail(new CustomerWithdrawalRefused({ reason }));
+        }
+      )
+    );
 
 /**
  * The history the contract carries. Only the account page's account state
@@ -324,6 +511,7 @@ const answerReservationSummary = ({
   accessEndsAt,
   bookedSelection,
   todayAccess,
+  withdrawal,
 }: ReservationSummaryRecord): CustomerReservationSummary => ({
   id,
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
@@ -345,6 +533,12 @@ const answerReservationSummary = ({
       code: todayAccess.code,
       accessStartsAt: todayAccess.accessStartsAt,
       accessEndsAt: todayAccess.accessEndsAt,
+    },
+  }),
+  ...(withdrawal && {
+    withdrawal: {
+      eligible: withdrawal.eligible,
+      periodEndsAt: withdrawal.periodEndsAt,
     },
   }),
 });
@@ -390,8 +584,14 @@ const establishment: CustomerEstablishment = {
   mapUrl: workspaceGoogleMapUrl,
 };
 
-/** An order the account may see, as the contract carries its status. */
-const answerOrderState = (state: CheckoutStatusViewModel) =>
+/**
+ * An order the account may see, as the contract carries its status, with
+ * the customer's withdrawal from it when there is one.
+ */
+const answerOrderState = (
+  state: CheckoutStatusViewModel,
+  withdrawal: Option.Option<ContractWithdrawal>
+) =>
   Match.value(state).pipe(
     Match.when({ status: "not_found" }, () =>
       Effect.fail(new CustomerReservationNotFound())
@@ -437,21 +637,36 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
             reservation.people && {
               people: {
                 contactAttends: reservation.people.contactAttends,
-                resendable: reservation.people.resendable,
+                resendable:
+                  Option.isNone(withdrawal) && reservation.people.resendable,
                 invitees: reservation.people.invitees.map(
                   ({ id, email, invitationSentAt, resendAvailableAt }) => ({
                     id,
                     email,
                     invitationSentAt: invitationSentAt?.toString() ?? null,
-                    ...(resendAvailableAt && {
-                      resendAvailableAt: resendAvailableAt.toString(),
-                    }),
+                    ...(Option.isNone(withdrawal) &&
+                      resendAvailableAt && {
+                        resendAvailableAt: resendAvailableAt.toString(),
+                      }),
                   })
                 ),
               },
             }),
           ...(bookedSelection && {
             bookedSelection: answerBookedSelection(bookedSelection),
+          }),
+          ...Option.match(withdrawal, {
+            onNone: () => ({}),
+            onSome: ({ submittedAt, refundAmount }) => ({
+              withdrawal: {
+                submittedAt: submittedAt.toString(),
+                refundAmount: {
+                  value: refundAmount.value,
+                  exponent: refundAmount.exponent,
+                  currency: refundAmount.currency,
+                },
+              },
+            }),
           }),
         })
     )

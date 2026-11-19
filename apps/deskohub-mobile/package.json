@@ -5,7 +5,7 @@
   "main": "./index.ts",
   "scripts": {
     "dev": "bun i18n:compile && bun --parallel start dev:i18n",
-    "dev:i18n": "chokidar \"messages/*.json\" -c \"bun i18n:compile\"",
+    "dev:i18n": "chokidar \"messages/*.json\" \"../../packages/i18n/messages/reservations/*.json\" -c \"bun i18n:compile\"",
     "start": "expo start",
     "build:web": "expo export --platform web",
     "lint": "cd ../.. && biome check apps/deskohub-mobile --config-path biome.json --vcs-root .",

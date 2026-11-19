@@ -13,6 +13,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   "login_passkeys",
   "meeting_room_page",
   "office_page",
+  "online_withdrawal",
   "overnight_stays",
   "referrals",
   "seating_map",
@@ -56,6 +57,10 @@ export interface PostHogFeatureFlagDefinitions {
     readonly payload: undefined;
   };
   readonly "office_page": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "online_withdrawal": {
     readonly value: boolean;
     readonly payload: undefined;
   };

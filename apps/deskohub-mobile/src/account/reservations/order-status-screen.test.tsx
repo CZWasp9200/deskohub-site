@@ -236,13 +236,13 @@ test.each(["pending", "paid"] as const)(
     );
     const labels = findAll(tree, "Text").map(textOf);
 
-    expect(labels).toContain(m.reservations_status_cancelled({}, { locale }));
+    expect(labels).toContain(m.reservationStatusCancelled({}, { locale }));
     expect(labels).toContain(m.reservations_book_again({}, { locale }));
     expect(labels).not.toContain(
       m.reservations_step_awaiting_payment({}, { locale })
     );
     expect(labels).not.toContain(m.booking_checkout_retry_pay({}, { locale }));
-    expect(labels).not.toContain(m.reservations_show_pin({}, { locale }));
+    expect(labels).not.toContain(m.reservationShowPinCode({}, { locale }));
     expect(labels).not.toContain(
       m.reservations_add_to_calendar({}, { locale })
     );

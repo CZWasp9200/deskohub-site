@@ -7,6 +7,7 @@
 | Workspace customer | `apps/deskohub-workspace/project.inlang/settings.json` | `features/i18n/messages/<locale>.json` | `m` from `@/features/i18n` |
 | Workspace administration | `features/administration/i18n/project.inlang/settings.json` | `features/administration/i18n/messages/<area>/<locale>.json`, one `pathPattern` per area | `m` from `@/features/administration/i18n` |
 | Mobile | `apps/deskohub-mobile/project.inlang/settings.json` | `apps/deskohub-mobile/messages/<locale>.json` (every registry locale) | see `deskohub-mobile` |
+| Shared reservation messages | Workspace customer and mobile settings | `packages/i18n/messages/reservations/<locale>.json` | each app's existing `m` export |
 
 Workspace paths are relative to `apps/deskohub-workspace`. Both Workspace projects serve every registry locale. The generated Paraglide output (`paraglide/` beside each project's messages) is gitignored and compiled as locale modules.
 

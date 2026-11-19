@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -186,9 +186,15 @@ export class LegalEvidenceEventRepository extends Context.Service<
             })
             .from(legalEvidenceEvents)
             .where(
-              equalsAny(
-                legalEvidenceEvents.workspaceReservationId,
-                input.workspaceReservationIds
+              and(
+                equalsAny(
+                  legalEvidenceEvents.orderId,
+                  input.workspaceReservationIds.map(reservationOrderId)
+                ),
+                eq(
+                  legalEvidenceEvents.workspaceReservationId,
+                  legalEvidenceEvents.orderId
+                )
               )
             )
             .orderBy(

@@ -1330,7 +1330,8 @@
                         "in_progress",
                         "complete",
                         "cancelled",
-                        "needs_refund"
+                        "needs_refund",
+                        "needs_attention"
                       ]
                     },
                     {
@@ -1447,7 +1448,8 @@
                   "in_progress",
                   "complete",
                   "cancelled",
-                  "needs_refund"
+                  "needs_refund",
+                  "needs_attention"
                 ]
               },
               "required": false
@@ -1622,6 +1624,68 @@
                               "required": [
                                 "group",
                                 "label"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "withdrawal": {
+                              "type": "object",
+                              "properties": {
+                                "refundAmount": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "exponent": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "exponent",
+                                    "currency"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "settlement": {
+                                  "type": "string",
+                                  "enum": [
+                                    "settled",
+                                    "in_progress",
+                                    "needs_attention"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "refundAmount",
+                                "settlement"
                               ],
                               "additionalProperties": false
                             },
@@ -2231,6 +2295,68 @@
                             "required": [
                               "group",
                               "label"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "withdrawal": {
+                            "type": "object",
+                            "properties": {
+                              "refundAmount": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "exponent": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "exponent",
+                                  "currency"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "settlement": {
+                                "type": "string",
+                                "enum": [
+                                  "settled",
+                                  "in_progress",
+                                  "needs_attention"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "refundAmount",
+                              "settlement"
                             ],
                             "additionalProperties": false
                           },
@@ -3557,6 +3683,68 @@
                               ],
                               "additionalProperties": false
                             },
+                            "withdrawal": {
+                              "type": "object",
+                              "properties": {
+                                "refundAmount": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "exponent": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "exponent",
+                                    "currency"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "settlement": {
+                                  "type": "string",
+                                  "enum": [
+                                    "settled",
+                                    "in_progress",
+                                    "needs_attention"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "refundAmount",
+                                "settlement"
+                              ],
+                              "additionalProperties": false
+                            },
                             "statusNote": {
                               "anyOf": [
                                 {
@@ -3923,6 +4111,68 @@
                               ],
                               "additionalProperties": false
                             },
+                            "withdrawal": {
+                              "type": "object",
+                              "properties": {
+                                "refundAmount": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "exponent": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "exponent",
+                                    "currency"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "settlement": {
+                                  "type": "string",
+                                  "enum": [
+                                    "settled",
+                                    "in_progress",
+                                    "needs_attention"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "refundAmount",
+                                "settlement"
+                              ],
+                              "additionalProperties": false
+                            },
                             "statusNote": {
                               "anyOf": [
                                 {
@@ -4172,6 +4422,268 @@
                       },
                       "canCancel": {
                         "type": "boolean"
+                      },
+                      "withdrawal": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "refundAmount": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "exponent": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "exponent",
+                                  "currency"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "settlement": {
+                                "type": "string",
+                                "enum": [
+                                  "settled",
+                                  "in_progress",
+                                  "needs_attention"
+                                ]
+                              },
+                              "submittedAt": {
+                                "type": "string"
+                              },
+                              "paidAmount": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "exponent": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "exponent",
+                                  "currency"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "refundBasis": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "full"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "kind"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "partial"
+                                        ]
+                                      },
+                                      "unit": {
+                                        "type": "string",
+                                        "enum": [
+                                          "day",
+                                          "hour"
+                                        ]
+                                      },
+                                      "unstarted": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "Infinity",
+                                              "-Infinity",
+                                              "NaN"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "total": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "Infinity",
+                                              "-Infinity",
+                                              "NaN"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "unit",
+                                      "unstarted",
+                                      "total"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              "steps": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "step": {
+                                      "type": "string",
+                                      "enum": [
+                                        "receipt",
+                                        "operator_notice",
+                                        "contract_cancellation"
+                                      ]
+                                    },
+                                    "status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "done",
+                                        "failed",
+                                        "pending"
+                                      ]
+                                    },
+                                    "doneAt": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "attempts": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "failureCode": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "retryAt": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "step",
+                                    "status",
+                                    "doneAt",
+                                    "attempts",
+                                    "failureCode",
+                                    "retryAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "refundAmount",
+                              "settlement",
+                              "submittedAt",
+                              "paidAmount",
+                              "refundBasis",
+                              "steps"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "invoice": {
                         "anyOf": [
@@ -4903,6 +5415,398 @@
               }
             },
             "required": true
+          }
+        }
+      },
+      "retryReservationWithdrawal": {
+        "method": "POST",
+        "path": "/api/v1/cli/reservations/:reservationId/withdrawal/retry",
+        "parseOptions": {
+          "headers": null,
+          "params": null,
+          "query": null,
+          "payload": {}
+        },
+        "decodedParameters": {
+          "headers": null,
+          "params": {
+            "dialect": "draft-2020-12",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "reservationId": {
+                  "$ref": "#/$defs/WorkspaceReservationId"
+                }
+              },
+              "required": [
+                "reservationId"
+              ],
+              "additionalProperties": true
+            },
+            "definitions": {
+              "WorkspaceReservationId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Opaque identifier for a persisted Workspace reservation."
+              }
+            }
+          },
+          "query": null
+        },
+        "middleware": [
+          "@deskohub/workspace-admin-api/AdministrationActionRecord",
+          "@deskohub/workspace-admin-api/AdministrationAuthentication"
+        ],
+        "annotations": {
+          "@deskohub/workspace-admin-api/AdministrationOperationBehavior": {
+            "kind": "destructive",
+            "idempotent": false,
+            "preview": {
+              "_tag": "Read",
+              "operations": [
+                "administration.getReservation"
+              ]
+            }
+          }
+        },
+        "effectiveAnnotations": {
+          "minimumDhwVersion": {
+            "_tag": "None"
+          },
+          "outdatedDhwRefusal": "CliInputInvalid"
+        },
+        "operation": {
+          "tags": [
+            "administration"
+          ],
+          "operationId": "administration.retryReservationWithdrawal",
+          "parameters": [
+            {
+              "name": "reservationId",
+              "in": "path",
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceReservationId"
+              },
+              "required": true
+            }
+          ],
+          "security": [
+            {
+              "bearer": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Success",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "settled",
+                          "failed",
+                          "already_settled",
+                          "in_progress"
+                        ]
+                      },
+                      "withdrawal": {
+                        "type": "object",
+                        "properties": {
+                          "refundAmount": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "exponent": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "currency": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "exponent",
+                              "currency"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "settlement": {
+                            "type": "string",
+                            "enum": [
+                              "settled",
+                              "in_progress",
+                              "needs_attention"
+                            ]
+                          },
+                          "submittedAt": {
+                            "type": "string"
+                          },
+                          "paidAmount": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "exponent": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "currency": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "exponent",
+                              "currency"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "refundBasis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "full"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "kind"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "partial"
+                                    ]
+                                  },
+                                  "unit": {
+                                    "type": "string",
+                                    "enum": [
+                                      "day",
+                                      "hour"
+                                    ]
+                                  },
+                                  "unstarted": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "total": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "Infinity",
+                                          "-Infinity",
+                                          "NaN"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "unit",
+                                  "unstarted",
+                                  "total"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "steps": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "step": {
+                                  "type": "string",
+                                  "enum": [
+                                    "receipt",
+                                    "operator_notice",
+                                    "contract_cancellation"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "done",
+                                    "failed",
+                                    "pending"
+                                  ]
+                                },
+                                "doneAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "attempts": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "failureCode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "retryAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "step",
+                                "status",
+                                "doneAt",
+                                "attempts",
+                                "failureCode",
+                                "retryAt"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "refundAmount",
+                          "settlement",
+                          "submittedAt",
+                          "paidAmount",
+                          "refundBasis",
+                          "steps"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "outcome",
+                      "withdrawal"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "CliSessionUnauthorized",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliSessionUnauthorizedEncoded"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "CliResourceNotFound",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliResourceNotFoundEncoded"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "CliServiceUnavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliServiceUnavailableEncoded"
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -9054,6 +9958,68 @@
                                   ],
                                   "additionalProperties": false
                                 },
+                                "withdrawal": {
+                                  "type": "object",
+                                  "properties": {
+                                    "refundAmount": {
+                                      "type": "object",
+                                      "properties": {
+                                        "value": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number"
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "Infinity",
+                                                "-Infinity",
+                                                "NaN"
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        "exponent": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number"
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "Infinity",
+                                                "-Infinity",
+                                                "NaN"
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        "currency": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "value",
+                                        "exponent",
+                                        "currency"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "settlement": {
+                                      "type": "string",
+                                      "enum": [
+                                        "settled",
+                                        "in_progress",
+                                        "needs_attention"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "refundAmount",
+                                    "settlement"
+                                  ],
+                                  "additionalProperties": false
+                                },
                                 "statusNote": {
                                   "anyOf": [
                                     {
@@ -10112,6 +11078,68 @@
                               "required": [
                                 "group",
                                 "label"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "withdrawal": {
+                              "type": "object",
+                              "properties": {
+                                "refundAmount": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "exponent": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "Infinity",
+                                            "-Infinity",
+                                            "NaN"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "exponent",
+                                    "currency"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "settlement": {
+                                  "type": "string",
+                                  "enum": [
+                                    "settled",
+                                    "in_progress",
+                                    "needs_attention"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "refundAmount",
+                                "settlement"
                               ],
                               "additionalProperties": false
                             },

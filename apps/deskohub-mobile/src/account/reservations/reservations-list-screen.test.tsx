@@ -73,10 +73,7 @@ test.each(["completion-required", "linked"] as const)(
       }
       const text = screenText(registry);
       expect(text).toContain(invitation.bookedBy.name);
-      const cancelled = m.reservations_status_cancelled(
-        {},
-        { locale: "en-US" }
-      );
+      const cancelled = m.reservationStatusCancelled({}, { locale: "en-US" });
       if (kind === "linked") {
         expect(text).toContain(cancelled);
       } else {

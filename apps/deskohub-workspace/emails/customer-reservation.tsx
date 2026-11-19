@@ -91,7 +91,7 @@ export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
 
       <ReservationEmailActionPanel
         action={{
-          button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+          button: m.reservationShowPinCode({}, { locale }),
           url: accessUrl,
         }}
         locale={locale}

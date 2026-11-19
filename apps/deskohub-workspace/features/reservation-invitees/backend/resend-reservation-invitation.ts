@@ -7,6 +7,7 @@ import { ReservationAuthorizationService } from "@/features/reservation/backend/
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import type { ReservationInviteeId } from "../reservation-invitee";
 import { InvitationResendRefused } from "./reservation-invitations.service";
 import { ReservationInviteeNoticeWorker } from "./reservation-invitee-notice-worker";
@@ -19,7 +20,8 @@ export const resendReservationInvitationServices = Layer.mergeAll(
   WorkspaceReservationService.Live,
   WorkspaceDatabaseAdvisoryLock.Default,
   ReservationInvitees.Default,
-  ReservationInviteeNoticeWorker.Live
+  ReservationInviteeNoticeWorker.Live,
+  WithdrawalRepository.Live
 );
 
 export const resendAuthorizedReservationInvitation = Effect.fn(
@@ -66,6 +68,16 @@ export const resendAuthorizedReservationInvitation = Effect.fn(
         stored.paymentState !== "paid" ||
         stored.reservationState !== "confirmed"
       ) {
+        return yield* new InvitationResendRefused({
+          refusal: { reason: "not-confirmed" },
+        });
+      }
+      const withdrawals = yield* WithdrawalRepository;
+      const withdrawal = yield* withdrawals.findByContract({
+        kind: "reservation",
+        id: orderId,
+      });
+      if (Option.isSome(withdrawal)) {
         return yield* new InvitationResendRefused({
           refusal: { reason: "not-confirmed" },
         });

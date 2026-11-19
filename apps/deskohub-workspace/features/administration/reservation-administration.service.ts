@@ -34,6 +34,10 @@ import {
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  canCancelReservation,
+  REQUESTED_CANCELLATION_RETRY_AFTER_MS,
+} from "@/features/reservation/reservation-cancellation-policy";
 import { ReservationAccessService } from "@/features/reservation-access";
 import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -48,10 +52,6 @@ import {
   type ReservationRestorationResult,
   ReservationRestorationService,
 } from "./reservation-restoration.service";
-import {
-  ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
-  canCancelReservation,
-} from "./reservation-status";
 
 /** The reservation's invoice, cancelled with it. */
 type ReservationInvoiceCancellation = {
@@ -161,7 +161,7 @@ export class ReservationAdministrationService extends Context.Service<
               pendingPaymentCancellation,
             }),
             staleCancellingBefore: Temporal.Now.instant().subtract({
-              milliseconds: ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
+              milliseconds: REQUESTED_CANCELLATION_RETRY_AFTER_MS,
             }),
           })
           .pipe(

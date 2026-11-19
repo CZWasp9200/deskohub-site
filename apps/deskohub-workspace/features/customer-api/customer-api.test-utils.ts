@@ -3,7 +3,7 @@ import {
   customerApiClientHeader,
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
@@ -70,6 +70,9 @@ import { WorkspaceReservationService } from "@/features/reservation/backend/work
 import { ReservationInviteeNoticeWorker } from "@/features/reservation-invitees/backend/reservation-invitee-notice-worker";
 import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import {
   makeMemoryRequestBudget,
   unavailableRequestBudget,
@@ -256,7 +259,10 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
     Layer.mock(WorkspaceReservationRepository, {}),
     Layer.mock(WorkspaceReservationService, {}),
     Layer.mock(ReservationInvitees, {}),
-    Layer.mock(ReservationInviteeNoticeWorker, {})
+    Layer.mock(ReservationInviteeNoticeWorker, {}),
+    Layer.mock(WithdrawalRepository, {
+      findByContract: () => Effect.succeed(Option.none()),
+    })
   ),
   currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
@@ -266,6 +272,14 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
   paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
+  withdrawals: Layer.mergeAll(
+    Layer.mock(WithdrawalService, {}),
+    WithdrawalReleaseGate.fromDecision(false)
+  ),
+  // No order has been withdrawn from.
+  withdrawalRecords: Layer.mock(WithdrawalRepository, {
+    findByContract: () => Effect.succeed(Option.none()),
+  }),
 };
 
 /** The Dotypos profile of `linkedAccountServices`' account. */

@@ -64,6 +64,7 @@ describe("app route tree", () => {
         "/reservations",
         "/reservations/[orderId]",
         "/reservations/[orderId]/access",
+        "/reservations/[orderId]/withdraw",
         "/sign-in",
       ].sort()
     );

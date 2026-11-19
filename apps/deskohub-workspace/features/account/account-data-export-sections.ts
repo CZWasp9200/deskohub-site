@@ -79,6 +79,11 @@ export const accountDataExportSections = [
     manifestDescription:
       "Door-access grants for your reservations: grant state and the access interval. No access codes, PINs, or credentials.",
   },
+  {
+    path: "withdrawals.json",
+    manifestDescription:
+      "Your online withdrawals from contracts: which contract, when you submitted the withdrawal, the amount paid and the amount owed back as exact money values in minor currency units, and whether processing is complete. The confirmation email itself is not stored.",
+  },
 ] as const satisfies readonly AccountDataExportSection[];
 
 /**

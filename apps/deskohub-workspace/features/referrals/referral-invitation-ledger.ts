@@ -20,6 +20,7 @@ import type {
   PromotionCodeId,
 } from "@/features/discounts/persistence-contracts";
 import type { Locale } from "@/features/i18n";
+import { isPaidBooking } from "@/features/referrals/first-booking-history";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { evaluateReferralAttribution } from "./attribution";
 import {
@@ -409,13 +410,17 @@ const redeem = Effect.fn("ReferralInvitationLedger.redeem")(function* (input: {
 /**
  * Releases the payment attempt's reserved invitation claim, if it has one, so
  * the invitation is free for another first booking; a released claim stays as
- * it is and a redeemed claim fails. Release has no attribution to undo.
+ * it is and a redeemed claim fails, unless `reversesRedemption` gives a
+ * redeemed claim back too, as a customer's full withdrawal from the paid
+ * contract does. Release undoes no attribution; a reversed claim keeps its
+ * redemption time.
  */
 const release = Effect.fn("ReferralInvitationLedger.release")(
   function* (input: {
     readonly paymentAttemptId: PaymentAttemptId;
     readonly releasedAt: Temporal.Instant;
     readonly releaseReason: string;
+    readonly reversesRedemption?: boolean;
   }) {
     const { paymentAttemptId, releasedAt, releaseReason } = input;
     const { db } = yield* WorkspaceTransaction;
@@ -426,7 +431,7 @@ const release = Effect.fn("ReferralInvitationLedger.release")(
       .limit(1)
       .for("update");
     if (!claim) return;
-    if (claim.state === "redeemed") {
+    if (claim.state === "redeemed" && !input.reversesRedemption) {
       return yield* new DiscountClaimError({
         operation: "release",
         reason: "claim_conflict",
@@ -434,6 +439,7 @@ const release = Effect.fn("ReferralInvitationLedger.release")(
       });
     }
     if (claim.state === "released") return;
+    const releasable = claim.state;
 
     yield* db
       .update(referralInvitationClaims)
@@ -446,7 +452,7 @@ const release = Effect.fn("ReferralInvitationLedger.release")(
       .where(
         and(
           eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
-          eq(referralInvitationClaims.state, "reserved")
+          eq(referralInvitationClaims.state, releasable)
         )
       )
       .pipe(Effect.asVoid);
@@ -536,7 +542,11 @@ const firstPaymentAlreadyAdmitted = (input: {
         })
   );
 
-/** Another of the customer's reservations in `paymentState`, if any. */
+/**
+ * Another of the customer's reservations in `paymentState`, if any. A paid
+ * one counts only as `isPaidBooking` does, so a booking withdrawn in full
+ * leaves the invitation open.
+ */
 const findOtherReservationWithPayment = (
   dotyposCustomerId: DotyposCustomerId,
   workspaceReservationId: WorkspaceReservationId,
@@ -549,7 +559,9 @@ const findOtherReservationWithPayment = (
       .where(
         and(
           eq(workspaceReservations.dotyposCustomerId, dotyposCustomerId),
-          eq(workspaceReservations.paymentState, paymentState),
+          paymentState === "paid"
+            ? isPaidBooking
+            : eq(workspaceReservations.paymentState, paymentState),
           ne(workspaceReservations.id, workspaceReservationId)
         )
       )

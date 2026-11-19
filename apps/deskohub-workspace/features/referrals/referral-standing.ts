@@ -12,7 +12,9 @@ import {
   referralInvitationClaims,
 } from "@/db/schema/referrals";
 import { workspaceReservations } from "@/db/schema/workspace-reservations";
+import { isPaidBooking } from "@/features/referrals/first-booking-history";
 import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
+import { isWithdrawnInFull } from "@/features/withdrawal/backend/withdrawn-contracts";
 import type { ReferralCode } from "./client";
 import type { ReferralAccountSummary } from "./contracts";
 import {
@@ -49,6 +51,11 @@ export const makeReferralStandingReads = Effect.gen(function* () {
         dotyposReservationId: workspaceReservations.dotyposReservationId,
         reservationState: workspaceReservations.reservationState,
         paymentState: workspaceReservations.paymentState,
+        isPaidBooking: sql<boolean>`${isPaidBooking}`.mapWith(Boolean),
+        withdrawnInFull: sql<boolean>`${isWithdrawnInFull(
+          "reservation",
+          workspaceReservations.id
+        )}`.mapWith(Boolean),
       })
       .from(workspaceReservations)
       .where(eq(workspaceReservations.dotyposCustomerId, dotyposCustomerId));
@@ -87,10 +94,14 @@ export const makeReferralStandingReads = Effect.gen(function* () {
           dotyposCustomerId,
           localPaymentState,
           dotyposStatus: reservation.status,
-          cancelled: isReservationCancelled({
-            dotyposStatus: reservation.status,
-            reservationState: local?.reservationState,
-          }),
+          // A withdrawal owing the whole payment back ends the visit's
+          // referral credit as soon as it is recorded, before its
+          // cancellation is done.
+          cancelled:
+            isReservationCancelled({
+              dotyposStatus: reservation.status,
+              reservationState: local?.reservationState,
+            }) || local?.withdrawnInFull === true,
           // The Dotypos contract only returns readable ends, so an
           // unreadable one is a defect.
           endsAt: Option.getOrThrowWith(
@@ -101,7 +112,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
       }
     );
     const hasLocalPaidBooking = localReservations.some(
-      ({ paymentState }) => paymentState === "paid"
+      (reservation) => reservation.isPaidBooking
     );
     return {
       evidence,

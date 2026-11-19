@@ -1,5 +1,6 @@
 import { cva } from "class-variance-authority";
 import { Match } from "effect";
+import { Undo2 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -18,6 +19,7 @@ import {
   OfficeStatusPeopleList,
   type ResendOfficeInvitation,
 } from "@/features/office/components/office-status-people";
+import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
 import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
@@ -27,7 +29,10 @@ import {
   reservationAccessPath,
 } from "@/features/reservation/routes";
 import { getSelectionPath } from "@/features/reservation/selection-path";
+import { ReservationWithdrawalLink } from "@/features/withdrawal/components/reservation-withdrawal-link";
+import type { ReservationWithdrawalEntry } from "@/features/withdrawal/withdrawal-read-model";
 import { Button } from "@/shared/components/ui/button";
+import { formatMoney } from "@/shared/money/money";
 import { cn } from "@/shared/utils";
 import { CheckoutFlowLayout } from "./checkout-flow-layout";
 import {
@@ -44,6 +49,11 @@ type CheckoutStatusPageProps = {
   /** Sends an office invitee their invitation again, where the page can. */
   readonly resendInvitation?: ResendOfficeInvitation;
   readonly status: CheckoutStatusViewModel;
+  /**
+   * The reservation's online withdrawal: once the customer withdrew it reads
+   * as cancelled; while they can withdraw, it shows the withdrawal link.
+   */
+  readonly withdrawal?: ReservationWithdrawalEntry;
 };
 
 const statusIconWrapperVariants = cva(
@@ -264,9 +274,28 @@ export function CheckoutStatusPage({
   presentation = "page",
   resendInvitation,
   status,
+  withdrawal,
 }: CheckoutStatusPageProps) {
-  const copy = getCheckoutStatusCopy(status, locale);
+  const withdrawn =
+    status.status !== "not_found" && withdrawal?.status === "withdrawn"
+      ? withdrawal
+      : undefined;
+  const statusCopy = getCheckoutStatusCopy(status, locale);
+  const copy: CheckoutStatusCopy = withdrawn
+    ? {
+        ...statusCopy,
+        title: m.checkoutStatusWithdrawnTitle({}, { locale }),
+        lead: m.checkoutStatusWithdrawnLead(
+          { amount: formatMoney(withdrawn.refundAmount, locale) },
+          { locale }
+        ),
+        tone: "unknown",
+        Icon: Undo2,
+      }
+    : statusCopy;
   const showReservationDetails = status.status !== "not_found";
+  const withdrawalOffered =
+    showReservationDetails && withdrawal?.status === "offered";
   const officePeople = status.status !== "not_found" &&
     status.kind === "office" &&
     status.people && (
@@ -281,12 +310,14 @@ export function CheckoutStatusPage({
             ({ id, email, resendAvailableAt }) => ({
               id,
               email,
-              resendAvailableAt: resendAvailableAt?.toString(),
+              resendAvailableAt: withdrawn
+                ? undefined
+                : resendAvailableAt?.toString(),
             })
           ),
         }}
         resendInvitation={
-          status.people.resendable ? resendInvitation : undefined
+          !withdrawn && status.people.resendable ? resendInvitation : undefined
         }
       />
     );
@@ -347,18 +378,28 @@ export function CheckoutStatusPage({
           }
           status={status}
           summaryPresentation={summaryPresentation}
+          withdrawalOffered={withdrawalOffered}
         />
       )}
 
+      {/* Phone: the withdrawal link sits centred right above the actions. */}
+      {withdrawalOffered && (
+        <ReservationWithdrawalLink
+          className="mt-3 -mb-5 block w-full text-center underline sm:hidden"
+          locale={locale}
+          orderId={status.orderId}
+          reference={status.orderId}
+        />
+      )}
       <CheckoutStatusActions
         locale={locale}
         offersNewReservation={offersNewReservation}
         presentation={presentation}
-        reservationAccessHref={getReservationAccessHref(
-          status,
-          locale,
-          reviewSandbox
-        )}
+        reservationAccessHref={
+          withdrawn
+            ? undefined
+            : getReservationAccessHref(status, locale, reviewSandbox)
+        }
         reserveAgainLabel={getReserveAgainLabel(
           offersRetry,
           !!repeatReservationSearchParams,
@@ -484,11 +525,13 @@ function CheckoutStatusReservationDetails({
   officePeople,
   status,
   summaryPresentation,
+  withdrawalOffered,
 }: {
   readonly locale: Locale;
   readonly officePeople?: ReactNode;
   readonly status: CheckoutReservationStatusViewModel;
   readonly summaryPresentation: CheckoutStatusSummaryPresentation | undefined;
+  readonly withdrawalOffered: boolean;
 }) {
   const summaryRows = summaryPresentation?.rows ?? [];
   const rows = officePeople
@@ -503,9 +546,19 @@ function CheckoutStatusReservationDetails({
   return (
     <>
       <div className="mt-10 rounded-[1.6rem] border border-navy-blue/10 bg-linear-to-br from-white to-aquamarine-green/8 p-5 sm:p-6">
-        <h2 className="text-xl text-navy-blue">
-          {m.checkoutStatusSummaryTitle({}, { locale })}
-        </h2>
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <h2 className="min-w-0 text-xl text-navy-blue">
+            {m.checkoutStatusSummaryTitle({}, { locale })}
+          </h2>
+          {withdrawalOffered && (
+            <ReservationWithdrawalLink
+              className="underline max-sm:hidden"
+              locale={locale}
+              orderId={status.orderId}
+              reference={status.orderId}
+            />
+          )}
+        </div>
 
         <dl className="mt-5 grid gap-3">
           <div className="grid gap-1 rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
@@ -619,7 +672,7 @@ function CheckoutStatusActions({
   const retriesPayment =
     showPageActions && offersNewReservation && retriesPaymentFor !== undefined;
   const reserveAgain = (
-    <Button asChild size="lg">
+    <Button asChild size="lg" variant="secondary">
       <a href={reserveAgainPath} id="checkout-status-reserve-again">
         {reserveAgainLabel}
       </a>
@@ -642,21 +695,13 @@ function CheckoutStatusActions({
         </>
       )}
       {reservationAccessHref && (
-        <Button asChild variant="secondary" size="lg">
-          {presentation === "modal" ? (
-            <Link
-              href={reservationAccessHref}
-              id="checkout-status-access"
-              prefetch={false}
-            >
-              {m.checkoutEmailCustomerAccessButton({}, { locale })}
-            </Link>
-          ) : (
-            <a href={reservationAccessHref} id="checkout-status-access">
-              {m.checkoutEmailCustomerAccessButton({}, { locale })}
-            </a>
-          )}
-        </Button>
+        <ReservationAccessButton
+          href={reservationAccessHref}
+          id="checkout-status-access"
+          layout={showPageActions ? "status-end" : "status"}
+          locale={locale}
+          navigation={presentation === "modal" ? "client" : "document"}
+        />
       )}
     </>
   );

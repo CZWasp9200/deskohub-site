@@ -54,6 +54,7 @@ import {
   administratorAssistantConnections,
   cliAuthenticationRequests,
   cliSessions,
+  contractWithdrawals,
   customerMarketingManagementTokens,
   discountCodes,
   discounts,
@@ -275,6 +276,27 @@ const rowFixtures = new Map([
   rowFixture(cliSessions, {
     values: { tokenHash: base64UrlDigest },
     row: () => Effect.succeed(cliSessionRow()),
+  }),
+  rowFixture(contractWithdrawals, {
+    row: (db) =>
+      Effect.gen(function* () {
+        const accountId = yield* workspaceFixtures(db).customerAccount();
+        const submittedAt = now();
+        return {
+          id: crypto.randomUUID(),
+          contractKind: "reservation",
+          contractId: syntheticId("reservation"),
+          customerAccountId: accountId,
+          locale: "en-US",
+          contractLabel: "Synthetic reservation",
+          submittedAt,
+          periodEndsAt: submittedAt.add({ hours: 14 * 24 }),
+          paidAmountValue: 12_000,
+          refundAmountValue: 12_000,
+          amountExponent: 2,
+          currency: "CZK",
+        };
+      }),
   }),
   rowFixture(customerMarketingManagementTokens, {
     values: { tokenHash: hexDigest },

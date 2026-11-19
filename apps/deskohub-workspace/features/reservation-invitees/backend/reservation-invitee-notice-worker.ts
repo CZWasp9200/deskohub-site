@@ -21,6 +21,7 @@ import {
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import {
   deriveSealedStateSubkey,
@@ -60,6 +61,7 @@ const makeNoticeWorker = Effect.gen(function* () {
   const invites = yield* ReservationInvitees;
   const reservations = yield* WorkspaceReservationService;
   const orders = yield* WorkspaceReservationRepository;
+  const withdrawals = yield* WithdrawalRepository;
   const renderer = yield* ReservationInvitations;
   const transport = yield* ReservationInviteeNoticeTransport;
   const { ring } = yield* SealedStateKeys;
@@ -389,6 +391,11 @@ const makeNoticeWorker = Effect.gen(function* () {
                 order.reservationDetails.kind !== "office"
               )
                 return null;
+              const withdrawal = yield* withdrawals.findByContract({
+                kind: "reservation",
+                id: reservationId,
+              });
+              if (Option.isSome(withdrawal)) return null;
             }
             const reservation =
               yield* reservations.getReservation(reservationId);
@@ -471,7 +478,8 @@ export class ReservationInviteeNoticeWorker extends Context.Service<
         ReservationInvitations.Live.pipe(Layer.provide(WorkspaceEmailLayer)),
         ReservationInviteeNoticeTransport.Live,
         SealedStateKeys.Default,
-        WorkspaceReservationService.Live
+        WorkspaceReservationService.Live,
+        WithdrawalRepository.Live
       )
     )
   );

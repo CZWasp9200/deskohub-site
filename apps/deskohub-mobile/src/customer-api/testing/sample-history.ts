@@ -2,6 +2,7 @@ import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
 import {
   sampleDeskReservation,
+  sampleLaterMeetingRoom,
   sampleOfficePeopleReservation,
   samplePaymentFailedReservation,
   sampleWholeDayDesk,
@@ -31,6 +32,8 @@ import {
 export const sampleHistories = [
   "today",
   "upcoming",
+  "upcoming-closed",
+  "withdrawn",
   "pending",
   "nothing-upcoming",
   "empty",
@@ -63,7 +66,18 @@ export const withSampleHistory = (
       today === undefined
         ? []
         : [{ ...today, todayAccess: todayOrder?.access }, ...later],
-    upcoming: () => [sampleDeskReservation(now), ...later],
+    upcoming: () => [
+      sampleDeskReservation(now),
+      sampleLaterMeetingRoom(now),
+      ...later,
+    ],
+    // The same bookings once withdrawal is no longer possible.
+    // The desk withdrawn from: cancelled, so listed under past.
+    withdrawn: () => [sampleLaterMeetingRoom(now), ...later],
+    "upcoming-closed": () =>
+      [sampleDeskReservation(now), sampleLaterMeetingRoom(now), ...later].map(
+        ({ withdrawal: _, ...row }) => row
+      ),
     pending: () => [sampleDeskReservation(now, "pending"), ...later],
     "nothing-upcoming": () => [],
     empty: () => [],
@@ -75,6 +89,29 @@ export const withSampleHistory = (
     "office-people": () => [sampleOfficePeopleReservation(now)],
     "cancelled-invitation": () => [],
   }[history]();
+  const sampleHistoryLists = (): typeof data.history => {
+    if (history === "empty") return { current: [], past: [], unavailable: [] };
+    if (history === "payment-failed") {
+      return {
+        ...data.history,
+        current,
+        past: [samplePaymentFailedReservation(now), ...data.history.past],
+      };
+    }
+    if (history !== "withdrawn") return { ...data.history, current };
+    return {
+      ...data.history,
+      current,
+      past: [
+        {
+          ...sampleDeskReservation(now),
+          status: "cancelled",
+          withdrawal: undefined,
+        },
+        ...data.history.past,
+      ],
+    };
+  };
   workspace.data = {
     ...data,
     // An account of its own, which never loads a list, so has none saved.
@@ -93,16 +130,35 @@ export const withSampleHistory = (
           ]),
         }
       : {}),
-    history:
-      history === "empty"
-        ? { current: [], past: [], unavailable: [] }
-        : {
-            ...data.history,
-            current,
-            ...(history === "payment-failed" && {
-              past: [samplePaymentFailedReservation(now), ...data.history.past],
-            }),
-          },
+    ...(history === "withdrawn"
+      ? {
+          orders: new Map(
+            [...data.orders].map(([id, order]) =>
+              id === sampleDeskReservation(now).orderId
+                ? [
+                    id,
+                    {
+                      ...order,
+                      access: undefined,
+                      state: {
+                        ...order.state,
+                        withdrawal: {
+                          submittedAt: now.toISOString(),
+                          refundAmount: order.state.total ?? {
+                            value: 25880,
+                            exponent: 2,
+                            currency: "CZK",
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : [id, order]
+            )
+          ),
+        }
+      : {}),
+    history: sampleHistoryLists(),
   };
   if (history === "cancelled-invitation") {
     const invitation = data.invited?.current[0];

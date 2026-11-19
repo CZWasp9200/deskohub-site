@@ -43,6 +43,7 @@ import {
   tabGate,
 } from "../account-gating";
 import { TabGateCard } from "../tab-gate-card";
+import { AccessPinButton } from "./access-pin-button";
 import { accessPinGroups } from "./access-pin-groups";
 import { useAccessPinView } from "./access-pin-view";
 import { copyAccessCodeAtom } from "./access-screen-state";
@@ -51,6 +52,7 @@ import {
   BookingTicket,
   BookingTicketSkeleton,
   DateTile,
+  DateTilePlaceholder,
 } from "./booking-ticket";
 import { countdownText, ticketBadge } from "./booking-ticket-text";
 import { establishmentAtom, establishmentPlace } from "./establishment";
@@ -73,6 +75,8 @@ import {
   savedReservationsAtom,
   savedReservationsBeforeAccountAtom,
 } from "./reservations-list-state";
+import { rowOffersWithdrawal } from "./withdrawal-eligibility";
+import { WithdrawalLink } from "./withdrawal-link";
 
 /** How many past bookings show before "Show all". */
 export const pastPreviewCount = 2;
@@ -387,15 +391,15 @@ function InvitedReservations() {
                 onSome: (parts) => (
                   <DateTile parts={parts} tone="soft" compact />
                 ),
-                onNone: () => <View style={styles.noTile} />,
+                onNone: () => <DateTilePlaceholder />,
               })}
               <View style={styles.rowText}>
                 <Text variant="bodyStrong">{view.title}</Text>
                 <Text variant="bodySmall">{view.detail}</Text>
                 {reservation.status === "cancelled" && (
-                  <View style={styles.rowBadge}>
+                  <View style={styles.invitedBadge}>
                     <Badge
-                      label={m.reservations_status_cancelled({}, { locale })}
+                      label={m.reservationStatusCancelled({}, { locale })}
                       tone="neutral"
                     />
                   </View>
@@ -498,6 +502,8 @@ function ReservationRow({
   const target = reservationStatusTarget(row);
   const past = place === "past";
   const badge = Option.map(view.badge, (kind) => ticketBadge(kind, locale));
+  // The badge's height: the chevron centres in the space below it.
+  const [badgeHeight, setBadgeHeight] = useState(0);
   const content = (
     <>
       {divided && <View aria-hidden style={styles.divider} />}
@@ -505,23 +511,58 @@ function ReservationRow({
         onSome: (parts) => (
           <DateTile parts={parts} tone={past ? "dim" : "soft"} compact />
         ),
-        onNone: () => <View style={styles.noTile} />,
+        onNone: () => <DateTilePlaceholder />,
       })}
       <View style={styles.rowText}>
-        <Text variant="bodyStrong" style={past ? styles.pastTitle : undefined}>
-          {view.title}
+        {/* Title and badge share one row, laid out in one pass: only the
+            title line gives the badge room, the badge reaches over the
+            chevron's column, and the lines below start under both. */}
+        <View style={styles.rowTitleLine}>
+          <Text
+            variant="bodyStrong"
+            style={[styles.rowTitle, past ? styles.pastTitle : undefined]}
+          >
+            {view.title}
+          </Text>
+          {Option.match(badge, {
+            onSome: (badge) => (
+              <View
+                onLayout={(event) =>
+                  setBadgeHeight(event.nativeEvent.layout.height)
+                }
+                style={Option.isSome(target) && styles.rowBadge}
+              >
+                <Badge
+                  label={badge.label}
+                  tone={badge.tone}
+                  icon={badge.icon}
+                  stacked
+                />
+              </View>
+            ),
+            onNone: () => null,
+          })}
+        </View>
+        <Text variant="bodySmall" style={styles.rowDetail}>
+          {view.detail}
         </Text>
-        {Option.match(badge, {
-          onSome: (badge) => (
-            <View style={styles.rowBadge}>
-              <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
-            </View>
-          ),
-          onNone: () => <Text variant="bodySmall">{view.detail}</Text>,
-        })}
+        {!past && rowOffersWithdrawal(row) && Option.isSome(target) && (
+          <WithdrawalLink
+            orderId={target.value}
+            style={styles.rowWithdrawal}
+            underlined
+          />
+        )}
       </View>
       {Option.isSome(target) && (
-        <Icon icon={ChevronRight} size={20} color={color.ink3} />
+        <View
+          style={[
+            styles.rowChevron,
+            Option.isSome(badge) && { paddingTop: badgeHeight + space.xs },
+          ]}
+        >
+          <Icon icon={ChevronRight} size={20} color={color.ink3} />
+        </View>
       )}
     </>
   );
@@ -573,6 +614,7 @@ function NextReservation({ row }: { readonly row: ReservationListRow }) {
       <NextAccessLine
         access={view.access}
         orderId={Option.getOrUndefined(target)}
+        withdrawable={rowOffersWithdrawal(row)}
       />
     </BookingTicket>
   );
@@ -607,51 +649,39 @@ const useStubTextWidth = () => {
 function NextAccessLine({
   access,
   orderId,
+  withdrawable,
 }: {
   readonly access: NextAccess;
   readonly orderId: CustomerReservationOrderId | undefined;
+  readonly withdrawable: boolean;
 }) {
   const locale = useAppLocale();
-  const router = useRouter();
   const open = useOpenReservation();
   const stubTextWidth = useStubTextWidth();
+  const withdrawalLink =
+    orderId !== undefined && withdrawable ? (
+      <WithdrawalLink
+        orderId={orderId}
+        style={styles.stubWithdrawal}
+        underlined
+      />
+    ) : null;
   switch (access._tag) {
     case "Pin":
       return orderId === undefined ? null : (
-        <TodayPin code={access.code} until={access.until} orderId={orderId} />
+        <>
+          {withdrawalLink && (
+            <View style={styles.stubActions}>{withdrawalLink}</View>
+          )}
+          <TodayPin code={access.code} until={access.until} orderId={orderId} />
+        </>
       );
     case "Ready":
-      return (
-        <>
-          <AccessTile />
-          <View style={[styles.stubText, stubTextWidth]}>
-            <Text variant="subhead">
-              {m.reservations_pin_ready({}, { locale })}
-            </Text>
-            {Option.isSome(access.from) && (
-              <Text variant="hint">
-                {m.reservations_pin_works_from(
-                  { time: access.from.value },
-                  { locale }
-                )}
-              </Text>
-            )}
-          </View>
-          {orderId !== undefined && (
-            <Button
-              variant="secondary"
-              size="small"
-              width="content"
-              label={m.reservations_show({}, { locale })}
-              onPress={() =>
-                router.push({
-                  pathname: "/reservations/[orderId]/access",
-                  params: { orderId },
-                })
-              }
-            />
-          )}
-        </>
+      return orderId === undefined ? null : (
+        <View style={styles.stubActions}>
+          {withdrawalLink}
+          <AccessPinButton orderId={orderId} />
+        </View>
       );
     case "AfterPayment":
       return (
@@ -733,9 +763,28 @@ function TodayPin({
   );
 }
 
+/** The chevron and the gap before it, which a row's badge spans. */
+const rowChevronColumn = 20 + space.md;
+
 const styles = StyleSheet.create({
   invited: { marginTop: space.xl },
+  invitedBadge: { marginTop: space.xs },
   stack: { gap: space.lg },
+  rowDetail: { marginTop: 2 },
+  // A row's chevron, centred in the row or in the space below its badge.
+  rowChevron: { alignSelf: "stretch", justifyContent: "center" },
+  // Line 1: the title, then the status badge reaching over the chevron.
+  rowTitleLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    justifyContent: "space-between",
+  },
+  rowTitle: { flexShrink: 1 },
+  rowBadge: { marginRight: -rowChevronColumn },
+  rowWithdrawal: { alignSelf: "flex-start", marginTop: 2 },
+  stubActions: { gap: space.sm, width: "100%" },
+  stubWithdrawal: { alignSelf: "center" },
   pressed: { opacity: 0.7 },
   group: {
     backgroundColor: color.surface,
@@ -760,12 +809,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  noTile: { width: 52 },
   rowText: { flex: 1, minWidth: 0 },
   // The stub's text keeps room to read; at large font sizes the action
   // wraps under it (see `useStubTextWidth`).
   stubText: { flexBasis: 0, flexGrow: 1 },
-  rowBadge: { marginTop: space.xs },
   skeletonText: { gap: space.sm },
   sectionSkeleton: { paddingBottom: space.sm, paddingTop: space.xl },
   pastTitle: { color: color.ink2 },

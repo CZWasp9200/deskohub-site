@@ -1,5 +1,5 @@
 import { CalendarDays, UserRound, Users } from "lucide-react";
-import { FutureFeatureTooltip } from "@/features/account/components/future-feature-tooltip";
+import type { ReactNode } from "react";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type {
   CustomerReservationHistory,
@@ -9,6 +9,7 @@ import type {
 } from "@/features/account/contracts";
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
+import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
 import {
   formatReservationDisplayDateRange,
@@ -18,6 +19,7 @@ import {
   reservationAccessPath,
   reservationStatusPath,
 } from "@/features/reservation/routes";
+import { ReservationWithdrawalLink } from "@/features/withdrawal/components/reservation-withdrawal-link";
 import { GuardedLink } from "@/shared/components/guarded-link";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -31,13 +33,13 @@ import { isMidnight } from "@/shared/utils/temporal";
 const getStatusLabel = (status: CustomerReservationStatus, locale: Locale) => {
   switch (status) {
     case "cancelled":
-      return m.accountReservationStatusCancelled({}, { locale });
+      return m.reservationStatusCancelled({}, { locale });
     case "confirmed":
-      return m.accountReservationStatusConfirmed({}, { locale });
+      return m.reservationStatusConfirmed({}, { locale });
     case "pending":
-      return m.accountReservationStatusPending({}, { locale });
+      return m.reservationStatusPending({}, { locale });
     case "requires-attention":
-      return m.accountReservationStatusAttention({}, { locale });
+      return m.reservationStatusAttention({}, { locale });
   }
 };
 
@@ -159,6 +161,28 @@ const getReservationHref = (
 ) =>
   `/${locale}${reservationStatusPath}/${encodeURIComponent(workspaceReservationId)}`;
 
+/** The withdrawal link of a reservation the customer can withdraw from now. */
+function ReservationRowWithdrawal({
+  className,
+  locale,
+  reservation,
+}: {
+  readonly className: string;
+  readonly locale: Locale;
+  readonly reservation: CustomerReservationSummary;
+}) {
+  if (!reservation.withdrawal?.eligible || !reservation.workspaceReservationId)
+    return null;
+  return (
+    <ReservationWithdrawalLink
+      className={className}
+      locale={locale}
+      orderId={reservation.workspaceReservationId}
+      reference={reservation.id}
+    />
+  );
+}
+
 export function ReservationHistory({
   history,
   locale,
@@ -265,14 +289,11 @@ function FeaturedReservationItem({
               {reservation.id}
             </code>
           </div>
-          <div className="min-w-0 max-w-full text-left @xl:max-w-[45%] @xl:text-right">
-            <span className="block text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b]">
-              {m.accountReservationProduct({}, { locale })}
-            </span>
-            <span className="mt-1 block break-words text-sm font-semibold leading-5 text-[#344258]">
-              {title}
-            </span>
-          </div>
+          <ReservationRowWithdrawal
+            className="@max-3xl:hidden"
+            locale={locale}
+            reservation={reservation}
+          />
         </div>
 
         <div className="border-t border-[#dfe4ec]" />
@@ -328,91 +349,115 @@ function FeaturedReservationItem({
             )}
           </div>
 
-          <div className="min-w-0 rounded-xl bg-[#f6f8fa] p-4 text-sm text-[#475569]">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <span className="min-w-0 break-words">
-                {m.accountReservationAssignedDesk({}, { locale })}
-              </span>
-              <span className="shrink-0 font-medium text-[#475569]">
-                {m.accountFeatureUnavailable({}, { locale })}
-              </span>
-            </div>
-            <div className="mt-3 flex min-w-0 items-start justify-between gap-3">
-              <span className="min-w-0 break-words">
-                {m.accountReservationWifi({}, { locale })}
-              </span>
-              <span className="shrink-0 font-medium text-[#475569]">
-                {m.accountFeatureUnavailable({}, { locale })}
-              </span>
-            </div>
-          </div>
+          <ReservationOnSiteBox locale={locale} onSite={reservation.onSite} />
         </div>
 
-        <div className="flex min-w-0 flex-col gap-4 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @4xl:grid @4xl:grid-cols-[minmax(0,1fr)_auto] @4xl:gap-x-4 @4xl:gap-y-2 @4xl:px-6 @4xl:py-4">
-          <div className="flex min-w-0 flex-col gap-2 @3xl:flex-row @3xl:flex-wrap @4xl:col-start-1 @4xl:row-start-2">
-            <FutureFeatureTooltip locale={locale}>
-              <Button
-                className="@3xl:w-auto"
-                fullWidth
-                disabled
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                {m.accountReservationCheckIn({}, { locale })}
-              </Button>
-            </FutureFeatureTooltip>
-            {reservation.workspaceReservationId &&
-            !reservation.reviewSandbox ? (
-              <Button
-                asChild
-                className="@3xl:w-auto"
-                fullWidth
-                size="sm"
-                variant="secondary"
-              >
-                <GuardedLink
-                  href={`/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`}
-                >
-                  {m.accountReservationShowPinCode({}, { locale })}
-                </GuardedLink>
-              </Button>
-            ) : (
-              <div className="min-w-0">
-                <Button
-                  className="@3xl:w-auto"
-                  fullWidth
-                  disabled
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  {m.accountReservationShowPinCode({}, { locale })}
-                </Button>
-                <p className="mt-2 max-w-sm break-words text-xs leading-5 text-[#64748b]">
-                  {reservation.reviewSandbox
-                    ? m.accountReservationPinReviewSandbox({}, { locale })
-                    : m.accountReservationPinUnavailable({}, { locale })}
-                </p>
-              </div>
-            )}
-          </div>
-          <div className="flex min-w-0 flex-col gap-3 @3xl:items-end @4xl:contents">
-            <p className="max-w-sm break-words text-sm leading-5 text-[#64748b] @4xl:col-start-1 @4xl:row-start-1 @4xl:max-w-none @4xl:text-xs @4xl:leading-5">
-              {m.accountFeatureUnavailableDescription({}, { locale })}
-            </p>
-            {reservation.workspaceReservationId && (
-              <div className="@4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:items-center @4xl:justify-self-end">
-                <ReservationDetailLink
-                  locale={locale}
-                  reservation={reservation}
-                />
-              </div>
-            )}
-          </div>
+        <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
+          <ReservationRowWithdrawal
+            className="-mt-4 w-full text-center underline @3xl:hidden"
+            locale={locale}
+            reservation={reservation}
+          />
+          {reservation.workspaceReservationId && (
+            <div className="min-w-0 *:w-full @3xl:*:w-auto">
+              <ReservationDetailLink
+                locale={locale}
+                reservation={reservation}
+              />
+            </div>
+          )}
+          <ReservationAccessButton
+            href={
+              reservation.workspaceReservationId && !reservation.reviewSandbox
+                ? `/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`
+                : undefined
+            }
+            layout="account"
+            locale={locale}
+            unavailableNote={
+              reservation.reviewSandbox
+                ? m.accountReservationPinReviewSandbox({}, { locale })
+                : m.accountReservationPinUnavailable({}, { locale })
+            }
+          />
         </div>
       </Card>
     </li>
+  );
+}
+
+function OnSiteRow({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3">
+      <dt className="min-w-0">{label}</dt>
+      <dd className="min-w-0 break-words text-right font-semibold text-[#00024f]">
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The table and Wi-Fi of a confirmed booking, as its confirmation email
+ * sends them. Rows without data are left out; nothing renders without both.
+ */
+function ReservationOnSiteBox({
+  locale,
+  onSite,
+}: {
+  readonly locale: Locale;
+  readonly onSite: CustomerReservationSummary["onSite"];
+}) {
+  const table = onSite?.table;
+  const network = onSite?.network;
+  if (!table && !network) return null;
+
+  return (
+    <dl className="m-0 min-w-0 self-start rounded-xl bg-[#f6f8fa] p-4 text-sm leading-5 text-[#475569]">
+      {table && (
+        <OnSiteRow
+          label={
+            {
+              assigned: m.accountReservationAssignedDesk({}, { locale }),
+              shared: m.checkoutEmailTablesLabel({}, { locale }),
+            }[table.mode]
+          }
+        >
+          {table.name}
+        </OnSiteRow>
+      )}
+      {network && (
+        <div
+          className={table ? "mt-3 border-t border-[#dfe4ec] pt-3" : undefined}
+        >
+          <dt className="font-semibold text-[#344258]">
+            {m.accountReservationWifi({}, { locale })}
+          </dt>
+          <dd className="m-0 mt-2">
+            <dl className="m-0 space-y-2">
+              <div className="min-w-0">
+                <dt>{m.checkoutEmailNetworkSsidLabel({}, { locale })}</dt>
+                <dd className="m-0 break-words font-semibold text-[#00024f]">
+                  {network.ssid}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt>{m.checkoutEmailNetworkPasswordLabel({}, { locale })}</dt>
+                <dd className="m-0 select-all break-all font-mono font-semibold text-[#00024f]">
+                  {network.password}
+                </dd>
+              </div>
+            </dl>
+          </dd>
+        </div>
+      )}
+    </dl>
   );
 }
 
@@ -429,7 +474,12 @@ function CompactReservationItem({
 
   return (
     <li className="min-w-0">
-      <article className="min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
+      <article className="relative min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
+        <ReservationRowWithdrawal
+          className="absolute top-4 right-4 @2xl:hidden"
+          locale={locale}
+          reservation={reservation}
+        />
         <div className="flex min-w-0 flex-col gap-4 @2xl:flex-row @2xl:items-center">
           <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border border-[#dbe4ff] bg-[#f3f6ff] px-1 text-center text-[#344258]">
             <span className="sr-only">
@@ -458,9 +508,21 @@ function CompactReservationItem({
             <p className="sr-only">
               {m.accountReservationProduct({}, { locale })}
             </p>
-            <h4 className="break-words text-base font-semibold leading-5 text-[#00024f]">
-              {getReservationProductName(reservation.product, locale)}
-            </h4>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+              <h4 className="break-words text-base font-semibold leading-5 text-[#00024f]">
+                {getReservationProductName(reservation.product, locale)}
+              </h4>
+              <span className="sr-only">
+                {m.accountReservationStatus({}, { locale })}:{" "}
+              </span>
+              <StatusBadge
+                className="max-w-full min-w-0 break-words whitespace-normal"
+                data-account-reservation-status={reservation.status}
+                tone={getReservationStatusTone(reservation.status)}
+              >
+                {getStatusLabel(reservation.status, locale)}
+              </StatusBadge>
+            </div>
             <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm text-[#64748b]">
               {period ? (
                 <span className="inline-flex min-w-0 items-start gap-1.5 break-words">
@@ -499,18 +561,20 @@ function CompactReservationItem({
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col items-stretch gap-3 @2xl:flex-row @2xl:items-center">
-            <span className="sr-only">
-              {m.accountReservationStatus({}, { locale })}:{" "}
-            </span>
-            <StatusBadge
-              className="max-w-full min-w-0 self-start break-words whitespace-normal"
-              data-account-reservation-status={reservation.status}
-              tone={getReservationStatusTone(reservation.status)}
-            >
-              {getStatusLabel(reservation.status, locale)}
-            </StatusBadge>
-            <ReservationDetailLink locale={locale} reservation={reservation} />
+          <div className="flex min-w-0 flex-col items-stretch gap-1 @2xl:items-center">
+            <ReservationRowWithdrawal
+              className="hidden w-full text-center underline @2xl:block"
+              locale={locale}
+              reservation={reservation}
+            />
+            <div className="flex min-w-0 items-center gap-1">
+              <div className="min-w-0 flex-1 *:w-full @2xl:flex-none @2xl:*:w-auto">
+                <ReservationDetailLink
+                  locale={locale}
+                  reservation={reservation}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </article>
@@ -561,25 +625,25 @@ function PastReservationTable({
     <CardContent className="min-w-0 overflow-hidden p-0">
       <table
         aria-labelledby="account-reservations-past-title"
-        className="block w-full text-left @4xl:table @4xl:table-fixed"
+        className="block w-full text-left @4xl:table"
       >
         <thead className="hidden border-b border-[#dfe4ec] text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b] @4xl:table-header-group">
           <tr className="block @4xl:table-row">
-            <th className="px-3 py-3 @4xl:w-[30%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationDate({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[25%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationProduct({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[12%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationSeatsLabel({}, { locale })}
             </th>
-            <th className="px-3 py-3 @4xl:w-[17%]" scope="col">
+            <th className="px-3 py-3" scope="col">
               {m.accountReservationStatus({}, { locale })}
             </th>
-            <th className="px-3 py-3 text-right @4xl:w-[16%]" scope="col">
+            <th className="px-3 py-3 text-right" scope="col">
               <span className="sr-only">
-                {m.accountReservationView({}, { locale })}
+                {m.reservationView({}, { locale })}
               </span>
             </th>
           </tr>
@@ -590,7 +654,7 @@ function PastReservationTable({
               className="block min-w-0 border-b border-[#dfe4ec] last:border-0 @max-4xl:p-4 @4xl:table-row"
               key={reservation.id}
             >
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[30%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationDate({}, { locale })}
@@ -605,7 +669,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] @4xl:table-cell @4xl:w-[25%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationProduct({}, { locale })}
@@ -623,7 +687,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[12%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationSeatsLabel({}, { locale })}
@@ -638,7 +702,7 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[17%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
                   <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {m.accountReservationStatus({}, { locale })}
@@ -652,7 +716,7 @@ function PastReservationTable({
                   </StatusBadge>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 pt-3 align-top text-right @4xl:table-cell @4xl:w-[16%] @4xl:px-3 @4xl:py-4">
+              <td className="block min-w-0 px-0 pt-3 align-top text-right @4xl:table-cell @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 justify-end">
                   <ReservationDetailLink
                     locale={locale}
@@ -757,7 +821,7 @@ function ReservationDetailLink({
     return (
       <Button asChild variant="link" wrap>
         <GuardedLink href={href}>
-          {m.accountReservationView({}, { locale })}
+          {m.reservationView({}, { locale })}
         </GuardedLink>
       </Button>
     );
@@ -765,9 +829,7 @@ function ReservationDetailLink({
 
   return (
     <Button asChild size="sm" variant="secondary" wrap>
-      <GuardedLink href={href}>
-        {m.accountReservationView({}, { locale })}
-      </GuardedLink>
+      <GuardedLink href={href}>{m.reservationView({}, { locale })}</GuardedLink>
     </Button>
   );
 }

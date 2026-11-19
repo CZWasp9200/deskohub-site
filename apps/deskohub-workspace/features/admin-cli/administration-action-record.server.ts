@@ -19,7 +19,7 @@ import {
   Ref,
   Schema,
 } from "effect";
-import { HttpServerRequest, type HttpServerResponse } from "effect/http";
+import { HttpServerRequest } from "effect/http";
 import {
   HttpApi,
   type HttpApiEndpoint,
@@ -49,49 +49,52 @@ export const AdministrationActionRecordLive = Layer.effect(
   Effect.gen(function* () {
     const log = yield* AdministrationActionLog;
 
-    const recordAround = Effect.fn("AdministrationActionRecord.record")(
-      function* <E, R>(
-        httpEffect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-        operation: AdministrationOperationReference
-      ) {
-        const caller = yield* CurrentAdministrationCaller;
-        const id = yield* log
-          .start({ operation, caller })
-          .pipe(mapServiceFailure);
-        const replayed = yield* Ref.make(false);
-        return yield* httpEffect.pipe(
-          Effect.provideService(CurrentAdministrationAction, {
-            markReplayed: Ref.set(replayed, true),
-          }),
-          Effect.onExit((exit) =>
-            Ref.get(replayed).pipe(
-              Effect.flatMap((wasReplayed) =>
-                log.finish(id, endOf(exit, wasReplayed))
-              ),
-              Effect.timeout(finishTimeout),
-              Effect.catchCause(() =>
-                Effect.logWarning(
-                  "Administration action end was not recorded",
-                  { actionId: id, operation }
-                )
-              )
-            )
-          )
-        );
-      }
-    );
-
     return (httpEffect, { group, endpoint }) =>
       recordedOperation(group, endpoint).pipe(
         Effect.flatMap(
           Option.match({
             onNone: () => httpEffect,
-            onSome: (operation) => recordAround(httpEffect, operation),
+            onSome: (operation) =>
+              recordAdministrationAction(operation, httpEffect).pipe(
+                Effect.provideService(AdministrationActionLog, log)
+              ),
           })
         )
       );
   })
 );
+
+/** Records an operation before it runs and records how it ended. */
+export const recordAdministrationAction = Effect.fn(
+  "AdministrationActionRecord.record"
+)(function* <A, E, R>(
+  operation: AdministrationOperationReference,
+  effect: Effect.Effect<A, E, R>
+) {
+  const log = yield* AdministrationActionLog;
+  const caller = yield* CurrentAdministrationCaller;
+  const id = yield* log.start({ operation, caller }).pipe(mapServiceFailure);
+  const replayed = yield* Ref.make(false);
+  return yield* effect.pipe(
+    Effect.provideService(CurrentAdministrationAction, {
+      markReplayed: Ref.set(replayed, true),
+    }),
+    Effect.onExit((exit) =>
+      Ref.get(replayed).pipe(
+        Effect.flatMap((wasReplayed) =>
+          log.finish(id, endOf(exit, wasReplayed))
+        ),
+        Effect.timeout(finishTimeout),
+        Effect.catchCause(() =>
+          Effect.logWarning("Administration action end was not recorded", {
+            actionId: id,
+            operation,
+          })
+        )
+      )
+    )
+  );
+});
 
 /**
  * The operation a request records, or none for a read, a dry run or a

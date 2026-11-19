@@ -65,7 +65,7 @@ export function OfficeInviteeRestorationEmail(
       {invitationUrl && (
         <ReservationEmailActionPanel
           action={{
-            button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+            button: m.reservationShowPinCode({}, { locale }),
             url: invitationUrl,
           }}
           locale={locale}

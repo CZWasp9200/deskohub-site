@@ -35,6 +35,7 @@ describe("AuthenticationService", () => {
       revokeAdministrator: () => Effect.die("not used"),
       backfillLegacyAdministrator: () => Effect.die("not used"),
       cancelReservation: () => Effect.die("not used"),
+      retryReservationWithdrawal: () => Effect.die("not used"),
       restoreReservation: () => Effect.die("not used"),
       mutateReservationAccess: () => Effect.die("not used"),
       findReservation: () => Effect.die("not used"),

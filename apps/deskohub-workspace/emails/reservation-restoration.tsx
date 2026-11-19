@@ -55,7 +55,7 @@ export function ReservationRestorationEmail(
           </WorkspaceEmailBody>
           <ReservationEmailActionPanel
             action={{
-              button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+              button: m.reservationShowPinCode({}, { locale }),
               url: accessUrl,
             }}
             locale={locale}

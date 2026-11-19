@@ -82,7 +82,7 @@ export function ReservationAuthorEmail(props: ReservationAuthorEmailProps) {
 
       <ReservationEmailActionPanel
         action={{
-          button: m.checkoutEmailAuthorStatusButton({}, { locale }),
+          button: m.reservationView({}, { locale }),
           url: statusUrl,
         }}
         locale={locale}

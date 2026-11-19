@@ -86,6 +86,7 @@ import {
   type AdministrationStandaloneAccessCodeCreationOutcomeType,
   type AdministrationVoucherDetailType,
   type AdministrationVoucherIdType,
+  type AdministrationWithdrawalRetryResultType,
   type AdministrationWorkspaceReservationIdType,
   type AutomationActivateInputType,
   type AutomationDetailType,
@@ -257,6 +258,16 @@ interface IWorkspaceAdminApiClient {
     AdministrationReservationCancellationResultType,
     | CliApiRequestError
     | CliMutationRejected
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly retryReservationWithdrawal: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    reservationId: AdministrationWorkspaceReservationIdType
+  ) => Effect.Effect<
+    AdministrationWithdrawalRetryResultType,
+    | CliApiRequestError
     | CliResourceNotFound
     | CliSessionUnauthorized
     | CliServiceUnavailable
@@ -1141,6 +1152,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             })
           ),
           Effect.mapError(sanitizeVersionedRejectedResourceError)
+        )
+    ),
+    retryReservationWithdrawal: Effect.fn(
+      "WorkspaceAdminApiClient.retryReservationWithdrawal"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        reservationId: AdministrationWorkspaceReservationIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.retryReservationWithdrawal({
+              params: { reservationId },
+            })
+          ),
+          Effect.mapError(sanitizeResourceError)
         )
     ),
     restoreReservation: Effect.fn("WorkspaceAdminApiClient.restoreReservation")(

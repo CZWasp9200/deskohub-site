@@ -12,6 +12,10 @@ export {
   cliMutationRequests,
   cliSessions,
 } from "./cli-authentication";
+export {
+  type ContractWithdrawalRow,
+  contractWithdrawals,
+} from "./contract-withdrawals";
 export { customerAccounts } from "./customer-accounts";
 export { customerEventSweeps, customerEvents } from "./customer-events";
 export { customerMarketingConsents } from "./customer-marketing-consents";

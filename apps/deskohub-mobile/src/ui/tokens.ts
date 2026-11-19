@@ -44,7 +44,7 @@ export const color = {
   dangerTint: "#FDECEF",
   /** Brand aquamarine: an accent on navy only, never text on light. */
   positive: brandColors.aquamarineGreen,
-  positiveInk: "#00513E",
+  positiveInk: brandColors.aquamarineInk,
   positiveTint: "#DDF7EC",
   /** Sunset yellow: an accent only, such as an outline. */
   warning: brandColors.sunsetYellow,

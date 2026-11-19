@@ -343,6 +343,39 @@ export const sampleDeskReservation = (
     status,
     accessStartsAt: startsAt,
     accessEndsAt: endsAt,
+    ...(status === "confirmed" && {
+      withdrawal: {
+        eligible: true,
+        periodEndsAt: new Date(
+          now.getTime() + 14 * 24 * 3600 * 1000
+        ).toISOString(),
+      },
+    }),
+  };
+};
+
+/** A paid meeting room two days after the desk, still withdrawable. */
+export const sampleLaterMeetingRoom = (
+  now: Date
+): CustomerReservationSummary => {
+  const { startsAt } = deskDay(now);
+  const start = new Date(new Date(startsAt).getTime() + 2 * 24 * 3600 * 1000);
+  start.setUTCHours(8, 0, 0, 0);
+  const end = new Date(start.getTime() + 3 * 3600 * 1000);
+  return {
+    id: "sample-reservation-room-later",
+    orderId: sampleOrderIds.upcoming,
+    product: { kind: "meeting-room" },
+    startsAt: start.toISOString(),
+    endsAt: end.toISOString(),
+    seats: 6,
+    status: "confirmed",
+    withdrawal: {
+      eligible: true,
+      periodEndsAt: new Date(
+        now.getTime() + 14 * 24 * 3600 * 1000
+      ).toISOString(),
+    },
   };
 };
 

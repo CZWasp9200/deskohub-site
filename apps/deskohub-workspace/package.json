@@ -14,7 +14,7 @@
     "dev": "bun --parallel dev:next dev:i18n dev:i18n:administration dev:booking-widget",
     "dev:booking-widget": "chokidar \"features/agent-tools/**/*.{ts,tsx,css,html}\" \"features/i18n/paraglide/messages/*.js\" \"shared/styles/*.css\" \"shared/components/ui/*.tsx\" -i \"**/generated/**\" -i \"**/*.test.{ts,tsx}\" -c \"bun booking-widget:build\"",
     "dev:next": "next dev --turbo",
-    "dev:i18n": "chokidar \"features/i18n/messages/*.json\" -c \"bun i18n:compile\"",
+    "dev:i18n": "chokidar \"features/i18n/messages/*.json\" \"../../packages/i18n/messages/reservations/*.json\" -c \"bun i18n:compile\"",
     "dev:i18n:administration": "chokidar \"features/administration/i18n/messages/**/*.json\" -c \"bun i18n:compile:administration\"",
     "email:dev": "node node_modules/react-email-preview/dist/cli/index.mjs dev --dir emails --port 3001",
     "i18n:compile": "bun x @inlang/paraglide-js compile --project ./project.inlang --outdir ./features/i18n/paraglide --output-structure locale-modules",

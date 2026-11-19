@@ -165,7 +165,9 @@ export const orderTicketView = ({
   readonly locale: AppLocale;
 }): OrderTicketView => {
   const times = bookedTimesOf(order, reservation);
-  const scheduledTimes = model.badge === "cancelled" ? Option.none() : times;
+  const reservationEnded =
+    model.badge === "cancelled" || model.badge === "withdrawn";
+  const scheduledTimes = reservationEnded ? Option.none() : times;
   const accessStartsAt = Option.flatMap(reservation, (row) =>
     instantOf(row.accessStartsAt)
   );
@@ -222,21 +224,23 @@ export const orderTicketView = ({
             },
           ]),
     ],
-    accessHint: Option.getOrUndefined(
-      Option.map(accessStartsAt, (from) =>
-        m.reservations_pin_works_from(
-          {
-            time: m.reservations_date_time(
+    accessHint: reservationEnded
+      ? undefined
+      : Option.getOrUndefined(
+          Option.map(accessStartsAt, (from) =>
+            m.reservations_pin_works_from(
               {
-                date: shortDate(from, locale),
-                time: formatInstant(from, locale, "time"),
+                time: m.reservations_date_time(
+                  {
+                    date: shortDate(from, locale),
+                    time: formatInstant(from, locale, "time"),
+                  },
+                  { locale }
+                ),
               },
               { locale }
-            ),
-          },
-          { locale }
-        )
-      )
-    ),
+            )
+          )
+        ),
   };
 };

@@ -31,7 +31,15 @@ const reservation = (
 const history = {
   kind: "available",
   groups: {
-    current: [reservation({ id: "synthetic-current" })],
+    current: [
+      reservation({
+        id: "synthetic-current",
+        onSite: {
+          table: { mode: "assigned", name: "Desk 12" },
+          network: { ssid: "Test network", password: "fixture-only" },
+        },
+      }),
+    ],
     past: [
       reservation({
         id: "synthetic-past",

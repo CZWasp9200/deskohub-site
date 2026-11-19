@@ -51,6 +51,7 @@ const readableText = (element: Element | null | undefined) =>
   element?.textContent?.replace(/\s+/g, " ");
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   getAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
 }));
@@ -813,6 +814,50 @@ describe("administration reservation components", () => {
       />
     );
     expect(activity.getByText(/Nexi reports payment activity/i)).toBeDefined();
+  });
+
+  test("shows the amount still owed after a partial withdrawal refund", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    const attempt = detail?.paymentAttempts[0];
+    if (!detail || !attempt) throw new Error("Expected a fixture payment");
+
+    const refundTarget = { ...attempt.amount, value: 2_000 };
+    const refundAmountDue = { ...attempt.amount, value: 1_000 };
+    const payment = {
+      ...attempt,
+      refundState: "required" as const,
+      refundTarget,
+      refundedAmount: refundAmountDue,
+      refundedAt: "2026-10-12T09:00:00Z",
+    };
+    const expected = ` · ${formatMoney(refundAmountDue, "en-US")}`.replaceAll(
+      "\u00a0",
+      " "
+    );
+
+    const payments = render(
+      <PaymentAttemptList attempts={[payment]} locale="en-US" />
+    );
+    expect(readableText(payments.container)).toContain(expected);
+    payments.unmount();
+
+    const reservations = render(
+      <ReservationTable
+        reservations={[
+          {
+            ...detail.reservation,
+            latestPayment: payment,
+            statusNoteCode: "needs_refund",
+            withdrawal: {
+              refundAmount: refundTarget,
+              refundAmountDue,
+              settlement: "settled",
+            },
+          },
+        ]}
+      />
+    );
+    expect(readableText(reservations.container)).toContain(expected);
   });
 
   test("words payment attempts and Nexi orders in Czech", () => {

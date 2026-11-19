@@ -170,6 +170,23 @@ describe("dhw reservations", () => {
     expect(output).toEqual([JSON.stringify(reservations)]);
   });
 
+  test("passes each reservation status filter through, including needs_attention", async () => {
+    for (const status of [
+      "in_progress",
+      "complete",
+      "cancelled",
+      "needs_refund",
+      "needs_attention",
+    ] as const) {
+      const { calls } = await runInspection(
+        ["--json", "reservations", "list", "--status", status],
+        { listReservations: reservations }
+      );
+
+      expect(calls).toEqual([["listReservations", { status }]]);
+    }
+  });
+
   test("lists reservation rows with their date and customer fallbacks", async () => {
     const { calls, output } = await runInspection(["reservations", "list"], {
       listReservations: reservations,

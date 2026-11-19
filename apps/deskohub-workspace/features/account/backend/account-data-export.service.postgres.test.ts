@@ -64,6 +64,7 @@ import { WorkspaceReservationRepository } from "@/features/reservation/backend/w
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
 import { ReviewAccounts } from "@/features/review-accounts";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import {
   syntheticDotyposCustomerId,
   workspaceFixtures,
@@ -457,6 +458,35 @@ const seedInvoice = async (
   return invoiceNumber;
 };
 
+/** The customer's withdrawal from `reservationId`, owing the whole payment back. */
+const seedWithdrawal = (
+  customer: SeededCustomer,
+  reservationId: WorkspaceReservationId
+) => {
+  const submittedAt = Temporal.Instant.from("2027-01-02T10:00:00Z");
+  const paid = { value: 45_050, exponent: 2, currency: "CZK" } as const;
+  return run(
+    Effect.gen(function* () {
+      const withdrawals = yield* WithdrawalRepository;
+      yield* withdrawals.record({
+        contract: { kind: "reservation", id: reservationId },
+        accountId: customer.accountId,
+        locale: "cs-CZ",
+        contractLabel: "Office · 10. 1. 2027",
+        statementName: sensitive("withdrawal-statement-name"),
+        submittedAt,
+        periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
+        paidAmount: paid,
+        refundAmount: paid,
+        refundBasis: { kind: "full" },
+      });
+    }).pipe(
+      Effect.provide(WithdrawalRepository.Default),
+      Effect.provide(postgres!.layer)
+    )
+  );
+};
+
 let correctiveSequence = 0;
 
 /**
@@ -599,6 +629,7 @@ const roomyLimits: AccountDataExportLimits = {
   invoiceDeliveries: 50,
   legalEvidenceEvents: 50,
   accessGrants: 50,
+  withdrawals: 50,
 };
 
 const syntheticProfile = {
@@ -638,7 +669,8 @@ const exportService = (
     ),
     InvoiceEmailDeliveryRepository.Default,
     MarketingConsentLedger.Default,
-    ReservationAccessRepository.Default
+    ReservationAccessRepository.Default,
+    WithdrawalRepository.Default
   ).pipe(Layer.provideMerge(storage));
   const session = Layer.mergeAll(
     signedInAuthentication(customer.accountId),
@@ -709,6 +741,7 @@ const ArchiveFiles = {
     legalEvidenceEvents: ArchiveRows,
   }),
   "access-grants.json": Schema.Struct({ accessGrants: ArchiveRows }),
+  "withdrawals.json": ArchiveRows,
 };
 
 /** The archive's sections as JSON, and all of its text. */
@@ -741,6 +774,7 @@ const archiveFor = async (
     marketingConsent: consents.marketingConsent,
     legalEvidenceEvents: consents.legalEvidenceEvents,
     accessGrants: section("access-grants.json").accessGrants,
+    withdrawals: section("withdrawals.json"),
   };
 };
 
@@ -792,6 +826,8 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
         ...(await cancelAndHideSeededInvoice(aStandaloneInvoice)),
       };
       await seedMarketingConsent(a.customerId);
+      await seedWithdrawal(a, aReservations[0]!.id);
+      await seedWithdrawal(b, bReservation.id);
       const bConsentHash = await seedMarketingConsent(b.customerId);
       unattributedDocumentHash = await seedLegalEvidenceEvent(null);
       aInvoiceNumbers = [
@@ -895,6 +931,23 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
       expect(valuesOf(aArchive.legalEvidenceEvents, "documentHash")).toEqual(
         aReservations.map(({ legalDocumentHash }) => legalDocumentHash).sort()
       );
+    });
+
+    test("lists the account's own withdrawals with their contract, submission, refund and status", () => {
+      expect(aArchive.withdrawals).toEqual([
+        {
+          contractKind: "reservation",
+          contractId: aReservations[0]!.id,
+          contractLabel: "Office · 10. 1. 2027",
+          submittedAt: "2027-01-02T10:00:00Z",
+          paidAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+          refundAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+          status: "processing",
+        },
+      ]);
+      expect(valuesOf(bArchive.withdrawals, "contractId")).toEqual([
+        bReservation.id,
+      ]);
     });
 
     test("projects each section to its allowlisted fields only", () => {

@@ -59,7 +59,7 @@ export function OfficeInvitationEmail(props: OfficeInvitationEmailProps) {
       </WorkspaceEmailHeading>
       <ReservationEmailActionPanel
         action={{
-          button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+          button: m.reservationShowPinCode({}, { locale }),
           url: invitationUrl,
         }}
         locale={locale}

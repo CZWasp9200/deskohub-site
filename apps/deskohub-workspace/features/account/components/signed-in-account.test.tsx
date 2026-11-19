@@ -90,6 +90,11 @@ mock.module("@/features/account/avatar-actions", () => ({
     }),
 }));
 
+mock.module(
+  "@/features/withdrawal/components/reservation-withdrawal-link",
+  () => ({ ReservationWithdrawalLink: () => null })
+);
+
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
     signIn: { magicLink: () => Promise.resolve({ error: null }) },

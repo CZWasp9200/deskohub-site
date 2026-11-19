@@ -26,18 +26,28 @@ export function Badge({
   label,
   tone,
   icon,
+  stacked = false,
 }: {
   readonly label: string;
   readonly tone: BadgeTone;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
+  /**
+   * Sets the label one word per line, for a narrow corner: it never breaks
+   * inside a word and needs no measuring. The icon stays centred against it.
+   */
+  readonly stacked?: boolean;
 }) {
   const { background, ink } = badgeColors[tone];
   return (
     <View style={[styles.badge, { backgroundColor: background }]}>
       {icon && <Icon icon={icon} size={16} color={ink} />}
-      <Text variant="badge" style={[styles.label, { color: ink }]}>
-        {label}
+      <Text
+        variant="badge"
+        aria-label={stacked ? label : undefined}
+        style={[styles.label, { color: ink }]}
+      >
+        {stacked ? label.split(/\s+/).join("\n") : label}
       </Text>
     </View>
   );

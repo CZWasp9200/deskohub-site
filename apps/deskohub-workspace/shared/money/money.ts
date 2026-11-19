@@ -85,6 +85,33 @@ export const moneyWithValue = (value: number, unit: MoneyUnit): Money => ({
   currency: unit.currency,
 });
 
+/**
+ * The share `numerator / denominator` of `money`, rounded up to whole minor
+ * units, such as the part of a price owed back for unused service. The share
+ * must lie between zero and one; anything else is a programming error.
+ */
+export const moneyShareRoundedUp = (
+  money: Money,
+  numerator: number,
+  denominator: number
+): Money => {
+  if (
+    !(Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator)) ||
+    denominator <= 0 ||
+    numerator < 0 ||
+    numerator > denominator
+  ) {
+    throw new RangeError(
+      `A money share needs integers 0 <= ${numerator} <= ${denominator} with a positive denominator.`
+    );
+  }
+  const scaled = BigInt(money.value) * BigInt(numerator);
+  const divisor = BigInt(denominator);
+  const quotient = scaled / divisor;
+  const roundedUp = scaled % divisor > 0n ? quotient + 1n : quotient;
+  return moneyWithValue(Number(roundedUp), money);
+};
+
 /** Totals amounts that share one unit; the total keeps that unit. */
 export const sumMoney = (
   amounts: readonly [Money, ...Money[]]

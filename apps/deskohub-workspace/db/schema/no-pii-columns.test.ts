@@ -59,6 +59,11 @@ const allowedColumns = new Map([
     "public.workspace_reservations.cancellation_email_sent_at",
     "when the cancellation email was sent, not an address",
   ],
+  // The withdrawal settlement clears the confirmed name once both emails are accepted.
+  [
+    "public.contract_withdrawals.statement_name",
+    "confirmed withdrawal name while either settlement email is pending",
+  ],
   // An office invitee's address, kept only encrypted and as a keyed digest
   // until the retention purge; see the checkout skill's lifecycle reference.
   [

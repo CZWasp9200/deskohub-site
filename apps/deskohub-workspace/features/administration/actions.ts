@@ -1,9 +1,18 @@
 "use server";
 
-import { AdministrationWorkspaceReservationId } from "@deskohub/workspace-admin-api";
-import { DateTime, Effect, Schema } from "effect";
+import {
+  AdministrationWorkspaceReservationId,
+  CliServiceUnavailable,
+} from "@deskohub/workspace-admin-api";
+import { DateTime, Effect, Layer, Schema } from "effect";
+import { AdministrationActionLog } from "@/features/admin-cli/administration-action-log.service";
+import { recordAdministrationAction } from "@/features/admin-cli/administration-action-record.server";
 import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
+import {
+  WithdrawalService,
+  WithdrawalUnavailableError,
+} from "@/features/withdrawal/backend/withdrawal.service";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { AdministrationService } from "./administration.service";
 import { administrationHref } from "./administration-href";
@@ -11,9 +20,11 @@ import {
   type ReservationCancellationInput,
   type ReservationLookupInput,
   type ReservationRestorationInput,
+  type ReservationWithdrawalSettlementInput,
   reservationCancellationStandardSchema,
   reservationLookupStandardSchema,
   reservationRestorationStandardSchema,
+  reservationWithdrawalSettlementStandardSchema,
 } from "./contracts";
 import { AdministrationCustomerDirectory } from "./customer-directory.service";
 import { describeAdministrationCustomer } from "./customer-identity";
@@ -32,6 +43,11 @@ import {
   getReservationCancellationErrorMessage,
   getReservationRestorationErrorMessage,
 } from "./reservation-error-messages";
+
+import {
+  ReservationWithdrawalNotFoundError,
+  retryReservationWithdrawal,
+} from "./reservation-withdrawal";
 
 const failureCopy: WorkspaceActionFailureCopy = {
   timeout: m.administrationActionTimedOut,
@@ -126,6 +142,49 @@ export const cancelAdministrationReservation: typeof cancelAdministrationReserva
   async (...args: Parameters<typeof cancelAdministrationReservationAction>) => {
     "use server";
     return await cancelAdministrationReservationAction(...args);
+  };
+
+const settleAdministrationReservationWithdrawalAction =
+  defineAdministrationAction(
+    {
+      operation: "administration.settle-reservation-withdrawal",
+      failureCopy,
+      schema: reservationWithdrawalSettlementStandardSchema,
+      capabilities: Layer.mergeAll(
+        WithdrawalService.Live,
+        AdministrationActionLog.Live
+      ),
+      publicFailure: (cause, locale) => {
+        if (cause instanceof ReservationWithdrawalNotFoundError) {
+          return m.administrationWithdrawalRetryNotFound({}, { locale });
+        }
+        if (
+          cause instanceof WithdrawalUnavailableError ||
+          cause instanceof CliServiceUnavailable
+        ) {
+          return m.administrationWithdrawalRetryUnavailable({}, { locale });
+        }
+        return undefined;
+      },
+      revalidates: reservationPath,
+    },
+    ({ reservationId }: ReservationWithdrawalSettlementInput) =>
+      recordAdministrationAction(
+        "administration.retryReservationWithdrawal",
+        retryReservationWithdrawal(reservationId)
+      )
+  );
+
+/**
+ * Settles the reservation's customer withdrawal now, with every waiting step
+ * due at once, as the scheduled settlement would.
+ */
+export const settleAdministrationReservationWithdrawal: typeof settleAdministrationReservationWithdrawalAction =
+  async (
+    ...args: Parameters<typeof settleAdministrationReservationWithdrawalAction>
+  ) => {
+    "use server";
+    return await settleAdministrationReservationWithdrawalAction(...args);
   };
 
 const restoreAdministrationReservationAction = defineAdministrationAction(

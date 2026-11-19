@@ -5,6 +5,7 @@ import {
   bookingTicketOf,
   type OrderChecking,
   orderCheckingOf,
+  orderTicketModel,
   type PaymentRecovery,
   type TicketStub,
 } from "./booking-ticket-model";
@@ -192,5 +193,45 @@ describe("orderCheckingOf", () => {
         "stopped"
       );
     }
+  });
+});
+
+describe("orderTicketModel", () => {
+  const refundAmount = { value: 55_000, exponent: 2, currency: "CZK" };
+  const withdrawal = { refundAmount, submittedAt: "2026-11-18T09:00:00Z" };
+
+  test("shows the withdrawal and refund even once the reservation is cancelled", () => {
+    for (const status of statuses)
+      for (const checking of checkings)
+        expect(
+          orderTicketModel(
+            {
+              status,
+              paymentStatus: "paid",
+              ...(status === "cancelled" && { reservationCancelled: true }),
+              withdrawal,
+            },
+            checking
+          )
+        ).toEqual({
+          badge: "withdrawn",
+          reason: Option.none(),
+          price: "paid",
+          stub: { _tag: "Withdrawn", refundAmount },
+          followUp: "more-actions",
+          dim: true,
+        });
+  });
+
+  test("shows any other order by its status", () => {
+    for (const status of statuses)
+      for (const checking of checkings)
+        expect(
+          orderTicketModel(
+            { status, paymentStatus: "paid" },
+            checking,
+            noRecovery
+          )
+        ).toEqual(bookingTicketOf(status, checking, noRecovery));
   });
 });

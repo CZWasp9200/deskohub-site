@@ -754,7 +754,7 @@ describe("AdministrationService", () => {
       Effect.runPromise
     );
 
-    expect(selectCall).toBe(5);
+    expect(selectCall).toBe(6);
     expect(result.dateSortUnavailable).toBe(true);
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.purpose).toBe("business");
@@ -787,6 +787,7 @@ describe("AdministrationService", () => {
       [row],
       [],
       [],
+      [],
       [
         {
           paymentAttemptId: "payment-attempt",
@@ -815,7 +816,7 @@ describe("AdministrationService", () => {
                   select: () => {
                     const call = selectCall++;
                     const query = makeQuery(rows[call] ?? []);
-                    if (call === 4) {
+                    if (call === 5) {
                       query.orderBy = () => {
                         recoveryOrderByCalls += 1;
                         return query;

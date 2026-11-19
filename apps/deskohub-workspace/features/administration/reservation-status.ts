@@ -5,35 +5,6 @@ import type {
   WorkspaceReservationRow,
 } from "@/db/schema";
 
-export const ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS = 60 * 1000;
-
-export const canCancelReservation = (
-  reservation: Pick<
-    WorkspaceReservationRow,
-    | "dotyposReservationId"
-    | "fulfillmentState"
-    | "paymentState"
-    | "reservationState"
-    | "updatedAt"
-  >,
-  now = Temporal.Now.instant(),
-  allowPendingPayment = false
-) =>
-  Boolean(reservation.dotyposReservationId?.trim()) &&
-  reservation.fulfillmentState !== "processing" &&
-  reservation.fulfillmentState !== "awaiting_delivery" &&
-  (allowPendingPayment || reservation.paymentState !== "pending") &&
-  (["held", "hold_expired", "confirmed", "cancellation_failed"].includes(
-    reservation.reservationState
-  ) ||
-    (reservation.reservationState === "cancelling" &&
-      Temporal.Instant.compare(
-        reservation.updatedAt,
-        now.subtract({
-          milliseconds: ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
-        })
-      ) <= 0));
-
 /**
  * Whether an administrator may restore a cancelled reservation: a paid,
  * confirmed reservation whose cancellation finished cleanly, that Dotypos
@@ -98,6 +69,7 @@ const reservationStatusLabels = {
   awaiting_payment: "Awaiting payment",
   starting: "Starting",
   in_progress: "In progress",
+  withdrawn: "Withdrawn by customer",
 } as const;
 
 export type AdministrationReservationStatusCode =
@@ -155,6 +127,8 @@ export type ReservationStatusInput = {
   /** Nexi reported a refund for every payment attempt that required one. */
   readonly refunded?: boolean;
   readonly reservationState: ReservationState;
+  /** The customer withdrew from the reservation online. */
+  readonly withdrawn?: boolean;
 };
 
 export type AdministrationLifecycleStage =
@@ -467,6 +441,7 @@ const statusRules: readonly ReservationStatusRule<AdministrationReservationStatu
     statusRule(isLatePaymentRecoveryReview, "attention", "recovery_review"),
     statusRule(isRefundedLatePayment, "cancelled", "refunded"),
     statusRule(isLatePayment, "attention", "refund_required"),
+    statusRule((input) => input.withdrawn === true, "cancelled", "withdrawn"),
     statusRule(
       isReservation("cancellation_failed"),
       "attention",

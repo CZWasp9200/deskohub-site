@@ -125,6 +125,12 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . The deadline is met if the notice is sent before it expires.
+        Withdrawal can also be submitted online with the “Withdraw from
+        contract” function on the Booking in the customer account on the website
+        or in the app, confirmed with the “Confirm withdrawal” button. The
+        Provider confirms receipt of the withdrawal by email to the account’s
+        address without undue delay, including the content of the statement and
+        the date and time it was sent.
       </>,
       "9.4 Following a valid withdrawal, the Provider will reimburse payments received without undue delay and no later than 14 days, using the same payment method unless the parties agree otherwise without additional cost to the Consumer.",
       "9.5 Model notice: “I hereby give notice that I withdraw from my contract for the following Service: [description and Booking number], ordered on [date]. Consumer name: [complete]. Consumer address: [complete]. Date: [complete]. Signature only if submitted on paper.” Use of the model is optional.",
@@ -758,7 +764,7 @@ const legalDocuments = {
     ],
   },
   "terms-and-conditions": {
-    updatedAt: "12 August 2026",
+    updatedAt: "17 November 2026",
     sections: termsAndConditionsSections,
   },
   "cookie-policy": {

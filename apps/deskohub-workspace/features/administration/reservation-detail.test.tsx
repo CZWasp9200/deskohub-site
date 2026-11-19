@@ -25,6 +25,7 @@ mock.module("@/features/i18n/server/request-locale", () => ({
 }));
 
 mock.module("./actions", () => ({
+  settleAdministrationReservationWithdrawal: mock(),
   cancelAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
   restoreAdministrationReservation: mock(),

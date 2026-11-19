@@ -109,6 +109,7 @@ describe("WorkspaceCustomerApi", () => {
         "account.requestDeletion",
         "reservations.reopenPaymentPage",
         "reservations.retryPayment",
+        "reservations.withdrawFromReservation",
         "booking.createCheckout",
         "booking.applyCheckoutDiscountCode",
         "booking.clearCheckoutDiscountCode",

@@ -40,6 +40,7 @@ import { ReservationCancellation } from "./reservation-cancellation";
 import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 import { getAdministrationReservationProductTitle } from "./reservation-product";
 import { ReservationRestoration } from "./reservation-restoration";
+import { ReservationWithdrawalSection } from "./reservation-withdrawal-section";
 
 /**
  * The reservation detail screen. It awaits only the route locale, which
@@ -87,6 +88,17 @@ async function ReservationDetailContent({
           locale={locale}
           notice={detail.operatorNotice}
         />
+      )}
+
+      {detail.withdrawal && (
+        <div className="mb-6">
+          <ReservationWithdrawalSection
+            customer={reservation.customer}
+            locale={locale}
+            reservationId={reservation.id}
+            withdrawal={detail.withdrawal}
+          />
+        </div>
       )}
 
       <section aria-labelledby="lifecycle-heading">

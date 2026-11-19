@@ -86,7 +86,7 @@ describe("reservationRowView", () => {
     );
     const done = reservationRowView(row("d"), "past", "en-US");
     expect(cancelled.detail).toBe(
-      m.reservations_status_cancelled({}, { locale: "en-US" })
+      m.reservationStatusCancelled({}, { locale: "en-US" })
     );
     expect(done.detail).not.toBe(cancelled.detail);
     expect(Option.isNone(cancelled.badge)).toBe(true);
@@ -110,7 +110,7 @@ describe("reservationRowView", () => {
     ).toBe(true);
   });
 
-  test("a booking held into the next day ends on that day's date and time", () => {
+  test("an overnight stay keeps its times and an office shows its dates and seats", () => {
     // An overnight stay: noon to noon in Prague (UTC+1).
     const overnight = reservationRowView(
       row("o", {
@@ -121,18 +121,17 @@ describe("reservationRowView", () => {
       "later",
       "en-US"
     );
-    // Whole days keep only their last date.
+    // Whole days end at the next midnight, which isn't a day of the booking.
     const days = reservationRowView(
       row("d", {
         product: { kind: "office" },
         startsAt: "2026-11-16T23:00:00Z",
         endsAt: "2026-11-18T23:00:00Z",
-        seats: null,
+        seats: 6,
       }),
       "later",
       "en-US"
     );
-
     const start = DateTime.makeUnsafe("2026-11-17T11:00:00Z");
     const end = DateTime.makeUnsafe("2026-11-18T11:00:00Z");
     expect(overnight.detail).toBe(
@@ -150,14 +149,14 @@ describe("reservationRowView", () => {
         { locale: "en-US" }
       )
     );
-    expect(overnight.detail).not.toBe(days.detail);
     expect(days.detail).toBe(
-      m.reservations_time_until(
-        {
-          time: shortDate(DateTime.makeUnsafe("2026-11-18T12:00:00Z"), "en-US"),
-        },
-        { locale: "en-US" }
-      )
+      [
+        m.reservations_time_range(
+          { start: "Nov 17", end: "Nov 18" },
+          { locale: "en-US" }
+        ),
+        m.reservations_seats({ count: 6 }, { locale: "en-US" }),
+      ].join(" · ")
     );
   });
 

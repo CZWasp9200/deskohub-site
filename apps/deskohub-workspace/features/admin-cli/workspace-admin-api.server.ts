@@ -48,6 +48,10 @@ import {
   ReservationAdministrationService,
 } from "@/features/administration/reservation-administration.service";
 import {
+  ReservationWithdrawalNotFoundError,
+  retryReservationWithdrawal,
+} from "@/features/administration/reservation-withdrawal";
+import {
   AdministratorRoster,
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
@@ -75,6 +79,7 @@ import {
   getReservationAccessName,
   type ReservationAccessGrant,
 } from "@/features/reservation-access";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { AdministrationActionLog } from "./administration-action-log.service";
 import { AdministrationActionRecordLive } from "./administration-action-record.server";
@@ -156,6 +161,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const administration = yield* AdministrationService;
     const reservationAdministration = yield* ReservationAdministrationService;
+    const withdrawals = yield* WithdrawalService;
     const reservationAccess = yield* ReservationAccessAdministration;
     const authentication = yield* CliAuthentication;
     const discounts = yield* DiscountAdministration;
@@ -257,6 +263,18 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             })),
             mapAdministrationApiFailure(mapReservationRestorationFailure)
           )
+      )
+      .handle("retryReservationWithdrawal", ({ params }) =>
+        retryReservationWithdrawal(params.reservationId).pipe(
+          Effect.provideService(WithdrawalService, withdrawals),
+          mapAdministrationApiFailure((cause) =>
+            cause instanceof ReservationWithdrawalNotFoundError
+              ? new CliResourceNotFound({
+                  message: "The reservation has no customer withdrawal.",
+                })
+              : makeServiceUnavailable()
+          )
+        )
       )
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
@@ -1052,6 +1070,7 @@ export const provideWorkspaceAdminApiServices = <A, E, R>(
   layer.pipe(
     Layer.provide(AdministrationService.Live),
     Layer.provide(ReservationAdministrationService.Live),
+    Layer.provide(WithdrawalService.Live),
     Layer.provide(ReservationProductDetailsBackfill.Live),
     Layer.provide(AdministratorRoster.Live),
     Layer.provide(LegacyAdministratorBackfill.Live),

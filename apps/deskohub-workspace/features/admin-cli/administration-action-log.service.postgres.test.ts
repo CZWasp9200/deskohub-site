@@ -73,13 +73,8 @@ describe.skipIf(!testDatabase)(
 
     afterAll(async () => {
       await testDatabase.pool.query(
-        "delete from administration_actions where cli_session_id = $1 or assistant_connection_id = $2",
-        [
-          sessionId,
-          assistantChannel._tag === "AssistantConnection"
-            ? assistantChannel.connectionId
-            : null,
-        ]
+        "delete from administration_actions where actor_account_id = $1",
+        [administrator.accountId]
       );
       await testDatabase.pool.query("delete from cli_sessions where id = $1", [
         sessionId,
@@ -162,6 +157,20 @@ describe.skipIf(!testDatabase)(
       expect(await readAction(finished)).toMatchObject({
         outcome: "failed",
         failure: "CliResourceNotFound",
+      });
+    });
+
+    test("records a browser action with the signed-in administrator", async () => {
+      const id = await startAndFinish({ _tag: "AdminUi" }, [
+        { outcome: "succeeded" },
+      ]);
+
+      expect(await readAction(id)).toMatchObject({
+        outcome: "succeeded",
+        actor_account_id: administrator.accountId,
+        actor_account_email: administrator.email,
+        cli_session_id: null,
+        assistant_connection_id: null,
       });
     });
 

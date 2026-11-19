@@ -21,6 +21,8 @@ import {
   customerEvents,
   paymentAttempts,
   reservationAccessGrants,
+  reservationInviteeNotices,
+  reservationInvitees,
   workspaceReservations,
 } from "@/db/schema";
 import {
@@ -32,6 +34,7 @@ import {
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { ReservationAccessService } from "@/features/reservation-access";
 import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
+import { reservationInviteeKeyIdSchema } from "@/features/reservation-invitees/reservation-invitee";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import { rejectCustomerEventInserts } from "@/shared/backend/customer-events/customer-event-outbox.test-utils";
 import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
@@ -643,13 +646,14 @@ describe.skipIf(!testDatabase)(
         id: WorkspaceReservationId,
         input: Partial<
           Parameters<
-            typeof WorkspaceReservationRepository.Service.claimAdministrationCancellation
+            typeof WorkspaceReservationRepository.Service.claimRequestedCancellation
           >[0]
         > = {}
       ) =>
         run((repository) =>
-          repository.claimAdministrationCancellation({
+          repository.claimRequestedCancellation({
             id,
+            cause: "operator",
             staleCancellingBefore: at(10),
             ...input,
           })
@@ -754,8 +758,9 @@ describe.skipIf(!testDatabase)(
         });
 
         const error = await runFailure((repository) =>
-          repository.claimAdministrationCancellation({
+          repository.claimRequestedCancellation({
             id,
+            cause: "operator",
             staleCancellingBefore: at(10),
             pendingPaymentCancellation: {
               paymentAttemptId,
@@ -766,7 +771,7 @@ describe.skipIf(!testDatabase)(
 
         expect(error).toBeInstanceOf(WorkspaceReservationStateError);
         expect(error).toMatchObject({
-          operation: "workspaceReservations.claimAdministrationCancellation",
+          operation: "workspaceReservations.claimRequestedCancellation",
           reservationId: id,
         });
         expect(await readReservation(id)).toMatchObject({
@@ -838,7 +843,7 @@ describe.skipIf(!testDatabase)(
         });
 
         await run((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(6),
             claimedAt,
@@ -859,6 +864,95 @@ describe.skipIf(!testDatabase)(
         );
       });
 
+      test("records the refund a customer's withdrawal owes on its paid Nexi attempt", async () => {
+        for (const refund of [
+          { targetValue: 1, releasesPromotions: false },
+          { targetValue: 2, releasesPromotions: true },
+        ]) {
+          const claimedAt = at(5);
+          const id = await insertReservation(
+            { ...confirmedPaid, reservation: "cancelling" },
+            { updatedAt: claimedAt }
+          );
+          const nexiAttempt = await insertActivePaymentAttempt(id);
+
+          await run((repository) =>
+            repository.completeRequestedCancellation({
+              id,
+              cancelledAt: at(6),
+              claimedAt,
+              failureCode: null,
+              refund,
+            })
+          );
+
+          expect(await readReservation(id)).toMatchObject({
+            reservationState: "cancelled",
+          });
+          expect(await readPaymentAttempt(nexiAttempt)).toMatchObject({
+            refundState: "required",
+            refundTargetValue: refund.targetValue,
+          });
+        }
+      });
+
+      test("notifies office guests on withdrawal and keeps the previous partial refund", async () => {
+        const claimedAt = at(5);
+        const id = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          {
+            updatedAt: claimedAt,
+            cancellationCause: "customer_withdrawal",
+            reservationConfirmedAt: at(0),
+            officeContactAttends: false,
+            reservationDetails: { kind: "office", seats: 1, dayCount: 1 },
+          }
+        );
+        const [invitee] = await Effect.runPromise(
+          testDatabase.db
+            .insert(reservationInvitees)
+            .values({
+              workspaceReservationId: id,
+              position: 0,
+              keyId: reservationInviteeKeyIdSchema.make("test-key"),
+              encryptedEmail: Buffer.from("synthetic-ciphertext"),
+              emailLookupKey: "synthetic-digest",
+              retainUntil: at(30),
+            })
+            .returning({ id: reservationInvitees.id })
+        );
+        if (!invitee) throw new Error("Expected an office invitee");
+        const attempt = await insertActivePaymentAttempt(id, {
+          refundState: "refunded",
+          refundedAmountValue: 1_000,
+          refundedAt: at(4),
+        });
+
+        await run((repository) =>
+          repository.completeRequestedCancellation({
+            id,
+            cancelledAt: at(6),
+            claimedAt,
+            failureCode: null,
+            refund: { targetValue: 2_000, releasesPromotions: false },
+          })
+        );
+
+        expect(await readPaymentAttempt(attempt)).toMatchObject({
+          refundState: "required",
+          refundedAmountValue: 1_000,
+          refundedAt: at(4),
+          refundTargetValue: 2_000,
+        });
+        const notices = await Effect.runPromise(
+          testDatabase.db
+            .select({ kind: reservationInviteeNotices.kind })
+            .from(reservationInviteeNotices)
+            .where(eq(reservationInviteeNotices.inviteeId, invitee.id))
+        );
+        expect(notices).toEqual([{ kind: "cancellation" }]);
+      });
+
       test("records a cancellation failure on the claimed revision only", async () => {
         const claimedAt = at(5);
         const claimedRevision = await insertReservation(
@@ -875,13 +969,13 @@ describe.skipIf(!testDatabase)(
         };
 
         await run((repository) =>
-          repository.markAdministrationCancellationFailed({
+          repository.markRequestedCancellationFailed({
             id: claimedRevision,
             ...failure,
           })
         );
         const error = await runFailure((repository) =>
-          repository.markAdministrationCancellationFailed({
+          repository.markRequestedCancellationFailed({
             id: laterRevision,
             ...failure,
           })
@@ -905,7 +999,7 @@ describe.skipIf(!testDatabase)(
         const attempt = await insertActivePaymentAttempt(id);
 
         const error = await runFailure((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(8),
             claimedAt: at(5),
@@ -1445,7 +1539,7 @@ describe.skipIf(!testDatabase)(
         });
         const cancel = (id: WorkspaceReservationId) =>
           run((repository) =>
-            repository.markAdministrationCancelled({
+            repository.completeRequestedCancellation({
               id,
               cancelledAt: at(6),
               claimedAt,
@@ -1551,7 +1645,7 @@ describe.skipIf(!testDatabase)(
           `new.workspace_reservation_id = '${id}'`
         );
         const failure = await runFailure((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(6),
             claimedAt,

@@ -197,6 +197,10 @@ export class PaymentRefundService extends Context.Service<
             yield* Effect.logWarning(
               "Nexi refund found for an attempt that cannot record it"
             ).pipe(withRefundOperations);
+          } else if (result === "below_target") {
+            yield* Effect.logInfo(
+              "Nexi refund is still below the refund owed"
+            ).pipe(withRefundOperations);
           } else {
             yield* Effect.logInfo("Nexi refund reconciled").pipe(
               withRefundOperations

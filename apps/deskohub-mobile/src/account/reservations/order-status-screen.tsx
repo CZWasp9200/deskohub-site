@@ -11,10 +11,10 @@ import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Download from "lucide-react-native/icons/download";
 import FileText from "lucide-react-native/icons/file-text";
-import KeyRound from "lucide-react-native/icons/key-round";
 import Mail from "lucide-react-native/icons/mail";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import Search from "lucide-react-native/icons/search";
+import Undo2 from "lucide-react-native/icons/undo-2";
 import { type ReactNode, useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { bookAgainHref, reservationsHref } from "../../booking/booking-routes";
@@ -32,6 +32,7 @@ import {
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { openContactPage } from "../../routing/open-contact-page";
 import { Card } from "../../ui/card";
 import { Button, LiveMessage } from "../../ui/controls";
@@ -43,6 +44,7 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
+import { AccessPinButton } from "./access-pin-button";
 import {
   BookingSteps,
   BookingTicket,
@@ -50,9 +52,8 @@ import {
 } from "./booking-ticket";
 import {
   type BookingTicketModel,
-  bookingTicketOf,
-  cancelledBookingTicket,
   orderCheckingOf,
+  orderTicketModel,
 } from "./booking-ticket-model";
 import { ticketBadge, ticketSteps } from "./booking-ticket-text";
 import { type BookingEvent, calendarShareAtom } from "./calendar-event";
@@ -66,6 +67,7 @@ import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
+import { WhenWithdrawable } from "./withdrawal-offer";
 
 const invoiceFailureMessage = (
   failure: DownloadShareFailure,
@@ -93,12 +95,16 @@ const invoiceFailureMessage = (
 function MoreActions({
   order,
   event,
+  withdrawn = false,
 }: {
   readonly order: CustomerOrderState;
+  /** Withdrawn from already: no second withdrawal. */
+  readonly withdrawn?: boolean;
   /** The booking as a calendar event; none while its times are unknown. */
   readonly event: BookingEvent | undefined;
 }) {
   const locale = useAppLocale();
+  const router = useRouter();
   const invoice = useAtomValue(invoiceShareAtom(order.orderId));
   const shareInvoice = useAtomSet(invoiceShareAtom(order.orderId));
   const calendar = useAtomValue(calendarShareAtom(order.orderId));
@@ -136,6 +142,25 @@ function MoreActions({
           trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
           onPress={() => openContactPage()}
         />
+        {!withdrawn && !order.reservationCancelled && (
+          <WhenWithdrawable orderId={order.orderId}>
+            <ListRow
+              kind="action"
+              destructive
+              icon={Undo2}
+              label={m.reservationWithdrawalAction({}, { locale })}
+              trailing={
+                <Icon icon={ChevronRight} size={20} color={color.ink3} />
+              }
+              onPress={() =>
+                router.push({
+                  pathname: "/reservations/[orderId]/withdraw",
+                  params: { orderId: order.orderId },
+                })
+              }
+            />
+          </WhenWithdrawable>
+        )}
       </ListGroup>
       <LiveMessage
         role="status"
@@ -209,16 +234,7 @@ function TicketStub({
     case "AccessPin":
       return offersAccessLink(order) ? (
         <>
-          <Button
-            icon={KeyRound}
-            label={m.reservations_show_pin({}, { locale })}
-            onPress={() =>
-              router.push({
-                pathname: "/reservations/[orderId]/access",
-                params: { orderId: order.orderId },
-              })
-            }
-          />
+          <AccessPinButton orderId={order.orderId} />
           {accessHint !== undefined && (
             <Text variant="hint" style={styles.centred}>
               {accessHint}
@@ -243,6 +259,15 @@ function TicketStub({
       );
     case "RetryPayment":
       return retryPaymentAction;
+    case "Withdrawn":
+      return (
+        <Text variant="bodySmall" tone="default">
+          {m.withdrawal_ticket_note(
+            { amount: formatMoney(stub.refundAmount, locale) },
+            { locale }
+          )}
+        </Text>
+      );
     case "Steps":
       return (
         <>
@@ -292,14 +317,11 @@ function OrderTicket({
     onCheckAgain,
     onPaymentPageLeft,
   });
-  const model =
-    order.reservationCancelled === true
-      ? cancelledBookingTicket(order.paymentStatus)
-      : bookingTicketOf(
-          order.status,
-          orderCheckingOf(state.automatic),
-          recovery.offer
-        );
+  const model = orderTicketModel(
+    order,
+    orderCheckingOf(state.automatic),
+    recovery.offer
+  );
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const view = orderTicketView({
     order,
@@ -309,6 +331,7 @@ function OrderTicket({
     now: DateTime.nowUnsafe(),
     locale,
   });
+  const withdrawn = model.stub._tag === "Withdrawn";
   const badge = ticketBadge(model.badge, locale);
   // The status changes while the screen is open: announce the new one.
   useLiveRegionAnnouncement(
@@ -338,6 +361,7 @@ function OrderTicket({
         badge={badge}
         date={view.date}
         dateTone={model.dim ? "dim" : "strong"}
+        badgePlacement={withdrawn ? "inline" : "header"}
         title={view.title}
         lines={view.lines}
         meta={view.meta}
@@ -372,7 +396,7 @@ function OrderTicket({
         <OrderPeopleSection order={order} people={order.people} />
       )}
       {model.followUp === "more-actions" && (
-        <MoreActions order={order} event={view.event} />
+        <MoreActions order={order} event={view.event} withdrawn={withdrawn} />
       )}
       {model.followUp === "contact" && <ContactLink />}
     </View>

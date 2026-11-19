@@ -7,6 +7,7 @@ import { prerender } from "react-dom/static";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
 import type { OrderKind } from "@/features/order";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
+import type { ReservationWithdrawalEntry } from "@/features/withdrawal/withdrawal-read-model";
 
 mock.module("server-only", () => ({}));
 let connections = 0;
@@ -134,6 +135,16 @@ mock.module(
   })
 );
 
+// The reservation's withdrawal entry, and the reservations it was read for.
+let withdrawalEntry: ReservationWithdrawalEntry = { status: "none" };
+const withdrawalEntryReads: string[] = [];
+mock.module("@/features/withdrawal/backend/withdrawal-entry.server", () => ({
+  readReservationWithdrawalEntry: (input: { readonly reservationId: string }) =>
+    Effect.sync(() => {
+      withdrawalEntryReads.push(input.reservationId);
+      return withdrawalEntry;
+    }),
+}));
 const { resendReservationInvitation } = await import(
   "@/features/reservation/actions/resend-reservation-invitation"
 );
@@ -143,17 +154,20 @@ mock.module("@/features/checkout/components/checkout-status-page", () => ({
     presentation,
     resendInvitation,
     status,
+    withdrawal,
   }: {
     readonly locale: string;
     readonly presentation: string;
     readonly resendInvitation?: typeof resendReservationInvitation;
     readonly status: CheckoutStatusViewModel;
+    readonly withdrawal?: ReservationWithdrawalEntry;
   }) => (
     <article
       data-locale={locale}
       data-order={status.orderId}
       data-presentation={presentation}
       data-status={status.status}
+      data-withdrawal={withdrawal?.status}
       data-resend-action={
         resendInvitation === resendReservationInvitation
           ? "connected"
@@ -274,6 +288,24 @@ describe("CheckoutStatusRoute", () => {
     connections = 0;
     signedOut = false;
     signedOutReads = 0;
+    withdrawalEntry = { status: "none" };
+    withdrawalEntryReads.length = 0;
+  });
+
+  test("shows a recorded withdrawal and offers withdrawal on a confirmed reservation only", async () => {
+    loadResult = Effect.succeed(statusOf("fulfilled"));
+    withdrawalEntry = {
+      status: "withdrawn",
+      refundAmount: { value: 40_000, exponent: 2, currency: "CZK" },
+    };
+    expect((await renderRoute()).html).toContain('data-withdrawal="withdrawn"');
+    expect(withdrawalEntryReads).toEqual([orderId]);
+
+    withdrawalEntry = { status: "offered" };
+    expect((await renderRoute()).html).toContain('data-withdrawal="offered"');
+
+    loadResult = Effect.succeed(statusOf("pending"));
+    expect((await renderRoute()).html).toContain('data-withdrawal="none"');
   });
 
   test("loads the order's status with its access cookie and request headers", async () => {

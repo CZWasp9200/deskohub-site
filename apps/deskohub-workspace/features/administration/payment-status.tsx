@@ -7,12 +7,14 @@ import {
   getAdministrationPaymentStatus,
 } from "./formatters";
 import { m } from "./i18n";
+import { getRefundAmountDue } from "./payment-presentation";
 
 type DisplayedPayment = Pick<
   AdministrationPaymentAttempt,
   | "amount"
   | "failureCode"
   | "refundState"
+  | "refundTarget"
   | "refundedAmount"
   | "refundedAt"
   | "state"
@@ -112,6 +114,19 @@ export function PaymentRefundRequiredLabel({
       className={cn("block font-semibold text-burned-orange-ink", className)}
     >
       {m.administrationPaymentNeedsRefund({}, { locale })}
+      {/* What is owed, when it is less than or apart from the whole payment. */}
+      {payment.refundTarget && (
+        <span className="font-normal">
+          {" · "}
+          {formatMoney(
+            getRefundAmountDue(
+              payment.refundTarget,
+              payment.refundedAmount?.value ?? null
+            ),
+            locale
+          )}
+        </span>
+      )}
     </span>
   );
 }

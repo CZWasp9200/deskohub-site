@@ -1,3 +1,4 @@
+import CalendarDays from "lucide-react-native/icons/calendar-days";
 import Check from "lucide-react-native/icons/check";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import X from "lucide-react-native/icons/x";
@@ -39,7 +40,13 @@ export function DateTile({
         { backgroundColor: look.background },
       ]}
     >
-      <Text style={[styles.tileSmall, { color: look.muted }]}>
+      <Text
+        style={[
+          styles.tileSmall,
+          compact && styles.tileSmallCompact,
+          { color: look.muted },
+        ]}
+      >
         {parts.weekday}
       </Text>
       <Text
@@ -52,9 +59,36 @@ export function DateTile({
       >
         {parts.day}
       </Text>
-      <Text style={[styles.tileSmall, { color: look.muted }]}>
+      <Text
+        style={[
+          styles.tileSmall,
+          compact && styles.tileSmallCompact,
+          { color: look.muted },
+        ]}
+      >
         {parts.month}
       </Text>
+    </View>
+  );
+}
+
+/**
+ * The compact tile of a row whose day can't be read: the same light tile,
+ * with a calendar in place of the date.
+ */
+export function DateTilePlaceholder() {
+  const look = tileLooks.soft;
+  return (
+    <View
+      aria-hidden
+      style={[
+        styles.tile,
+        styles.tileCompact,
+        styles.tilePlaceholder,
+        { backgroundColor: look.background },
+      ]}
+    >
+      <Icon icon={CalendarDays} size={22} color={look.muted} />
     </View>
   );
 }
@@ -120,6 +154,7 @@ export function BookingTicket({
   lines,
   meta = [],
   stub = "column",
+  badgePlacement = "header",
   onPress,
   children,
 }: {
@@ -132,22 +167,42 @@ export function BookingTicket({
   readonly lines: ReadonlyArray<string>;
   readonly meta?: ReadonlyArray<TicketMetaLine>;
   readonly stub?: "column" | "row";
+  /**
+   * `inline` drops the header row, for a ticket with no lead to show: the
+   * badge sits top right beside the date tile, and only the title keeps
+   * clear of it.
+   */
+  readonly badgePlacement?: "header" | "inline";
   /** Opens the booking: the part above the perforation is its link. */
   readonly onPress?: () => void;
   readonly children?: ReactNode;
 }) {
+  const inline = badgePlacement === "inline";
   const top = (
     <>
-      <View style={styles.header}>
-        {lead !== undefined && <TicketLeadView lead={lead} />}
-        <View style={styles.badge}>
-          <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+      {!inline && (
+        <View style={styles.header}>
+          {lead !== undefined && <TicketLeadView lead={lead} />}
+          <View style={styles.badge}>
+            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+          </View>
         </View>
-      </View>
+      )}
       <View style={styles.what}>
         {date !== undefined && <DateTile parts={date} tone={dateTone} />}
         <View style={styles.whatText}>
-          <Text variant="headline">{title}</Text>
+          {inline ? (
+            // Title and badge share one row, laid out in one pass: only the
+            // title line gives the badge room, and the title wraps beside it.
+            <View style={styles.titleRow}>
+              <Text variant="headline" style={styles.flexShrink}>
+                {title}
+              </Text>
+              <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+            </View>
+          ) : (
+            <Text variant="headline">{title}</Text>
+          )}
           {lines.map((line) => (
             <Text key={line} variant="bodySmall">
               {line}
@@ -423,10 +478,20 @@ const styles = StyleSheet.create({
     paddingTop: 7,
   },
   // At large font sizes the tile grows with its text rather than cutting it.
+  // The title beside its badge, both aligned to the top of the date tile.
+  titleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    justifyContent: "space-between",
+  },
   tileCompact: { minWidth: 52, paddingBottom: 7, paddingTop: 6 },
   tileSmall: brandText(12, 14, 600),
   tileDay: brandText(24, 28, 700),
   tileDayCompact: brandText(20, 24, 700),
+  // Weekday and month step down in a list row so the day leads.
+  tileSmallCompact: brandText(11, 13, 600),
+  tilePlaceholder: { height: 63, justifyContent: "center" },
   meta: { gap: space.sm, marginTop: 14 },
   metaLine: { alignItems: "flex-start", flexDirection: "row", gap: 10 },
   metaIcon: { marginTop: 1 },
