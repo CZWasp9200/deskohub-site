@@ -254,6 +254,7 @@ export class PaymentAdministrationService extends Context.Service<
         const conditions: SQL[] = [
           eq(paymentAttempts.provider, "nexi"),
           isNotNull(paymentAttempts.providerOrderId),
+          isNotNull(paymentAttempts.workspaceReservationId),
         ];
         if (input.fromTime) {
           conditions.push(
