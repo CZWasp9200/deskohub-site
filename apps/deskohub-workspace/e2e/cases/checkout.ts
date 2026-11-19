@@ -98,6 +98,7 @@ export const executeCheckoutFlow = ({
   payPageSteps,
   beforeReservationSubmit,
   expectedDiscounts,
+  expectedOfficeInvitees,
   afterFulfillment,
   verifyPostFulfillmentPaths = false,
 }: {
@@ -114,6 +115,8 @@ export const executeCheckoutFlow = ({
   ) => readonly WorkspaceE2EStep<void, E2EDatabase>[];
   beforeReservationSubmit?: Effect.Effect<void, WorkspaceE2EError>;
   expectedDiscounts?: readonly ExpectedDiscountApplication[];
+  /** Present for an office booked with an attendee list, even with no invitees. */
+  expectedOfficeInvitees?: readonly string[];
   // Checks on the fulfilled reservation beyond the status page, before any
   // post-fulfillment path changes it.
   afterFulfillment?: (
@@ -222,6 +225,7 @@ export const executeCheckoutFlow = ({
         config,
         data,
         dotyposReservation,
+        expectedOfficeInvitees,
         orderId,
         openSession,
       }),
@@ -646,6 +650,7 @@ export const assertFulfilledStatusPage = ({
   config,
   data,
   dotyposReservation,
+  expectedOfficeInvitees,
   orderId,
   openSession,
 }: {
@@ -653,6 +658,7 @@ export const assertFulfilledStatusPage = ({
   config: WorkspaceE2EConfig;
   data: CheckoutData;
   dotyposReservation: ValidatedDotyposReservation;
+  expectedOfficeInvitees?: readonly string[];
   orderId: CheckoutRow["reservation_id"];
   openSession: OpenE2EBrowserSession;
 }): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
@@ -707,8 +713,9 @@ export const assertFulfilledStatusPage = ({
               dotyposReservation.reservedUntil,
               data.locale
             ),
-            "Seats",
-            String(data.office.seats),
+            ...(expectedOfficeInvitees === undefined
+              ? ["Seats", String(data.office.seats)]
+              : ["Who is coming"]),
             expectedPaymentPrice,
           ];
         }
@@ -756,7 +763,9 @@ export const assertFulfilledStatusPage = ({
       browser,
       "assert fulfilled checkout status page",
       findFulfilledStatusPageProblem,
-      undefined,
+      data.office && expectedOfficeInvitees !== undefined
+        ? { count: data.office.seats, invitees: expectedOfficeInvitees }
+        : undefined,
       { timeoutMs: config.timeouts.browserAction }
     );
     log("Checkout status page validated");
@@ -766,7 +775,10 @@ export const assertFulfilledStatusPage = ({
  * Runs in the browser: why the page is not the canonical fulfilled checkout
  * status page, or `null` when it is. It must not close over anything.
  */
-export const findFulfilledStatusPageProblem = (): string | null => {
+export const findFulfilledStatusPageProblem = (officePeople?: {
+  readonly count: number;
+  readonly invitees: readonly string[];
+}): string | null => {
   if (document.querySelector("[data-reservation-access]")) {
     return "reservation access rendered on checkout status page";
   }
@@ -775,6 +787,20 @@ export const findFulfilledStatusPageProblem = (): string | null => {
   for (const dialog of document.querySelectorAll('[role="dialog"]')) {
     if (/Your reservation is confirmed\./i.test(dialog.textContent ?? "")) {
       return "checkout status rendered in a reservation dialog";
+    }
+  }
+  if (officePeople) {
+    const rows = Array.from(
+      document.querySelectorAll("[data-office-status-people] > ul > li")
+    );
+    if (rows.length !== officePeople.count) {
+      return "office attendee count does not match the booking";
+    }
+    const labels = rows.map((row) =>
+      row.firstElementChild?.textContent?.trim()
+    );
+    if (!officePeople.invitees.every((email) => labels.includes(email))) {
+      return "office status is missing an expected invitee";
     }
   }
   const text = document.body?.textContent ?? "";

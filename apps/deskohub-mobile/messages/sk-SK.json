@@ -92,8 +92,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Miesta v kancelárii",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "Ľudia",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -102,10 +102,10 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} miesto",
-        "countPlural=few": "{formattedCount} miesta",
-        "countPlural=many": "{formattedCount} miesta",
-        "countPlural=other": "{formattedCount} miest"
+        "countPlural=one": "{formattedCount} osoba",
+        "countPlural=few": "{formattedCount} osoby",
+        "countPlural=many": "{formattedCount} osoby",
+        "countPlural=other": "{formattedCount} osôb"
       }
     }
   ],
@@ -510,6 +510,7 @@
   "legal_marketing_heading": "Marketingové správy",
   "legal_marketing_switch_label": "Marketingové správy",
   "legal_marketing_description": "Zapnutím povolíš Deskohubu zasielať ti budúce marketingové a komunitné správy.",
+  "legal_marketing_description_wide": "Povoľ nám posielať akcie, ponuky a novinky z Deskohubu",
   "legal_marketing_saving": "Ukladáme tvoju marketingovú preferenciu…",
   "legal_marketing_save_failed": "Marketingovú preferenciu sa nepodarilo uložiť. Skús to znova.",
   "legal_marketing_stale": "Tvoja marketingová preferencia sa medzitým zmenila. Skontroluj aktuálne nastavenie a skús to znova.",
@@ -517,6 +518,8 @@
   "legal_analytics_heading": "Analytika",
   "legal_analytics_switch_label": "Analytika na tvojom účte",
   "legal_analytics_description": "Platí na všetkých zariadeniach, kde sa prihlásiš.",
+  "legal_analytics_switch_label_wide": "Pomôž nám zlepšovať naše služby",
+  "legal_analytics_description_wide": "Povoľ zber analytických údajov o používaní",
   "legal_analytics_saving": "Ukladáme tvoju preferenciu analytiky…",
   "legal_analytics_saved": "Tvoja preferencia analytiky bola uložená.",
   "legal_analytics_save_failed": "Preferenciu analytiky sa nepodarilo uložiť. Skús to znova.",
@@ -583,11 +586,9 @@
   "booking_price_unit_per_hour": "za hodinu",
   "booking_office_days_decrease": "O deň menej",
   "booking_office_days_increase": "O deň viac",
-  "booking_office_seats_decrease": "O miesto menej",
-  "booking_office_seats_increase": "O miesto viac",
   "booking_office_date_unavailable": "Kancelária nie je od tohto dátumu dostupná. Skús iný dátum začiatku.",
   "booking_office_day_count_unavailable": "Kancelária nie je dostupná vo všetky vybrané dni. Skús iný dátum začiatku alebo kratší pobyt.",
-  "booking_office_seats_unavailable": "Kancelária toľko miest nemá. Vyber menej miest.",
+  "booking_office_seats_unavailable": "Kancelária toľko miest nemá. Niekoho zo zoznamu odober.",
   "booking_availability_loading": "Kontrolujeme dostupnosť priestoru...",
   "booking_calendar_notice": "Pozor: v tento deň platí obmedzenie od {start} do {end}.",
   "booking_calendar_notice_with_summary": "Pozor: {summary}, od {start} do {end}.",
@@ -632,6 +633,14 @@
   "reservations_time_until": "Do {time}",
   "reservations_time_date_until": "{date}, do {time}",
   "reservations_section_later": "Neskôr",
+  "reservations_section_invited": "Pozvánky",
+  "reservations_booked_by_name": "Rezervujúca osoba: {name}",
+  "reservations_people_resend": "Poslať znova",
+  "reservations_people_resend_to": "Znova poslať e-mail s prístupom na {email}",
+  "reservations_people_resent": "E-mail s prístupom sme poslali na {email}.",
+  "reservations_people_resend_later": "E-mail s prístupom odišiel pred chvíľou. Znova ho môžeš poslať o pár minút.",
+  "reservations_people_change": "Ak chceš zmeniť, kto príde, <contact>napíš nám</contact>.",
+  "reservations_people_change_message": "Dobrý deň,\n\nchcem zmeniť, kto príde na moju rezerváciu súkromnej kancelárie {reference} na {date}.\n\nPridať:\n\nOdobrať:\n",
   "reservations_section_past": "Minulé",
   "reservations_show_all_past": "Zobraziť všetky minulé rezervácie",
   "reservations_nothing_upcoming": "Nič ťa nečaká",
@@ -648,6 +657,7 @@
   "reservations_not_found_body": "Môže patriť inému účtu. Si prihlásený ako {email}.",
   "reservations_go_to_list": "Prejsť na rezervácie",
   "navigation_close": "Zavrieť",
+  "navigation_reserve": "Rezervovať",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Udalosť do kalendára sa v tomto zariadení nepodarilo otvoriť. Skús to znova.",
   "booking_choose_date_reason": "Na pokračovanie vyber dátum",
@@ -665,6 +675,8 @@
   "reservations_access_from": "Od",
   "reservations_access_until": "Do",
   "reservations_access_for": "Na",
+  "reservations_access_through": "Do (vrátane)",
+  "reservations_access_booked_by": "Rezervujúca osoba",
   "reservations_access_where": "Kde",
   "reservations_access_chip_starts": "Od {start} · {when}",
   "reservations_access_starts_today": "dnes",
@@ -679,12 +691,36 @@
   "reservations_access_no_pin_body": "Rezervácia ešte nie je potvrdená. Ak už by mala byť, napíš nám.",
   "reservations_access_back_to_booking": "Späť na rezerváciu",
   "booking_office_first_day_heading": "Prvý deň",
-  "booking_office_days_and_seats_heading": "Dni a miesta",
   "booking_office_days_label": "Dni",
-  "booking_office_seats_label": "Miesta",
+  "booking_office_people_heading": "Ľudia",
+  "booking_office_people_of": "{count} z {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "Jediné miesto je obsadené. Ak chceš pridať ďalšieho človeka, niekoho odober.",
+        "countPlural=few": "Všetky {formattedCount} miesta sú obsadené. Ak chceš pridať ďalšieho človeka, niekoho odober.",
+        "countPlural=many": "Všetky miesta ({formattedCount}) sú obsadené. Ak chceš pridať ďalšieho človeka, niekoho odober.",
+        "countPlural=other": "Všetkých {formattedCount} miest je obsadených. Ak chceš pridať ďalšieho človeka, niekoho odober."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "PIN ku dverám dostane každý e-mailom.",
+  "booking_office_people_who_is_coming": "Kto príde",
+  "booking_office_person_you": "Ty",
+  "booking_office_person_remove": "Odobrať {email}",
+  "booking_office_person_remove_you": "Odobrať seba",
+  "booking_office_person_email_label": "E-mailová adresa",
+  "booking_office_person_email_invalid": "Zadaj celú e-mailovú adresu.",
+  "booking_office_person_add": "Pridať",
+  "booking_office_person_add_yourself": "Pridať seba",
+  "booking_review_people_pin_note": "Po zaplatení dostane každý PIN ku dverám e-mailom.",
   "booking_office_until": "Do {date}",
-  "booking_office_seats_up_to": "Až {count}",
-  "booking_office_seats_maximum": "Maximálne {count}",
   "booking_office_reason_date": "Na pokračovanie vyber prvý deň",
   "booking_price_unit_per_day_one_seat": "za deň, 1 miesto",
   "booking_space_from": "od",
@@ -706,6 +742,7 @@
   "account_section_invoices": "Faktúry",
   "invoices_empty": "Zatiaľ žiadne faktúry",
   "invoices_row_amount_number": "{amount} · č. {number}",
+  "invoices_row_number": "č. {number}",
   "invoices_download_label": "Stiahnuť faktúru {number}",
   "invoices_downloading": "Sťahujeme faktúru {number}…",
   "invoices_download_not_found": "Túto faktúru sme nenašli. Obnov zoznam a skús to znova.",
@@ -761,6 +798,8 @@
   "danger_consequence_records": "Rezervácie, platby a faktúry zostávajú zachované tam, kde to vyžaduje prevádzka, účtovníctvo a právne predpisy.",
   "danger_title": "Toto sa nedá vrátiť späť",
   "danger_consequences_lead": "Keď odstrániš účet:",
+  "danger_data_export_title": "Stiahni si osobné údaje teraz.",
+  "danger_data_export_description": "Po zmazaní účtu si ich už nestiahneš.",
   "danger_consequence_access": "Nadchádzajúce zaplatené rezervácie zostávajú platné a ich PIN ku dverám naďalej funguje; potvrdzovací e-mail obsahuje odkaz na PIN.",
   "danger_signed_in_again": "Znova prihlásené",
   "danger_reauth_continue": "Pokračovať na prihlásenie",

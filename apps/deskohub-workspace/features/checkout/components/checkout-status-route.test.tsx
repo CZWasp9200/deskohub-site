@@ -134,14 +134,19 @@ mock.module(
   })
 );
 
+const { resendReservationInvitation } = await import(
+  "@/features/reservation/actions/resend-reservation-invitation"
+);
 mock.module("@/features/checkout/components/checkout-status-page", () => ({
   CheckoutStatusPage: ({
     locale,
     presentation,
+    resendInvitation,
     status,
   }: {
     readonly locale: string;
     readonly presentation: string;
+    readonly resendInvitation?: typeof resendReservationInvitation;
     readonly status: CheckoutStatusViewModel;
   }) => (
     <article
@@ -149,6 +154,11 @@ mock.module("@/features/checkout/components/checkout-status-page", () => ({
       data-order={status.orderId}
       data-presentation={presentation}
       data-status={status.status}
+      data-resend-action={
+        resendInvitation === resendReservationInvitation
+          ? "connected"
+          : undefined
+      }
     />
   ),
 }));
@@ -320,6 +330,13 @@ describe("CheckoutStatusRoute", () => {
     const { html } = await renderRoute({ presentation: "modal" });
 
     expect(html).toContain('data-presentation="modal"');
+  });
+
+  test("connects the reservation invitation Server Action to status", async () => {
+    const { errors, html } = await renderRoute();
+
+    expect(errors).toEqual([]);
+    expect(html).toContain('data-resend-action="connected"');
   });
 
   test("sends a signed-out visitor of an unknown order to sign in and back", async () => {

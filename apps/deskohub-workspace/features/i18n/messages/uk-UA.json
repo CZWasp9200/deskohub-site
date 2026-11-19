@@ -759,36 +759,6 @@
   "checkoutSummaryItemMeetingRoom": "Переговорна кімната — {duration}",
   "checkoutSummaryItemReferralDiscount": "Знижка за запрошення · зараховані запрошення: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "Знижка за запрошенням на перше бронювання",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Доступ до приватного офісу · {dayCount} день",
-        "dayCountPlural=few": "Доступ до приватного офісу · {dayCount} дні",
-        "dayCountPlural=many": "Доступ до приватного офісу · {dayCount} днів",
-        "dayCountPlural=other": "Доступ до приватного офісу · {dayCount} дня"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} місце в офісі",
-        "seatCountPlural=few": "{seatCount} місця в офісі",
-        "seatCountPlural=many": "{seatCount} місць в офісі",
-        "seatCountPlural=other": "{seatCount} місця в офісі"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -808,7 +778,6 @@
   "checkoutSummaryItemCustomerDiscount": "Клієнтська знижка",
   "checkoutSummaryItemTotal": "Разом до оплати",
   "checkoutPayConsent": "Я погоджуюся з документами <terms>Загальні умови надання послуг</terms>, <operatingRules>Правила внутрішнього розпорядку</operatingRules>.<earlyPerformance> Я прошу надати послугу в заброньовану дату, протягом строку для відмови від договору, і беру до відома, що моє право на відмову від договору припиняється після її повного надання.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Оплату ви завершите на захищеній платіжній сторінці Nexi, яка відкриється в новій вкладці. Банк може попросити вас підтвердити оплату в банківському застосунку. Потім у цій вкладці ви побачите статус бронювання.",
   "checkoutPayOrderAndPayButton": "Замовити й оплатити",
   "checkoutPayOrderAndPayAmountButton": "Замовити й оплатити {amount}",
   "checkoutPaySubmitError": "Не вдалося розпочати оплату. Перевірте дані бронювання й спробуйте ще раз.",
@@ -867,6 +836,8 @@
   "checkoutStatusPaymentFailedLead": "Оплата не пройшла, тому доступ за цим замовленням ми не надаємо. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
   "checkoutStatusCancelledTitle": "Оплату скасовано.",
   "checkoutStatusCancelledLead": "Оплату скасовано, тому доступ за цим замовленням ми не надаємо. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
+  "checkoutStatusReservationCancelledTitle": "Бронювання скасовано.",
+  "checkoutStatusReservationCancelledLead": "Доступ за цим бронюванням більше недоступний.",
   "checkoutStatusExpiredTitle": "Термін дії посилання для оплати минув.",
   "checkoutStatusExpiredLead": "Оплату не завершено вчасно, тому ми звільнили заброньований час. Дані бронювання збережено, тож оплату можна спробувати ще раз.",
   "checkoutStatusLatePaymentCheckingTitle": "Перевіряємо ваше бронювання.",
@@ -1721,5 +1692,100 @@
   "installGuideStepAndroidMenu": "Відкрийте меню браузера, зазвичай <b>⋮</b> поруч з адресним рядком.",
   "installGuideStepAndroidAdd": "Натисніть <b>Додати на головний екран</b> або <b>Установити</b>.",
   "installGuideStepAndroidConfirm": "Підтвердьте кнопкою <b>Додати</b> або <b>Установити</b>.",
-  "installGuideStepGenericMenu": "Відкрийте меню браузера або натисніть <b>Поширити</b>."
+  "installGuideStepGenericMenu": "Відкрийте меню браузера або натисніть <b>Поширити</b>.",
+  "officePeopleLabel": "Хто прийде?",
+  "officePeopleCount": "{count} з {maximum}",
+  "officePeopleYou": "Ви",
+  "officePeopleContactEmailLater": "Свою електронну адресу ви введете на наступному кроці",
+  "officePeopleRemove": "Видалити {email}",
+  "officePeopleRemoveYourself": "Видалити себе",
+  "officePeopleAddYourself": "Додати себе",
+  "officePeopleEmailLabel": "Електронна адреса",
+  "officePeopleAdd": "Додати",
+  "officePeopleReplace": "Замінити",
+  "officePeopleSwitchToYourself": "Прийти замість гостя",
+  "officePeopleInvalidEmail": "Введіть повну електронну адресу.",
+  "officePeopleDuplicateEmail": "Ця електронна адреса вже є в списку.",
+  "officePeopleContactEmail": "Це ваша власна електронна адреса. Для себе використайте рядок «Ви».",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Єдине місце зайняте. Щоб додати ще когось, видаліть когось зі списку.",
+        "maximumPlural=few": "Усі {maximum} місця зайняті. Щоб додати ще когось, видаліть когось зі списку.",
+        "maximumPlural=many": "Усі {maximum} місць зайняті. Щоб додати ще когось, видаліть когось зі списку.",
+        "maximumPlural=other": "Усі {maximum} місця зайняті. Щоб додати ще когось, видаліть когось зі списку."
+      }
+    }
+  ],
+  "officePeopleNote": "Кожен отримає PIN-код від дверей електронною поштою.",
+  "officePeopleNoPeople": "Додайте хоча б одну людину.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "У цьому офісі {maximum} місце. Щоб продовжити, видаліть когось зі списку.",
+        "maximumPlural=few": "У цьому офісі {maximum} місця. Щоб продовжити, видаліть когось зі списку.",
+        "maximumPlural=many": "У цьому офісі {maximum} місць. Щоб продовжити, видаліть когось зі списку.",
+        "maximumPlural=other": "У цьому офісі {maximum} місця. Щоб продовжити, видаліть когось зі списку."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Ціна",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} особа × {seatPrice}",
+        "countPlural=few": "{count} особи × {seatPrice}",
+        "countPlural=many": "{count} осіб × {seatPrice}",
+        "countPlural=other": "{count} особи × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Разом",
+  "checkoutPeopleTitle": "Хто прийде",
+  "checkoutPeopleNote": "Після оплати кожен отримає PIN-код від дверей електронною поштою.",
+  "checkoutPayNoteNewTab": "Безпечна оплата в новій вкладці. Після завершення натисніть <backToShop/> або закрийте вкладку.",
+  "checkoutPayNoteBackToShop": "Back to the shop",
+  "reservationAccessGuestBookedBy": "{product} · бронювання на імʼя {name}",
+  "reservationAccessGuestCopyAddress": "Скопіювати адресу {address}",
+  "reservationAccessGuestAddressCopied": "Адресу скопійовано.",
+  "reservationAccessGuestOpenRoute": "Відкрити маршрут",
+  "reservationAccessDatesSingle": "Замок прийматиме цей PIN-код {date}.",
+  "reservationAccessDatesRange": "Замок прийматиме цей PIN-код з {startsOn} до {endsOn} включно.",
+  "checkoutStatusPeopleLabel": "Хто прийде",
+  "checkoutStatusPeopleContact": "{name} (ви)",
+  "checkoutStatusPeopleResend": "Надіслати ще раз",
+  "checkoutStatusPeopleResendLabel": "Надіслати запрошення ще раз на {email}",
+  "checkoutStatusPeopleSent": "Надіслано",
+  "checkoutStatusPeopleSentAnnouncement": "Запрошення надіслано на {email}.",
+  "checkoutStatusPeopleResendFailed": "Не вдалося надіслати запрошення ще раз. Спробуйте трохи згодом.",
+  "checkoutStatusPeopleChangeNote": "Щоб змінити, хто прийде, <link>звʼяжіться з нами</link>.",
+  "checkoutStatusPeopleChangeMessage": "Добрий день!\n\nЯ хочу змінити, хто прийде за моїм бронюванням приватного офісу.\n\n{reservationDetails}\n\nДодати:\nВидалити:",
+  "officeInvitationSubject": "{booker} запрошує вас до приватного офісу",
+  "officeInvitationHeading": "{booker} запрошує вас до приватного офісу – {date}",
+  "officeInvitationSpaceLabel": "Простір",
+  "officeInvitationDateLabel": "Дата",
+  "officeInvitationBookedByLabel": "Хто забронював",
+  "officeInvitationReason": "Ви отримали цей лист, бо вашу адресу додано до бронювання від {booker}. Є запитання? Відповідайте на цей лист або напишіть на {email}.",
+  "officeInvitationPeopleLabel": "Хто прийде",
+  "officeInvitationPeopleYou": "{name} (ви)",
+  "officeInvitationPeopleNote": "Кожен отримає власний лист із доступом.",
+  "officeInviteeCancellationSubject": "Бронювання приватного офісу від {booker} скасовано",
+  "officeInviteeCancellationBody": "Наведене нижче бронювання скасовано, і ваш код доступу більше не діє.",
+  "officeInviteeRestorationSubject": "Бронювання приватного офісу від {booker} знову дійсне",
+  "officeInviteeRestorationHeading": "Бронювання приватного офісу від {booker} відновлено",
+  "officeInviteeRestorationBody": "Наведене нижче бронювання відновлено, і воно знову дійсне. Попереднє повідомлення про його скасування більше не діє.",
+  "officeInviteeRestorationNewAccessCode": "Ми видали новий код доступу, відкрийте його нижче.",
+  "officeInviteeListRejected": "Перевірте список людей і спробуйте ще раз."
 }

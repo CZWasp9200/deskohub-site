@@ -78,7 +78,9 @@ export const officeReservationPage = createReservationPage({
   renderForm: (form) => (
     <OfficeReservationForm
       checkoutCustomer={form.checkoutCustomer}
+      checkoutOfficeSelection={form.checkoutOfficeSelection}
       checkoutSessionId={form.checkoutSessionId}
+      heldOfficePrice={form.heldOfficePrice}
       initialAdvertisedPrices={form.initialAdvertisedPrices}
       initialAvailability={form.initialAvailability}
       initialValues={form.initialValues}

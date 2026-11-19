@@ -89,8 +89,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Chỗ trong văn phòng",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "Người tham gia",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -99,7 +99,7 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{formattedCount} chỗ"
+        "countPlural=other": "{formattedCount} người"
       }
     }
   ],
@@ -504,6 +504,7 @@
   "legal_marketing_heading": "Thông tin tiếp thị",
   "legal_marketing_switch_label": "Thông tin tiếp thị",
   "legal_marketing_description": "Bật để cho phép Deskohub gửi cho bạn thông tin tiếp thị và tin tức cộng đồng trong tương lai.",
+  "legal_marketing_description_wide": "Cho phép Deskohub gửi ưu đãi, khuyến mãi và tin mới",
   "legal_marketing_saving": "Đang lưu tùy chọn nhận thông tin tiếp thị…",
   "legal_marketing_save_failed": "Không thể lưu tùy chọn nhận thông tin tiếp thị. Hãy thử lại.",
   "legal_marketing_stale": "Tùy chọn nhận thông tin tiếp thị của bạn đã thay đổi trong lúc này. Hãy kiểm tra cài đặt hiện tại và thử lại.",
@@ -511,6 +512,8 @@
   "legal_analytics_heading": "Phân tích",
   "legal_analytics_switch_label": "Phân tích trên tài khoản của bạn",
   "legal_analytics_description": "Áp dụng trên mọi thiết bị bạn đăng nhập.",
+  "legal_analytics_switch_label_wide": "Giúp cải thiện dịch vụ",
+  "legal_analytics_description_wide": "Cho phép thu thập dữ liệu sử dụng",
   "legal_analytics_saving": "Đang lưu tùy chọn phân tích của bạn…",
   "legal_analytics_saved": "Đã lưu tùy chọn phân tích của bạn.",
   "legal_analytics_save_failed": "Không thể lưu tùy chọn phân tích. Hãy thử lại.",
@@ -577,11 +580,9 @@
   "booking_price_unit_per_hour": "mỗi giờ",
   "booking_office_days_decrease": "Bớt một ngày",
   "booking_office_days_increase": "Thêm một ngày",
-  "booking_office_seats_decrease": "Bớt một chỗ",
-  "booking_office_seats_increase": "Thêm một chỗ",
   "booking_office_date_unavailable": "Văn phòng không khả dụng từ ngày này. Hãy thử ngày bắt đầu khác.",
   "booking_office_day_count_unavailable": "Văn phòng không khả dụng trong tất cả các ngày đã chọn. Hãy thử ngày bắt đầu khác hoặc thời gian ngắn hơn.",
-  "booking_office_seats_unavailable": "Văn phòng không có nhiều chỗ như vậy. Hãy chọn ít chỗ hơn.",
+  "booking_office_seats_unavailable": "Văn phòng không có nhiều chỗ như vậy. Hãy xóa bớt người trong danh sách.",
   "booking_availability_loading": "Đang kiểm tra tình trạng còn chỗ...",
   "booking_calendar_notice": "Lưu ý: ngày này có hạn chế từ {start} đến {end}.",
   "booking_calendar_notice_with_summary": "Lưu ý: {summary}, từ {start} đến {end}.",
@@ -626,6 +627,14 @@
   "reservations_time_until": "Đến {time}",
   "reservations_time_date_until": "{date}, đến {time}",
   "reservations_section_later": "Sắp tới",
+  "reservations_section_invited": "Được mời",
+  "reservations_booked_by_name": "Người đặt: {name}",
+  "reservations_people_resend": "Gửi lại",
+  "reservations_people_resend_to": "Gửi lại email truy cập tới {email}",
+  "reservations_people_resent": "Đã gửi email truy cập tới {email}.",
+  "reservations_people_resend_later": "Email truy cập vừa được gửi. Bạn có thể gửi lại sau vài phút.",
+  "reservations_people_change": "Để thay đổi người tham gia, hãy <contact>liên hệ chúng tôi</contact>.",
+  "reservations_people_change_message": "Xin chào,\n\nTôi muốn thay đổi người tham gia cho đặt chỗ văn phòng riêng {reference} vào {date}.\n\nThêm:\n\nXóa:\n",
   "reservations_section_past": "Đã qua",
   "reservations_show_all_past": "Xem tất cả đặt chỗ đã qua",
   "reservations_nothing_upcoming": "Không có lịch sắp tới",
@@ -642,6 +651,7 @@
   "reservations_not_found_body": "Đặt chỗ có thể thuộc về tài khoản khác. Bạn đang đăng nhập bằng {email}.",
   "reservations_go_to_list": "Đến danh sách đặt chỗ",
   "navigation_close": "Đóng",
+  "navigation_reserve": "Đặt chỗ",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Không thể mở sự kiện lịch trên thiết bị này. Hãy thử lại.",
   "booking_choose_date_reason": "Chọn ngày để tiếp tục",
@@ -659,6 +669,8 @@
   "reservations_access_from": "Từ",
   "reservations_access_until": "Đến",
   "reservations_access_for": "Ngày",
+  "reservations_access_through": "Đến hết",
+  "reservations_access_booked_by": "Người đặt",
   "reservations_access_where": "Ở đâu",
   "reservations_access_chip_starts": "Từ {start} · {when}",
   "reservations_access_starts_today": "hôm nay",
@@ -673,12 +685,33 @@
   "reservations_access_no_pin_body": "Đặt chỗ chưa được xác nhận. Nếu lẽ ra đã được xác nhận, hãy liên hệ với chúng tôi.",
   "reservations_access_back_to_booking": "Quay lại đặt chỗ",
   "booking_office_first_day_heading": "Ngày đầu tiên",
-  "booking_office_days_and_seats_heading": "Số ngày và số chỗ",
   "booking_office_days_label": "Số ngày",
-  "booking_office_seats_label": "Số chỗ",
+  "booking_office_people_heading": "Người tham gia",
+  "booking_office_people_of": "{count}/{maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "Đã hết cả {formattedCount} chỗ. Hãy xóa bớt một người để thêm người khác."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "Mọi người đều nhận mã PIN cửa qua email.",
+  "booking_office_people_who_is_coming": "Ai sẽ đến",
+  "booking_office_person_you": "Bạn",
+  "booking_office_person_remove": "Xóa {email}",
+  "booking_office_person_remove_you": "Xóa bạn",
+  "booking_office_person_email_label": "Địa chỉ email",
+  "booking_office_person_email_invalid": "Hãy nhập đầy đủ địa chỉ email.",
+  "booking_office_person_add": "Thêm",
+  "booking_office_person_add_yourself": "Thêm bạn",
+  "booking_review_people_pin_note": "Sau khi bạn thanh toán, mọi người đều nhận mã PIN cửa qua email.",
   "booking_office_until": "Đến {date}",
-  "booking_office_seats_up_to": "Tối đa {count}",
-  "booking_office_seats_maximum": "Đã đạt tối đa {count}",
   "booking_office_reason_date": "Chọn ngày đầu tiên để tiếp tục",
   "booking_price_unit_per_day_one_seat": "mỗi ngày, 1 chỗ",
   "booking_space_from": "từ",
@@ -700,6 +733,7 @@
   "account_section_invoices": "Hóa đơn",
   "invoices_empty": "Chưa có hóa đơn nào",
   "invoices_row_amount_number": "{amount} · Số {number}",
+  "invoices_row_number": "Số {number}",
   "invoices_download_label": "Tải hóa đơn {number}",
   "invoices_downloading": "Đang tải hóa đơn {number}…",
   "invoices_download_not_found": "Không tìm thấy hóa đơn này. Hãy làm mới danh sách và thử lại.",
@@ -755,6 +789,8 @@
   "danger_consequence_records": "Đặt chỗ, khoản thanh toán và hóa đơn vẫn được lưu giữ trong phạm vi hoạt động vận hành, kế toán và pháp luật yêu cầu.",
   "danger_title": "Không thể hoàn tác",
   "danger_consequences_lead": "Khi bạn xóa tài khoản:",
+  "danger_data_export_title": "Tải dữ liệu cá nhân xuống ngay.",
+  "danger_data_export_description": "Xóa tài khoản rồi, bạn sẽ không tải được nữa.",
   "danger_consequence_access": "Các đặt chỗ đã thanh toán sắp tới vẫn có hiệu lực và mã PIN cửa vẫn hoạt động; email xác nhận có liên kết đến mã PIN.",
   "danger_signed_in_again": "Đã đăng nhập lại",
   "danger_reauth_continue": "Tiếp tục đăng nhập",

@@ -6,11 +6,12 @@ import type {
 } from "expo-router/react-navigation";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect } from "react";
-import { KeyboardAvoidingView, StyleSheet } from "react-native";
+import { KeyboardAvoidingView, StyleSheet, View } from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { ScrollScreen } from "../../ui/scroll-screen";
-import { color } from "../../ui/tokens";
+import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { billingSectionsOf } from "../billing/billing-form-model";
 import {
   BillingAddressSection,
@@ -25,6 +26,7 @@ import {
 } from "./onboarding-draft";
 import { OnboardingFooter } from "./onboarding-footer";
 import { OnboardingGate } from "./onboarding-gate";
+import { useOnboardingLayout } from "./onboarding-layout";
 import { stepOfInvalid } from "./onboarding-model";
 import { aboutYouBelow, onboardingHref } from "./onboarding-routes";
 import { OnboardingStepHead } from "./onboarding-step-head";
@@ -54,6 +56,7 @@ function BillingStepForm({
   const route = useRoute();
   const focused = useIsFocused();
   const headerHeight = useHeaderHeight();
+  const { isWide, pairFields } = useOnboardingLayout();
   const draft = useOnboardingDraft(account);
   const kind = draft.draft.billingKind;
   const fields = billingFieldsOf(kind);
@@ -92,25 +95,34 @@ function BillingStepForm({
       style={styles.screen}
     >
       <ScrollScreen>
+        <QuietUpdateOffer backdrop="paper" />
         <OnboardingStepHead
           step="billing"
           title={m.profile_billing_details_section({}, { locale })}
           locale={locale}
+          wide={isWide}
         />
-        <BillingChoices
-          selected={kind}
-          onSelect={(billingKind) => draft.change({ billingKind })}
-          disabled={submitting}
-          locale={locale}
-        />
-        {sections.company && (
-          <BillingCompanySection
-            {...billingFields}
-            onApply={draft.change}
-            remindsToSave={false}
+        <View style={isWide ? styles.wideSections : styles.sections}>
+          <BillingChoices
+            selected={kind}
+            onSelect={(billingKind) => draft.change({ billingKind })}
+            disabled={submitting}
+            locale={locale}
           />
-        )}
-        {sections.address && <BillingAddressSection {...billingFields} />}
+          {sections.company && (
+            <BillingCompanySection
+              {...billingFields}
+              onApply={draft.change}
+              remindsToSave={false}
+            />
+          )}
+          {sections.address && (
+            <BillingAddressSection
+              {...billingFields}
+              layout={pairFields ? "onboarding" : undefined}
+            />
+          )}
+        </View>
       </ScrollScreen>
       <OnboardingFooter
         step="billing"
@@ -120,6 +132,7 @@ function BillingStepForm({
         busyLabel={m.profile_complete_submitting({}, { locale })}
         onPress={draft.submit}
         locale={locale}
+        wide={isWide}
       />
     </KeyboardAvoidingView>
   );
@@ -127,4 +140,6 @@ function BillingStepForm({
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  sections: { gap: space.md },
+  wideSections: { gap: space.xxl },
 });

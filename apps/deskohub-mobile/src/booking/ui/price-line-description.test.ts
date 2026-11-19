@@ -132,9 +132,9 @@ describe("describePriceLine", () => {
       [
         "product:office:6:3:seats",
         {
-          label: m.booking_checkout_line_office_seats({}, { locale }),
+          label: m.booking_checkout_line_office_people({}, { locale }),
           detail: [
-            m.booking_price_line_seats({ count: 6 }, { locale }),
+            m.booking_office_people_count({ count: 6 }, { locale }),
             m.booking_price_line_days({ count: 3 }, { locale }),
             formatMoney(czk(315), locale),
           ].join(" × "),
@@ -182,7 +182,7 @@ describe("describePriceLine", () => {
       ).detail
     ).toBe(
       [
-        m.booking_price_line_seats({ count: 6 }, { locale }),
+        m.booking_office_people_count({ count: 6 }, { locale }),
         m.booking_price_line_days({ count: 3 }, { locale }),
         formatMoney(rate(315), locale),
       ].join(" × ")

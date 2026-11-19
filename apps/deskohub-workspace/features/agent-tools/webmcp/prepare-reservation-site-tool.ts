@@ -1,6 +1,15 @@
 import { Data, Duration, Effect, Option, Schema } from "effect";
+import {
+  agentToolMoneySchema,
+  toAgentToolMoney,
+} from "@/features/agent-tools/agent-tool-money";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationFormSubmission } from "@/features/reservation/components/reservation-checkout-form";
+import {
+  getOfficeReservationDayCount,
+  type OfficeReservationDetails,
+} from "@/features/reservation/office-reservation";
+import { readQuotedOfficeSelection } from "@/features/reservation/office-selection-link";
 import { workspaceReservationKindSchema } from "@/features/reservation/reservation-kind";
 import { runWorkspaceBrowserEffectUntilAbort } from "@/shared/browser/workspace-browser-effect";
 import type { InvalidFormField } from "@/shared/utils/form-field-errors";
@@ -187,6 +196,7 @@ const prepareQuotedReservation = (request: PreparationRequest) =>
       "link",
       ({ quote }) => new URL(quote.reservation_url, window.location.origin)
     ),
+    Effect.bind("requestedOffice", getRequestedOffice),
     Effect.bind("settled", awaitSettledReservationForm),
     Effect.tap(stopUnlessBookable),
     Effect.bind("marketingConsentSource", giveRequestedMarketingConsent),
@@ -198,6 +208,41 @@ const prepareQuotedReservation = (request: PreparationRequest) =>
     ),
     Effect.map(toPrepareReservationResult)
   );
+
+type QuotedOfficeSelection = NonNullable<
+  ReturnType<typeof readQuotedOfficeSelection>
+>;
+
+const getRequestedOffice = ({
+  quote,
+  link,
+  locale,
+}: {
+  readonly quote: Quote;
+  readonly link: URL;
+  readonly locale: Locale;
+}) => {
+  if (quote.family !== "office") return Effect.succeed(undefined);
+  const requested = readQuotedOfficeSelection(link.searchParams);
+  return requested
+    ? Effect.succeed(requested)
+    : Effect.fail(
+        new PreparationStopped({
+          result: siteToolError(
+            "invalid_selection",
+            m.reservationErrorMessage({}, { locale })
+          ),
+        })
+      );
+};
+
+const matchesOfficeSelection = (
+  office: Pick<OfficeReservationDetails, "startsOn" | "endsOn" | "seats">,
+  requested: QuotedOfficeSelection
+) =>
+  office.startsOn === requested.startsOn &&
+  office.seats === requested.seats &&
+  getOfficeReservationDayCount(office) === requested.dayCount;
 
 /**
  * The matching reservation form once the link's selection is on it and its
@@ -298,23 +343,37 @@ const awaitReadiness = (form: SiteToolReservationFormHandle) =>
   });
 
 const stopUnlessBookable = ({
+  requestedOffice,
   settled,
 }: {
+  readonly requestedOffice: QuotedOfficeSelection | undefined;
   readonly settled: SiteToolReservationForm;
 }) =>
-  Option.match(getUnbookableResult(settled), {
+  Option.match(getUnbookableResult(settled, requestedOffice), {
     onNone: () => Effect.void,
     onSome: (result) => Effect.fail(new PreparationStopped({ result })),
   });
 
 // The submit button stays disabled in both cases, so the tool stops too.
-const getUnbookableResult = ({
-  locale,
-  readiness,
-}: SiteToolReservationForm) => {
+const getUnbookableResult = (
+  { locale, officeSelection, readiness }: SiteToolReservationForm,
+  requestedOffice: QuotedOfficeSelection | undefined
+) => {
   if (readiness.unavailableMessage) {
     return Option.some(
       siteToolError("selection_unavailable", readiness.unavailableMessage)
+    );
+  }
+  if (
+    requestedOffice &&
+    (!officeSelection ||
+      !matchesOfficeSelection(officeSelection, requestedOffice))
+  ) {
+    return Option.some(
+      siteToolError(
+        "selection_unavailable",
+        m.reservationOfficeUnavailable({}, { locale })
+      )
     );
   }
   if (readiness.priceError) {
@@ -361,16 +420,59 @@ const toPrepareReservationResult = ({
   locale,
   marketingConsent,
   quote: { reservation_url: _link, ...summary },
+  requestedOffice,
   submission,
 }: {
   readonly locale: Locale;
   readonly marketingConsent: MarketingConsentOutcome;
   readonly quote: Quote;
+  readonly requestedOffice: QuotedOfficeSelection | undefined;
   readonly submission: ReservationFormSubmission;
 }) => {
   switch (submission.status) {
     case "ready":
-    case "pricing_changed":
+    case "pricing_changed": {
+      if (requestedOffice) {
+        const prepared = submission.preparedOffice;
+        if (!prepared || !matchesOfficeSelection(prepared, requestedOffice)) {
+          return siteToolError(
+            "checkout_failed",
+            m.reservationErrorMessage({}, { locale })
+          );
+        }
+        const total = toAgentToolMoney(prepared.total);
+        const quotedTotal = Schema.decodeUnknownOption(agentToolMoneySchema)(
+          summary.total
+        );
+        const matchesQuote =
+          Option.isSome(quotedTotal) &&
+          quotedTotal.value.amount === total.amount &&
+          quotedTotal.value.currency === total.currency;
+        const {
+          regular_price: _regularPrice,
+          discount: _discount,
+          ...officeSummary
+        } = summary;
+        return {
+          status: matchesQuote ? submission.status : "pricing_changed",
+          pay_url: new URL(submission.redirectUrl, window.location.origin).href,
+          expires_at: submission.expiresAt,
+          summary: {
+            ...officeSummary,
+            starts_on: prepared.startsOn,
+            ends_on: prepared.endsOn,
+            seats: prepared.seats,
+            total,
+            ...(prepared.regularPrice && {
+              regular_price: toAgentToolMoney(prepared.regularPrice),
+            }),
+            ...(prepared.discount && {
+              discount: toAgentToolMoney(prepared.discount),
+            }),
+          },
+          marketingConsent,
+        };
+      }
       return {
         status: submission.status,
         pay_url: new URL(submission.redirectUrl, window.location.origin).href,
@@ -378,6 +480,7 @@ const toPrepareReservationResult = ({
         summary,
         marketingConsent,
       };
+    }
     case "error":
       return siteToolError("checkout_failed", submission.message);
     case "email-verification":

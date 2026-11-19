@@ -4,6 +4,7 @@ import type {
   CustomerCheckout,
   CustomerLocale,
   CustomerOffering,
+  CustomerOfficePeople,
   CustomerPaymentRetryDetails,
 } from "@deskohub/workspace-customer-api";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
@@ -69,6 +70,8 @@ export interface BookingRequest {
   readonly quote: Pick<CustomerBookingQuote, "summary" | "regularPrice">;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /** Office only: who is coming, one seat each. */
+  readonly people?: CustomerOfficePeople;
   /**
    * Overnight Reserved Desk only: the stay's times from the catalog, which
    * the booking bar shows.
@@ -483,6 +486,9 @@ const startFlow = (request: CheckoutRequest) =>
           ...(request.earlySetup === undefined
             ? {}
             : { earlySetup: request.earlySetup }),
+          ...(request._tag === "Booking" && request.people !== undefined
+            ? { people: request.people }
+            : {}),
         };
         const started =
           request._tag === "Booking"

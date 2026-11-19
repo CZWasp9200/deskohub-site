@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "06c87ba6-3ff0-430a-9c3e-e666266f42cf",
+  "id": "1d55937d-bbaa-4283-9446-d41f00f8f9aa",
   "prevIds": [
-    "a686514b-2873-4327-891a-27a2ce9ae1b2"
+    "c550c58c-f420-454a-9628-9438a0b298a1"
   ],
   "ddl": [
     {
@@ -403,6 +403,18 @@
     {
       "isRlsEnabled": false,
       "name": "reservation_access_grants",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "reservation_invitee_notices",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "reservation_invitees",
       "entityType": "tables",
       "schema": "public"
     },
@@ -8022,6 +8034,331 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "invitee_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "occurred_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "explicit_resend",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "next_attempt_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "attempt_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "restored_access",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "request_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "request_fingerprint",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "uncertainty",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "settled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "uuid_generate_v7()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_reservation_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "smallint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "position",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "bytea",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "encrypted_email",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "email_lookup_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "customer_account_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dotypos_customer_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "retain_until",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "retention_retry_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_invitation_sent_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "invitation_send_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "uuid_generate_v7()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "review_account_holds"
     },
     {
@@ -9086,6 +9423,19 @@
       "generated": null,
       "identity": null,
       "name": "reservation_details",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_reservations"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "office_contact_attends",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_reservations"
@@ -13621,6 +13971,174 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "next_attempt_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"settled_at\" is null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitee_notices_due_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_reservation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "position",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_reservation_position_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_reservation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "email_lookup_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_reservation_lookup_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "email_lookup_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_email_lookup_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "customer_account_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_customer_account_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "dotypos_customer_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_dotypos_customer_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "retain_until",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "reservation_invitees_retain_until_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "account_id",
           "isExpression": false,
           "asc": true,
@@ -16438,6 +16956,57 @@
     {
       "nameExplicit": false,
       "columns": [
+        "invitee_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "reservation_invitees",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "reservation_invitee_notices_RJj9n7aiCG8t_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "workspace_reservation_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "workspace_reservations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "reservation_invitees_gp08lmgljEAv_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "customer_account_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "customer_accounts",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "reservation_invitees_QmZdQkL7I0C3_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "account_id"
       ],
       "schemaTo": "public",
@@ -17549,6 +18118,26 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "reservation_invitee_notices_pkey",
+      "schema": "public",
+      "table": "reservation_invitee_notices",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "reservation_invitees_pkey",
+      "schema": "public",
+      "table": "reservation_invitees",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "review_account_holds_pkey",
       "schema": "public",
       "table": "review_account_holds",
@@ -17733,6 +18322,19 @@
       "schema": "auth",
       "table": "verification",
       "entityType": "pks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "invitee_id",
+        "kind",
+        "occurred_at"
+      ],
+      "nullsNotDistinct": false,
+      "name": "reservation_invitee_notices_event_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
     },
     {
       "nameExplicit": false,
@@ -19174,6 +19776,62 @@
       "entityType": "checks",
       "schema": "public",
       "table": "reservation_access_grants"
+    },
+    {
+      "value": "not \"explicit_resend\" or \"kind\" = 'invitation'",
+      "name": "reservation_invitee_notices_explicit_resend_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "value": "\"restored_access\" is null or (\n      \"kind\" = 'restoration' and \"restored_access\" in ('past', 'link', 'issued')\n    )",
+      "name": "reservation_invitee_notices_access_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "value": "(\"request_started_at\" is null) = (\"request_fingerprint\" is null)\n        and (\"uncertainty\" is null or (\n          \"settled_at\" is not null and \"request_started_at\" is not null\n          and \"uncertainty\" in ('request-changed', 'replay-expired', 'not-replayable', 'superseded')\n        ))",
+      "name": "reservation_invitee_notices_attempt_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "value": "\"kind\" in ('invitation', 'cancellation', 'restoration')",
+      "name": "reservation_invitee_notices_kind_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitee_notices"
+    },
+    {
+      "value": "\"position\" >= 0",
+      "name": "reservation_invitees_position_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "value": "\"invitation_send_count\" >= 0",
+      "name": "reservation_invitees_invitation_send_count_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "value": "\"key_id\" <> ''",
+      "name": "reservation_invitees_key_id_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitees"
+    },
+    {
+      "value": "(\n        \"key_id\" IS NOT NULL\n        AND \"encrypted_email\" IS NOT NULL\n        AND \"email_lookup_key\" IS NOT NULL\n      ) OR (\n        \"key_id\" IS NULL\n        AND \"encrypted_email\" IS NULL\n        AND \"email_lookup_key\" IS NULL\n        AND (\n          \"customer_account_id\" IS NOT NULL\n          OR \"dotypos_customer_id\" IS NOT NULL\n        )\n      )",
+      "name": "reservation_invitees_address_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "reservation_invitees"
     },
     {
       "value": "\"seats\" > 0",

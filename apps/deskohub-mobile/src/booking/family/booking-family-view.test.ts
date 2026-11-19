@@ -13,6 +13,7 @@ import {
   type BookingQueryViewError,
 } from "../data/booking-query-error";
 import { toOfficeSelection } from "../selection/office-selection";
+import { officePeopleOf } from "../testing/office-people-fixtures";
 import {
   type BookingRead,
   bookingReadOf,
@@ -29,7 +30,7 @@ const selection = Option.getOrThrow(
   toOfficeSelection({
     date: Option.some("2026-11-20"),
     dayCount: 2,
-    seats: 2,
+    people: officePeopleOf(2),
   })
 );
 const quote = {

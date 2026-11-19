@@ -2,6 +2,7 @@ import type {
   CustomerBookableCoworkTier,
   Money,
 } from "@deskohub/workspace-customer-api";
+import { type ReactNode, useState } from "react";
 import {
   Image,
   type ImageSourcePropType,
@@ -16,23 +17,32 @@ import { RadioMark } from "../../ui/radio-card";
 import { Text } from "../../ui/text";
 import { color, radius, space } from "../../ui/tokens";
 
-/** The website's desk artwork, cropped to the part a card shows. */
+/** Artwork for the cowork tiers. */
 const artwork = {
   openSpace: {
     source: require("../../../assets/images/booking/open-space.webp"),
     aspectRatio: 630 / 482,
+    clearsTitle: false,
   },
   reservedDesk: {
     source: require("../../../assets/images/booking/reserved-desk.webp"),
     aspectRatio: 630 / 477,
+    clearsTitle: false,
   },
+  // The monitors stand tall: kept below the name and the radio.
   reservedDeskWorkstation: {
     source: require("../../../assets/images/booking/reserved-desk-workstation.webp"),
     aspectRatio: 630 / 459,
+    clearsTitle: true,
   },
 } satisfies Record<
   string,
-  { readonly source: ImageSourcePropType; readonly aspectRatio: number }
+  {
+    readonly source: ImageSourcePropType;
+    readonly aspectRatio: number;
+    /** Whether the art starts below the card's name and radio. */
+    readonly clearsTitle: boolean;
+  }
 >;
 
 /**
@@ -75,6 +85,8 @@ export function CoworkTierCards({
   selected,
   onSelect,
   locale,
+  paired = false,
+  stretch = false,
 }: {
   /** Names the group for assistive technology. */
   readonly label: string;
@@ -82,9 +94,15 @@ export function CoworkTierCards({
   readonly selected: CustomerBookableCoworkTier;
   readonly onSelect: (tier: CustomerBookableCoworkTier) => void;
   readonly locale: AppLocale;
+  readonly paired?: boolean;
+  readonly stretch?: boolean;
 }) {
   return (
-    <View role="radiogroup" aria-label={label} style={styles.group}>
+    <View
+      role="radiogroup"
+      aria-label={label}
+      style={[styles.group, paired && styles.pair, stretch && styles.stretch]}
+    >
       {cards.map((card) => {
         const checked = card.tier === selected;
         const disabled = card.unavailable !== undefined;
@@ -98,24 +116,14 @@ export function CoworkTierCards({
             onPress={() => onSelect(card.tier)}
             style={({ pressed }) => [
               styles.card,
+              paired && styles.pairedCard,
+              stretch && styles.stretch,
               checked ? styles.checked : styles.unchecked,
               disabled && styles.disabled,
               pressed && !checked && !disabled && styles.pressed,
             ]}
           >
-            <Image
-              aria-hidden
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              source={card.artwork.source}
-              resizeMode="contain"
-              style={[
-                styles.art,
-                { aspectRatio: card.artwork.aspectRatio },
-                disabled && styles.artDisabled,
-              ]}
-            />
-            <View style={styles.head}>
+            <TierCardTop artwork={card.artwork} disabled={disabled}>
               <Text
                 variant="title"
                 style={[styles.name, disabled && styles.mutedInk]}
@@ -123,7 +131,7 @@ export function CoworkTierCards({
                 {card.name}
               </Text>
               <RadioMark checked={checked} disabled={disabled} />
-            </View>
+            </TierCardTop>
             <View style={styles.panel}>
               {card.unavailable === undefined ? (
                 <TierPrice card={card} locale={locale} />
@@ -139,6 +147,75 @@ export function CoworkTierCards({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * A tier card's artwork behind its head row (the name and the radio): the
+ * art sits on the right, as tall as the card allows, centred top to bottom
+ * and never cut off. Art that would cover the head starts below it, at
+ * every font size.
+ */
+function TierCardTop({
+  artwork: art,
+  disabled = false,
+  children,
+}: {
+  readonly artwork: ReturnType<typeof tierArtwork>;
+  readonly disabled?: boolean;
+  /** The head row's content: the name and the radio. */
+  readonly children: ReactNode;
+}) {
+  const [headBottom, setHeadBottom] = useState<number | undefined>(undefined);
+  return (
+    <>
+      {(!art.clearsTitle || headBottom !== undefined) && (
+        <TierCardArtwork
+          artwork={art}
+          disabled={disabled}
+          top={art.clearsTitle ? (headBottom ?? 0) + space.xs : 0}
+        />
+      )}
+      <View
+        style={styles.head}
+        onLayout={({ nativeEvent: { layout } }) =>
+          setHeadBottom(layout.y + layout.height)
+        }
+      >
+        {children}
+      </View>
+    </>
+  );
+}
+
+function TierCardArtwork({
+  artwork: art,
+  disabled,
+  top,
+}: {
+  readonly artwork: ReturnType<typeof tierArtwork>;
+  readonly disabled: boolean;
+  readonly top: number;
+}) {
+  return (
+    <View
+      aria-hidden
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
+      style={[styles.artFrame, { top }]}
+    >
+      <Image
+        aria-hidden
+        source={art.source}
+        resizeMode="contain"
+        style={[
+          styles.art,
+          { aspectRatio: art.aspectRatio },
+          disabled && styles.artDisabled,
+        ]}
+      />
     </View>
   );
 }
@@ -183,6 +260,9 @@ const outlined = (borderColor: string, borderWidth: 1 | 2) => ({
 
 const styles = StyleSheet.create({
   group: { gap: space.sm },
+  pair: { flexDirection: "row" },
+  pairedCard: { flex: 1, minWidth: 0 },
+  stretch: { flexGrow: 1 },
   card: {
     backgroundColor: color.surface,
     borderRadius: radius.group,
@@ -193,14 +273,16 @@ const styles = StyleSheet.create({
   checked: { ...outlined(color.action, 2), backgroundColor: color.actionTint },
   disabled: { backgroundColor: color.disabledField },
   pressed: { backgroundColor: color.pressed },
-  // The board places the art 28 past the right edge and 30 down, 64% wide.
-  art: {
-    height: undefined,
+  // The art fits inside the card's right 64% and is centred vertically.
+  artFrame: {
+    alignItems: "flex-end",
+    bottom: 0,
+    justifyContent: "center",
+    left: "36%",
     position: "absolute",
-    right: -28,
-    top: 30,
-    width: "64%",
+    right: 0,
   },
+  art: { height: "100%", maxWidth: "100%", width: undefined },
   artDisabled: { opacity: 0.5 },
   head: {
     alignItems: "flex-start",

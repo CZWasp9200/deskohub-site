@@ -9,8 +9,8 @@ import { m } from "../../i18n/messages";
 import { Button } from "../../ui/controls";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { color, space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { LoginEmailCard } from "../profile/login-email-card";
-import { identityFields } from "../profile/profile-draft";
 import { ProfileTextFields } from "../profile/profile-fields";
 import { invalidOf, useFocusFirstInvalid } from "../profile/profile-form";
 import { ProfileSubmitState } from "../profile/profile-save";
@@ -20,6 +20,7 @@ import {
 } from "./onboarding-draft";
 import { OnboardingFooter } from "./onboarding-footer";
 import { OnboardingGate } from "./onboarding-gate";
+import { useOnboardingLayout } from "./onboarding-layout";
 import { aboutYouFields, aboutYouRefusal } from "./onboarding-model";
 import { onboardingBillingHref } from "./onboarding-routes";
 import { OnboardingStepHead } from "./onboarding-step-head";
@@ -46,6 +47,7 @@ function AboutYouForm({
   const locale = useAppLocale();
   const router = useRouter();
   const headerHeight = useHeaderHeight();
+  const { isWide, pairFields } = useOnboardingLayout();
   const draft = useOnboardingDraft(account);
   // Continue's own refusal, else the final submit's when it named fields
   // here; the submit's progress and failure belong to the billing step.
@@ -115,18 +117,36 @@ function AboutYouForm({
       style={styles.screen}
     >
       <ScrollScreen>
+        <QuietUpdateOffer backdrop="paper" />
         <OnboardingStepHead
           step="about-you"
           title={m.onboarding_about_you_title({}, { locale })}
           intro={m.onboarding_about_you_intro({}, { locale })}
           locale={locale}
+          wide={isWide}
         />
         <LoginEmailCard email={account.email} compact />
-        <View style={styles.fields}>
-          <ProfileTextFields {...textFields} fields={identityFields} />
-          {referralShown && (
-            <ProfileTextFields {...textFields} fields={["referralCode"]} />
-          )}
+        <View style={[styles.fields, isWide && styles.wideFields]}>
+          <View style={[styles.fields, pairFields && styles.pair]}>
+            <View style={pairFields && styles.pairedField}>
+              <ProfileTextFields {...textFields} fields={["firstName"]} />
+            </View>
+            <View style={pairFields && styles.pairedField}>
+              <ProfileTextFields {...textFields} fields={["lastName"]} />
+            </View>
+          </View>
+          <View
+            style={[styles.fields, pairFields && referralShown && styles.pair]}
+          >
+            <View style={pairFields && referralShown && styles.pairedField}>
+              <ProfileTextFields {...textFields} fields={["phone"]} />
+            </View>
+            {referralShown && (
+              <View style={pairFields && styles.pairedField}>
+                <ProfileTextFields {...textFields} fields={["referralCode"]} />
+              </View>
+            )}
+          </View>
         </View>
         {account.referralsEnabled && !referralShown && (
           <View style={styles.addReferral}>
@@ -152,6 +172,7 @@ function AboutYouForm({
         busyLabel={m.profile_complete_submitting({}, { locale })}
         onPress={onContinue}
         locale={locale}
+        wide={isWide}
       />
     </KeyboardAvoidingView>
   );
@@ -160,5 +181,8 @@ function AboutYouForm({
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   fields: { gap: space.lg },
+  wideFields: { marginTop: space.md },
+  pair: { flexDirection: "row" },
+  pairedField: { flex: 1, minWidth: 0 },
   addReferral: { alignItems: "flex-start" },
 });

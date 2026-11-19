@@ -166,12 +166,12 @@ export const findRepeatReservationProblem = (
         if (startsOn === expected.oldDate) return "fresh start date";
         if (value('input[name="dayCount"]') !== String(expected.dayCount))
           return "day count";
-        const seats = document.querySelector('input[name="seats"]:checked');
-        if (
-          !(seats instanceof HTMLInputElement) ||
-          seats.value !== String(expected.seats)
-        )
-          return "seats";
+        // A repeat link carries no people: the contact alone is coming.
+        const peopleCount = document.querySelector(
+          "[data-office-people-count]"
+        );
+        if (Number.parseInt(peopleCount?.textContent ?? "", 10) !== 1)
+          return "people";
         break;
       }
       case "meeting-room": {

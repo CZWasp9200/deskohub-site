@@ -1,3 +1,4 @@
+import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Match } from "effect";
 import { AsyncResult } from "effect/reactivity";
@@ -9,9 +10,8 @@ import Mail from "lucide-react-native/icons/mail";
 import Receipt from "lucide-react-native/icons/receipt";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
 import Trash2 from "lucide-react-native/icons/trash-2";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { type ReactNode, useEffect, useReducer, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { apiOrigin } from "../../auth/auth-client";
 import { useReauthentication } from "../../auth/reauthentication";
 import { nativeSignInFailureMessage } from "../../auth/sign-in-failure-message";
 import { signOut } from "../../auth/sign-out";
@@ -22,8 +22,7 @@ import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-m
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { openSitePage } from "../../routing/open-site-page";
-import { contactPageUrl } from "../../routing/site-page";
+import { openContactPage } from "../../routing/open-contact-page";
 import { ActionFooter } from "../../ui/action-footer";
 import { Badge } from "../../ui/badge";
 import { Card } from "../../ui/card";
@@ -37,6 +36,8 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, radius, space } from "../../ui/tokens";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
+import { DataExportRow } from "../legal/data-export-row";
 import {
   type DeleteScreenView,
   type DeletionAttempt,
@@ -59,10 +60,6 @@ const leaveDeletedAccountScreens = deletedAccountExit.leave({
   leave: Effect.sync(() => router.replace("/account-deleted")),
   signOut,
 });
-
-// Where no browser is available there is nothing else to open.
-const openContactPage = () =>
-  void openSitePage(contactPageUrl(apiOrigin)).catch(() => undefined);
 
 /** The sentence for an outcome the screen shows above its content. */
 const screenNotice = (
@@ -92,6 +89,7 @@ const requestFailureMessage = (
  */
 export function DangerZoneScreen() {
   const locale = useAppLocale();
+  const { availableWidth, fontScale, isWide } = useViewport();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
   const requestDeletion = useAtomSet(requestAccountDeletionAtom, {
@@ -151,6 +149,23 @@ export function DangerZoneScreen() {
   };
 
   const notice = screenNotice(flow.attempt, locale);
+  const confirmation = (
+    <CheckboxRow
+      tone="danger"
+      label={m.danger_confirm_label({}, { locale })}
+      checked={flow.confirmed}
+      onChange={(confirmed) => dispatch({ type: "confirmation", confirmed })}
+    />
+  );
+  // Use the actual form footer width within the rail and, in landscape, the menu.
+  const footerWidth = Math.min(
+    contentColumnWidth.form,
+    availableWidth - 2 * wideGutter
+  );
+  const confirmationInFooter =
+    isWide &&
+    footerWidth >= 400 * Math.max(1, fontScale) &&
+    AsyncResult.isSuccess(account);
   return (
     <View style={styles.screen}>
       <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
@@ -159,12 +174,11 @@ export function DangerZoneScreen() {
         <AsyncView result={account} onRetry={refresh}>
           {(current) => (
             <DeleteScreenContent
-              view={deleteScreenView(current, flow)}
-              confirmed={flow.confirmed}
+              account={current}
+              flow={flow}
+              confirmation={confirmationInFooter ? undefined : confirmation}
               locale={locale}
-              onConfirmedChange={(confirmed) =>
-                dispatch({ type: "confirmation", confirmed })
-              }
+              isWide={isWide}
             />
           )}
         </AsyncView>
@@ -172,6 +186,7 @@ export function DangerZoneScreen() {
       {AsyncResult.isSuccess(account) && (
         <DeleteScreenFooter
           view={deleteScreenView(account.value, flow)}
+          confirmation={confirmationInFooter ? confirmation : undefined}
           locale={locale}
           onDelete={() => dispatch({ type: "open" })}
         />
@@ -217,10 +232,14 @@ function FactRow({
   );
 }
 
-function DangerDisc() {
+function DangerDisc({ inline = false }: { readonly inline?: boolean }) {
   return (
     <View
-      style={[styles.disc, { backgroundColor: discColors.danger.background }]}
+      style={[
+        styles.disc,
+        { backgroundColor: discColors.danger.background },
+        inline && styles.inlineDisc,
+      ]}
     >
       <Icon icon={Trash2} size={24} color={discColors.danger.ink} />
     </View>
@@ -228,25 +247,19 @@ function DangerDisc() {
 }
 
 function DeleteScreenContent({
-  view,
-  confirmed,
+  account,
+  flow,
+  confirmation,
   locale,
-  onConfirmedChange,
+  isWide,
 }: {
-  readonly view: DeleteScreenView;
-  readonly confirmed: boolean;
+  readonly account: CustomerAccountState;
+  readonly flow: DeletionFlow;
+  readonly confirmation?: ReactNode;
   readonly locale: AppLocale;
-  readonly onConfirmedChange: (confirmed: boolean) => void;
+  readonly isWide: boolean;
 }) {
-  const confirmation = (
-    <CheckboxRow
-      tone="danger"
-      label={m.danger_confirm_label({}, { locale })}
-      checked={confirmed}
-      onChange={onConfirmedChange}
-    />
-  );
-  return Match.value(view).pipe(
+  return Match.value(deleteScreenView(account, flow)).pipe(
     Match.discriminatorsExhaustive("kind")({
       withheld: () => (
         <ContactCard
@@ -279,14 +292,16 @@ function DeleteScreenContent({
       ),
       consequences: () => (
         <View style={styles.content}>
-          <View style={styles.head}>
-            <DangerDisc />
-            <Text variant="titleLarge" role="heading">
-              {m.danger_title({}, { locale })}
-            </Text>
-            <Text variant="body" tone="muted">
-              {m.danger_consequences_lead({}, { locale })}
-            </Text>
+          <View style={[styles.head, isWide && styles.inlineHead]}>
+            <DangerDisc inline={isWide} />
+            <View style={[styles.headCopy, isWide && styles.inlineHeadCopy]}>
+              <Text variant="titleLarge" role="heading">
+                {m.danger_title({}, { locale })}
+              </Text>
+              <Text variant="body" tone="muted">
+                {m.danger_consequences_lead({}, { locale })}
+              </Text>
+            </View>
           </View>
           <ListGroup>
             <FactRow
@@ -302,6 +317,13 @@ function DeleteScreenContent({
               text={m.danger_consequence_access({}, { locale })}
             />
           </ListGroup>
+          <DataExportRow
+            account={account}
+            offer={{
+              title: m.danger_data_export_title({}, { locale }),
+              description: m.danger_data_export_description({}, { locale }),
+            }}
+          />
           {confirmation}
         </View>
       ),
@@ -324,7 +346,7 @@ function ContactCard({
           variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
       </EmptyState>
     </Card>
@@ -333,16 +355,18 @@ function ContactCard({
 
 function DeleteScreenFooter({
   view,
+  confirmation,
   locale,
   onDelete,
 }: {
   readonly view: DeleteScreenView;
+  readonly confirmation?: ReactNode;
   readonly locale: AppLocale;
   readonly onDelete: () => void;
 }) {
   if (!("deleteAction" in view)) return null;
   return (
-    <ActionFooter>
+    <ActionFooter aside={confirmation}>
       <Button
         variant="danger"
         label={
@@ -358,7 +382,7 @@ function DeleteScreenFooter({
           variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
-          onPress={openContactPage}
+          onPress={() => openContactPage()}
         />
       )}
     </ActionFooter>
@@ -526,6 +550,9 @@ const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   content: { gap: space.lg },
   head: { gap: space.sm, paddingTop: space.sm },
+  headCopy: { gap: space.sm },
+  inlineHead: { alignItems: "flex-start", flexDirection: "row", gap: space.lg },
+  inlineHeadCopy: { flex: 1, gap: space.xxs },
   disc: {
     alignItems: "center",
     borderRadius: radius.disc,
@@ -534,6 +561,7 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
     width: 56,
   },
+  inlineDisc: { borderRadius: radius.tile, marginBottom: 0 },
   badge: { flexDirection: "row" },
   fact: {
     alignItems: "flex-start",

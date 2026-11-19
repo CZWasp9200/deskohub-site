@@ -34,6 +34,10 @@ What the contact step asks depends on the visitor:
 - **Signed in with a profile.** The page books as the account's own customer ("Booking as"). "Book for someone else" asks for that person's name, email, the email again (the two must match), and phone.
 - **Account unavailable.** If the account can't be read, the step shows an error and a retry instead of a form.
 
+For a private office, each person coming takes one seat. The booking contact can attend and can add other people by email up to the office's capacity. The contact keeps the reservation and payment responsibilities even if they choose not to attend. At least one person must attend. A paid booking keeps its people list. The booker can resend an invitation or contact staff to request a change.
+
+Invited people receive a personal link to the office's access page. They share the reservation's door code and never receive it in the email. The invitation grants access to the office's information and door code. Staff cancellation or restoration sends each invited person an update.
+
 ## Price acceptance
 
 Checkout has three customer commitments:

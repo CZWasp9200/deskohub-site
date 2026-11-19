@@ -46,6 +46,14 @@ import {
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
+import {
+  getBookedPeopleQuery,
+  ReservationInvitees,
+} from "@/features/reservation-invitees/backend/reservation-invitees.service";
+import {
+  type ReservationPeopleView,
+  toReservationPeopleView,
+} from "@/features/reservation-invitees/reservation-people-view";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
@@ -151,6 +159,11 @@ type CheckoutMeetingRoomStatusViewModel =
 type CheckoutOfficeStatusViewModel = CheckoutReservationStatusViewModelBase & {
   readonly kind: "office";
   readonly summary?: CheckoutOfficeStatusSummary;
+  /**
+   * Who is coming, for an office booked with a people list; absent for one
+   * booked by seats alone and once the retention purge removed an invitee.
+   */
+  readonly people?: ReservationPeopleView;
 };
 
 type CheckoutStatusNotFoundViewModel = CheckoutStatusViewModelBase & {
@@ -207,10 +220,9 @@ export interface ICheckoutStatusService {
   readonly getStatus: (
     input: CheckoutStatusLookup
   ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
-  readonly refreshStatus: (input: {
-    readonly orderId: WorkspaceReservationId;
-    readonly returnOutcome: CheckoutStatusReturnOutcome;
-  }) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
+  readonly refreshStatus: (
+    input: CheckoutStatusLookup
+  ) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
 }
 
 const canUseAttemptForSummary = (
@@ -230,7 +242,11 @@ const canUseAttemptForSummary = (
 /** The Dotypos reservation a retry reopens, for a payment that ended unpaid. */
 const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
   Option.fromNullishOr(reservation.dotyposReservationId).pipe(
-    Option.filter(() => isEndedUnpaidPaymentState(reservation.paymentState))
+    Option.filter(
+      () =>
+        isEndedUnpaidPaymentState(reservation.paymentState) &&
+        reservation.cancellationCause !== "operator"
+    )
   );
 
 /**
@@ -238,9 +254,7 @@ const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
  * reservation can load alongside the attempt instead of after it.
  */
 const isSummaryLikelyDisplayable = (reservation: WorkspaceReservation) =>
-  reservation.paymentState === "not_started" ||
-  reservation.paymentState === "pending" ||
-  reservation.paymentState === "paid";
+  !isEndedUnpaidPaymentState(reservation.paymentState);
 
 const toOptionalString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
@@ -360,6 +374,52 @@ const implementation = Effect.gen(function* () {
   const inventory = yield* AdvisoryAvailabilityInventory;
   const finalization = yield* ProviderPaymentFinalizationService;
   const seatingMap = yield* SeatingMapReleaseGate;
+  const invitees = yield* ReservationInvitees;
+
+  // Who is coming is extra detail: a status still answers without it.
+  const loadOfficePeople = Effect.fnUntraced(function* (
+    reservation: WorkspaceReservation,
+    loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
+  ) {
+    const booked = yield* invitees
+      .findBookedPeople(getBookedPeopleQuery(reservation))
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Checkout status people unavailable", {
+            cause,
+          }).pipe(Effect.as(Option.none()))
+        )
+      );
+    if (Option.isNone(booked)) return Option.none<ReservationPeopleView>();
+    const resendable =
+      reservation.paymentState === "paid" &&
+      reservation.reservationState === "confirmed" &&
+      (yield* loadDotyposReservation)?.status === "CONFIRMED";
+    const now = yield* currentInstant;
+    return Option.some(
+      toReservationPeopleView(booked.value, { now, resendable })
+    );
+  });
+
+  /** Shares the live reservation read between the status and its summary. */
+  const loadReservationRecord = (id: DotyposReservationId | null) =>
+    id === null
+      ? Effect.undefined
+      : Effect.suspend(() => records.get(id)).pipe(
+          Effect.timeoutOrElse({
+            duration: summaryTimeout,
+            orElse: () =>
+              Effect.logWarning(
+                "Checkout status reservation load timed out"
+              ).pipe(Effect.as(undefined)),
+          }),
+          Effect.tapError((cause) =>
+            Effect.logWarning("Checkout status reservation load failed", {
+              cause,
+            })
+          ),
+          Effect.orElseSucceed(() => undefined)
+        );
 
   /**
    * Loads what the summary needs at once: the displayable payment attempt, the
@@ -402,7 +462,10 @@ const implementation = Effect.gen(function* () {
   const reconstructSummary = Effect.fn(
     "CheckoutStatusService.reconstructSummary"
   )(
-    function* (reservation: WorkspaceReservation) {
+    function* (
+      reservation: WorkspaceReservation,
+      loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
+    ) {
       yield* Effect.logDebug("Checkout status summary reconstruction started");
       const emptyReconstruction: CheckoutStatusReconstruction = {
         reservation: getEmptyCheckoutStatusReservation(
@@ -417,17 +480,6 @@ const implementation = Effect.gen(function* () {
         return emptyReconstruction;
       }
 
-      const dotyposReservationId = reservation.dotyposReservationId;
-      const loadDotyposReservation = Effect.suspend(() =>
-        records.get(dotyposReservationId)
-      ).pipe(
-        Effect.tapError((cause) =>
-          Effect.logWarning("Checkout status summary reservation load failed", {
-            cause,
-          })
-        ),
-        Effect.orElseSucceed(() => undefined)
-      );
       const prefetchDotyposReservation =
         isSummaryLikelyDisplayable(reservation);
 
@@ -545,13 +597,7 @@ const implementation = Effect.gen(function* () {
    */
   const loadSupportContactPrefill = Effect.fn(
     "CheckoutStatusService.loadSupportContactPrefill"
-  )(function* (
-    reservation: WorkspaceReservation,
-    statusKind: CheckoutReservationStatusKind
-  ) {
-    if (!checkoutStatusTraits[statusKind].showsCustomerContact)
-      return undefined;
-
+  )(function* (reservation: WorkspaceReservation) {
     return yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
       Effect.map(
         Option.match({
@@ -696,13 +742,13 @@ const implementation = Effect.gen(function* () {
     );
   });
 
-  /** Derives the customer status and its support contact prefill. */
+  /** Derives the customer status from the local and provider states. */
   const resolveStatusKind = Effect.fn(
     "CheckoutStatusService.resolveStatusKind"
   )(function* (
     reservation: WorkspaceReservation,
-    includeSupportContact: boolean,
-    refreshed: PaymentPageProviderObservation | undefined
+    refreshed: PaymentPageProviderObservation | undefined,
+    loadDotyposReservation: Effect.Effect<ReservationRecord | undefined>
   ) {
     const latePaymentRecovery =
       yield* latePaymentRecoveries.findLatestByWorkspaceReservationId(
@@ -712,8 +758,27 @@ const implementation = Effect.gen(function* () {
       reservation,
       latePaymentRecovery
     );
+    const paymentEndedUnpaid = isEndedUnpaidPaymentState(
+      reservation.paymentState
+    );
+    const recordedCancellation =
+      (reservation.reservationState === "cancelled" &&
+        reservation.cancellationCause === "operator") ||
+      (!paymentEndedUnpaid &&
+        (reservation.reservationState === "cancelled" ||
+          reservation.reservationState === "hold_expired"));
+    // An unpaid hold released after a failed, cancelled or expired payment
+    // keeps its payment outcome so the customer can retry where eligible.
+    const cancelledInDotypos =
+      !latePaymentStatusKind &&
+      !recordedCancellation &&
+      !paymentEndedUnpaid &&
+      (yield* loadDotyposReservation)?.status === "CANCELLED";
     const now = yield* currentInstant;
-    const reservationStatusKind = toCheckoutStatusKind(reservation, now);
+    const reservationStatusKind =
+      recordedCancellation || cancelledInDotypos
+        ? "reservation_cancelled"
+        : toCheckoutStatusKind(reservation, now);
     const pendingPaymentTiming =
       !latePaymentStatusKind && reservationStatusKind === "pending"
         ? yield* getPendingPaymentTiming(reservation, now, refreshed)
@@ -726,15 +791,10 @@ const implementation = Effect.gen(function* () {
     const paymentPageReopenable =
       statusKind === "pending" &&
       pendingPaymentTiming?.paymentPageReopenable === true;
-    const supportContactPrefill = includeSupportContact
-      ? yield* loadSupportContactPrefill(reservation, statusKind)
-      : undefined;
-
     return {
       latePaymentStatusKind,
       statusKind,
       paymentPageReopenable,
-      supportContactPrefill,
     };
   });
 
@@ -773,24 +833,45 @@ const implementation = Effect.gen(function* () {
           reservation.reservationDetails
         ),
       };
+      const loadDotyposReservation = yield* Effect.cached(
+        loadReservationRecord(reservation.dotyposReservationId)
+      );
       const [
         {
           latePaymentStatusKind,
           statusKind,
           paymentPageReopenable,
           supportContactPrefill,
+          people,
         },
         reconstruction,
         retrySelection,
       ] = yield* Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
         Effect.all(
           [
-            resolveStatusKind(
-              reservation,
-              input.includeSupportContact ?? true,
-              refreshed
-            ),
-            reconstructSummary(reservation).pipe(
+            Effect.gen(function* () {
+              const [status, people] = yield* Effect.all(
+                [
+                  resolveStatusKind(
+                    reservation,
+                    refreshed,
+                    loadDotyposReservation
+                  ),
+                  reservation.reservationDetails.kind === "office"
+                    ? loadOfficePeople(reservation, loadDotyposReservation)
+                    : Effect.succeed(Option.none()),
+                ],
+                { concurrency }
+              );
+              const supportContactPrefill =
+                (input.includeSupportContact ?? true) &&
+                (checkoutStatusTraits[status.statusKind].showsCustomerContact ||
+                  Option.isSome(people))
+                  ? yield* loadSupportContactPrefill(reservation)
+                  : undefined;
+              return { ...status, people, supportContactPrefill };
+            }),
+            reconstructSummary(reservation, loadDotyposReservation).pipe(
               Effect.timeoutOrElse({
                 duration: summaryTimeout,
                 orElse: () =>
@@ -812,9 +893,11 @@ const implementation = Effect.gen(function* () {
         status: statusKind,
         paymentStatus: reservation.paymentState,
         fulfillmentStatus: reservation.fulfillmentState,
-        // A late payment has no booked place to show until recovery confirms
-        // a reservation; the original hold's table may belong to someone else.
-        ...(!latePaymentStatusKind && reconstruction.placement),
+        // A cancelled reservation or one still in late-payment recovery
+        // has no assigned place to show.
+        ...(!latePaymentStatusKind &&
+          statusKind !== "reservation_cancelled" &&
+          reconstruction.placement),
         supportContactPrefill,
         ...(paymentPageReopenable && { paymentPageReopenable: true as const }),
         // A late payment that settled takes over the status, and with it the
@@ -828,6 +911,10 @@ const implementation = Effect.gen(function* () {
       const result: CheckoutReservationStatusViewModel = {
         ...resultBase,
         ...reconstruction.reservation,
+        ...Option.match(people, {
+          onNone: () => ({}),
+          onSome: (found) => ({ people: found }),
+        }),
       };
 
       yield* Effect.annotateLogsScoped({
@@ -958,6 +1045,7 @@ export class CheckoutStatusService extends Context.Service<
       Layer.provide(PaymentAttemptRepository.Default),
       Layer.provide(WorkspaceReservationRepository.Default),
       Layer.provide(ReviewSandbox.Default),
+      Layer.provide(ReservationInvitees.Default),
       Layer.provide(WorkspaceDatabase.Default),
       Layer.provide(WorkspaceDotyposLayer),
       Layer.provide(SharedAvailabilityInventoryLive),

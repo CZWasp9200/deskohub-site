@@ -759,36 +759,6 @@
   "checkoutSummaryItemMeetingRoom": "Zasadacia miestnosť - {duration}",
   "checkoutSummaryItemReferralDiscount": "Odporúčacia zľava · oprávnení pozvaní zákazníci: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "Odporúčacia zľava na prvú rezerváciu",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Prístup do súkromnej kancelárie · {dayCount} deň",
-        "dayCountPlural=few": "Prístup do súkromnej kancelárie · {dayCount} dni",
-        "dayCountPlural=many": "Prístup do súkromnej kancelárie · {dayCount} dňa",
-        "dayCountPlural=other": "Prístup do súkromnej kancelárie · {dayCount} dní"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} miesto v kancelárii",
-        "seatCountPlural=few": "{seatCount} miesta v kancelárii",
-        "seatCountPlural=many": "{seatCount} miesta v kancelárii",
-        "seatCountPlural=other": "{seatCount} miest v kancelárii"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -808,7 +778,6 @@
   "checkoutSummaryItemCustomerDiscount": "Zákaznícka zľava",
   "checkoutSummaryItemTotal": "Spolu na úhradu",
   "checkoutPayConsent": "Súhlasím s dokumentmi <terms>Všeobecné obchodné podmienky</terms>, <operatingRules>Prevádzkový poriadok</operatingRules>.<earlyPerformance> Žiadam o poskytnutie služby v rezervovanom termíne, počas lehoty na odstúpenie od zmluvy, a beriem na vedomie, že po jej úplnom poskytnutí moje právo odstúpiť od zmluvy zaniká.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Platbu dokončíš na zabezpečenej platobnej stránke Nexi, ktorá sa otvorí na novej karte. Banka ťa môže požiadať o potvrdenie platby v bankovej aplikácii. Na tejto karte potom uvidíš stav rezervácie.",
   "checkoutPayOrderAndPayButton": "Objednať s povinnosťou platby",
   "checkoutPayOrderAndPayAmountButton": "Objednať s povinnosťou platby ({amount})",
   "checkoutPaySubmitError": "Platbu sa nepodarilo spustiť. Skontroluj, prosím, údaje rezervácie a skús to znova.",
@@ -867,6 +836,8 @@
   "checkoutStatusPaymentFailedLead": "Platba neprešla, takže k tejto objednávke nevydávame prístup. Údaje o rezervácii zostali uložené, takže môžeš platbu skúsiť znova.",
   "checkoutStatusCancelledTitle": "Platba bola zrušená.",
   "checkoutStatusCancelledLead": "Platba bola zrušená, takže k tejto objednávke nevydávame prístup. Údaje o rezervácii zostali uložené, takže môžeš platbu skúsiť znova.",
+  "checkoutStatusReservationCancelledTitle": "Rezervácia bola zrušená.",
+  "checkoutStatusReservationCancelledLead": "Prístup k tejto rezervácii už nie je k dispozícii.",
   "checkoutStatusExpiredTitle": "Platnosť platobného odkazu vypršala.",
   "checkoutStatusExpiredLead": "Platba nebola dokončená včas, takže sme rezervovaný termín uvoľnili. Údaje o rezervácii zostali uložené, takže môžeš platbu skúsiť znova.",
   "checkoutStatusLatePaymentCheckingTitle": "Overujeme tvoju rezerváciu.",
@@ -1721,5 +1692,100 @@
   "installGuideStepAndroidMenu": "Otvor menu prehliadača, zvyčajne <b>⋮</b> vedľa adresného riadka.",
   "installGuideStepAndroidAdd": "Ťukni na <b>Pridať na plochu</b> alebo <b>Inštalovať</b>.",
   "installGuideStepAndroidConfirm": "Potvrď tlačidlom <b>Pridať</b> alebo <b>Inštalovať</b>.",
-  "installGuideStepGenericMenu": "Otvor menu prehliadača alebo tlačidlo <b>Zdieľať</b>."
+  "installGuideStepGenericMenu": "Otvor menu prehliadača alebo tlačidlo <b>Zdieľať</b>.",
+  "officePeopleLabel": "Kto príde?",
+  "officePeopleCount": "{count} z {maximum}",
+  "officePeopleYou": "Ty",
+  "officePeopleContactEmailLater": "Svoj e-mail zadáš v ďalšom kroku",
+  "officePeopleRemove": "Odstrániť {email}",
+  "officePeopleRemoveYourself": "Odstrániť seba",
+  "officePeopleAddYourself": "Pridať seba",
+  "officePeopleEmailLabel": "E-mailová adresa",
+  "officePeopleAdd": "Pridať",
+  "officePeopleReplace": "Nahradiť",
+  "officePeopleSwitchToYourself": "Prídem namiesto hosťa",
+  "officePeopleInvalidEmail": "Zadaj celú e-mailovú adresu.",
+  "officePeopleDuplicateEmail": "Tento e-mail už v zozname je.",
+  "officePeopleContactEmail": "Toto je tvoj vlastný e-mail. Pre seba použi riadok Ty.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Jediné miesto je obsadené. Ak chceš pridať ďalšieho človeka, niekoho odstráň.",
+        "maximumPlural=few": "Všetky {maximum} miesta sú obsadené. Ak chceš pridať ďalšieho človeka, niekoho odstráň.",
+        "maximumPlural=many": "Všetkých {maximum} miesta je obsadených. Ak chceš pridať ďalšieho človeka, niekoho odstráň.",
+        "maximumPlural=other": "Všetkých {maximum} miest je obsadených. Ak chceš pridať ďalšieho človeka, niekoho odstráň."
+      }
+    }
+  ],
+  "officePeopleNote": "PIN kód od dverí dostane každý e-mailom.",
+  "officePeopleNoPeople": "Pridaj aspoň jedného človeka.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "Táto kancelária má {maximum} miesto. Ak chceš pokračovať, niekoho odstráň.",
+        "maximumPlural=few": "Táto kancelária má {maximum} miesta. Ak chceš pokračovať, niekoho odstráň.",
+        "maximumPlural=many": "Táto kancelária má {maximum} miesta. Ak chceš pokračovať, niekoho odstráň.",
+        "maximumPlural=other": "Táto kancelária má {maximum} miest. Ak chceš pokračovať, niekoho odstráň."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Cena",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} osoba × {seatPrice}",
+        "countPlural=few": "{count} osoby × {seatPrice}",
+        "countPlural=many": "{count} osoby × {seatPrice}",
+        "countPlural=other": "{count} osôb × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Spolu",
+  "checkoutPeopleTitle": "Kto príde",
+  "checkoutPeopleNote": "Po zaplatení dostane každý PIN kód od dverí e-mailom.",
+  "checkoutPayNoteNewTab": "Bezpečná platba na novej karte. <backToShop/> alebo kartu zavri.",
+  "checkoutPayNoteBackToShop": "Po zaplatení sa vráť do obchodu",
+  "reservationAccessGuestBookedBy": "{product} · na meno {name}",
+  "reservationAccessGuestCopyAddress": "Skopírovať adresu {address}",
+  "reservationAccessGuestAddressCopied": "Adresa skopírovaná.",
+  "reservationAccessGuestOpenRoute": "Otvoriť trasu",
+  "reservationAccessDatesSingle": "Zámok prijme tento PIN dňa {date}.",
+  "reservationAccessDatesRange": "Zámok prijme tento PIN od {startsOn} do {endsOn} vrátane.",
+  "checkoutStatusPeopleLabel": "Kto príde",
+  "checkoutStatusPeopleContact": "{name} (ty)",
+  "checkoutStatusPeopleResend": "Poslať znova",
+  "checkoutStatusPeopleResendLabel": "Znova poslať pozvánku na {email}",
+  "checkoutStatusPeopleSent": "Odoslané",
+  "checkoutStatusPeopleSentAnnouncement": "Pozvánka odoslaná na {email}.",
+  "checkoutStatusPeopleResendFailed": "Pozvánku sa nepodarilo poslať znova. Skús to o chvíľu.",
+  "checkoutStatusPeopleChangeNote": "Ak chceš zmeniť, kto príde, <link>kontaktuj nás</link>.",
+  "checkoutStatusPeopleChangeMessage": "Dobrý deň,\n\nchcem zmeniť, kto príde na moju rezerváciu súkromnej kancelárie.\n\n{reservationDetails}\n\nPridať:\nOdstrániť:",
+  "officeInvitationSubject": "{booker} ťa pozýva do súkromnej kancelárie",
+  "officeInvitationHeading": "{booker} ťa pozýva do súkromnej kancelárie – {date}",
+  "officeInvitationSpaceLabel": "Priestor",
+  "officeInvitationDateLabel": "Dátum",
+  "officeInvitationBookedByLabel": "Rezervácia od",
+  "officeInvitationReason": "Tento e-mail ti prišiel, pretože tvoja adresa je uvedená v rezervácii od {booker}. Máš otázku? Odpovedz na tento e-mail alebo napíš na {email}.",
+  "officeInvitationPeopleLabel": "Kto príde",
+  "officeInvitationPeopleYou": "{name} (ty)",
+  "officeInvitationPeopleNote": "Každý dostane vlastný e-mail s prístupom.",
+  "officeInviteeCancellationSubject": "Rezervácia súkromnej kancelárie od {booker} bola zrušená",
+  "officeInviteeCancellationBody": "Rezervácia uvedená nižšie bola zrušená a tvoj prístupový kód už nefunguje.",
+  "officeInviteeRestorationSubject": "Rezervácia súkromnej kancelárie od {booker} opäť platí",
+  "officeInviteeRestorationHeading": "Rezervácia súkromnej kancelárie od {booker} bola obnovená",
+  "officeInviteeRestorationBody": "Rezerváciu uvedenú nižšie sme obnovili a opäť platí. Predchádzajúce oznámenie o jej zrušení už neplatí.",
+  "officeInviteeRestorationNewAccessCode": "Vydali sme nový prístupový kód, otvoríš ho nižšie.",
+  "officeInviteeListRejected": "Skontroluj prosím zoznam ľudí a skús to znova."
 }

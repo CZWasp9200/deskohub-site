@@ -747,30 +747,6 @@
   "checkoutSummaryItemMeetingRoom": "Phòng họp - {duration}",
   "checkoutSummaryItemReferralDiscount": "Giảm giá giới thiệu · khách được mời đủ điều kiện: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "Giảm giá giới thiệu cho lần đặt chỗ đầu tiên",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=other": "Quyền sử dụng văn phòng riêng · {dayCount} ngày"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=other": "{seatCount} chỗ trong văn phòng"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -787,7 +763,6 @@
   "checkoutSummaryItemCustomerDiscount": "Giảm giá khách hàng",
   "checkoutSummaryItemTotal": "Tổng cần thanh toán",
   "checkoutPayConsent": "Tôi đồng ý với <terms>Điều kiện Giao dịch Chung</terms> và <operatingRules>Nội quy</operatingRules>.<earlyPerformance> Tôi yêu cầu được cung cấp dịch vụ vào ngày đã đặt, trong thời hạn rút khỏi hợp đồng, và xác nhận rằng quyền rút khỏi hợp đồng của tôi chấm dứt khi dịch vụ đã được cung cấp đầy đủ.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Bạn sẽ hoàn tất thanh toán trên trang thanh toán bảo mật của Nexi, trang này sẽ mở trong thẻ mới. Ngân hàng có thể yêu cầu bạn xác nhận thanh toán trong ứng dụng ngân hàng. Sau đó, bạn sẽ thấy trạng thái đặt chỗ ở thẻ này.",
   "checkoutPayOrderAndPayButton": "Đặt và thanh toán",
   "checkoutPayOrderAndPayAmountButton": "Đặt và thanh toán ({amount})",
   "checkoutPaySubmitError": "Không thể bắt đầu thanh toán. Hãy kiểm tra lại thông tin đặt chỗ và thử lại.",
@@ -846,6 +821,8 @@
   "checkoutStatusPaymentFailedLead": "Thanh toán không thành công, nên chúng tôi không cấp quyền ra vào cho đơn hàng này. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
   "checkoutStatusCancelledTitle": "Thanh toán đã bị hủy.",
   "checkoutStatusCancelledLead": "Thanh toán đã bị hủy, nên chúng tôi không cấp quyền ra vào cho đơn hàng này. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
+  "checkoutStatusReservationCancelledTitle": "Đặt chỗ đã bị hủy.",
+  "checkoutStatusReservationCancelledLead": "Quyền ra vào cho đặt chỗ này không còn hiệu lực.",
   "checkoutStatusExpiredTitle": "Liên kết thanh toán đã hết hạn.",
   "checkoutStatusExpiredLead": "Thanh toán không được hoàn tất kịp thời, nên chúng tôi đã mở lại khung giờ bạn đặt. Thông tin đặt chỗ của bạn vẫn được lưu, nên bạn có thể thử thanh toán lại.",
   "checkoutStatusLatePaymentCheckingTitle": "Chúng tôi đang kiểm tra đặt chỗ của bạn.",
@@ -1670,5 +1647,91 @@
   "installGuideStepAndroidMenu": "Mở menu của trình duyệt, thường là <b>⋮</b> cạnh thanh địa chỉ.",
   "installGuideStepAndroidAdd": "Chạm vào <b>Add to Home Screen</b> hoặc <b>Cài đặt</b>.",
   "installGuideStepAndroidConfirm": "Xác nhận bằng <b>Add</b> hoặc <b>Cài đặt</b>.",
-  "installGuideStepGenericMenu": "Mở menu của trình duyệt hoặc nút <b>Chia sẻ</b>."
+  "installGuideStepGenericMenu": "Mở menu của trình duyệt hoặc nút <b>Chia sẻ</b>.",
+  "officePeopleLabel": "Ai sẽ đến?",
+  "officePeopleCount": "{count}/{maximum}",
+  "officePeopleYou": "Bạn",
+  "officePeopleContactEmailLater": "Bạn sẽ nhập email ở bước tiếp theo",
+  "officePeopleRemove": "Xóa {email}",
+  "officePeopleRemoveYourself": "Xóa bạn khỏi danh sách",
+  "officePeopleAddYourself": "Thêm bạn vào danh sách",
+  "officePeopleEmailLabel": "Địa chỉ email",
+  "officePeopleAdd": "Thêm",
+  "officePeopleReplace": "Thay thế",
+  "officePeopleSwitchToYourself": "Tự tham dự",
+  "officePeopleInvalidEmail": "Nhập địa chỉ email đầy đủ.",
+  "officePeopleDuplicateEmail": "Email này đã có trong danh sách.",
+  "officePeopleContactEmail": "Đây là email của bạn. Hãy dùng dòng Bạn cho chính bạn.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=other": "Cả {maximum} chỗ đều đã có người. Hãy xóa bớt một người để thêm người khác."
+      }
+    }
+  ],
+  "officePeopleNote": "Mọi người đều nhận mã PIN ra vào qua email.",
+  "officePeopleNoPeople": "Thêm ít nhất một người.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=other": "Văn phòng này có {maximum} chỗ. Hãy xóa bớt một người để tiếp tục."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Giá",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} người × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Tổng cộng",
+  "checkoutPeopleTitle": "Ai sẽ đến",
+  "checkoutPeopleNote": "Sau khi bạn thanh toán, mọi người đều nhận mã PIN ra vào qua email.",
+  "checkoutPayNoteNewTab": "Thanh toán an toàn trong thẻ mới. Khi xong, hãy nhấn <backToShop/> hoặc đóng thẻ.",
+  "checkoutPayNoteBackToShop": "Back to the shop",
+  "reservationAccessGuestBookedBy": "{product} · do {name} đặt chỗ",
+  "reservationAccessGuestCopyAddress": "Sao chép địa chỉ {address}",
+  "reservationAccessGuestAddressCopied": "Đã sao chép địa chỉ.",
+  "reservationAccessGuestOpenRoute": "Mở chỉ đường",
+  "reservationAccessDatesSingle": "Khóa cửa chấp nhận mã PIN này vào ngày {date}.",
+  "reservationAccessDatesRange": "Khóa cửa chấp nhận mã PIN này từ {startsOn} đến hết {endsOn}.",
+  "checkoutStatusPeopleLabel": "Ai sẽ đến",
+  "checkoutStatusPeopleContact": "{name} (bạn)",
+  "checkoutStatusPeopleResend": "Gửi lại",
+  "checkoutStatusPeopleResendLabel": "Gửi lại lời mời đến {email}",
+  "checkoutStatusPeopleSent": "Đã gửi",
+  "checkoutStatusPeopleSentAnnouncement": "Đã gửi lời mời đến {email}.",
+  "checkoutStatusPeopleResendFailed": "Không thể gửi lại lời mời. Hãy thử lại sau ít phút.",
+  "checkoutStatusPeopleChangeNote": "Để thay đổi người sẽ đến, <link>hãy liên hệ với chúng tôi</link>.",
+  "checkoutStatusPeopleChangeMessage": "Xin chào,\n\ntôi muốn thay đổi những người sẽ đến theo đặt chỗ văn phòng riêng của tôi.\n\n{reservationDetails}\n\nThêm:\nXóa:",
+  "officeInvitationSubject": "{booker} đã đặt văn phòng riêng cho bạn",
+  "officeInvitationHeading": "{booker} đã đặt văn phòng riêng cho bạn vào {date}",
+  "officeInvitationSpaceLabel": "Không gian",
+  "officeInvitationDateLabel": "Ngày",
+  "officeInvitationBookedByLabel": "Người đặt",
+  "officeInvitationReason": "Bạn nhận được email này vì {booker} đã thêm địa chỉ của bạn vào đặt chỗ của họ. Có câu hỏi? Hãy trả lời email này hoặc viết cho chúng tôi tại {email}.",
+  "officeInvitationPeopleLabel": "Ai sẽ đến",
+  "officeInvitationPeopleYou": "{name} (bạn)",
+  "officeInvitationPeopleNote": "Mỗi người sẽ nhận email ra vào riêng.",
+  "officeInviteeCancellationSubject": "Văn phòng riêng {booker} đặt cho bạn đã bị hủy",
+  "officeInviteeCancellationBody": "Đặt chỗ dưới đây đã bị hủy và mã ra vào của bạn không còn hoạt động.",
+  "officeInviteeRestorationSubject": "Văn phòng riêng {booker} đặt cho bạn đã có hiệu lực trở lại",
+  "officeInviteeRestorationHeading": "Văn phòng riêng {booker} đặt cho bạn đã được khôi phục",
+  "officeInviteeRestorationBody": "Đặt chỗ dưới đây đã được khôi phục và có hiệu lực trở lại. Thông báo hủy trước đó không còn áp dụng.",
+  "officeInviteeRestorationNewAccessCode": "Chúng tôi đã cấp mã ra vào mới, hãy mở mã bên dưới.",
+  "officeInviteeListRejected": "Hãy kiểm tra danh sách người bạn đã thêm rồi thử lại."
 }

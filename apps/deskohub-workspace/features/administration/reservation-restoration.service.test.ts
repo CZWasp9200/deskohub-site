@@ -1032,3 +1032,21 @@ test("keeps the restore when its new access can't be issued", async () => {
     accessReissued: false,
   });
 });
+
+test("keeps the restored transition when both code issuance and booker email fail", async () => {
+  const run = await restored({
+    issueRestoredAccess: () => Effect.succeed("failed"),
+    sendRestorationEmail: () => failure("EmailSendError"),
+  });
+
+  expect(run.value).toEqual({
+    outcome: "restored",
+    email: "failed",
+    access: "failed",
+  });
+  expect(run.committed).toBe(true);
+  expect(run.calls.sendRestorationEmail).toHaveBeenCalledWith({
+    reservation: details,
+    accessReissued: false,
+  });
+});

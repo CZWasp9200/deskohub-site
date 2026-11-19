@@ -1397,6 +1397,75 @@
         }
       }
     },
+    "/api/customer/reservations/invitations": {
+      "get": {
+        "tags": ["reservations"],
+        "operationId": "reservations.listInvitedReservations",
+        "parameters": [
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerLocale"
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerInvitedReservations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvitedReservations"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequiredEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejectedEncoded"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimitedEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerServiceUnavailableEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/customer/reservations/establishment": {
       "get": {
         "tags": ["reservations"],
@@ -1796,6 +1865,103 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CustomerAccessCodeUnavailableEncoded"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimitedEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerServiceUnavailableEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/customer/reservations/{orderId}/invitees/{inviteeId}/invitation": {
+      "post": {
+        "tags": ["reservations"],
+        "operationId": "reservations.resendInvitation",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationOrderId"
+            },
+            "required": true
+          },
+          {
+            "name": "inviteeId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationInviteeId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerInvitationResent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvitationResent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequiredEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejectedEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerReservationNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerReservationNotFoundEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerInvitationResendRefused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvitationResendRefusedEncoded"
                 }
               }
             }
@@ -3976,6 +4142,9 @@
           },
           "rememberReferralCode": {
             "$ref": "#/components/schemas/ReferralCode"
+          },
+          "people": {
+            "$ref": "#/components/schemas/CustomerOfficePeople"
           }
         },
         "required": [
@@ -3987,6 +4156,23 @@
           "summary",
           "earlyPerformanceConsent"
         ],
+        "additionalProperties": false
+      },
+      "CustomerOfficePeople": {
+        "type": "object",
+        "properties": {
+          "contactAttends": {
+            "type": "boolean"
+          },
+          "invitees": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        },
+        "required": ["contactAttends", "invitees"],
         "additionalProperties": false
       },
       "ReferralCode": {
@@ -4384,6 +4570,9 @@
           "rememberReferralCode": {
             "$ref": "#/components/schemas/ReferralCode"
           },
+          "people": {
+            "$ref": "#/components/schemas/CustomerOfficePeople"
+          },
           "discountCode": {
             "type": "string",
             "enum": ["applied", "referral_accepted"]
@@ -4565,6 +4754,9 @@
           },
           "marketingConsent": {
             "type": "boolean"
+          },
+          "people": {
+            "$ref": "#/components/schemas/CustomerOfficePeople"
           }
         },
         "required": [
@@ -5299,6 +5491,55 @@
         "required": ["_tag"],
         "additionalProperties": false
       },
+      "CustomerInvitationResendRefusedEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerInvitationResendRefused"]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CustomerInvitationResendRefusedReason"
+          },
+          "retryAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
+      "CustomerInvitationResendRefusedReason": {
+        "type": "string",
+        "enum": ["cooldown", "not-confirmed"]
+      },
+      "CustomerInvitationResent": {
+        "type": "object",
+        "properties": {
+          "invitationSentAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "resendAvailableAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          }
+        },
+        "required": ["invitationSentAt", "resendAvailableAt"],
+        "additionalProperties": false
+      },
+      "CustomerReservationInviteeId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Opaque identifier of a person invited to an order."
+      },
       "CustomerAccessCodeUnavailableEncoded": {
         "type": "object",
         "properties": {
@@ -5429,6 +5670,9 @@
           },
           "rememberReferralCode": {
             "$ref": "#/components/schemas/ReferralCode"
+          },
+          "people": {
+            "$ref": "#/components/schemas/CustomerOfficePeople"
           },
           "details": {
             "$ref": "#/components/schemas/CustomerPaymentRetryDetails"
@@ -5601,6 +5845,17 @@
           "fulfillmentStatus": {
             "$ref": "#/components/schemas/CustomerOrderFulfillmentStatus"
           },
+          "reservationCancelled": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reviewSandbox": {
             "anyOf": [
               {
@@ -5675,6 +5930,16 @@
                 "type": "null"
               }
             ]
+          },
+          "people": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerReservationPeople"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5684,6 +5949,60 @@
           "paymentStatus",
           "fulfillmentStatus"
         ],
+        "additionalProperties": false
+      },
+      "CustomerReservationPeople": {
+        "type": "object",
+        "properties": {
+          "contactAttends": {
+            "type": "boolean"
+          },
+          "resendable": {
+            "type": "boolean"
+          },
+          "invitees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerReservationInvitee"
+            }
+          }
+        },
+        "required": ["contactAttends", "invitees"],
+        "additionalProperties": false
+      },
+      "CustomerReservationInvitee": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/CustomerReservationInviteeId"
+          },
+          "email": {
+            "type": "string"
+          },
+          "invitationSentAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resendAvailableAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "email", "invitationSentAt"],
         "additionalProperties": false
       },
       "CustomerBookedSelection": {
@@ -5826,6 +6145,165 @@
           "mapUrl"
         ],
         "additionalProperties": false
+      },
+      "CustomerInvitedReservations": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerInvitedReservation"
+            }
+          },
+          "past": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerInvitedReservation"
+            }
+          }
+        },
+        "required": ["current", "past"],
+        "additionalProperties": false
+      },
+      "CustomerInvitedReservation": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "$ref": "#/components/schemas/CustomerReservationOrderId"
+          },
+          "product": {
+            "$ref": "#/components/schemas/CustomerReservationProduct"
+          },
+          "productName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CustomerReservationStatus"
+          },
+          "accessStartsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessEndsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bookedBy": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          },
+          "todayAccess": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerReservationAccess"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "orderId",
+          "product",
+          "status",
+          "accessStartsAt",
+          "accessEndsAt",
+          "bookedBy"
+        ],
+        "additionalProperties": false
+      },
+      "CustomerReservationStatus": {
+        "type": "string",
+        "enum": ["cancelled", "confirmed", "pending", "requires-attention"]
+      },
+      "CustomerReservationProduct": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["cowork"]
+              },
+              "tier": {
+                "$ref": "#/components/schemas/CustomerCoworkTier"
+              },
+              "stay": {
+                "$ref": "#/components/schemas/CustomerCoworkStay"
+              }
+            },
+            "required": ["kind", "tier"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["meeting-room"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["office"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["other"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          }
+        ]
       },
       "CustomerReservationHistory": {
         "type": "object",
@@ -5995,64 +6473,6 @@
         },
         "required": ["id", "product", "startsAt", "endsAt", "seats", "status"],
         "additionalProperties": false
-      },
-      "CustomerReservationStatus": {
-        "type": "string",
-        "enum": ["cancelled", "confirmed", "pending", "requires-attention"]
-      },
-      "CustomerReservationProduct": {
-        "anyOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["cowork"]
-              },
-              "tier": {
-                "$ref": "#/components/schemas/CustomerCoworkTier"
-              },
-              "stay": {
-                "$ref": "#/components/schemas/CustomerCoworkStay"
-              }
-            },
-            "required": ["kind", "tier"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["meeting-room"]
-              }
-            },
-            "required": ["kind"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["office"]
-              }
-            },
-            "required": ["kind"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": ["other"]
-              }
-            },
-            "required": ["kind"],
-            "additionalProperties": false
-          }
-        ]
       },
       "CustomerReservationParty": {
         "anyOf": [

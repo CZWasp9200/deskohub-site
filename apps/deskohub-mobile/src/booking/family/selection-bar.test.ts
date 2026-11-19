@@ -53,6 +53,18 @@ describe("selectionBar", () => {
     });
   });
 
+  test("before a date: keeps the from-price when there is no unit", () => {
+    const shown = bar({
+      from: { title: from.title, amount: from.amount },
+      selection: Option.none(),
+    });
+
+    expect(shown.summary.price).toStrictEqual({
+      kind: "from",
+      amount: from.amount,
+    });
+  });
+
   test("while quoting: the selection and Updating price", () => {
     const shown = bar({ quote: Option.some({ kind: "loading" }) });
 

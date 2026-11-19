@@ -14,6 +14,13 @@ import { SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
+import {
+  type ContentWidth,
+  contentColumnWidth,
+  useViewport,
+  wideGutter,
+} from "../../ui/viewport";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { initialsOf } from "../account-root-model";
 import { ReturnToAccountRoot } from "../return-to-account-root";
 import { AvatarSection } from "./avatar/avatar-section";
@@ -27,6 +34,7 @@ import {
   useProfileForm,
 } from "./profile-form";
 import { ProfileFormFooter } from "./profile-form-footer";
+import { useProfileContentWidth } from "./profile-layout";
 
 type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
 
@@ -35,11 +43,19 @@ type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
  * and the name and phone of the linked account's profile, saved from a
  * footer that stays above the keyboard (the tab layout hides the tab bar
  * here, see `tabBarHidden`). Reached from the Account tab, or from
- * checkout's "Booking as".
+ * checkout's "Booking as", where it is part of the booking flow and shows
+ * the quiet update offer (`hostsUpdateOffer`).
  */
-export function ProfileScreen() {
+export function ProfileScreen({
+  hostsUpdateOffer = false,
+  presentation,
+}: {
+  readonly hostsUpdateOffer?: boolean;
+  readonly presentation?: "checkout";
+} = {}) {
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
+  const contentWidth = useProfileContentWidth(presentation === "checkout");
   const linked = Option.filter(
     AsyncResult.value(account),
     (current): current is LinkedAccount => current.kind === "linked"
@@ -50,10 +66,17 @@ export function ProfileScreen() {
         account={linked.value}
         result={account}
         onRefresh={refresh}
+        hostsUpdateOffer={hostsUpdateOffer}
+        contentWidth={contentWidth}
       />
     );
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      refreshing={account.waiting}
+      onRefresh={refresh}
+      contentWidth={contentWidth}
+    >
+      {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
       <AsyncView result={account} onRetry={refresh}>
         {/* The Account tab explains why an account without a profile can't edit it. */}
         {() => <ReturnToAccountRoot />}
@@ -66,10 +89,14 @@ function ProfileForm({
   account,
   result,
   onRefresh,
+  hostsUpdateOffer,
+  contentWidth,
 }: {
   readonly account: LinkedAccount;
   readonly result: Atom.Type<typeof accountAtom>;
   readonly onRefresh: () => void;
+  readonly hostsUpdateOffer: boolean;
+  readonly contentWidth: ContentWidth;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -79,6 +106,23 @@ function ProfileForm({
   const { inputs } = useFocusFirstInvalid(form.state, identityFields);
   const saving = form.state._tag === "Submitting";
   const saved = form.state._tag === "Done";
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const wideTracks = contentWidth === "wide";
+  const formWidth = Math.min(
+    contentColumnWidth[contentWidth],
+    availableWidth - 2 * wideGutter
+  );
+  const pairNames =
+    isWide && !wideTracks && formWidth >= 440 && fontScale < 1.5;
+  const fieldProps = {
+    draft: form.draft,
+    invalid: invalidOf(form.state),
+    onChange: form.setField,
+    inputs,
+    editable: !saving,
+    locale,
+  };
+  const [firstName, lastName, phone] = identityFields;
 
   useEffect(() => {
     if (saved) toast.show({ message: m.profile_saved({}, { locale }) });
@@ -97,33 +141,58 @@ function ProfileForm({
         sharedWith={["billing"]}
         locale={locale}
       />
-      <ScrollScreen refreshing={result.waiting} onRefresh={onRefresh}>
+      <ScrollScreen
+        contentWidth={contentWidth}
+        refreshing={result.waiting}
+        onRefresh={onRefresh}
+      >
+        {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
         <AsyncView result={result} onRetry={onRefresh}>
           {() => (
-            <>
-              <AvatarSection
-                avatar={account.avatar}
-                initials={initialsOf(account.profile)}
-              />
-              <View>
-                <SectionHeader title={m.profile_email_label({}, { locale })} />
-                <LoginEmailCard email={account.email} />
+            <View
+              style={[
+                styles.profile,
+                isWide && styles.wideProfile,
+                wideTracks && styles.tracks,
+              ]}
+            >
+              <View
+                style={[
+                  styles.profile,
+                  isWide && styles.wideProfile,
+                  wideTracks && styles.track,
+                ]}
+              >
+                <AvatarSection
+                  avatar={account.avatar}
+                  initials={initialsOf(account.profile)}
+                  inlineActions={wideTracks}
+                />
+                <View>
+                  <SectionHeader
+                    title={m.profile_email_label({}, { locale })}
+                  />
+                  <LoginEmailCard email={account.email} />
+                </View>
               </View>
-              <View style={styles.fields}>
+              <View style={[styles.fields, wideTracks && styles.track]}>
                 <SectionHeader
                   title={m.profile_identity_section({}, { locale })}
+                  first={wideTracks}
                 />
-                <ProfileTextFields
-                  fields={identityFields}
-                  draft={form.draft}
-                  invalid={invalidOf(form.state)}
-                  onChange={form.setField}
-                  inputs={inputs}
-                  editable={!saving}
-                  locale={locale}
-                />
+                <View style={[styles.fields, pairNames && styles.pairedFields]}>
+                  <View style={pairNames && styles.track}>
+                    <ProfileTextFields {...fieldProps} fields={[firstName]} />
+                  </View>
+                  <View style={pairNames && styles.track}>
+                    <ProfileTextFields {...fieldProps} fields={[lastName]} />
+                  </View>
+                </View>
+                <View style={pairNames && styles.halfField}>
+                  <ProfileTextFields {...fieldProps} fields={[phone]} />
+                </View>
               </View>
-            </>
+            </View>
           )}
         </AsyncView>
       </ScrollScreen>
@@ -138,6 +207,8 @@ function ProfileForm({
           onPress: () => router.push("/account/billing"),
         }}
         locale={locale}
+        layout={isWide ? "inline" : "stacked"}
+        contentWidth={contentWidth}
       />
     </KeyboardAvoidingView>
   );
@@ -145,5 +216,11 @@ function ProfileForm({
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  profile: { gap: space.md },
+  wideProfile: { gap: space.xl },
+  tracks: { alignItems: "flex-start", flexDirection: "row", gap: space.xxl },
+  track: { flex: 1, minWidth: 0 },
   fields: { gap: space.lg },
+  pairedFields: { flexDirection: "row", alignItems: "flex-start" },
+  halfField: { width: "50%", paddingRight: space.lg / 2 },
 });

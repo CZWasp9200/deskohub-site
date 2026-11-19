@@ -19,6 +19,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import { ReviewSandboxMock } from "@/features/review-accounts/backend/review-sandbox.service.mock";
 import { inMemoryCustomerAgentCallServices } from "./agent-tools.test-utils";
 import { getReservationStatusTool } from "./get-reservation-status.tool";
@@ -62,6 +63,7 @@ const services = Layer.mergeAll(
     findById: () => Effect.succeed(stored as WorkspaceReservation | null),
   }),
   ReviewSandboxMock({ isOrderOf: () => Effect.succeed(false) }),
+  NoReservationInvitees,
   Layer.mock(CheckoutStatusService, { getStatus }),
   inMemoryCustomerAgentCallServices(({ accountId }) => ({
     ownership: {

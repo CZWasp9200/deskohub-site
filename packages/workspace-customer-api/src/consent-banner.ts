@@ -6,4 +6,4 @@
  * or cookie policy changes in any locale; the Workspace's test of
  * `getConsentBannerRevision` pins it to this value, so the two never differ.
  */
-export const consentBannerRevision = 231_430_550_889_094;
+export const consentBannerRevision = 190341157713680;

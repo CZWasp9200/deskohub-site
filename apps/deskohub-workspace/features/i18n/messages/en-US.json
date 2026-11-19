@@ -751,32 +751,6 @@
   "checkoutSummaryItemMeetingRoom": "Meeting room - {duration}",
   "checkoutSummaryItemReferralDiscount": "Referral discount · eligible invitees: {count}",
   "checkoutSummaryItemReferralInvitationDiscount": "First booking referral discount",
-  "checkoutSummaryItemOfficeAccess": [
-    {
-      "declarations": [
-        "input dayCount",
-        "local dayCountPlural = dayCount: plural"
-      ],
-      "selectors": ["dayCountPlural"],
-      "match": {
-        "dayCountPlural=one": "Private office access · {dayCount} day",
-        "dayCountPlural=other": "Private office access · {dayCount} days"
-      }
-    }
-  ],
-  "checkoutSummaryItemOfficeSeatCount": [
-    {
-      "declarations": [
-        "input seatCount",
-        "local seatCountPlural = seatCount: plural"
-      ],
-      "selectors": ["seatCountPlural"],
-      "match": {
-        "seatCountPlural=one": "{seatCount} office seat",
-        "seatCountPlural=other": "{seatCount} office seats"
-      }
-    }
-  ],
   "checkoutSummaryItemOfficeDayCount": [
     {
       "declarations": [
@@ -794,7 +768,6 @@
   "checkoutSummaryItemCustomerDiscount": "Customer discount",
   "checkoutSummaryItemTotal": "Total to pay",
   "checkoutPayConsent": "I agree to the <terms>General Terms and Conditions</terms>, <operatingRules>Operating Rules</operatingRules>.<earlyPerformance> I request the service on the reserved date, within the withdrawal period, and acknowledge my right to withdraw ends once it is fully provided.</earlyPerformance>",
-  "checkoutPayProviderHandoff": "Payment finishes on Nexi's secure payment page, which opens in a new tab. Your bank may ask you to confirm the payment in its app. This tab then shows the status of your reservation.",
   "checkoutPayOrderAndPayButton": "Order and pay",
   "checkoutPayOrderAndPayAmountButton": "Order and pay {amount}",
   "checkoutPaySubmitError": "Payment could not be started. Please review the reservation details and try again.",
@@ -853,6 +826,8 @@
   "checkoutStatusPaymentFailedLead": "The payment didn't go through, so we haven't issued access for this order. Your reservation details are saved, so you can try the payment again.",
   "checkoutStatusCancelledTitle": "Payment was cancelled.",
   "checkoutStatusCancelledLead": "The payment was cancelled, so we haven't issued access for this order. Your reservation details are saved, so you can try the payment again.",
+  "checkoutStatusReservationCancelledTitle": "The reservation was cancelled.",
+  "checkoutStatusReservationCancelledLead": "Access for this reservation is no longer available.",
   "checkoutStatusExpiredTitle": "Payment link expired.",
   "checkoutStatusExpiredLead": "The payment wasn't completed in time, so we released the reserved slot. Your reservation details are saved, so you can try the payment again.",
   "checkoutStatusLatePaymentCheckingTitle": "We are checking your reservation.",
@@ -1687,5 +1662,94 @@
   "installGuideStepAndroidMenu": "Open your browser's menu, usually <b>⋮</b> next to the address bar.",
   "installGuideStepAndroidAdd": "Tap <b>Add to Home screen</b> or <b>Install app</b>.",
   "installGuideStepAndroidConfirm": "Confirm with <b>Add</b> or <b>Install</b>.",
-  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button."
+  "installGuideStepGenericMenu": "Open your browser's menu or its <b>Share</b> button.",
+  "officePeopleLabel": "Who is coming?",
+  "officePeopleCount": "{count} of {maximum}",
+  "officePeopleYou": "You",
+  "officePeopleContactEmailLater": "Your email comes in the next step",
+  "officePeopleRemove": "Remove {email}",
+  "officePeopleRemoveYourself": "Remove yourself",
+  "officePeopleAddYourself": "Add yourself",
+  "officePeopleEmailLabel": "Email address",
+  "officePeopleAdd": "Add",
+  "officePeopleReplace": "Replace",
+  "officePeopleSwitchToYourself": "Switch to yourself",
+  "officePeopleInvalidEmail": "Enter a full email address.",
+  "officePeopleDuplicateEmail": "This email is already on the list.",
+  "officePeopleContactEmail": "This is your own email. Use the You row for yourself.",
+  "officePeopleFull": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "The only seat is taken. Remove someone to add another person.",
+        "maximumPlural=other": "All {maximum} seats are taken. Remove someone to add another person."
+      }
+    }
+  ],
+  "officePeopleNote": "Everyone gets the door PIN by email.",
+  "officePeopleNoPeople": "Add at least one person.",
+  "officePeopleOverCapacity": [
+    {
+      "declarations": [
+        "input maximum",
+        "local maximumPlural = maximum: plural"
+      ],
+      "selectors": ["maximumPlural"],
+      "match": {
+        "maximumPlural=one": "This office has {maximum} seat. Remove someone to continue.",
+        "maximumPlural=other": "This office has {maximum} seats. Remove someone to continue."
+      }
+    }
+  ],
+  "officePeoplePriceLabel": "Price",
+  "officePeoplePriceSeatLine": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} person × {seatPrice}",
+        "countPlural=other": "{count} people × {seatPrice}"
+      }
+    }
+  ],
+  "officePeoplePriceTotal": "Total",
+  "checkoutPeopleTitle": "Who is coming",
+  "checkoutPeopleNote": "After you pay, everyone gets the door PIN by email.",
+  "checkoutPayNoteNewTab": "Secure payment in new tab. Click <backToShop/>, or close the tab when done.",
+  "checkoutPayNoteBackToShop": "Back to the shop",
+  "reservationAccessGuestBookedBy": "{product} · booked by {name}",
+  "reservationAccessGuestCopyAddress": "Copy address {address}",
+  "reservationAccessGuestAddressCopied": "Address copied.",
+  "reservationAccessGuestOpenRoute": "Open route",
+  "reservationAccessDatesSingle": "The lock accepts this PIN for {date}.",
+  "reservationAccessDatesRange": "The lock accepts this PIN from {startsOn} through {endsOn}.",
+  "checkoutStatusPeopleLabel": "Who is coming",
+  "checkoutStatusPeopleContact": "{name} (you)",
+  "checkoutStatusPeopleResend": "Resend",
+  "checkoutStatusPeopleResendLabel": "Resend the invitation to {email}",
+  "checkoutStatusPeopleSent": "Sent",
+  "checkoutStatusPeopleSentAnnouncement": "Invitation sent to {email}.",
+  "checkoutStatusPeopleResendFailed": "We couldn't resend the invitation. Try again in a moment.",
+  "checkoutStatusPeopleChangeNote": "To change who is coming, <link>contact us</link>.",
+  "checkoutStatusPeopleChangeMessage": "Hi Deskohub Workspace,\n\nI'd like to change who is coming to my private office reservation.\n\n{reservationDetails}\n\nAdd:\nRemove:",
+  "officeInvitationSubject": "{booker} booked a private office for you",
+  "officeInvitationHeading": "{booker} booked a private office for you on {date}",
+  "officeInvitationSpaceLabel": "Space",
+  "officeInvitationDateLabel": "Date",
+  "officeInvitationBookedByLabel": "Booked by",
+  "officeInvitationReason": "You got this email because {booker} added your address to their reservation. Questions? Reply or write to {email}.",
+  "officeInvitationPeopleLabel": "People",
+  "officeInvitationPeopleYou": "{name} (you)",
+  "officeInvitationPeopleNote": "Everyone gets their own access email.",
+  "officeInviteeCancellationSubject": "The private office {booker} booked for you was cancelled",
+  "officeInviteeCancellationBody": "The reservation below has been cancelled, and your access PIN no longer works.",
+  "officeInviteeRestorationSubject": "The private office {booker} booked for you is valid again",
+  "officeInviteeRestorationHeading": "The private office {booker} booked for you has been restored",
+  "officeInviteeRestorationBody": "We have restored the reservation below, and it is valid again. The earlier cancellation notice no longer applies.",
+  "officeInviteeRestorationNewAccessCode": "We have issued a new access code; open it below.",
+  "officeInviteeListRejected": "Check the people you added and try again."
 }

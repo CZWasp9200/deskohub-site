@@ -28,6 +28,12 @@ const customerAccount = (accountId: CustomerAccountId): TransactionLock =>
     pair: ["customer-account", accountId],
   });
 
+const reservationInviteeNotices = (orderId: WorkspaceReservationId) => ({
+  name: "reservationInviteeNotices",
+  rank: 55,
+  pair: ["reservation-invitee-notices", orderId] as const,
+});
+
 /**
  * Advisory locks held until the current Workspace transaction ends. Take them
  * in ascending rank; equal ranks in ascending key. Each keeps its
@@ -90,6 +96,8 @@ export const WorkspaceLocks = {
   /** A single `hashtext` key, sharing the one-bigint space with `checkoutSession`. */
   manualInvoiceIssue: (invoiceId: string): TransactionLock =>
     take({ name: "manualInvoiceIssue", rank: 52, hashed: invoiceId }),
+  reservationInviteeNotices: (orderId: WorkspaceReservationId) =>
+    take(reservationInviteeNotices(orderId)),
   automationFireEntry: (campaignId: string): TransactionLock =>
     take({
       name: "automationFireEntry",
@@ -161,4 +169,6 @@ export const WorkspaceLockSections = {
       rank: 20,
       pair: ["customer-account", accountId],
     }),
+  reservationInviteeNotices: (orderId: WorkspaceReservationId) =>
+    holdSection(reservationInviteeNotices(orderId)),
 } as const;

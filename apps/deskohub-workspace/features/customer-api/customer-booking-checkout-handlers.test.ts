@@ -9,7 +9,7 @@ import {
   type SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Effect, Layer, Schema } from "effect";
+import { Cause, Effect, Layer, Option, Schema } from "effect";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
   peeking,
@@ -47,10 +47,15 @@ import {
 } from "@/features/discounts/errors";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
+import {
+  InviteeEmail,
+  OfficePeopleIssue,
+} from "@/features/office/office-people";
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OfficePeopleRejectedError } from "@/features/reservation/backend/office-people-submission";
 import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
 import {
@@ -117,6 +122,7 @@ const operationsWith = (overrides: Partial<Operations> = {}) =>
         Effect.provide(Layer.merge(TestSealedStateKeys, storedReservations))
       ),
     requireAuthor: ({ payStateToken }) => openTestPayState(payStateToken),
+    findOfficePeople: () => Effect.succeed(Option.none()),
     ...overrides,
   });
 
@@ -335,6 +341,73 @@ describe("createCheckout", () => {
 
     expect(await response.json()).toMatchObject({ referralApplied: true });
   });
+
+  test("books the office people list and answers who is coming", async () => {
+    const preparation = recordingPreparation(readyHold);
+    const invitee = testEmailAddress("office-invitee");
+    const people = { contactAttends: true, invitees: [invitee] };
+    const api = makeCustomerApiTestServer({
+      bookingCheckout: checkoutWith({
+        operations: operationsWith({
+          ...preparation,
+          findOfficePeople: () =>
+            Effect.succeed(
+              Option.some({
+                contactAttends: true,
+                invitees: [InviteeEmail.make(invitee)],
+              })
+            ),
+        }),
+      }),
+    });
+
+    const response = await api.handle(
+      customerApiRequest(createCheckout(createBody({ people })))
+    );
+
+    expect(preparation.inputs[0]?.people).toEqual(people);
+    expect(await response.json()).toEqual({ ...expectedReadyCheckout, people });
+  });
+
+  test.each([
+    [
+      OfficePeopleIssue.InviteeRejected({ index: 1, reason: "duplicate" }),
+      { _tag: "CustomerCheckoutDetailsInvalid", field: "people.invitees.1" },
+    ],
+    [
+      OfficePeopleIssue.NoPeople(),
+      { _tag: "CustomerCheckoutDetailsInvalid", field: "people" },
+    ],
+    [
+      OfficePeopleIssue.OverCapacity({ seatCapacity: 4 }),
+      { _tag: "CustomerBookingSelectionInvalid", field: "seats" },
+    ],
+    [
+      { _tag: "SeatsMismatch" } as const,
+      { _tag: "CustomerBookingSelectionInvalid", field: "seats" },
+    ],
+    [
+      { _tag: "NotOffice" } as const,
+      { _tag: "CustomerBookingSelectionInvalid", field: "people" },
+    ],
+  ])(
+    "answers a rejected people list (%o) by its field",
+    async (rejection, answer) => {
+      const api = makeCustomerApiTestServer({
+        bookingCheckout: checkoutWith({
+          operations: operationsWith({
+            preparePayState: () =>
+              Effect.fail(new OfficePeopleRejectedError({ rejection })),
+          }),
+        }),
+      });
+
+      const response = await api.handle(customerApiRequest(createCheckout()));
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual(answer);
+    }
+  );
 
   test("answers a review account's hold as payment disabled, without a checkout", async () => {
     const api = makeCustomerApiTestServer({

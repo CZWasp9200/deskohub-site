@@ -12,7 +12,7 @@ import type {
   EmailMessage,
 } from "@deskohub/email/types/email.types";
 import { generateQrCodePngBuffer } from "@deskohub/qr-code";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { env } from "@/env";
 import {
   CustomerEmailLocaleService,
@@ -30,6 +30,7 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import {
   type EmailKind,
@@ -314,6 +315,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
       const networkDetailsService =
         yield* WorkspaceCheckoutNetworkDetailsService;
       const emailLocaleService = yield* CustomerEmailLocaleService;
+      const invitations = yield* ReservationInvitations;
       const resolveCustomerEmailLocale =
         createCustomerEmailLocaleResolver(emailLocaleService);
 
@@ -541,11 +543,13 @@ export class WorkspaceReservationEmailService extends Context.Service<
               ).pipe(Effect.as(undefined))
             )
           );
+          const people = yield* invitations.bookerPeople(reservation);
           const renderedCustomerEmail = yield* renderCustomerReservationEmail({
             locale,
             reservation,
             accessUrl,
             invoiceUrl,
+            ...(Option.isSome(people) && { people: people.value }),
             network: {
               ssid: networkDetails.ssid,
               password: networkDetails.password,
@@ -580,6 +584,9 @@ export class WorkspaceReservationEmailService extends Context.Service<
                 })
               )
             );
+
+          // Each invited person gets their own invitation once the booker's
+          // confirmation is out; a failed one never fails fulfillment.
 
           const confirmableAuthor = getConfirmableAuthor(
             input.author,

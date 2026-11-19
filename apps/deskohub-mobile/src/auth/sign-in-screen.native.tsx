@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import Mail from "lucide-react-native/icons/mail";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackSignInCompleted } from "../analytics/events";
 import type { AppLocale } from "../i18n/app-locale";
@@ -12,6 +12,9 @@ import { Button } from "../ui/controls";
 import { Notice, type NoticeTone } from "../ui/notice";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
+import { useViewport } from "../ui/viewport";
+import { QuietUpdateOffer } from "../updates/update-offer-card";
+import { AuthPhotoSheet } from "./auth-photo-sheet";
 import { nativeAuthRuntime } from "./native-auth-runtime";
 import { signInWithEmail } from "./native-sign-in";
 import {
@@ -94,6 +97,7 @@ const emailFailureNotice = (
 export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   const locale = useAppLocale();
   const insets = useSafeAreaInsets();
+  const { isWide } = useViewport();
   const session = useAuthSession();
   const { state, start, reset } = useAuthTask(
     nativeAuthRuntime,
@@ -147,14 +151,20 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     : emailNotice;
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      bounces={false}
+    <AuthPhotoSheet
+      title={m.signin_create_title({}, { locale })}
+      body={m.signin_entry_subtitle({}, { locale })}
+      compactMasthead={<SignInMasthead />}
+      updateOffer={<QuietUpdateOffer backdrop="navy" />}
     >
-      <SignInMasthead />
       <View
-        style={[styles.actions, { paddingBottom: insets.bottom + space.md }]}
+        style={[
+          styles.actions,
+          !isWide && [
+            styles.compactActions,
+            { paddingBottom: insets.bottom + space.md },
+          ],
+        ]}
       >
         <Notice tone={notice?.tone ?? "info"} message={notice?.message} />
         <Button
@@ -188,16 +198,13 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
           </>
         )}
       </View>
-    </ScrollView>
+    </AuthPhotoSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { backgroundColor: color.paper, flex: 1 },
-  content: { flexGrow: 1 },
-  actions: {
-    backgroundColor: color.paper,
-    gap: space.md,
+  actions: { gap: space.md },
+  compactActions: {
     paddingHorizontal: space.xxl,
     paddingTop: space.xl,
   },

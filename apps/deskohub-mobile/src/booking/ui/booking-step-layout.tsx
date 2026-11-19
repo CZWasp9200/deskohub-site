@@ -9,6 +9,8 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { ScrollScreenContext } from "../../ui/scroll-screen";
 import { color, space } from "../../ui/tokens";
+import { useContentColumn, useViewport } from "../../ui/viewport";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { type BookingStep, BookingSteps } from "./booking-steps";
 
 /**
@@ -30,6 +32,8 @@ export function BookingStepLayout({
   readonly bar: ReactNode;
   readonly children: ReactNode;
 }) {
+  const column = useContentColumn("wide");
+  const { isWide } = useViewport();
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const scrollToTop = useCallback(
@@ -38,17 +42,27 @@ export function BookingStepLayout({
   );
   return (
     <View style={styles.screen}>
-      <BookingSteps current={step} raised={raised} locale={locale} />
+      <BookingSteps
+        current={step}
+        raised={raised}
+        locale={locale}
+        contentWidth="wide"
+      />
       <ScrollView
         ref={scroll}
         style={styles.body}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          column,
+          isWide && styles.wideContent,
+        ]}
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={32}
         onScroll={({ nativeEvent }) =>
           setRaised(nativeEvent.contentOffset.y > 0)
         }
       >
+        <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
         <ScrollScreenContext value={scrollToTop}>
           {children}
         </ScrollScreenContext>
@@ -67,4 +81,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
     paddingTop: space.md,
   },
+  updateOffer: { marginBottom: space.lg },
+  wideContent: { flexGrow: 1 },
 });

@@ -90,8 +90,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "ऑफ़िस में सीटें",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "लोग",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -100,8 +100,8 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} सीट",
-        "countPlural=other": "{formattedCount} सीटें"
+        "countPlural=one": "{formattedCount} व्यक्ति",
+        "countPlural=other": "{formattedCount} लोग"
       }
     }
   ],
@@ -506,6 +506,7 @@
   "legal_marketing_heading": "मार्केटिंग संदेश",
   "legal_marketing_switch_label": "मार्केटिंग संदेश",
   "legal_marketing_description": "इसे चालू करने पर Deskohub आपको भविष्य में मार्केटिंग और कम्युनिटी संदेश भेज सकेगा।",
+  "legal_marketing_description_wide": "हमें Deskohub की डील, ऑफ़र और नई जानकारी आपको भेजने दें",
   "legal_marketing_saving": "आपकी मार्केटिंग सेटिंग सहेजी जा रही है…",
   "legal_marketing_save_failed": "मार्केटिंग सेटिंग सहेजी नहीं जा सकी। फिर से कोशिश करें।",
   "legal_marketing_stale": "इस बीच आपकी मार्केटिंग सेटिंग बदल गई। मौजूदा सेटिंग जाँचें और फिर से कोशिश करें।",
@@ -513,6 +514,8 @@
   "legal_analytics_heading": "एनालिटिक्स",
   "legal_analytics_switch_label": "आपके खाते पर एनालिटिक्स",
   "legal_analytics_description": "यह सेटिंग हर उस डिवाइस पर लागू होती है, जिस पर आप साइन इन करते हैं।",
+  "legal_analytics_switch_label_wide": "सेवाएँ सुधारने में मदद करें",
+  "legal_analytics_description_wide": "हमें उपयोग डेटा जुटाने दें",
   "legal_analytics_saving": "एनालिटिक्स की आपकी प्राथमिकता सहेजी जा रही है…",
   "legal_analytics_saved": "एनालिटिक्स की आपकी प्राथमिकता सहेज ली गई है।",
   "legal_analytics_save_failed": "एनालिटिक्स की प्राथमिकता सहेजी नहीं जा सकी। फिर से कोशिश करें।",
@@ -579,11 +582,9 @@
   "booking_price_unit_per_hour": "प्रति घंटा",
   "booking_office_days_decrease": "एक दिन कम",
   "booking_office_days_increase": "एक दिन ज़्यादा",
-  "booking_office_seats_decrease": "एक सीट कम",
-  "booking_office_seats_increase": "एक सीट ज़्यादा",
   "booking_office_date_unavailable": "इस तारीख़ से ऑफ़िस उपलब्ध नहीं है। शुरुआत की कोई दूसरी तारीख़ आज़माएँ।",
   "booking_office_day_count_unavailable": "चुने गए सभी दिनों के लिए ऑफ़िस उपलब्ध नहीं है। शुरुआत की कोई दूसरी तारीख़ या कम दिन आज़माएँ।",
-  "booking_office_seats_unavailable": "ऑफ़िस में इतनी सीटें नहीं हैं। कम सीटें चुनें।",
+  "booking_office_seats_unavailable": "ऑफ़िस में इतनी सीटें नहीं हैं। सूची से किसी को हटाएँ।",
   "booking_availability_loading": "जगह की उपलब्धता जाँची जा रही है…",
   "booking_calendar_notice": "ध्यान दें: इस दिन {start} से {end} तक कुछ प्रतिबंध लागू हैं।",
   "booking_calendar_notice_with_summary": "ध्यान दें: {summary}, {start} से {end} तक।",
@@ -628,6 +629,14 @@
   "reservations_time_until": "{time} तक",
   "reservations_time_date_until": "{date}, {time} तक",
   "reservations_section_later": "बाद में",
+  "reservations_section_invited": "आमंत्रित",
+  "reservations_booked_by_name": "बुक करने वाले: {name}",
+  "reservations_people_resend": "फिर से भेजें",
+  "reservations_people_resend_to": "{email} को एक्सेस ईमेल फिर से भेजें",
+  "reservations_people_resent": "एक्सेस ईमेल {email} को भेज दिया गया।",
+  "reservations_people_resend_later": "एक्सेस ईमेल अभी-अभी भेजा गया है। कुछ मिनट बाद इसे फिर से भेजा जा सकता है।",
+  "reservations_people_change": "आने वालों को बदलने के लिए <contact>हमसे संपर्क करें</contact>।",
+  "reservations_people_change_message": "नमस्ते,\n\nकृपया मेरी निजी ऑफ़िस बुकिंग {reference} ({date}) में आने वालों की सूची बदल दें।\n\nजोड़ें:\n\nहटाएँ:\n",
   "reservations_section_past": "पिछली",
   "reservations_show_all_past": "सभी पिछली बुकिंग दिखाएँ",
   "reservations_nothing_upcoming": "कुछ भी आगे नहीं है",
@@ -644,6 +653,7 @@
   "reservations_not_found_body": "हो सकता है यह किसी दूसरे खाते की हो। आपने {email} से साइन इन किया है।",
   "reservations_go_to_list": "बुकिंग पर जाएँ",
   "navigation_close": "बंद करें",
+  "navigation_reserve": "बुक करें",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "इस डिवाइस पर कैलेंडर इवेंट नहीं खुल सका। फिर से कोशिश करें।",
   "booking_choose_date_reason": "आगे बढ़ने के लिए तारीख़ चुनें",
@@ -661,6 +671,8 @@
   "reservations_access_from": "से",
   "reservations_access_until": "तक",
   "reservations_access_for": "के लिए",
+  "reservations_access_through": "तक (सहित)",
+  "reservations_access_booked_by": "बुक करने वाले",
   "reservations_access_where": "कहाँ",
   "reservations_access_chip_starts": "{start} से · {when}",
   "reservations_access_starts_today": "आज",
@@ -675,12 +687,34 @@
   "reservations_access_no_pin_body": "बुकिंग की अभी पुष्टि नहीं हुई है। अगर हो जानी चाहिए थी, तो हमसे संपर्क करें।",
   "reservations_access_back_to_booking": "बुकिंग पर वापस जाएँ",
   "booking_office_first_day_heading": "पहला दिन",
-  "booking_office_days_and_seats_heading": "दिन और सीटें",
   "booking_office_days_label": "दिन",
-  "booking_office_seats_label": "सीटें",
+  "booking_office_people_heading": "लोग",
+  "booking_office_people_of": "{maximum} में से {count}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "इकलौती सीट भर चुकी है। किसी और को जोड़ने के लिए पहले किसी को हटाएँ।",
+        "countPlural=other": "सभी {formattedCount} सीटें भर चुकी हैं। किसी और को जोड़ने के लिए पहले किसी को हटाएँ।"
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "सभी को दरवाज़े का PIN ईमेल से मिलेगा।",
+  "booking_office_people_who_is_coming": "कौन आ रहा है",
+  "booking_office_person_you": "आप",
+  "booking_office_person_remove": "{email} को हटाएँ",
+  "booking_office_person_remove_you": "ख़ुद को हटाएँ",
+  "booking_office_person_email_label": "ईमेल पता",
+  "booking_office_person_email_invalid": "पूरा ईमेल पता दर्ज करें।",
+  "booking_office_person_add": "जोड़ें",
+  "booking_office_person_add_yourself": "ख़ुद को जोड़ें",
+  "booking_review_people_pin_note": "भुगतान के बाद सभी को दरवाज़े का PIN ईमेल से मिलेगा।",
   "booking_office_until": "{date} तक",
-  "booking_office_seats_up_to": "{count} तक",
-  "booking_office_seats_maximum": "अधिकतम {count}",
   "booking_office_reason_date": "आगे बढ़ने के लिए पहला दिन चुनें",
   "booking_price_unit_per_day_one_seat": "प्रति दिन, 1 सीट",
   "booking_space_from": "से",
@@ -702,6 +736,7 @@
   "account_section_invoices": "इनवॉइस",
   "invoices_empty": "अभी कोई इनवॉइस नहीं",
   "invoices_row_amount_number": "{amount} · सं. {number}",
+  "invoices_row_number": "सं. {number}",
   "invoices_download_label": "इनवॉइस {number} डाउनलोड करें",
   "invoices_downloading": "इनवॉइस {number} डाउनलोड हो रहा है…",
   "invoices_download_not_found": "यह इनवॉइस नहीं मिला। सूची रीफ़्रेश करें और फिर से कोशिश करें।",
@@ -757,6 +792,8 @@
   "danger_consequence_records": "बुकिंग, भुगतान और इनवॉइस वहाँ सुरक्षित रखे जाते हैं, जहाँ सेवा संचालन, लेखांकन और कानून के लिए उनकी ज़रूरत होती है।",
   "danger_title": "इसे पूर्ववत नहीं किया जा सकता",
   "danger_consequences_lead": "जब आप अपना खाता हटाते हैं:",
+  "danger_data_export_title": "व्यक्तिगत डेटा अभी डाउनलोड करें",
+  "danger_data_export_description": "खाता हटने पर डेटा डाउनलोड नहीं होगा।",
   "danger_consequence_access": "आने वाली भुगतान की गई बुकिंग मान्य रहती हैं और उनका दरवाज़े का PIN काम करता रहता है; आपके पुष्टि ईमेल में PIN का लिंक है।",
   "danger_signed_in_again": "फिर से साइन इन किया गया",
   "danger_reauth_continue": "साइन इन पर जाएँ",

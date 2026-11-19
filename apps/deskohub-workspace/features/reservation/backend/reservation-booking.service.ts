@@ -41,8 +41,12 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
+import type {
+  CheckoutSummary,
+  CheckoutSummaryChangedKeys,
+} from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
+import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
@@ -82,6 +86,8 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { ReservationPrePaymentOutcome } from "@/features/reservation/reservation-analytics";
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { getReservationCustomerProfile } from "@/features/reservation/reservation-customer-profile";
+import { ReservationInviteeEmailKeys } from "@/features/reservation-invitees/backend/reservation-invitee-email-keys.service";
+import { sealOfficePeople } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -92,6 +98,10 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import {
+  getOfficeAccessEndsAt,
+  validateSubmittedOfficePeople,
+} from "./office-people-submission";
 
 /**
  * One submission a server caller prepares Pay for. Beside the site's tools,
@@ -254,6 +264,7 @@ const quotePreparedReservation = Effect.fn(
   "preparePayState.quotePreparedReservation"
 )(function* (input: {
   readonly advertisement: PreparedAdvertisement;
+  readonly displayedOfficePrice?: CheckoutSummary;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly referralCodePrefill: CanonicalPromotionCode | undefined;
@@ -267,6 +278,7 @@ const quotePreparedReservation = Effect.fn(
 
   const verdict = yield* pricing.quoteForCustomer({
     advertisement: input.advertisement,
+    displayedOfficePrice: input.displayedOfficePrice,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     ...referral,
@@ -335,6 +347,16 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
       payStateToken: payState.payStateToken,
       // The Pay page accepts its sealed state until this instant.
       expiresAt: payState.expiresAt,
+      ...(input.prepared.reservation.kind === "office" && {
+        preparedOffice: {
+          startsOn: input.prepared.reservation.startsOn,
+          endsOn: input.prepared.reservation.endsOn,
+          seats: input.prepared.reservation.seats,
+          total: input.prepared.quote.payment.expectedPrice,
+          regularPrice: input.prepared.quote.payment.undiscountedPrice,
+          discount: getReservationQuoteDiscount(input.prepared.quote.payment),
+        },
+      }),
       ...(referralApplied && { referralApplied: true as const }),
     };
 
@@ -523,6 +545,9 @@ const bookSubmission = Effect.fn("prepareWorkspacePayState")(function* (
           captureOutcome("validation")
         ),
         Match.tag("UndeliverableContactEmailError", () =>
+          captureOutcome("validation")
+        ),
+        Match.tag("OfficePeopleRejectedError", () =>
           captureOutcome("validation")
         ),
         Match.tag("CheckoutAttemptUnavailableError", () =>
@@ -729,6 +754,12 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const reservation = accountCustomer
           ? { ...input.reservation, ...accountCustomer.contact }
           : input.reservation;
+        // The contact is final here, so the list is checked against the
+        // address the reservation books under.
+        const officePeople = yield* validateSubmittedOfficePeople(
+          input.people,
+          reservation
+        );
         const advertiseAt = (at: Temporal.Instant) =>
           prepareAdvertisement({ ...input, reservation, bookedAt: at });
         // Submission locks the price: calendar sales are evaluated at this
@@ -743,6 +774,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           checkoutSessionId: input.checkoutSessionId,
           checkoutAttemptId: input.checkoutAttemptId,
           reservation,
+          people: officePeople,
         });
         yield* Effect.annotateLogsScoped({
           locale: input.locale,
@@ -779,6 +811,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
 
         const prepared = yield* quotePreparedReservation({
           advertisement,
+          displayedOfficePrice: input.displayedOfficePrice,
           dotyposCustomerId,
           locale: input.locale,
           referralCodePrefill,
@@ -799,6 +832,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           const anchoredAdvertisement = yield* advertiseAt(at);
           return yield* quotePreparedReservation({
             advertisement: anchoredAdvertisement,
+            displayedOfficePrice: input.displayedOfficePrice,
             dotyposCustomerId: customerId,
             locale: input.locale,
             referralCodePrefill,
@@ -899,6 +933,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             ? Effect.succeed(prepared)
             : quotePreparedReservation({
                 advertisement,
+                displayedOfficePrice: input.displayedOfficePrice,
                 dotyposCustomerId: reused.pricedFor,
                 locale: input.locale,
                 referralCodePrefill,
@@ -915,7 +950,18 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             )
           );
 
+        const sealedOfficePeople =
+          officePeople && reservation.kind === "office"
+            ? {
+                valid: officePeople,
+                sealed: yield* sealOfficePeople(
+                  officePeople,
+                  getOfficeAccessEndsAt(reservation)
+                ).pipe(Effect.provide(ReservationInviteeEmailKeys.Live)),
+              }
+            : undefined;
         const hold = yield* holds.holdForAttempt({
+          ...(sealedOfficePeople && { officePeople: sealedOfficePeople }),
           checkout: {
             sessionId: input.checkoutSessionId,
             attemptId: input.checkoutAttemptId,

@@ -122,6 +122,7 @@ describe("customer request budget classes", () => {
       "account.getAccount",
       "reservations.getReservationAccess",
       "reservations.getReservationStatus",
+      "reservations.listInvitedReservations",
       "reservations.listReservations",
     ]);
     expect(customerRequestBudgetClasses).toMatchObject({

@@ -12,14 +12,16 @@ import { color, radius, space, typeScale } from "../../ui/tokens";
 import type { MeetingRoomStartChoice } from "../selection/meeting-room-selection";
 
 const gap = space.sm;
-const maxColumns = 4;
-
 /**
  * How many start chips share a row: four, as the board draws them, or fewer
  * when a time at the current font size wouldn't fit its chip. `width` is the
  * grid's measured width; zero before it is measured.
  */
-export const startTimeColumns = (width: number, fontScale: number) => {
+export const startTimeColumns = (
+  width: number,
+  fontScale: number,
+  maxColumns = 4
+) => {
   if (width <= 0) return maxColumns;
   // "00:00" in tabular figures is about 3 em wide, plus the chip's padding.
   const chipWidth =
@@ -41,6 +43,7 @@ export function MeetingRoomStartTimes({
   selected,
   onSelect,
   locale,
+  maxColumns = 4,
 }: {
   /** Names the group for assistive tech. */
   readonly label: string;
@@ -50,6 +53,7 @@ export function MeetingRoomStartTimes({
   readonly selected: string | undefined;
   readonly onSelect: (startTime: string) => void;
   readonly locale: AppLocale;
+  readonly maxColumns?: 2 | 4 | 5;
 }) {
   const { fontScale } = useWindowDimensions();
   const [width, setWidth] = useState(0);
@@ -61,7 +65,7 @@ export function MeetingRoomStartTimes({
         first.startTime.localeCompare(second.startTime)
       )
     : daytime;
-  const columns = startTimeColumns(width, fontScale);
+  const columns = startTimeColumns(width, fontScale, maxColumns);
   // Every chip gets the same share of the row, the last row's too.
   // Floored to half a point so rounding never pushes the last chip of a
   // row onto the next.
@@ -69,6 +73,7 @@ export function MeetingRoomStartTimes({
     width > 0
       ? Math.floor(((width - gap * (columns - 1)) / columns) * 2) / 2
       : undefined;
+  const unmeasured = { width: `${100 / maxColumns - 3}%` as const };
 
   const chipRefs = useRef<Array<ComponentRef<typeof Pressable> | null>>([]);
   const free = shown.flatMap((choice, index) => (choice.taken ? [] : [index]));
@@ -129,9 +134,8 @@ export function MeetingRoomStartTimes({
               }}
               style={({ pressed }) => [
                 styles.chip,
-                chipWidth === undefined
-                  ? styles.unmeasured
-                  : { width: chipWidth },
+                maxColumns === 2 && styles.tallChip,
+                chipWidth === undefined ? unmeasured : { width: chipWidth },
                 chipLook(choice.taken, checked),
                 pressed && !checked && !choice.taken && styles.pressed,
               ]}
@@ -190,7 +194,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xs,
     paddingVertical: space.sm,
   },
-  unmeasured: { width: "22%" },
+  tallChip: { minHeight: 64 },
   free: {
     backgroundColor: color.surface,
     borderColor: color.field,

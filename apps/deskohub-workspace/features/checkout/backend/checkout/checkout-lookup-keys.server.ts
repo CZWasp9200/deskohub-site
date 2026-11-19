@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, createHmac, hkdfSync } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Effect, Match, Redacted } from "effect";
 import {
   type CheckoutAttemptId,
@@ -8,11 +8,13 @@ import {
   checkoutAttemptKeySchema,
   checkoutSessionKeySchema,
 } from "@/features/checkout/checkout-identifiers";
+import type { ValidOfficePeople } from "@/features/office/office-people";
 import { getCoworkCheckoutAttemptDetails } from "@/features/reservation/cowork-reservation";
 import { getMeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import { getOfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import {
+  deriveSealedStateSubkey,
   type SealedStateKey,
   SealedStateKeys,
 } from "@/shared/backend/sealed-state-keys.service";
@@ -61,6 +63,12 @@ export const deriveCheckoutAttemptKeys = Effect.fn(
   readonly checkoutSessionId: CheckoutSessionId;
   readonly checkoutAttemptId: CheckoutAttemptId;
   readonly reservation: ReservationOrderData;
+  /**
+   * Who is coming to an office booked with a people list, so a replay with
+   * other people never reuses the hold. Absent from the payload otherwise,
+   * which keeps every other attempt's key as it was.
+   */
+  readonly people?: ValidOfficePeople;
 }) {
   const reservationDetails = Match.value(input.reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
@@ -80,6 +88,12 @@ export const deriveCheckoutAttemptKeys = Effect.fn(
         phone: input.reservation.phone,
         billing: input.reservation.billing,
         ...reservationDetails,
+        ...(input.people && {
+          people: {
+            contactAttends: input.people.contactAttends,
+            invitees: input.people.invitees,
+          },
+        }),
       },
     },
     checkoutAttemptKeySchema.make
@@ -116,7 +130,6 @@ type LookupKeyFormat = "ring-keyed" | "key-id-prefixed";
 const storedLookupKeyFormat: LookupKeyFormat = "key-id-prefixed";
 
 const lookupKeyDerivationInfo = "deskohub-workspace/checkout-lookup-key";
-const lookupKeyByteLength = 32;
 
 const deriveCheckoutLookupKeys = <Payload, Key extends string>(
   payload: Payload,
@@ -151,15 +164,7 @@ const deriveCheckoutLookupKeys = <Payload, Key extends string>(
 
 // Separates lookup-key HMACs from the same key's Pay-state encryption use.
 const deriveLookupSecret = (key: SealedStateKey) =>
-  Buffer.from(
-    hkdfSync(
-      "sha256",
-      key.key,
-      Buffer.alloc(0),
-      lookupKeyDerivationInfo,
-      lookupKeyByteLength
-    )
-  );
+  deriveSealedStateSubkey(key, lookupKeyDerivationInfo);
 
 const signLookupKey = <Payload>(secret: Buffer | string, payload: Payload) =>
   createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");

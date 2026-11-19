@@ -2,6 +2,7 @@ import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
 import {
   sampleDeskReservation,
+  sampleOfficePeopleReservation,
   samplePaymentFailedReservation,
   sampleWholeDayDesk,
 } from "./sample-fixtures";
@@ -24,6 +25,8 @@ import {
  *   with a nine-digit PIN.
  * - `payment-failed`: the fixtures, and a meeting room whose payment failed,
  *   listed as the history answers it: not booked, at its booked time.
+ * - `office-people`: an upcoming office with a contact and an invitee.
+ * - `cancelled-invitation`: a future-dated cancelled invitation with no PIN.
  */
 export const sampleHistories = [
   "today",
@@ -36,6 +39,8 @@ export const sampleHistories = [
   "loading",
   "whole-day",
   "payment-failed",
+  "office-people",
+  "cancelled-invitation",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -67,6 +72,8 @@ export const withSampleHistory = (
     loading: () => data.history.current,
     "whole-day": () => [wholeDay.reservation, ...data.history.current],
     "payment-failed": () => data.history.current,
+    "office-people": () => [sampleOfficePeopleReservation(now)],
+    "cancelled-invitation": () => [],
   }[history]();
   workspace.data = {
     ...data,
@@ -97,6 +104,22 @@ export const withSampleHistory = (
             }),
           },
   };
+  if (history === "cancelled-invitation") {
+    const invitation = data.invited?.current[0];
+    const order = invitation && data.orders.get(invitation.orderId);
+    if (invitation && order) {
+      workspace.data = {
+        ...workspace.data,
+        invited: {
+          current: [],
+          past: [{ ...invitation, status: "cancelled" }],
+        },
+        orders: new Map(data.orders).set(invitation.orderId, {
+          state: { ...order.state, status: "cancelled" },
+        }),
+      };
+    }
+  }
   if (history === "offline" || history === "offline-fresh") {
     workspace.fail("listReservations", "service-unavailable", 10_000);
   }

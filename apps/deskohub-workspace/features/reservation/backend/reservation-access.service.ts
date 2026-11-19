@@ -1,10 +1,18 @@
-import { type DotyposReservationId, DotyposService } from "@deskohub/dotypos";
+import {
+  type DotyposCustomerId,
+  type DotyposReservationId,
+  DotyposService,
+  getCustomerDisplayName,
+} from "@deskohub/dotypos";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceCheckoutAccessCodeService } from "@/features/checkout/backend/reservation/access-code.service";
 import type { Locale } from "@/features/i18n";
 import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
-import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
+import {
+  ReservationAuthorizationService,
+  type ReservationViewer,
+} from "@/features/reservation/backend/reservation-authorization.service";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import {
   type WorkspaceReservation,
@@ -12,6 +20,10 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getDotyposReservationAccessTiming } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import {
+  getReservationAccessDays,
+  type ReservationAccessDays,
+} from "@/features/reservation/reservation-access-days";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
 import { ReservationAccessIssuanceError } from "@/features/reservation-access";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -22,11 +34,24 @@ export type ReservationAccessViewModel =
       readonly code: string;
       readonly accessStartsAt: Temporal.Instant;
       readonly accessEndsAt: Temporal.Instant;
+      /**
+       * The Prague days the code works on, first and last inclusive, when
+       * access spans whole days (an office): show these dates alone.
+       */
+      readonly accessDays?: ReservationAccessDays;
+      /** Whom the page shows itself to; an invitee gets the guest view. */
+      readonly viewer: ReservationViewer;
+      /**
+       * Who booked the order, for an invitee's "Booked by" row; null when
+       * the name can't be read. Absent for the customer.
+       */
+      readonly bookedBy?: { readonly name: string | null };
     }
   | { readonly state: "invalid_link" }
   | {
       readonly state: "unavailable";
       readonly reason: ReservationAccessUnavailableReason;
+      readonly viewer?: "invitee";
     };
 
 /**
@@ -42,6 +67,8 @@ type ReservationAccessRequest = {
   readonly locale: Locale;
   readonly accessCookie?: string;
   readonly accessToken?: ReservationAccessToken;
+  /** The cookie an invited person's link was exchanged for. */
+  readonly invitationCookie?: string;
 };
 
 /** The provider fields that decide whether a reservation's code is shown. */
@@ -69,8 +96,13 @@ export interface IReservationAccessService {
 
 const invalidLinkAccess: ReservationAccessViewModel = { state: "invalid_link" };
 const unavailableAccess = (
-  reason: ReservationAccessUnavailableReason
-): ReservationAccessViewModel => ({ state: "unavailable", reason });
+  reason: ReservationAccessUnavailableReason,
+  viewer: ReservationViewer
+): ReservationAccessViewModel => ({
+  state: "unavailable",
+  reason,
+  ...(viewer === "invitee" && { viewer }),
+});
 
 /**
  * Bounds the live Dotypos lookup, including its retries, well inside the
@@ -105,11 +137,10 @@ const implementation = Effect.gen(function* () {
   const findGrantedReservation = Effect.fn(function* (
     input: ReservationAccessRequest
   ) {
-    const authorized = yield* authorization.isAuthorized({
-      ...input,
-      permission: "view-access-code",
-    });
-    if (!authorized) return invalidLinkAccess;
+    const viewer = yield* authorization
+      .authorizeViewer({ ...input, permission: "view-access-code" })
+      .pipe(Effect.orElseSucceed(() => Option.none<ReservationViewer>()));
+    if (Option.isNone(viewer)) return invalidLinkAccess;
 
     const reservation = yield* reservations.findById(input.orderId).pipe(
       Effect.map((found) => found ?? "missing"),
@@ -118,19 +149,21 @@ const implementation = Effect.gen(function* () {
       ),
       Effect.orElseSucceed(() => "failed" as const)
     );
-    if (reservation === "failed") return unavailableAccess("lookup-failed");
+    if (reservation === "failed")
+      return unavailableAccess("lookup-failed", viewer.value);
     if (
       reservation === "missing" ||
       reservation.paymentState !== "paid" ||
       reservation.reservationState !== "confirmed" ||
       !reservation.dotyposReservationId
     ) {
-      return unavailableAccess("reservation-state");
+      return unavailableAccess("reservation-state", viewer.value);
     }
     return {
       state: "granted" as const,
       reservation,
       dotyposReservationId: reservation.dotyposReservationId,
+      viewer: viewer.value,
     };
   });
 
@@ -139,13 +172,15 @@ const implementation = Effect.gen(function* () {
     reservation,
     dotyposReservationId,
     record,
+    viewer,
   }: {
     readonly reservation: WorkspaceReservation;
     readonly dotyposReservationId: DotyposReservationId;
     readonly record: ProviderReservationFacts | undefined;
+    readonly viewer: ReservationViewer;
   }) {
     if (record?.status !== "CONFIRMED") {
-      return unavailableAccess("reservation-state");
+      return unavailableAccess("reservation-state", viewer);
     }
 
     const timing = yield* getDotyposReservationAccessTiming({
@@ -160,7 +195,12 @@ const implementation = Effect.gen(function* () {
       ),
       Effect.orElseSucceed(() => undefined)
     );
-    if (!timing) return unavailableAccess("lookup-failed");
+    if (!timing) return unavailableAccess("lookup-failed", viewer);
+
+    const bookedBy =
+      viewer === "invitee"
+        ? { name: yield* readBookerName(reservation.dotyposCustomerId) }
+        : undefined;
 
     return yield* accessCodes
       .resolveCustomerAccessCode({
@@ -171,14 +211,18 @@ const implementation = Effect.gen(function* () {
       .pipe(
         Effect.flatMap((access) =>
           Schema.decodeUnknownEffect(Schema.NonEmptyString)(access.code).pipe(
-            Effect.map(
-              (code): ReservationAccessViewModel => ({
+            Effect.map((code): ReservationAccessViewModel => {
+              const accessDays = getReservationAccessDays(access);
+              return {
                 state: "available",
                 code,
                 accessStartsAt: access.accessStartsAt,
                 accessEndsAt: access.accessEndsAt,
-              })
-            )
+                ...(accessDays && { accessDays }),
+                viewer,
+                ...(bookedBy && { bookedBy }),
+              };
+            })
           )
         ),
         Effect.tapError(() =>
@@ -190,12 +234,35 @@ const implementation = Effect.gen(function* () {
               failure instanceof ReservationAccessIssuanceError &&
                 failure.refusal
                 ? "reservation-state"
-                : "lookup-failed"
+                : "lookup-failed",
+              viewer
             )
           )
         )
       );
   });
+
+  /** The booker's display name, for an invitee; null when unreadable. */
+  const readBookerName = (
+    customerId: WorkspaceReservation["dotyposCustomerId"]
+  ) =>
+    dotypos.getCustomer(customerId as DotyposCustomerId).pipe(
+      Effect.map((found) =>
+        Option.getOrNull(
+          Option.flatMapNullishOr(found, (customer) =>
+            getCustomerDisplayName(customer)
+          )
+        )
+      ),
+      Effect.timeoutOrElse({
+        duration: providerLookupDeadline,
+        orElse: () => Effect.succeed(null),
+      }),
+      Effect.tapError(() =>
+        Effect.logWarning("Reservation access booker lookup failed")
+      ),
+      Effect.orElseSucceed(() => null)
+    );
 
   const readProviderReservation = (id: DotyposReservationId) =>
     dotypos.getReservation(id).pipe(
@@ -222,7 +289,8 @@ const implementation = Effect.gen(function* () {
     if (granted.state !== "granted") return granted;
 
     const record = yield* readProviderReservation(granted.dotyposReservationId);
-    if (record === "failed") return unavailableAccess("lookup-failed");
+    if (record === "failed")
+      return unavailableAccess("lookup-failed", granted.viewer);
 
     return yield* resolveCode({ ...granted, record });
   }, annotateRequest);
@@ -239,7 +307,7 @@ const implementation = Effect.gen(function* () {
     if (granted.state !== "granted") return granted;
     // A record of another reservation says nothing about this order's.
     if (record.id !== granted.dotyposReservationId) {
-      return unavailableAccess("lookup-failed");
+      return unavailableAccess("lookup-failed", granted.viewer);
     }
 
     return yield* resolveCode({ ...granted, record });

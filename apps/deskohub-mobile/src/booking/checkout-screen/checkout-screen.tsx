@@ -25,9 +25,11 @@ import { m } from "../../i18n/messages";
 import { openSitePage } from "../../routing/open-site-page";
 import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
+import { StackHeader } from "../../ui/navigation";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { space } from "../../ui/tokens";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { bookFamilyHref, bookHref, bookProfileHref } from "../booking-routes";
 import type {
   CheckoutRestartReason,
@@ -51,6 +53,7 @@ import { bookingOfferingsAtom } from "../data/booking-queries";
 import { quotedBarSummary } from "../ui/booking-summary";
 import { HoldChip, HoldEndedDialog } from "../ui/hold-timer";
 import { retryMessage } from "./checkout-copy";
+import { useCheckoutLayout } from "./checkout-layout";
 import {
   checkoutDestination,
   holdEndedReview,
@@ -88,6 +91,7 @@ function CheckoutFlowScreen({
   readonly request: CheckoutRequest;
 }) {
   const locale = useAppLocale();
+  const { contentWidth } = useCheckoutLayout();
   // Blurred, the flow holds the payment page until the screen is back (R8).
   const focused = useIsFocused();
   const navigation = useNavigation();
@@ -144,6 +148,14 @@ function CheckoutFlowScreen({
     <Stack.Screen
       options={{
         title: checkoutTitle(onDetails, Option.isSome(review), locale),
+        header: (props) => (
+          <StackHeader
+            {...props}
+            contentWidth={
+              onDetails || Option.isSome(review) ? contentWidth : "form"
+            }
+          />
+        ),
         headerRight: Option.match(
           Option.filter(review, () => retriedOrderId === undefined),
           {
@@ -193,6 +205,7 @@ function CheckoutFlowScreen({
   }
   return (
     <ScrollScreen>
+      <QuietUpdateOffer backdrop="paper" />
       {title}
       {state === undefined ? (
         <LoadingState label={m.booking_checkout_starting({}, { locale })} />
@@ -380,6 +393,7 @@ function DetailsForAccount({
         if (access._tag === "Unavailable") {
           return (
             <ScrollScreen>
+              <QuietUpdateOffer backdrop="paper" />
               <AccountUnavailableNotice
                 reason={access.reason}
                 locale={locale}

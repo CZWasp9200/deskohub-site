@@ -6,6 +6,7 @@ import {
   CustomerBookingSelection,
   CustomerBookingSelectionInvalid,
   CustomerOfferingUnavailable,
+  CustomerOfficePeople,
 } from "./customer-booking-selection";
 import { CustomerCheckoutSummary } from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
@@ -195,6 +196,8 @@ export const CustomerCheckout = Schema.Struct({
    * on later bookings, as the site's referral cookie does.
    */
   rememberReferralCode: Schema.optionalKey(ReferralCode),
+  /** Office only: who is coming, as the checkout holds them. */
+  people: Schema.optionalKey(CustomerOfficePeople),
 }).annotate({ identifier: "CustomerCheckout" });
 export type CustomerCheckout = typeof CustomerCheckout.Type;
 
@@ -320,6 +323,14 @@ export const CreateCustomerCheckout = Schema.Struct({
   billing: CustomerCheckoutBilling,
   /** True only when the customer opted in; absent or false records nothing. */
   marketingConsent: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Office only: who is coming; `selection.seats` must equal their count.
+   * A rejected list answers `CustomerCheckoutDetailsInvalid` with `field`
+   * `people`, or `people.invitees.<index>` for an address. Apps released
+   * before people lists leave it out and book `selection.seats` with no
+   * invitations.
+   */
+  people: Schema.optionalKey(CustomerOfficePeople),
 }).annotate({
   identifier: "CreateCustomerCheckout",
 });

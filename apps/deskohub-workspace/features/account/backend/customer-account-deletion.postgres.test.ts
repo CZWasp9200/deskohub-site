@@ -164,6 +164,7 @@ describe.skipIf(!testDatabase)(
               order.push(`destroy-avatar:${destroyAccountId}`);
               return Effect.void;
             },
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -215,6 +216,7 @@ describe.skipIf(!testDatabase)(
               providerCalls.push("destroy-avatar");
               return Effect.void;
             },
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -252,6 +254,7 @@ describe.skipIf(!testDatabase)(
             expireCustomer,
             destroyAvatar: () =>
               Effect.fail(new CustomerAvatarProviderError({})),
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -289,6 +292,7 @@ describe.skipIf(!testDatabase)(
             findLink: links.find,
             expireCustomer,
             destroyAvatar: () => Effect.void,
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,
@@ -325,6 +329,7 @@ describe.skipIf(!testDatabase)(
                 providerCalls.push("destroy-avatar");
                 return Effect.void;
               },
+              deleteInvitations: () => Effect.void,
               tombstone: accounts.tombstone,
               withActiveAccount: sections.withActiveAccount,
               anonymiseAnalyticsPerson: () => Effect.void,
@@ -376,6 +381,7 @@ describe.skipIf(!testDatabase)(
               findLink: links.find,
               expireCustomer,
               destroyAvatar: () => Effect.void,
+              deleteInvitations: () => Effect.void,
               tombstone: accounts.tombstone,
               withActiveAccount: sections.withActiveAccount,
               anonymiseAnalyticsPerson: () => Effect.void,
@@ -550,6 +556,7 @@ describe.skipIf(!invoiceDatabase)(
             findLink: links.find,
             expireCustomer,
             destroyAvatar: () => Effect.void,
+            deleteInvitations: () => Effect.void,
             tombstone: accounts.tombstone,
             withActiveAccount: sections.withActiveAccount,
             anonymiseAnalyticsPerson: () => Effect.void,

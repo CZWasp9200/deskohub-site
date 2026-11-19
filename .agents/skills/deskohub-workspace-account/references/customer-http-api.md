@@ -51,8 +51,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    An endpoint is Dotypos-backed when it, or the account resolution it starts
    with, can call Dotypos (resolving an unlinked account looks its customer up
    and may reactivate an expired one). A GET the app repeats on every load,
-   history visit or status poll (the account, the reservation history, an
-   order's status and its door code) is `account-read` (40 per 30 minutes);
+   history visit or status poll (the account, the reservation history and
+   the invited orders beside it, an order's status and its door code) is
+   `account-read` (40 per 30 minutes);
    any other Dotypos-backed GET (consent, referrals, an order's invoice, the
    invoice list, an invoice's PDF and its credit note's, the data archive) is
    `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`

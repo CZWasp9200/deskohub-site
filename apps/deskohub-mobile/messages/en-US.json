@@ -90,8 +90,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Office seats",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "People",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -100,8 +100,8 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} seat",
-        "countPlural=other": "{formattedCount} seats"
+        "countPlural=one": "{formattedCount} person",
+        "countPlural=other": "{formattedCount} people"
       }
     }
   ],
@@ -506,6 +506,7 @@
   "legal_marketing_heading": "Marketing messages",
   "legal_marketing_switch_label": "Marketing messages",
   "legal_marketing_description": "Turn on to allow Deskohub to send you future marketing and community communications.",
+  "legal_marketing_description_wide": "Allow us to send you deals, offers, and updates about Deskohub",
   "legal_marketing_saving": "Saving your marketing preference…",
   "legal_marketing_save_failed": "We couldn't save your marketing preference. Try again.",
   "legal_marketing_stale": "Your marketing preference changed in the meantime. Check the current setting and try again.",
@@ -513,6 +514,8 @@
   "legal_analytics_heading": "Analytics",
   "legal_analytics_switch_label": "Analytics on your account",
   "legal_analytics_description": "Applies on every device where you sign in.",
+  "legal_analytics_switch_label_wide": "Help improve our services",
+  "legal_analytics_description_wide": "Let us collect usage analytics",
   "legal_analytics_saving": "Saving your analytics preference…",
   "legal_analytics_saved": "Your analytics preference was saved.",
   "legal_analytics_save_failed": "We couldn't save your analytics preference. Try again.",
@@ -579,11 +582,9 @@
   "booking_price_unit_per_hour": "per hour",
   "booking_office_days_decrease": "One day fewer",
   "booking_office_days_increase": "One day more",
-  "booking_office_seats_decrease": "One seat fewer",
-  "booking_office_seats_increase": "One seat more",
   "booking_office_date_unavailable": "The office isn't available from this date. Try another start date.",
   "booking_office_day_count_unavailable": "The office is not available for all the selected days. Try another start date or a shorter stay.",
-  "booking_office_seats_unavailable": "The office doesn't have that many seats. Choose fewer seats.",
+  "booking_office_seats_unavailable": "The office doesn't have that many seats. Remove someone from the list.",
   "booking_availability_loading": "Checking workspace availability...",
   "booking_calendar_notice": "Heads up: this day has a limitation from {start} to {end}.",
   "booking_calendar_notice_with_summary": "Heads up: {summary}, from {start} to {end}.",
@@ -628,6 +629,14 @@
   "reservations_time_until": "Until {time}",
   "reservations_time_date_until": "{date}, until {time}",
   "reservations_section_later": "Later",
+  "reservations_section_invited": "Invited",
+  "reservations_booked_by_name": "Booked by {name}",
+  "reservations_people_resend": "Resend",
+  "reservations_people_resend_to": "Resend the access email to {email}",
+  "reservations_people_resent": "Access email sent to {email}.",
+  "reservations_people_resend_later": "The access email went out a moment ago. You can send it again in a few minutes.",
+  "reservations_people_change": "To change who is coming, <contact>contact us</contact>.",
+  "reservations_people_change_message": "Hello,\n\nI'd like to change who is coming to my private office booking {reference} on {date}.\n\nAdd:\n\nRemove:\n",
   "reservations_section_past": "Past",
   "reservations_show_all_past": "Show all past bookings",
   "reservations_nothing_upcoming": "Nothing coming up",
@@ -644,6 +653,7 @@
   "reservations_not_found_body": "It may belong to another account. You're signed in as {email}.",
   "reservations_go_to_list": "Go to reservations",
   "navigation_close": "Close",
+  "navigation_reserve": "Reserve",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "We couldn't open the calendar event on this device. Try again.",
   "booking_choose_date_reason": "Choose a date to continue",
@@ -661,6 +671,8 @@
   "reservations_access_from": "From",
   "reservations_access_until": "Until",
   "reservations_access_for": "For",
+  "reservations_access_through": "Through",
+  "reservations_access_booked_by": "Booked by",
   "reservations_access_where": "Where",
   "reservations_access_chip_starts": "From {start} · {when}",
   "reservations_access_starts_today": "today",
@@ -675,12 +687,34 @@
   "reservations_access_no_pin_body": "The booking isn't confirmed yet. If it should be, contact us.",
   "reservations_access_back_to_booking": "Back to the booking",
   "booking_office_first_day_heading": "First day",
-  "booking_office_days_and_seats_heading": "Days and seats",
   "booking_office_days_label": "Days",
-  "booking_office_seats_label": "Seats",
+  "booking_office_people_heading": "People",
+  "booking_office_people_of": "{count} of {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "The office's only seat is taken. Remove someone to add another person.",
+        "countPlural=other": "All {formattedCount} seats are taken. Remove someone to add another person."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "Everyone gets the door PIN by email.",
+  "booking_office_people_who_is_coming": "Who is coming",
+  "booking_office_person_you": "You",
+  "booking_office_person_remove": "Remove {email}",
+  "booking_office_person_remove_you": "Remove yourself",
+  "booking_office_person_email_label": "Email address",
+  "booking_office_person_email_invalid": "Enter a full email address.",
+  "booking_office_person_add": "Add",
+  "booking_office_person_add_yourself": "Add yourself",
+  "booking_review_people_pin_note": "After you pay, everyone gets the door PIN by email.",
   "booking_office_until": "Until {date}",
-  "booking_office_seats_up_to": "Up to {count}",
-  "booking_office_seats_maximum": "Maximum {count}",
   "booking_office_reason_date": "Choose your first day to continue",
   "booking_price_unit_per_day_one_seat": "per day, 1 seat",
   "booking_space_from": "from",
@@ -702,6 +736,7 @@
   "account_section_invoices": "Invoices",
   "invoices_empty": "No invoices yet",
   "invoices_row_amount_number": "{amount} · No. {number}",
+  "invoices_row_number": "No. {number}",
   "invoices_download_label": "Download invoice {number}",
   "invoices_downloading": "Downloading invoice {number}…",
   "invoices_download_not_found": "We couldn't find this invoice. Refresh the list and try again.",
@@ -757,6 +792,8 @@
   "danger_consequence_records": "Reservations, payments, and invoices stay retained where service, accounting, and the law require them.",
   "danger_title": "This can't be undone",
   "danger_consequences_lead": "When you delete your account:",
+  "danger_data_export_title": "Download your personal data now.",
+  "danger_data_export_description": "You will no longer be able to after deleting your account.",
   "danger_consequence_access": "Upcoming paid bookings stay valid and their door PIN keeps working; your confirmation email links to the PIN.",
   "danger_signed_in_again": "Signed in again",
   "danger_reauth_continue": "Continue to sign in",

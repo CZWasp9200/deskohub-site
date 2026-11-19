@@ -6,6 +6,7 @@ import Interpolate from "@doist/react-interpolate";
 import { DateTime, Option } from "effect";
 import CircleCheck from "lucide-react-native/icons/circle-check";
 import Lock from "lucide-react-native/icons/lock";
+import Mail from "lucide-react-native/icons/mail";
 import Tag from "lucide-react-native/icons/tag";
 import X from "lucide-react-native/icons/x";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
@@ -31,11 +32,15 @@ import {
   useFocusedFieldScroll,
 } from "../../ui/focused-field-scroll";
 import { Icon } from "../../ui/icon";
+import { ListGroup } from "../../ui/list";
 import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
+import { PersonRow } from "../../ui/person-row";
 import { Text } from "../../ui/text";
 import { color, radius, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
+import { useContentColumn } from "../../ui/viewport";
+import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import type { CheckoutIntent } from "../checkout/checkout-flow";
 import {
   CheckoutEvent,
@@ -54,6 +59,7 @@ import { describePriceLine } from "../ui/price-line-description";
 import { PriceLines } from "../ui/price-lines";
 import { bookingOverviewOf } from "./booking-overview";
 import { productLabel, retryMessage } from "./checkout-copy";
+import { checkoutTrackStyles, useCheckoutLayout } from "./checkout-layout";
 import {
   type CodeFieldView,
   type CodeProblem,
@@ -61,6 +67,7 @@ import {
   type PriceChangeView,
   type ReviewInvoice,
   type ReviewParty,
+  type ReviewPeople,
   type ReviewView,
   reviewView,
 } from "./review-view";
@@ -107,6 +114,9 @@ export function ReviewStep({
   // The payment page's tab comes up sooner when Pay is pressed.
   usePaymentBrowserWarmUp();
   const keyboardShown = useKeyboardShown();
+  const { contentWidth, isWide } = useCheckoutLayout();
+  const column = useContentColumn(contentWidth);
+  const split = contentWidth === "wide";
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const focusedField = useFocusedFieldScroll(scroll);
@@ -116,9 +126,14 @@ export function ReviewStep({
       keyboardVerticalOffset={keyboardOffset}
       style={styles.screen}
     >
-      <BookingSteps current="pay" raised={raised} locale={locale} />
+      <BookingSteps
+        current="pay"
+        raised={raised}
+        locale={locale}
+        contentWidth={contentWidth}
+      />
       {hold.phase === "ending" && (
-        <View style={styles.banner}>
+        <View style={[styles.banner, isWide && column]}>
           <Notice
             tone="warning"
             title={m.booking_review_last_minute_title({}, { locale })}
@@ -131,13 +146,14 @@ export function ReviewStep({
           ref={scroll}
           onLayout={focusedField.onLayout}
           style={styles.body}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, isWide && column]}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={32}
           onScroll={({ nativeEvent }) =>
             setRaised(nativeEvent.contentOffset.y > 0)
           }
         >
+          <QuietUpdateOffer backdrop="paper" style={styles.updateOffer} />
           {view.retry && (
             <View style={styles.retryNotice}>
               <Notice
@@ -147,64 +163,74 @@ export function ReviewStep({
               />
             </View>
           )}
-          <BookingSectionHeading
-            title={m.booking_review_booking_heading({}, { locale })}
-            action={
-              view.retry
-                ? undefined
-                : {
-                    label: m.booking_review_change({}, { locale }),
-                    onPress: onChangeBooking,
-                    disabled: view.busy,
-                  }
-            }
-            first={!view.retry}
-          />
-          <BookingCard
-            selection={selection}
-            earlySetup={view.earlySetup}
-            overnightStay={overnightStay}
-            party={view.party}
-            invoice={view.invoice}
-            locale={locale}
-          />
-          <BookingSectionHeading
-            title={m.booking_review_price_heading({}, { locale })}
-          />
-          <Card padding="none">
-            <View style={styles.priceCard}>
-              {Option.isSome(view.priceChange) && (
-                <PriceChange
-                  change={view.priceChange.value}
-                  busy={view.busy}
-                  send={send}
-                  onChangeBooking={view.retry ? undefined : onChangeBooking}
-                  locale={locale}
-                />
-              )}
-              <PriceLines
-                breakdown={view.price.breakdown}
-                describeLine={describePriceLine(selection, locale)}
+          <View style={split && checkoutTrackStyles.container}>
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_review_booking_heading({}, { locale })}
+                action={
+                  view.retry
+                    ? undefined
+                    : {
+                        label: m.booking_review_change({}, { locale }),
+                        onPress: onChangeBooking,
+                        disabled: view.busy,
+                      }
+                }
+                first={!view.retry}
+              />
+              <BookingCard
+                selection={selection}
+                earlySetup={view.earlySetup}
+                overnightStay={overnightStay}
+                party={view.party}
+                invoice={view.invoice}
                 locale={locale}
-                variant="card"
-                total={{
-                  label: m.booking_review_total({}, { locale }),
-                  was: Option.getOrUndefined(view.price.was),
-                }}
+              />
+              {Option.isSome(view.people) && (
+                <ReviewPeopleCard people={view.people.value} locale={locale} />
+              )}
+            </View>
+            <View style={split && checkoutTrackStyles.track}>
+              <BookingSectionHeading
+                title={m.booking_review_price_heading({}, { locale })}
+                first={split && !view.retry}
+              />
+              <Card padding="none">
+                <View style={styles.priceCard}>
+                  {Option.isSome(view.priceChange) && (
+                    <PriceChange
+                      change={view.priceChange.value}
+                      busy={view.busy}
+                      send={send}
+                      onChangeBooking={view.retry ? undefined : onChangeBooking}
+                      locale={locale}
+                    />
+                  )}
+                  <PriceLines
+                    breakdown={view.price.breakdown}
+                    describeLine={describePriceLine(selection, locale)}
+                    locale={locale}
+                    variant="card"
+                    total={{
+                      label: m.booking_review_total({}, { locale }),
+                      was: Option.getOrUndefined(view.price.was),
+                    }}
+                  />
+                </View>
+              </Card>
+              {!view.retry && (
+                <View style={styles.code}>
+                  <CodeRow code={view.code} send={send} locale={locale} />
+                </View>
+              )}
+              <LegalConsent
+                consent={view.consent}
+                send={send}
+                onOpenDocument={onOpenDocument}
+                locale={locale}
               />
             </View>
-          </Card>
-          {!view.retry && (
-            <View style={styles.code}>
-              <CodeRow code={view.code} send={send} locale={locale} />
-            </View>
-          )}
-          <LegalConsent
-            consent={view.consent}
-            send={send}
-            onOpenDocument={onOpenDocument}
-            locale={locale}
-          />
+          </View>
           <ReviewNoticeView
             notice={review.notice}
             idle={!view.busy}
@@ -215,6 +241,7 @@ export function ReviewStep({
       </FocusedFieldContext>
       <BookingBar
         locale={locale}
+        contentWidth={contentWidth}
         action={payAction(view, send, locale)}
         // With the keyboard up only the button rides above it.
         reason={
@@ -318,6 +345,44 @@ function BookingCard({
         </Row>
       </View>
     </Card>
+  );
+}
+
+/** Who is coming to the office, read-only, and that each gets the PIN after paying. */
+function ReviewPeopleCard({
+  people,
+  locale,
+}: Locale & { readonly people: ReviewPeople }) {
+  const contact = Option.getOrUndefined(people.contact);
+  return (
+    <>
+      <BookingSectionHeading
+        title={m.booking_office_people_who_is_coming({}, { locale })}
+      />
+      <View style={styles.people}>
+        <ListGroup>
+          {contact !== undefined && (
+            <PersonRow
+              key="contact"
+              email={contact.email}
+              name={contact.name}
+              {...(contact.you && {
+                you: m.booking_office_person_you({}, { locale }),
+              })}
+            />
+          )}
+          {people.invitees.map((email) => (
+            <PersonRow key={email} email={email} />
+          ))}
+        </ListGroup>
+        <View style={styles.peopleNote}>
+          <Icon icon={Mail} size={16} color={color.ink2} />
+          <Text variant="hint" style={styles.peopleNoteText}>
+            {m.booking_review_people_pin_note({}, { locale })}
+          </Text>
+        </View>
+      </View>
+    </>
   );
 }
 
@@ -740,6 +805,14 @@ const reviewNoticeMessage = (notice: ReviewNotice, locale: AppLocale) => {
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  people: { gap: space.md },
+  peopleNote: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    paddingHorizontal: space.xs,
+  },
+  peopleNoteText: { flexShrink: 1 },
   banner: {
     backgroundColor: color.paper,
     borderBottomColor: color.line,
@@ -748,6 +821,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
   },
   body: { flex: 1 },
+  updateOffer: { marginBottom: space.lg },
   content: {
     gap: 0,
     paddingBottom: space.xxl,

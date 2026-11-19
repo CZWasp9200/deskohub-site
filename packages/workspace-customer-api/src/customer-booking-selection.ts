@@ -97,12 +97,29 @@ const selectionFields = {
  */
 export const CustomerBookingSelection = Schema.Struct({
   ...selectionFields,
-  /** Office only: the number of seats. Defaults to 1. */
+  /**
+   * Office only: the number of seats. Defaults to 1. A checkout that sends
+   * `people` sends their count here: one seat per person.
+   */
   seats: Schema.optionalKey(officeSeats),
   /** Cowork Open Space only: add coffee. Reserved Desk includes it. */
   coffee: Schema.optionalKey(Schema.Boolean),
 }).annotate({ identifier: "CustomerBookingSelection" });
 export type CustomerBookingSelection = typeof CustomerBookingSelection.Type;
+
+/**
+ * Who is coming to a private office: the checkout's contact while
+ * `contactAttends`, and the people added by email address in `invitees`, in
+ * the order the booker added them. At least one person comes, the office
+ * capacity (`maximumSeats`) bounds the count, and an address appears once and
+ * never as the contact's own. Each invitee gets their own access email once
+ * the order is paid.
+ */
+export const CustomerOfficePeople = Schema.Struct({
+  contactAttends: Schema.Boolean,
+  invitees: Schema.Array(Schema.String.check(Schema.isMaxLength(255))),
+}).annotate({ identifier: "CustomerOfficePeople" });
+export type CustomerOfficePeople = typeof CustomerOfficePeople.Type;
 
 /** `CustomerBookingSelection` as a GET request's query string carries it. */
 export const CustomerBookingSelectionQuery = Schema.Struct({

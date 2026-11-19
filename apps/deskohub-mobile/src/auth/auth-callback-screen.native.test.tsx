@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, ManagedRuntime, Option, Semaphore } from "effect";
 import { act, type ReactNode } from "react";
+import * as ReactNative from "react-native";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { clientRoot } from "../testing/client-root";
 import { eventually } from "../testing/eventually";
 import { Button } from "../ui/controls";
 import { EmptyState } from "../ui/empty-state";
 import { LoadingIndicator } from "../ui/loading-indicator";
-import { find, findAll } from "../ui/testing/element-tree";
+import { find, findAll, flatStyle } from "../ui/testing/element-tree";
 import { AuthCallbackCompletions } from "./auth-callback-completions.service";
 import { AuthCrypto } from "./auth-crypto.service";
 import { AuthSessionBrowser } from "./auth-session-browser.service";
@@ -68,7 +69,8 @@ mock.module("expo-router", () => ({
   SplashScreen: { hideAsync: unusedRouterExport },
   Stack: unusedRouterExport,
   Tabs: unusedRouterExport,
-  useFocusEffect: unusedRouterExport,
+  // The screen keeps the update banner away while it is focused.
+  useFocusEffect: () => undefined,
   useIsFocused: unusedRouterExport,
   useNavigation: unusedRouterExport,
   usePathname: unusedRouterExport,
@@ -87,6 +89,7 @@ mock.module("expo-router", () => ({
 }));
 
 const { AuthCallbackScreen } = await import("./auth-callback-screen.native");
+const { AuthPhotoSheet } = await import("./auth-photo-sheet");
 
 const { render } = clientRoot({ keepFetch: true });
 let launched: Array<{ readonly dispose: () => Promise<void> }> = [];
@@ -271,6 +274,30 @@ describe("AuthCallbackScreen", () => {
     await screen.pressButton(1);
 
     expect(navigation).toEqual([`dismissTo:${JSON.stringify("/sign-in")}`]);
+  });
+
+  test("uses the wide sheet spacing for a signed-out callback failure", async () => {
+    runtime = launchApp().app;
+    params = { error: "access_denied" };
+    const dimensions = spyOn(
+      ReactNative,
+      "useWindowDimensions"
+    ).mockReturnValue({ width: 1280, height: 800, fontScale: 1, scale: 2 });
+
+    try {
+      const tree = await mountScreen();
+      const sheet = () => find(tree(), AuthPhotoSheet);
+      await act(() =>
+        Effect.runPromise(eventually(() => sheet() !== undefined))
+      );
+      const actions = find(sheet()?.props.children, ReactNative.View);
+
+      expect(flatStyle(actions?.props.style).gap).toBe(12);
+      expect(flatStyle(actions?.props.style).marginTop).toBeUndefined();
+      expect(findAll(actions, Button)).toHaveLength(2);
+    } finally {
+      dimensions.mockRestore();
+    }
   });
 
   test("goes on when a sign-in lands though its callback then failed", async () => {

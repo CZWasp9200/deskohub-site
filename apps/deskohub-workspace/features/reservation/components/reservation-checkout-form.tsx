@@ -10,9 +10,14 @@ import type {
 import { usePrepareReservationSiteTool } from "@/features/agent-tools/webmcp/use-prepare-reservation-site-tool";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/checkout-status-summary-presentation";
-import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
+import type {
+  CheckoutSummary,
+  CheckoutSummaryDiscount,
+} from "@/features/checkout/checkout-summary";
 import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
+import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
+import type { CheckoutOfficeSelection } from "@/features/reservation/reservation-checkout-contact";
 import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type {
   ReservationOrderData,
@@ -69,6 +74,12 @@ type ReservationCheckoutFormProps<
   Data extends ReservationFormData,
 > = {
   readonly advertisedPrice: ReservationCheckoutAdvertisedPrice;
+  readonly heldOfficePrice?: Pick<
+    ReservationCheckoutAdvertisedPrice,
+    "sale" | "total"
+  > & {
+    readonly summary: CheckoutSummary;
+  };
   readonly availability: {
     /**
      * Whether availability for the current selection has not settled yet. A
@@ -82,6 +93,7 @@ type ReservationCheckoutFormProps<
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly children: ReactNode;
   readonly form: UseFormReturn<Input, unknown, Data>;
+  readonly getOfficeSelection?: (data: Data) => CheckoutOfficeSelection;
   readonly getReservation: (data: Data) => ReservationOrderIssuanceData;
   readonly locale: Locale;
   /** The space picked at the first step, summarized at the contact step. */
@@ -89,6 +101,7 @@ type ReservationCheckoutFormProps<
   /** The family the form books, and its selection values from link parameters. */
   readonly selection: {
     readonly kind: ReservationOrderData["kind"];
+    readonly officeSelection?: OfficeReservationDetails;
     readonly fromSearchParams: (
       searchParams: URLSearchParams
     ) => Partial<Input>;
@@ -178,6 +191,7 @@ function useReservationFormSiteTool<Input extends FieldValues>({
     },
     kind: selection.kind,
     locale,
+    officeSelection: selection.officeSelection,
     readiness: {
       isPending:
         availability.isPending ||
@@ -300,7 +314,9 @@ export function ReservationCheckoutForm<
   checkoutSessionId,
   children,
   form,
+  getOfficeSelection,
   getReservation,
+  heldOfficePrice,
   locale,
   selectionSummary,
   selection,
@@ -323,7 +339,9 @@ export function ReservationCheckoutForm<
     checkoutStep,
     emailVerification,
     form,
+    getOfficeSelection,
     getReservation,
+    displayedOfficePrice: heldOfficePrice?.summary,
     locale,
   };
   const submit = (options?: ReservationSubmitOptions) =>
@@ -339,6 +357,7 @@ export function ReservationCheckoutForm<
   });
 
   const isContactStep = checkoutStep.step === "contact";
+  const displayedPrice = heldOfficePrice ?? advertisedPrice;
   const isSubmitDisabled = isReservationSubmitDisabled(
     submission,
     isContactStep
@@ -354,7 +373,7 @@ export function ReservationCheckoutForm<
   }
 
   return (
-    <ReservationFormCard sale={getSaleBanner(advertisedPrice.sale, locale)}>
+    <ReservationFormCard sale={getSaleBanner(displayedPrice.sale, locale)}>
       <Form {...form}>
         <form
           className="space-y-7"
@@ -390,7 +409,7 @@ export function ReservationCheckoutForm<
             locale={locale}
             onChangeSelection={() => checkoutStep.goTo("selection")}
             selectionSummary={selectionSummary}
-            total={advertisedPrice.total}
+            total={displayedPrice.total}
           />
           {/* Support has to sort out the account before it can book, so the
               contact step shows only what was chosen and how to reach

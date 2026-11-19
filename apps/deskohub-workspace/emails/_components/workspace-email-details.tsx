@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Column, Link, Row, Section, Text } from "react-email";
 import type { WorkspaceEmailDetail } from "../workspace-email-detail";
 
@@ -33,6 +34,17 @@ export function WorkspaceEmailDetails({
                 </Link>
               ) : (
                 detail.value
+              )}
+              {detail.lines?.map((line) => (
+                <Fragment key={line}>
+                  <br />
+                  {line}
+                </Fragment>
+              ))}
+              {detail.note && (
+                <span className="mt-[2px] block text-[13px] text-[#565975]">
+                  {detail.note}
+                </span>
               )}
             </Text>
           </Column>

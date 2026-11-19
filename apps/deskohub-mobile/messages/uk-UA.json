@@ -92,8 +92,8 @@
       }
     }
   ],
-  "booking_checkout_line_office_seats": "Місця в офісі",
-  "booking_price_line_seats": [
+  "booking_checkout_line_office_people": "Люди",
+  "booking_office_people_count": [
     {
       "declarations": [
         "input count",
@@ -102,10 +102,10 @@
       ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{formattedCount} місце",
-        "countPlural=few": "{formattedCount} місця",
-        "countPlural=many": "{formattedCount} місць",
-        "countPlural=other": "{formattedCount} місця"
+        "countPlural=one": "{formattedCount} особа",
+        "countPlural=few": "{formattedCount} особи",
+        "countPlural=many": "{formattedCount} осіб",
+        "countPlural=other": "{formattedCount} особи"
       }
     }
   ],
@@ -510,6 +510,7 @@
   "legal_marketing_heading": "Маркетингові повідомлення",
   "legal_marketing_switch_label": "Маркетингові повідомлення",
   "legal_marketing_description": "Увімкніть, щоб дозволити Deskohub надсилати вам майбутні маркетингові повідомлення та повідомлення для спільноти.",
+  "legal_marketing_description_wide": "Дозвольте надсилати акції, пропозиції й новини Deskohub",
   "legal_marketing_saving": "Зберігаємо ваше налаштування маркетингових повідомлень…",
   "legal_marketing_save_failed": "Не вдалося зберегти налаштування маркетингових повідомлень. Спробуйте ще раз.",
   "legal_marketing_stale": "Тим часом ваше налаштування маркетингових повідомлень змінилося. Перевірте поточне налаштування й спробуйте ще раз.",
@@ -517,6 +518,8 @@
   "legal_analytics_heading": "Аналітика",
   "legal_analytics_switch_label": "Аналітика у вашому обліковому записі",
   "legal_analytics_description": "Діє на всіх пристроях, на яких ви входите в обліковий запис.",
+  "legal_analytics_switch_label_wide": "Допоможіть покращити сервіс",
+  "legal_analytics_description_wide": "Дозвольте збір даних про використання",
   "legal_analytics_saving": "Зберігаємо ваше налаштування аналітики…",
   "legal_analytics_saved": "Ваше налаштування аналітики збережено.",
   "legal_analytics_save_failed": "Не вдалося зберегти налаштування аналітики. Спробуйте ще раз.",
@@ -583,11 +586,9 @@
   "booking_price_unit_per_hour": "за годину",
   "booking_office_days_decrease": "На день менше",
   "booking_office_days_increase": "На день більше",
-  "booking_office_seats_decrease": "На місце менше",
-  "booking_office_seats_increase": "На місце більше",
   "booking_office_date_unavailable": "Офіс недоступний із цієї дати. Спробуйте іншу дату початку.",
   "booking_office_day_count_unavailable": "Офіс недоступний на всі вибрані дні. Спробуйте іншу дату початку або коротше перебування.",
-  "booking_office_seats_unavailable": "В офісі немає стільки місць. Оберіть менше місць.",
+  "booking_office_seats_unavailable": "В офісі немає стільки місць. Видаліть когось зі списку.",
   "booking_availability_loading": "Перевіряємо наявність вільних місць…",
   "booking_calendar_notice": "Зверніть увагу: цього дня діє обмеження з {start} до {end}.",
   "booking_calendar_notice_with_summary": "Зверніть увагу: {summary}, з {start} до {end}.",
@@ -632,6 +633,14 @@
   "reservations_time_until": "До {time}",
   "reservations_time_date_until": "{date}, до {time}",
   "reservations_section_later": "Пізніше",
+  "reservations_section_invited": "Запрошення",
+  "reservations_booked_by_name": "Ким заброньовано: {name}",
+  "reservations_people_resend": "Надіслати ще раз",
+  "reservations_people_resend_to": "Надіслати лист із доступом ще раз на {email}",
+  "reservations_people_resent": "Лист із доступом надіслано на {email}.",
+  "reservations_people_resend_later": "Лист із доступом щойно надіслано. Надіслати його знову можна за кілька хвилин.",
+  "reservations_people_change": "Щоб змінити, хто прийде, <contact>напишіть нам</contact>.",
+  "reservations_people_change_message": "Добрий день!\n\nХочу змінити, хто прийде за моїм бронюванням приватного офісу {reference} на {date}.\n\nДодати:\n\nВидалити:\n",
   "reservations_section_past": "Минулі",
   "reservations_show_all_past": "Показати всі минулі бронювання",
   "reservations_nothing_upcoming": "Нічого не заплановано",
@@ -648,6 +657,7 @@
   "reservations_not_found_body": "Можливо, воно належить іншому обліковому запису. Ви ввійшли як {email}.",
   "reservations_go_to_list": "До бронювань",
   "navigation_close": "Закрити",
+  "navigation_reserve": "Забронювати",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Не вдалося відкрити подію календаря на цьому пристрої. Спробуйте ще раз.",
   "booking_choose_date_reason": "Виберіть дату, щоб продовжити",
@@ -665,6 +675,8 @@
   "reservations_access_from": "З",
   "reservations_access_until": "До",
   "reservations_access_for": "На",
+  "reservations_access_through": "До (включно)",
+  "reservations_access_booked_by": "Ким заброньовано",
   "reservations_access_where": "Де",
   "reservations_access_chip_starts": "З {start} · {when}",
   "reservations_access_starts_today": "сьогодні",
@@ -679,12 +691,36 @@
   "reservations_access_no_pin_body": "Бронювання ще не підтверджене. Якщо воно вже має бути підтвердженим, звʼяжіться з нами.",
   "reservations_access_back_to_booking": "Назад до бронювання",
   "booking_office_first_day_heading": "Перший день",
-  "booking_office_days_and_seats_heading": "Дні та місця",
   "booking_office_days_label": "Дні",
-  "booking_office_seats_label": "Місця",
+  "booking_office_people_heading": "Люди",
+  "booking_office_people_of": "{count} з {maximum}",
+  "booking_office_people_full": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "Єдине місце зайняте. Щоб додати ще когось, спершу когось видаліть.",
+        "countPlural=few": "Усі {formattedCount} місця зайняті. Щоб додати ще когось, спершу когось видаліть.",
+        "countPlural=many": "Усі {formattedCount} місць зайняті. Щоб додати ще когось, спершу когось видаліть.",
+        "countPlural=other": "Усі {formattedCount} місця зайняті. Щоб додати ще когось, спершу когось видаліть."
+      }
+    }
+  ],
+  "booking_office_people_pin_note": "Кожен отримає PIN-код від дверей електронною поштою.",
+  "booking_office_people_who_is_coming": "Хто прийде",
+  "booking_office_person_you": "Ви",
+  "booking_office_person_remove": "Видалити {email}",
+  "booking_office_person_remove_you": "Видалити себе",
+  "booking_office_person_email_label": "Адреса електронної пошти",
+  "booking_office_person_email_invalid": "Введіть повну адресу електронної пошти.",
+  "booking_office_person_add": "Додати",
+  "booking_office_person_add_yourself": "Додати себе",
+  "booking_review_people_pin_note": "Після оплати кожен отримає PIN-код від дверей електронною поштою.",
   "booking_office_until": "До {date}",
-  "booking_office_seats_up_to": "До {count}",
-  "booking_office_seats_maximum": "Максимум {count}",
   "booking_office_reason_date": "Виберіть перший день, щоб продовжити",
   "booking_price_unit_per_day_one_seat": "за день, 1 місце",
   "booking_space_from": "від",
@@ -706,6 +742,7 @@
   "account_section_invoices": "Рахунки-фактури",
   "invoices_empty": "Рахунків-фактур ще немає",
   "invoices_row_amount_number": "{amount} · № {number}",
+  "invoices_row_number": "№ {number}",
   "invoices_download_label": "Завантажити рахунок-фактуру {number}",
   "invoices_downloading": "Завантажуємо рахунок-фактуру {number}…",
   "invoices_download_not_found": "Не вдалося знайти цей рахунок-фактуру. Оновіть список і спробуйте ще раз.",
@@ -761,6 +798,8 @@
   "danger_consequence_records": "Бронювання, платежі та рахунки-фактури зберігаються там, де цього вимагають робота коворкінгу, бухгалтерський облік і законодавство.",
   "danger_title": "Це не можна скасувати",
   "danger_consequences_lead": "Коли ви видалите обліковий запис:",
+  "danger_data_export_title": "Завантажте персональні дані зараз.",
+  "danger_data_export_description": "Видалите обліковий запис — втратите доступ.",
   "danger_consequence_access": "Майбутні оплачені бронювання залишаються дійсними, а їхній PIN-код до дверей і далі працює; лист із підтвердженням містить посилання на PIN-код.",
   "danger_signed_in_again": "Ви знову ввійшли",
   "danger_reauth_continue": "Перейти до входу",

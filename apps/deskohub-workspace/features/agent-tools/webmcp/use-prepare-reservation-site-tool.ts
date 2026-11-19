@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Locale } from "@/features/i18n";
 import type { ReservationFormSubmission } from "@/features/reservation/components/reservation-checkout-form";
+import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import { getReservationStartPath } from "@/features/reservation/routes";
 import { publishReservationForm, useQuoteTool } from "./site-tool-catalog";
@@ -18,6 +19,8 @@ export type SiteToolReservationForm = {
   readonly giveMarketingConsent: () => void;
   /** Sets the selection a reservation link names; whether any value changed. */
   readonly applySelection: (searchParams: URLSearchParams) => boolean;
+  /** The office interval and seats after availability adjustments. */
+  readonly officeSelection?: OfficeReservationDetails;
   readonly readiness: {
     /** Availability or the advertised price for the selection is loading. */
     readonly isPending: boolean;

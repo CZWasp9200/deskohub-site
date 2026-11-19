@@ -323,6 +323,30 @@ describe("reviewView", () => {
     });
   });
 
+  test("lists an office's people from the held checkout: the contact while attending, then the invited addresses", () => {
+    const people = {
+      contactAttends: true,
+      invitees: [testEmailAddress("jana.novak")],
+    };
+    expect(viewOf(reviewWith(held({ people }))).people).toEqual(
+      Option.some({
+        contact: Option.some({
+          name: selfDetails.contact.name,
+          email: selfDetails.contact.email,
+          you: true,
+        }),
+        invitees: [testEmailAddress("jana.novak")],
+      })
+    );
+    const away = viewOf(
+      reviewWith(held({ people: { ...people, contactAttends: false } }))
+    ).people;
+    expect(Option.map(away, ({ contact }) => Option.isNone(contact))).toEqual(
+      Option.some(true)
+    );
+    expect(viewOf(reviewWith(held())).people).toEqual(Option.none());
+  });
+
   test("a personal invoice is shown by its city", () => {
     const view = viewOf(
       reviewWith(held(), {
